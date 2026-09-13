@@ -8,3 +8,23 @@ wheels/
 
 # Virtual environments
 .venv
+.temp/
+
+# Tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime / secrets
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

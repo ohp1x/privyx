@@ -1,0 +1,14 @@
+# Example: OpenAI through the Privyx proxy
+#
+# Point your OpenAI-compatible client at:
+#   base_url: http://localhost:8000/v1
+# (Privyx forwards to api.openai.com)
+
+provider:
+  type: openai
+  base_url: https://api.openai.com/v1/chat/completions
+  api_key: ""            # set via PRIVYX_OPENAI_API_KEY
+  headers: {}
+
+vault:
+  type: memory

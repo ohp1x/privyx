@@ -1,0 +1,61 @@
+# Privyx default configuration
+#
+# Precedence: defaults < YAML file < environment variables
+
+# --- Server ---
+host: 127.0.0.1
+port: 8000
+log_level: info
+logging: text
+
+# --- Upstream provider ---
+# Explicit override, equivalent to `--upstream` / PRIVYX_UPSTREAM_URL.  Leave
+# it empty to use `provider.base_url` below, or — if that is empty too — the
+# default endpoint for `provider.type`.
+upstream_url: ""
+
+# --- Vault ---
+vault:
+  type: memory          # memory | sqlite | redis
+  dsn: sqlite+aiosqlite:///privyx.db
+  redis_url: redis://localhost:6379/0
+
+# --- Detector ---
+# Omit `patterns` to use the built-in set (EMAIL, PHONE, CREDIT_CARD,
+# IP_ADDRESS, SSN).  Any patterns listed here are merged over the built-ins,
+# so you only need to name the ones you want to override or add.
+detector:
+  type: regex
+  patterns: {}
+
+# --- Policy ---
+policy:
+  type: default          # default | strict
+  # allowed: [EMAIL, PHONE, SSN]
+
+# --- Operator ---
+# `pseudonym` and `hash` are reversible through the session vault; `redact`
+# destroys the original, so responses referring to a redacted value cannot be
+# restored.
+operator:
+  type: pseudonym        # pseudonym | redact | hash
+  # token: "[REDACTED]"  # redact: replacement text
+  # length: 12           # hash: digest length
+
+# --- Anchor ---
+# With a secret set, pseudonyms are derived from the value itself, so the same
+# input gets the same pseudonym in every session.  Empty (the default) means no
+# anchoring at all — per-session counters — rather than anchoring with a
+# guessable key.  Only the `pseudonym` operator uses this.
+anchor:
+  type: hmac             # hmac
+  secret: ""             # set via PRIVYX_ANCHOR_SECRET, or `openssl rand -hex 32`
+
+# --- Provider ---
+# Resolution order for the upstream URL:
+#   upstream_url  →  provider.base_url  →  the default for provider.type
+provider:
+  type: generic          # generic | openai | anthropic
+  base_url: ""           # empty → http://localhost:20128 for `generic`
+  api_key: ""            # or PRIVYX_OPENAI_API_KEY / PRIVYX_ANTHROPIC_API_KEY
+  headers: {}

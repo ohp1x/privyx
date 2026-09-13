@@ -1,0 +1,14 @@
+# Example: custom provider endpoint
+#
+# Privyx is a transparent proxy: it does not need to know the schema.
+# Point any HTTP client at the gateway and it will forward to `base_url`.
+
+provider:
+  type: generic
+  base_url: http://localhost:20128    # any upstream endpoint
+  api_key: ""
+  headers:
+    x-custom-header: "value"
+
+vault:
+  type: memory

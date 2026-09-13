@@ -1,0 +1,1 @@
+"""Plugin hooks — lifecycle hooks for plugins."""

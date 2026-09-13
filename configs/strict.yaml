@@ -1,0 +1,40 @@
+# Privyx strict configuration
+#
+# Stricter defaults for higher-sensitivity deployments.
+
+host: 127.0.0.1
+port: 8000
+log_level: info
+
+# Empty → falls through to provider.base_url below.
+upstream_url: ""
+
+vault:
+  type: sqlite           # persist sessions across restarts
+  dsn: sqlite+aiosqlite:///privyx.db
+
+# `regex` patterns are layered over the built-in set, so only the additions
+# need listing here.
+detector:
+  type: regex
+  patterns:
+    DATE_OF_BIRTH: "\\b\\d{4}-\\d{2}-\\d{2}\\b"
+
+policy:
+  type: strict
+  allowed: [EMAIL, PHONE, SSN, CREDIT_CARD, IP_ADDRESS, DATE_OF_BIRTH]
+
+operator:
+  type: pseudonym
+
+# Empty secret → per-session counters.  Set one (or PRIVYX_ANCHOR_SECRET) to
+# make pseudonyms deterministic across sessions.
+anchor:
+  type: hmac
+  secret: ""
+
+provider:
+  type: generic
+  base_url: http://localhost:20128
+  api_key: ""
+  headers: {}

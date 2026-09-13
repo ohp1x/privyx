@@ -1,0 +1,1 @@
+"""Session vault backends — memory, SQLite, Redis."""

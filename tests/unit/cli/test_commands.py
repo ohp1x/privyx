@@ -1,0 +1,311 @@
+"""Tests for the CLI surface.
+
+The CLI is orchestration only (principle #12), so these tests check that each
+command reaches the *configured* components — the failure mode being a command
+that quietly hardcodes its own detector or vault and ignores ``--config``.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from click.testing import CliRunner
+
+from privyx.cli.main import cli
+
+EMAIL = "alice@example.com"
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
+
+
+@pytest.fixture
+def sqlite_config(tmp_path: Path) -> Path:
+    """A config with a real on-disk vault, so state survives between commands."""
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "vault:\n"
+        "  type: sqlite\n"
+        f"  dsn: sqlite+aiosqlite:///{tmp_path / 'privyx.db'}\n"
+        "detector:\n"
+        "  type: regex\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+# --------------------------------------------------------------------------
+# detect
+
+
+def test_detect_reports_spans(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["detect", f"mail {EMAIL}"])
+    assert result.exit_code == 0
+    assert "EMAIL" in result.output
+    assert EMAIL in result.output
+
+
+def test_detect_transform_shows_pseudonymized_text(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["detect", "--transform", f"mail {EMAIL}"])
+    assert result.exit_code == 0
+    assert "<PRIVYX_EMAIL_1>" in result.output
+
+
+def test_detect_honours_config_patterns(runner: CliRunner, tmp_path: Path) -> None:
+    """A custom pattern from the config file is actually used."""
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        'detector:\n  type: regex\n  patterns:\n    TICKET: "TCK-[0-9]{4}"\n', encoding="utf-8"
+    )
+
+    result = runner.invoke(cli, ["detect", "-c", str(config), "see TCK-1234"])
+
+    assert result.exit_code == 0
+    assert "TICKET" in result.output
+
+
+def test_detect_applies_policy(runner: CliRunner, tmp_path: Path) -> None:
+    """``--no-policy`` shows raw detections; the default filters them."""
+    config = tmp_path / "c.yaml"
+    config.write_text("policy:\n  type: strict\n  allowed: [SSN]\n", encoding="utf-8")
+
+    filtered = runner.invoke(cli, ["detect", "-c", str(config), f"mail {EMAIL}"])
+    unfiltered = runner.invoke(cli, ["detect", "-c", str(config), "--no-policy", f"mail {EMAIL}"])
+
+    assert "No sensitive entities detected." in filtered.output
+    assert "EMAIL" in unfiltered.output
+
+
+def test_detect_without_text_exits_nonzero(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["detect"])
+    assert result.exit_code == 1
+
+
+def test_detect_reports_bad_config(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text('detector:\n  patterns:\n    BAD: "([unclosed"\n', encoding="utf-8")
+
+    result = runner.invoke(cli, ["detect", "-c", str(config), "text"])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+
+
+# --------------------------------------------------------------------------
+# inspect session
+
+
+def test_inspect_session_masks_values_by_default(
+    runner: CliRunner, sqlite_config: Path
+) -> None:
+    """A session written by one command is readable by the next — and masked.
+
+    Masking is principle #11: routine inspection must not print PII.
+    """
+    session_id = _seed_session(sqlite_config)
+
+    result = runner.invoke(cli, ["inspect", "session", "-c", str(sqlite_config), session_id])
+
+    assert result.exit_code == 0
+    assert "<PRIVYX_EMAIL_1>" in result.output
+    assert EMAIL not in result.output
+    assert "al" in result.output and "*" in result.output
+    assert "--reveal" in result.output
+
+
+def test_inspect_session_reveal_shows_values(runner: CliRunner, sqlite_config: Path) -> None:
+    session_id = _seed_session(sqlite_config)
+
+    result = runner.invoke(
+        cli, ["inspect", "session", "-c", str(sqlite_config), "--reveal", session_id]
+    )
+
+    assert result.exit_code == 0
+    assert EMAIL in result.output
+
+
+def test_inspect_session_missing_exits_nonzero(runner: CliRunner, sqlite_config: Path) -> None:
+    result = runner.invoke(cli, ["inspect", "session", "-c", str(sqlite_config), "ses_nope"])
+
+    assert result.exit_code == 1
+    assert "Session not found" in result.output
+
+
+def _seed_session(config: Path) -> str:
+    """Write one session through the configured vault and return its id."""
+    import asyncio
+
+    from privyx.config.loader import load_config
+    from privyx.core.builder import build_engine
+
+    async def _run() -> str:
+        engine, close = await build_engine(load_config(config))
+        try:
+            session = await engine.get_or_create_session()
+            await engine.transform(f"mail {EMAIL}", session=session)
+            return session.session_id
+        finally:
+            await close()
+
+    return asyncio.run(_run())
+
+
+# --------------------------------------------------------------------------
+# doctor
+
+
+def test_doctor_all_checks_pass_with_defaults(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["doctor"])
+
+    assert result.exit_code == 0
+    for check in ("detector", "vault", "provider", "proxy", "streaming", "configuration"):
+        assert f"✓ {check}" in result.output
+
+
+def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
+    """context.md lists six checks; none may silently go missing."""
+    result = runner.invoke(cli, ["doctor"])
+    assert result.output.count("✓") + result.output.count("✗") == 6
+
+
+def test_doctor_fails_on_broken_config(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text('detector:\n  patterns:\n    BAD: "([unclosed"\n', encoding="utf-8")
+
+    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+
+    assert result.exit_code == 1
+    assert "✗ detector" in result.output
+
+
+def test_doctor_uses_the_configured_vault(runner: CliRunner, sqlite_config: Path) -> None:
+    result = runner.invoke(cli, ["doctor", "-c", str(sqlite_config)])
+
+    assert result.exit_code == 0
+    assert "✓ vault: sqlite" in result.output
+
+
+# --------------------------------------------------------------------------
+# run
+
+
+def test_run_lists_known_targets(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["run", "--list"])
+
+    assert result.exit_code == 0
+    assert "claude" in result.output
+    assert "ANTHROPIC_BASE_URL" in result.output
+
+
+def test_run_without_target_is_a_usage_error(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["run"])
+    assert result.exit_code != 0
+    assert "TARGET" in result.output
+
+
+def test_run_unknown_command_exits_127(runner: CliRunner) -> None:
+    result = runner.invoke(
+        cli, ["run", "definitely-not-installed", "--env-var", "SOME_BASE_URL"]
+    )
+
+    assert result.exit_code == 127
+    assert "not found on PATH" in result.output
+
+
+def test_run_unknown_target_without_env_var_is_a_usage_error(runner: CliRunner) -> None:
+    """An unrecognised tool needs --env-var; guessing would silently do nothing."""
+    result = runner.invoke(cli, ["run", "some-tool"])
+
+    assert result.exit_code != 0
+    assert "--env-var" in result.output
+
+
+async def test_run_spawns_target_against_a_live_proxy(tmp_path: Path) -> None:
+    """The spawned process really can reach the proxy through the injected URL.
+
+    This is the whole point of ``privyx run``: an unmodified tool talks to what
+    it thinks is the provider.  The child asserts on its own side and exits
+    non-zero if the URL is unreachable, so a proxy that never started — or
+    bound to a different port — fails here rather than at first use.
+    """
+    import sys
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    from privyx.cli.commands.run import Target, _run_target
+
+    result_file = tmp_path / "result.json"
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import json, os, pathlib, urllib.request\n"
+        "url = os.environ['PROBE_BASE_URL']\n"
+        "with urllib.request.urlopen(url + '/health', timeout=5) as fh:\n"
+        "    health = json.load(fh)\n"
+        f"out = pathlib.Path({str(result_file)!r})\n"
+        "out.write_text(json.dumps({'url': url, 'health': health}))\n",
+        encoding="utf-8",
+    )
+
+    spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
+    code = await _run_target(
+        spec=spec,
+        argv=[str(probe)],
+        config_path=None,
+        upstream=None,
+        port=0,
+        env_vars=("PROBE_BASE_URL",),
+    )
+
+    assert code == 0, "the spawned tool could not reach the proxy"
+    recorded = json.loads(result_file.read_text())
+    assert recorded["health"] == {"status": "ok"}
+    assert recorded["url"].startswith("http://127.0.0.1:")
+
+
+# --------------------------------------------------------------------------
+# config
+
+
+def test_config_show_outputs_settings(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["config", "--show"])
+
+    assert result.exit_code == 0
+    assert "detector" in result.output or "vault" in result.output
+
+
+def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
+    """context.md's CLI tree: proxy, run, detect, inspect (session), config, doctor."""
+    result = runner.invoke(cli, ["--help"])
+
+    for command in ("proxy", "run", "detect", "inspect", "config", "doctor"):
+        assert command in result.output
+
+    sub = runner.invoke(cli, ["inspect", "--help"])
+    assert "session" in sub.output
+
+
+def test_version_flag(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "privyx" in result.output
+
+
+def test_detect_stdin(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["detect", "--stdin"], input=f"mail {EMAIL}\n")
+
+    assert result.exit_code == 0
+    assert "EMAIL" in result.output
+
+
+def test_detect_json_safe_output_has_no_raw_pii_when_masked() -> None:
+    """Sanity-check the masking helper itself."""
+    from privyx.cli.commands.session import _mask
+
+    assert _mask("alice@example.com") == "al*************om"
+    assert _mask("abc") == "***"
+    assert json.dumps(_mask(EMAIL))  # serializable, no surprises

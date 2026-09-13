@@ -1,0 +1,15 @@
+# Example: Anthropic through the Privyx proxy
+#
+# Point the Anthropic SDK at:
+#   base_url: http://localhost:8000
+# or use the Anthropic-compatible endpoint.
+
+provider:
+  type: anthropic
+  base_url: https://api.anthropic.com/v1/messages
+  api_key: ""            # set via PRIVYX_ANTHROPIC_API_KEY
+  headers:
+    anthropic-version: "2023-06-01"
+
+vault:
+  type: memory

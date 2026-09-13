@@ -1,0 +1,1 @@
+"""Plugin loader — discovers and loads plugins from configured paths."""

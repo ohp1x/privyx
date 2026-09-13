@@ -1,0 +1,1 @@
+"""Plugin system — load external detectors, operators, and providers."""

@@ -1,0 +1,99 @@
+# Privyx
+
+AI data privacy gateway — a privacy engine + proxy for LLM providers.
+
+## Architecture
+
+```text
+┌────────────────────────────────────────────────────────┐
+│                      PRIVYX GATEWAY                     │
+│                                                        │
+│  HTTP ──┐                                              │
+│  SSE ───┤──► Protocol / Provider Adapter               │
+│  WS ────┘               │                              │
+│                         ▼                              │
+│                  Privacy Pipeline                      │
+│                         │                              │
+│        ┌────────────────┼────────────────┐             │
+│        ▼                ▼                ▼             │
+│     Detector          Policy          Operator         │
+│        │                │                │             │
+│        └────────────────┼────────────────┘             │
+│                         ▼                              │
+│                     Anchor                             │
+│                         │                              │
+│                         ▼                              │
+│                       Vault                            │
+│                         │                              │
+│            Memory / SQLite / Redis                     │
+└─────────────────────────┬──────────────────────────────┘
+                          │
+                          ▼
+               ┌────────────────────┐
+               │    AI Providers    │
+               │ OpenAI Anthropic   │
+               │ Gemini DeepSeek... │
+               └────────────────────┘
+```
+
+## Design Principles
+
+1. **Core does not depend on FastAPI.**
+2. **Core does not depend on any provider SDK.**
+3. **Provider is a plugin/adapter.**
+4. **Detector is a plugin.**
+5. **Operator is a plugin.**
+6. **Vault is a backend abstraction.**
+7. **Streaming is first-class.**
+8. **SSE envelope is separated from text transformation.**
+9. **Session state must not depend on process memory.**
+10. **CLI is only orchestration/UI.**
+11. **Observability must not leak into privacy logic.**
+12. **No plaintext PII in logs by default.**
+13. **All streaming algorithms are property-tested against random chunk boundaries.**
+
+## Module Layout
+
+| Module | Purpose |
+|---|---|
+| `core/` | Engine, session, context, result, errors — transport-agnostic |
+| `privacy/` | Detectors, policies, operators, anchors, transforms |
+| `streaming/` | Deanonymizer, trie, frontier, buffer, SSE adapters |
+| `vault/` | Memory, SQLite, Redis session storage |
+| `providers/` | Generic, OpenAI, Anthropic transports (Google is a placeholder) |
+| `proxy/` | HTTP/SSE proxy connecting engine to providers |
+| `gateway/` | Optional FastAPI server |
+| `cli/` | `privyx` orchestration layer |
+| `config/` | Schema, loader, defaults, env |
+| `security/` | Keys, crypto, secrets, redaction |
+| `observability/` | Logging, metrics, tracing, audit |
+| `plugins/` | Plugin registry, loader, hooks |
+
+## Data Flow (Request)
+
+```text
+Client → HTTP Proxy → Detect → Policy → Pseudonymize → Provider
+                                                    ↓
+Client ← HTTP Proxy ← Restore ← Vault ←────────────────┘
+```
+
+## Data Flow (Streaming)
+
+```text
+Provider → SSE event → Adapter → text delta → Privacy Stream Engine
+                                              (trie + frontier)
+Client ← SSE event ← Adapter ← deanonymized delta
+```
+
+The trie/frontier algorithm guarantees streamed output equals batch output,
+even when a pseudonym is split across chunk boundaries.
+
+## Development
+
+```bash
+uv sync --all-extras
+make test       # or: uv run pytest
+make lint       # or: uv run ruff check src tests
+```
+
+See [development/testing.md](development/testing.md) for the test strategy.

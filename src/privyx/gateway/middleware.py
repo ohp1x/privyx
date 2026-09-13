@@ -1,0 +1,1 @@
+"""Middleware for the gateway (auth, logging, rate-limiting)."""
