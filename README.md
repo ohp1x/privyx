@@ -21,12 +21,23 @@ deanonymizes streaming responses — all without changing your application code.
 # Install
 uv sync --all-extras
 
-# Start the proxy
-privyx proxy
+# Start the drop-in transparent proxy (default mode)
+privyx proxy --upstream https://api.openai.com
 
 # Run a provider through the proxy
 privyx run openai
 ```
+
+Then point any client at Privyx — no code change, just the base URL:
+
+```bash
+export OPENAI_BASE_URL=http://localhost:8000/v1      # OpenAI clients
+export ANTHROPIC_BASE_URL=http://localhost:8000      # Anthropic clients
+```
+
+Chat requests are pseudonymized before forwarding and the reply is restored on
+the way back (batch or streaming, including tool-call arguments); every other
+path is forwarded verbatim. Use `--gateway` for the narrow chat-only app.
 
 ## Installation
 

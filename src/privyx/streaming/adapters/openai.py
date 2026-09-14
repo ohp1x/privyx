@@ -11,5 +11,7 @@ OPENAI_DATA_PATH = ["choices", "0", "delta", "content"]
 class OpenAIStreamAdapter(SSEStreamAdapter):
     """Adapter for OpenAI-style SSE streaming."""
 
+    schema_name = "openai"
+
     def __init__(self) -> None:
         super().__init__(data_path=OPENAI_DATA_PATH)
