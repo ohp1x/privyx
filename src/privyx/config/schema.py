@@ -35,6 +35,19 @@ class AnchorConfig(BaseModel):
     secret: str = ""
 
 
+class TokenConfig(BaseModel):
+    """How placeholder tokens are serialized in text.
+
+    ``format`` must contain ``{type}`` and ``{id}``; ``{namespace}`` is optional.
+    Adjacent placeholders need a delimiter between them.  The default reproduces
+    the historical ``<PRIVYX_EMAIL_1>`` syntax; alternatives include
+    ``[[{namespace}:{type}:{id}]]`` and ``<{namespace}:{type}:{id}>``.
+    """
+
+    namespace: str = "PRIVYX"
+    format: str = "<{namespace}_{type}_{id}>"
+
+
 class ProviderConfig(BaseModel):
     """Provider transport settings.
 
@@ -69,6 +82,7 @@ class Settings(BaseModel):
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
     operator: OperatorConfig = Field(default_factory=OperatorConfig)
     anchor: AnchorConfig = Field(default_factory=AnchorConfig)
+    token: TokenConfig = Field(default_factory=TokenConfig)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
 
     @classmethod

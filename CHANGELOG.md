@@ -5,6 +5,27 @@ All notable changes to Privyx are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Token system
+
+- New `token/` subsystem: a `LogicalToken` (namespace/type/identifier) plus a
+  configurable `FormatCodec` that is the single source of truth for how tokens
+  look in text (`token/model.py`, `token/codec.py`)
+- Token syntax is now configuration (`token.format` / `token.namespace`,
+  `PRIVYX_TOKEN_FORMAT`, `PRIVYX_TOKEN_NAMESPACE`). The default reproduces the
+  existing `<PRIVYX_EMAIL_1>` output; alternatives such as
+  `[[{namespace}:{type}:{id}]]` need no code change
+- Operators build logical tokens and delegate serialization to the codec;
+  `restore` locates tokens via the codec. No operator, the proxy, or storage
+  hard-codes token syntax anymore
+- Streaming reversal is codec-driven (`streaming/recognizer.py`,
+  `TokenStreamProcessor`): tokens split across arbitrary chunk boundaries are
+  reconstructed as logical tokens, with `stream == batch` property-tested
+- `HashOperator` now emits the one configured token syntax instead of its own
+  `HASH_…` placeholder
+- Removed the unused `streaming/frontier.py`
+
 ## [0.1.0] - 2026-09-13
 
 First release: the privacy pipeline, the streaming proxy, and the CLI that

@@ -19,6 +19,7 @@ from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.pseudonym import ANCHOR_TOKEN_LENGTH, PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
+from privyx.token.codec import FormatCodec
 
 TEXT = "Email alice@example.com or bob@example.com, card 4111 1111 1111 1111"
 
@@ -182,9 +183,11 @@ async def test_hash_operator_round_trips() -> None:
     assert restored.text == TEXT
 
 
-async def test_hash_operator_leaves_unknown_hashes_alone() -> None:
-    result = await HashOperator().deanonymize("HASH_000000000000", Session(), Context())
-    assert result.text == "HASH_000000000000"
+async def test_hash_operator_leaves_unknown_tokens_alone() -> None:
+    """A syntactically valid token the session never issued is passed through."""
+    unknown = "<PRIVYX_EMAIL_deadbeef>"
+    result = await HashOperator().deanonymize(unknown, Session(), Context())
+    assert result.text == unknown
     assert result.transformations == []
 
 
@@ -193,7 +196,9 @@ async def test_hash_operator_honours_its_configured_length() -> None:
     session = Session()
     detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
     result = await operator.pseudonymize("a@b.com", detection, session, Context())
-    assert len(result.text) == len("HASH_") + 8
+    token = FormatCodec.default().parse(result.text)
+    assert token is not None
+    assert len(token.identifier) == 8  # the digest was truncated to `length`
     restored = await operator.deanonymize(result.text, session, Context())
     assert restored.text == "a@b.com"
 

@@ -20,7 +20,7 @@ from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import SessionNotFoundError
 from privyx.providers.base import Provider
 from privyx.streaming.adapters.generic import SSEStreamAdapter
-from privyx.streaming.deanonymizer import StreamingDeanonymizer
+from privyx.streaming.deanonymizer import TokenStreamProcessor
 from privyx.streaming.sse import SSEDecoder, SSEEvent
 
 
@@ -130,21 +130,20 @@ class HTTPProxy:
 
         Providers yield raw text with SSE framing intact; :class:`SSEDecoder`
         reassembles events across chunk boundaries, and
-        :class:`StreamingDeanonymizer` restores pseudonyms across *delta*
-        boundaries. Three buffers are in flight at once and none of their
-        boundaries line up: a UTF-8 character may be split across byte chunks,
-        an event across text chunks, and a pseudonym across events.
+        :class:`TokenStreamProcessor` restores tokens across *delta* boundaries.
+        Three buffers are in flight at once and none of their boundaries line up:
+        a UTF-8 character may be split across byte chunks, an event across text
+        chunks, and a token across events.
 
         An event whose delta is entirely held back is suppressed rather than
-        forwarded: emitting the original would leak the pseudonym fragment that
-        the deanonymizer is still waiting to complete.
+        forwarded: emitting the original would leak the token fragment that the
+        deanonymizer is still waiting to complete.
         """
-        deanonymizer = StreamingDeanonymizer()
-
-        # Seed the deanonymizer with the current session mapping.
+        # Recognize tokens by the configured syntax and resolve them against the
+        # session mapping; the proxy stays ignorant of token syntax.
         session = await self._engine.vault.get(session_id)
-        if session is not None:
-            deanonymizer.update_mapping(session.mapping)
+        mapping = session.mapping if session is not None else {}
+        deanonymizer = TokenStreamProcessor(self._engine.codec, mapping.get)
 
         decoder = SSEDecoder()
         # Last text-carrying event, reused as the envelope template when

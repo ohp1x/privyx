@@ -30,6 +30,7 @@ DEFAULTS: dict[str, object] = {
     "policy": {"type": "default"},
     "operator": {"type": "pseudonym"},
     "anchor": {"type": "hmac", "secret": ""},
+    "token": {"namespace": "PRIVYX", "format": "<{namespace}_{type}_{id}>"},
     "provider": {
         "type": "generic",
         # Also empty: an unset base_url resolves to the provider type's own

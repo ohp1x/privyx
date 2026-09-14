@@ -24,6 +24,7 @@ from privyx.core.session import Session
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.operator.base import Operator
 from privyx.privacy.policy.base import Policy
+from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.vault.base import Vault
 
 
@@ -35,6 +36,10 @@ class PrivacyEngine:
         policy: Policy deciding which detections to act on.
         operator: Operator that pseudonymizes/deanonymizes text.
         vault: Session storage backend.
+        codec: Token codec.  Shared with the operator so generation, batch
+            restore, and streaming all recognize tokens the same way; defaults
+            to the built-in syntax.  Exposed so transports (e.g. the streaming
+            proxy) can recognize tokens without knowing their syntax.
     """
 
     def __init__(
@@ -43,6 +48,7 @@ class PrivacyEngine:
         policy: Policy | None = None,
         operator: Operator | None = None,
         vault: Vault | None = None,
+        codec: TokenCodec | None = None,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -56,6 +62,7 @@ class PrivacyEngine:
         self._policy = policy
         self._operator = operator
         self._vault = vault
+        self._codec = codec or FormatCodec.default()
 
     @property
     def detector(self) -> Detector:
@@ -72,6 +79,10 @@ class PrivacyEngine:
     @property
     def vault(self) -> Vault:
         return self._vault
+
+    @property
+    def codec(self) -> TokenCodec:
+        return self._codec
 
     async def get_or_create_session(self, session_id: str | None = None) -> Session:
         """Return an existing session or create (and persist) a new one."""

@@ -1,28 +1,23 @@
-"""Pseudonymization operator using reversible placeholders.
+"""Pseudonymization operator using reversible tokens.
 
-The pseudonym format is ``<PRIVYX_<entity>_<suffix>>`` so that deanonymization
-can find and replace them in streaming text.  The suffix is a per-session
-counter by default, or — when an :class:`~privyx.privacy.anchor.base.Anchor` is
-supplied — a deterministic token derived from the value itself, so the same
-input yields the same pseudonym in every session.
-
-Entity types may themselves contain underscores (``CREDIT_CARD``,
-``IP_ADDRESS``), so the pattern matches the whole ``[A-Z0-9_]+`` body rather
-than assuming the entity type is underscore-free.
+The operator works with :class:`~privyx.token.model.LogicalToken` values and
+delegates their textual form to a :class:`~privyx.token.codec.TokenCodec`, so it
+never mentions delimiters or a fixed syntax (``.temp/token-system.md`` §9).  The
+identifier is a per-session counter by default, or — when an
+:class:`~privyx.privacy.anchor.base.Anchor` is supplied — a deterministic token
+derived from the value itself, so the same input yields the same pseudonym in
+every session.
 """
 
 from __future__ import annotations
-
-import re
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.anchor.base import Anchor
 from privyx.privacy.operator.base import BaseOperator, restore
-
-_PSEUDO_PREFIX = "<PRIVYX_"
-_PSEUDO_SUFFIX = ">"
+from privyx.token.codec import FormatCodec, TokenCodec
+from privyx.token.model import LogicalToken
 
 #: How many hex characters of an anchor digest to keep.  16 hex chars = 64 bits
 #: of the HMAC, far beyond collision range for a single conversation while
@@ -31,36 +26,30 @@ ANCHOR_TOKEN_LENGTH = 16
 
 
 class PseudonymOperator(BaseOperator):
-    """Replace detected spans with deterministic pseudonyms.
+    """Replace detected spans with deterministic pseudonym tokens.
 
-    Each unique original value maps to a consistent pseudonym via the session's
-    ``reverse`` mapping.  New values get a fresh pseudonym: a per-session
+    Each unique original value maps to a consistent token via the session's
+    ``reverse`` mapping.  New values get a fresh identifier: a per-session
     counter, or an anchor-derived token when ``anchor`` is given.
 
     Args:
-        prefix: Opening delimiter of the placeholder.
-        suffix: Closing delimiter of the placeholder.
-        anchor: Optional anchor making pseudonyms deterministic across
-            sessions.  The vault is still the source of truth for restoring
-            them — an anchor is one-way — so this changes how pseudonyms are
-            *named*, not how they are reversed.
+        codec: Token codec deciding how tokens are serialized.  Defaults to the
+            built-in :meth:`~privyx.token.codec.FormatCodec.default` syntax.
+        anchor: Optional anchor making pseudonyms deterministic across sessions.
+            The vault is still the source of truth for restoring them — an anchor
+            is one-way — so this changes how pseudonyms are *named*, not how they
+            are reversed.
     """
 
     name = "pseudonym"
 
     def __init__(
         self,
-        prefix: str = _PSEUDO_PREFIX,
-        suffix: str = _PSEUDO_SUFFIX,
+        codec: TokenCodec | None = None,
         anchor: Anchor | None = None,
     ) -> None:
-        self._prefix = prefix
-        self._suffix = suffix
+        self._codec = codec or FormatCodec.default()
         self._anchor = anchor
-        # ``[A-Z0-9_]+`` covers both suffix styles: a numeric counter and a
-        # hex anchor token.  Anchoring on a trailing ``_\d+`` would silently
-        # fail to match anchored pseudonyms.
-        self._pattern = re.compile(re.escape(prefix) + r"[A-Z0-9_]+" + re.escape(suffix))
 
     async def pseudonymize(
         self,
@@ -96,32 +85,40 @@ class PseudonymOperator(BaseOperator):
     async def _issue(
         self, entity_type: str, original: str, session: Session, context: Context
     ) -> str:
-        """Mint a fresh pseudonym for ``entity_type``.
+        """Mint a fresh pseudonym token for ``entity_type``.
 
-        With an anchor, the suffix is derived from the value, so the same input
-        produces the same pseudonym in every session.  Without one, it is a
-        per-session counter that probes past any value already taken: deleting
-        a mapping entry makes ``len()`` go backwards, which would otherwise
+        With an anchor, the identifier is derived from the value, so the same
+        input produces the same pseudonym in every session.  Without one, it is a
+        per-session counter that probes past any value already taken: deleting a
+        mapping entry makes ``len()`` go backwards, which would otherwise
         re-issue a pseudonym still bound to a different original.
         """
         if self._anchor is not None:
-            token = await self._anchor.anchor(original, context)
-            return f"{self._prefix}{entity_type}_{self._token(token)}{self._suffix}"
+            anchored = await self._anchor.anchor(original, context)
+            return self._encode(entity_type, self._token(anchored))
 
         counter = len(session.mapping) + 1
-        pseudo = f"{self._prefix}{entity_type}_{counter}{self._suffix}"
+        pseudo = self._encode(entity_type, str(counter))
         while pseudo in session.mapping:
             counter += 1
-            pseudo = f"{self._prefix}{entity_type}_{counter}{self._suffix}"
+            pseudo = self._encode(entity_type, str(counter))
         return pseudo
+
+    def _encode(self, entity_type: str, identifier: str) -> str:
+        return self._codec.encode(
+            LogicalToken(
+                namespace=self._codec.namespace,
+                type=entity_type,
+                identifier=identifier,
+            )
+        )
 
     @staticmethod
     def _token(anchored: str) -> str:
-        """Reduce an anchor's output to a short uppercase hex token.
+        """Reduce an anchor's output to a short uppercase hex identifier.
 
-        Anchors return their own format (``PRIVYX_<64 hex>`` for HMAC); only
-        the digest tail is kept, so the pseudonym stays readable and matches
-        the ``[A-Z0-9_]+`` placeholder grammar.
+        Anchors return their own format (``PRIVYX_<64 hex>`` for HMAC); only the
+        digest tail is kept, so the identifier stays readable and short.
         """
         digest = anchored.rsplit("_", 1)[-1]
         return digest[:ANCHOR_TOKEN_LENGTH].upper()
@@ -132,5 +129,5 @@ class PseudonymOperator(BaseOperator):
         session: Session,
         context: Context,
     ) -> TransformResult:
-        """Restore all pseudonyms in ``text`` using the session mapping."""
-        return restore(text, session, self._pattern)
+        """Restore all tokens in ``text`` using the session mapping."""
+        return restore(text, session, self._codec)

@@ -36,6 +36,7 @@ from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
 from privyx.privacy.policy.base import Policy
 from privyx.privacy.policy.loader import build_policy
+from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.vault.base import Vault
 from privyx.vault.memory import MemoryVault
 
@@ -43,27 +44,45 @@ from privyx.vault.memory import MemoryVault
 Closer = Callable[[], Awaitable[None]]
 
 
-#: Key under which :func:`build_operator` passes the anchor to a factory.  It is
-#: not settable from YAML — the value is a live object, not config — so it is
-#: namespaced to make an accidental collision with a real config key obvious.
+#: Keys under which :func:`build_operator` passes live objects to a factory.
+#: They are not settable from YAML — the values are objects, not config — so they
+#: are namespaced to make an accidental collision with a real config key obvious.
 _ANCHOR_KEY = "__anchor__"
+_CODEC_KEY = "__codec__"
 
 
 def _operator_registry() -> Registry[Operator]:
     registry: Registry[Operator] = Registry("operator")
-    registry.register("pseudonym", lambda cfg: PseudonymOperator(anchor=cfg.get(_ANCHOR_KEY)))
+    registry.register(
+        "pseudonym",
+        lambda cfg: PseudonymOperator(codec=cfg.get(_CODEC_KEY), anchor=cfg.get(_ANCHOR_KEY)),
+    )
     registry.register("redact", lambda cfg: RedactOperator(cfg.get("token", "[REDACTED]")))
-    registry.register("hash", lambda cfg: HashOperator(length=int(cfg.get("length", 12))))
+    registry.register(
+        "hash",
+        lambda cfg: HashOperator(length=int(cfg.get("length", 12)), codec=cfg.get(_CODEC_KEY)),
+    )
     return registry
 
 
 OPERATORS = _operator_registry()
 
 
+def build_codec(settings: Settings) -> TokenCodec:
+    """Build the configured token codec.
+
+    Raises:
+        TokenFormatError: If ``token.format`` is unusable (a ``ConfigError``, so
+            an invalid syntax fails at startup rather than on the first request).
+    """
+    return FormatCodec(settings.token.format, settings.token.namespace)
+
+
 def build_operator(
     config: dict[str, Any] | None = None,
     *,
     anchor: Anchor | None = None,
+    codec: TokenCodec | None = None,
 ) -> Operator:
     """Build the operator named by ``config["type"]`` (default ``pseudonym``).
 
@@ -71,6 +90,8 @@ def build_operator(
         config: The ``operator:`` section of the config.
         anchor: Optional anchor, handed to operators that can use one.
             Operators that cannot simply ignore it.
+        codec: Optional token codec, handed to operators that emit tokens.
+            Operators that do not (e.g. ``redact``) ignore it.
 
     ``encrypt`` and ``faker`` are intentionally absent: they are unimplemented
     placeholders, and registering them would let a config select an operator
@@ -79,6 +100,8 @@ def build_operator(
     """
     if anchor is not None:
         config = {**(config or {}), _ANCHOR_KEY: anchor}
+    if codec is not None:
+        config = {**(config or {}), _CODEC_KEY: codec}
     return OPERATORS.build(config, default="pseudonym")
 
 
@@ -175,10 +198,14 @@ async def build_engine(settings: Settings) -> tuple[PrivacyEngine, Closer]:
         ConfigError: If any component's config names an unknown type.
     """
     vault, closer = await build_vault(settings)
+    codec = build_codec(settings)
     engine = PrivacyEngine(
         detector=build_detector_from(settings),
         policy=build_policy_from(settings),
-        operator=build_operator(settings.operator.model_dump(), anchor=build_anchor(settings)),
+        operator=build_operator(
+            settings.operator.model_dump(), anchor=build_anchor(settings), codec=codec
+        ),
         vault=vault,
+        codec=codec,
     )
     return engine, closer
