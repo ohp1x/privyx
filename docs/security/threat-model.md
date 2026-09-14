@@ -26,7 +26,7 @@ Client ──► [Privyx] ──► Provider
 | Vault leak | Encrypt session payloads at rest (future: `encrypt.py`) |
 | Log leakage | Default logging never prints payload text |
 | Pseudonym collision | Counter + entity type + session isolation |
-| Streaming boundary corruption | Trie/frontier algorithm + property tests |
+| Streaming boundary corruption | Hold-back scan + property tests |
 | Session injection | Random `session_id` (uuid), vault-backed |
 | Key exposure | `PRIVYX_ANCHOR_SECRET` via env, never logged |
 

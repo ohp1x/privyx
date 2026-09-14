@@ -85,12 +85,14 @@ def _check_vault(config_path: str | None) -> tuple[bool, str]:
         vault, close = await build_vault(settings)
         try:
             session = Session()
-            session.put("<PRIVYX_DOCTOR_1>", "probe")
+            # An arbitrary mapping entry: the vault stores opaque key→value pairs
+            # and neither knows nor cares about token syntax.
+            session.put("doctor-probe-key", "probe")
             await vault.create(session)
             await vault.save(session)
             loaded = await vault.get(session.session_id)
             await vault.delete(session.session_id)
-            if loaded is None or loaded.get("<PRIVYX_DOCTOR_1>") != "probe":
+            if loaded is None or loaded.get("doctor-probe-key") != "probe":
                 return (False, f"{settings.vault.type}: round-trip lost the mapping")
             return (True, f"{settings.vault.type}: round-trip ok")
         finally:

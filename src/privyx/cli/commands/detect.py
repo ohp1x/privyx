@@ -47,6 +47,7 @@ async def _detect_async(
     from privyx.config.loader import load_config
     from privyx.core.builder import (
         build_anchor,
+        build_codec,
         build_detector_from,
         build_operator,
         build_policy_from,
@@ -69,7 +70,11 @@ async def _detect_async(
         click.echo(f"  {span.start:>4}:{span.end:<4}  {span.entity_type:<16}  {span.text!r}")
 
     if transform:
-        operator = build_operator(settings.operator.model_dump(), anchor=build_anchor(settings))
+        operator = build_operator(
+            settings.operator.model_dump(),
+            anchor=build_anchor(settings),
+            codec=build_codec(settings),
+        )
         result = await operator.pseudonymize(text, detection, Session(), context)
         click.echo("")
         click.echo(result.text)

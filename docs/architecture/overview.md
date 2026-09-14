@@ -57,8 +57,9 @@ AI data privacy gateway — a privacy engine + proxy for LLM providers.
 | Module | Purpose |
 |---|---|
 | `core/` | Engine, session, context, result, errors — transport-agnostic |
+| `token/` | Logical token + configurable codec (the only place token syntax lives) |
 | `privacy/` | Detectors, policies, operators, anchors, transforms |
-| `streaming/` | Deanonymizer, trie, frontier, buffer, SSE adapters |
+| `streaming/` | Deanonymizer, recognizer, trie, buffer, SSE adapters |
 | `vault/` | Memory, SQLite, Redis session storage |
 | `providers/` | Generic, OpenAI, Anthropic transports (Google is a placeholder) |
 | `proxy/` | HTTP/SSE proxy connecting engine to providers |
@@ -81,12 +82,12 @@ Client ← HTTP Proxy ← Restore ← Vault ←───────────
 
 ```text
 Provider → SSE event → Adapter → text delta → Privacy Stream Engine
-                                              (trie + frontier)
+                                          (codec recognizer + hold-back)
 Client ← SSE event ← Adapter ← deanonymized delta
 ```
 
-The trie/frontier algorithm guarantees streamed output equals batch output,
-even when a pseudonym is split across chunk boundaries.
+The hold-back scan guarantees streamed output equals batch output, even when a
+token is split across chunk boundaries.
 
 ## Development
 

@@ -51,6 +51,18 @@ anchor:
   type: hmac             # hmac
   secret: ""             # set via PRIVYX_ANCHOR_SECRET, or `openssl rand -hex 32`
 
+# --- Token syntax ---
+# How placeholder tokens look in text.  Purely a serialization choice: the
+# privacy engine, detectors, policies, proxy, and storage never see it.
+# `format` must contain {type} and {id}; {namespace} is optional; adjacent
+# fields need a delimiter between them.
+token:
+  namespace: PRIVYX
+  format: "<{namespace}_{type}_{id}>"   # -> <PRIVYX_EMAIL_1>
+  # Alternatives (change without touching any code):
+  # format: "[[{namespace}:{type}:{id}]]"  # -> [[PRIVYX:EMAIL:1]]
+  # format: "<{namespace}:{type}:{id}>"    # -> <PRIVYX:EMAIL:1>
+
 # --- Provider ---
 # Resolution order for the upstream URL:
 #   upstream_url  →  provider.base_url  →  the default for provider.type

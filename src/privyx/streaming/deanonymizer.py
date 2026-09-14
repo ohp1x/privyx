@@ -1,85 +1,107 @@
 """Incremental streaming deanonymizer.
 
-Guarantees:  the concatenation of all output deltas equals the
-deanonymization of the concatenation of all input deltas, regardless of how
-pseudonyms are split across chunk boundaries.
+Guarantee: the concatenation of all output deltas equals the deanonymization of
+the concatenation of all input deltas, regardless of how tokens are split across
+chunk boundaries — ``stream_process([c1, ..., cN]) == batch_process(c1 + ... +
+cN)`` (``.temp/token-system.md`` §7).
 
-Algorithm
----------
-1. Keep a trie of pseudonyms for the session.
-2. Prepend any held-back tail (pending) to each incoming chunk, then scan
-   left to right:
-   - If the remaining text is a prefix of some pseudonym AND reaches the end
-     of the buffer, hold it back (it may continue in the next chunk).
-   - Else if it is a complete pseudonym, emit its original value.
-   - Else emit the single character.
-3. On ``flush``, resolve any held-back text: if it is a complete pseudonym,
-   emit its original; otherwise emit it verbatim.
+Algorithm (shared by every recognizer)
+--------------------------------------
+Prepend any held-back tail (pending) to each incoming chunk, then scan left to
+right:
 
-Because each chunk is scanned from the start (pending + chunk), a held-back
-tail that turns out NOT to continue is re-resolved correctly on the next
-scan — a complete pseudonym that no longer reaches the buffer end is emitted,
-and an incomplete prefix is flushed as plain text.
+- If the remaining text is a viable token prefix that reaches the end of the
+  buffer, hold it back — it may continue in the next chunk.
+- Else if a complete token starts here, emit its replacement and skip past it.
+- Else emit the single character.
+
+On :meth:`flush`, resolve any held-back text: a complete token becomes its
+replacement; anything else is emitted verbatim.
+
+Because each chunk is scanned from the start (pending + chunk), a held-back tail
+that turns out NOT to continue is re-resolved correctly on the next scan.
+
+Only the "is there a token here?" decision differs between callers, so it is
+delegated to a :class:`~privyx.streaming.recognizer.Recognizer`: a trie of known
+pseudonyms for :class:`StreamingDeanonymizer`, or the token codec for
+:class:`TokenStreamProcessor`.
 """
 
 from __future__ import annotations
 
-from privyx.streaming.trie import PseudonymTrie
+from collections.abc import Callable
+
+from privyx.streaming.recognizer import CodecRecognizer, Recognizer, TrieRecognizer
+from privyx.token.codec import TokenCodec
 
 
-class StreamingDeanonymizer:
-    """Stateful deanonymizer for a single stream.
+class _BufferedStream:
+    """The hold-back scan loop, parameterized by a recognizer."""
 
-    Args:
-        mapping: Optional initial pseudonym → original mapping.
-    """
-
-    def __init__(self, mapping: dict[str, str] | None = None) -> None:
-        self._trie = PseudonymTrie()
+    def __init__(self, recognizer: Recognizer) -> None:
+        self._recognizer = recognizer
         self._pending = ""
-        if mapping:
-            self._trie.update(mapping)
-
-    def update_mapping(self, mapping: dict[str, str]) -> None:
-        """Add or refresh pseudonym mappings mid-stream."""
-        self._trie.update(mapping)
 
     def feed(self, chunk: str) -> str:
-        """Feed a chunk and return the deanonymized output delta."""
+        """Feed a chunk and return the transformed output delta."""
         text = self._pending + chunk
         self._pending = ""
+        recognizer = self._recognizer
         out: list[str] = []
         i = 0
         n = len(text)
         while i < n:
-            prefix_len = self._trie.longest_prefix_len(text, i)
+            prefix_len = recognizer.longest_prefix_len(text, i)
             if prefix_len > 0 and i + prefix_len == n:
-                # The tail is a prefix of a pseudonym that may continue in the
-                # next chunk — hold it back.
+                # The tail is a viable token prefix that may continue next chunk.
                 self._pending = text[i:]
                 break
-            match = self._trie.match_at(text, i)
+            match = recognizer.match_at(text, i)
             if match is not None:
-                pseudo, original = match
-                out.append(original)
-                i += len(pseudo)
+                matched, replacement = match
+                out.append(replacement)
+                i += len(matched)
                 continue
             out.append(text[i])
             i += 1
         return "".join(out)
 
     def flush(self) -> str:
-        """Flush any pending buffered text at end of stream.
-
-        A held-back tail that is a complete pseudonym resolves to its
-        original; anything else is emitted verbatim.
-        """
+        """Flush any pending buffered text at end of stream."""
         if not self._pending:
             return ""
-        match = self._trie.match_at(self._pending, 0)
+        match = self._recognizer.match_at(self._pending, 0)
         if match is not None and len(match[0]) == len(self._pending):
             out = match[1]
         else:
             out = self._pending
         self._pending = ""
         return out
+
+
+class StreamingDeanonymizer(_BufferedStream):
+    """Stateful deanonymizer that matches the pseudonyms a session has issued.
+
+    Args:
+        mapping: Optional initial pseudonym → original mapping.
+    """
+
+    def __init__(self, mapping: dict[str, str] | None = None) -> None:
+        self._trie = TrieRecognizer(mapping)
+        super().__init__(self._trie)
+
+    def update_mapping(self, mapping: dict[str, str]) -> None:
+        """Add or refresh pseudonym mappings mid-stream."""
+        self._trie.update(mapping)
+
+
+class TokenStreamProcessor(_BufferedStream):
+    """Stateful deanonymizer that recognizes tokens by the configured syntax.
+
+    Args:
+        codec: The token codec (syntax authority).
+        resolve: Maps a token's text to its original value, or ``None`` if unknown.
+    """
+
+    def __init__(self, codec: TokenCodec, resolve: Callable[[str], str | None]) -> None:
+        super().__init__(CodecRecognizer(codec, resolve))

@@ -38,6 +38,12 @@ def env_config() -> dict[str, Any]:
     anchor_secret = _env("ANCHOR_SECRET")
     if anchor_secret:
         cfg.setdefault("anchor", {})["secret"] = anchor_secret
+    token_format = _env("TOKEN_FORMAT")
+    if token_format:
+        cfg.setdefault("token", {})["format"] = token_format
+    token_namespace = _env("TOKEN_NAMESPACE")
+    if token_namespace:
+        cfg.setdefault("token", {})["namespace"] = token_namespace
     host = _env("HOST")
     if host:
         cfg["host"] = host

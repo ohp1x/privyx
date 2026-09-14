@@ -14,10 +14,11 @@ All streaming algorithms are property-tested against random chunk boundaries:
 
 - `test_stream_equivalence.py` — streamed output ≡ batch output for any split.
 - `test_chunk_boundaries.py` — any boundary split of a pseudonym restores.
+- `test_token_stream.py` — the codec's streaming path ≡ batch `restore`, incl.
+  exhaustive single-boundary coverage.
 
-This is the guarantee that prevents regressions in the trie/frontier
-algorithm — the same class of bug we hit with `reasoning_content` in the
-prototype.
+This is the guarantee that prevents regressions in the streaming hold-back
+scan — the same class of bug we hit with `reasoning_content` in the prototype.
 
 ## Running
 
