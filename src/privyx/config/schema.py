@@ -66,6 +66,35 @@ class ProviderConfig(BaseModel):
     google_api_key: str = ""
 
 
+def _default_routes() -> dict[str, str]:
+    return {
+        "/v1/chat/completions": "openai",
+        "/v1/messages": "anthropic",
+    }
+
+
+class ProxyConfig(BaseModel):
+    """Proxy serving mode.
+
+    ``mode`` selects which app :command:`privyx proxy` serves:
+
+    - ``gateway`` — the narrow, chat-only gateway (``/v1/chat/completions``),
+      OpenAI schema only.
+    - ``transparent`` — a drop-in reverse proxy.  Point a client's
+      ``OPENAI_BASE_URL`` / ``ANTHROPIC_BASE_URL`` at Privyx and every path is
+      forwarded to the upstream origin; chat paths are pseudonymized on the way
+      out and restored on the way back, all without client-side changes.
+
+    ``routes`` maps a request path to the wire schema used to transform it.
+    Paths not listed are forwarded verbatim when ``passthrough_unknown`` is set.
+    """
+
+    mode: Literal["gateway", "transparent"] = "transparent"
+    routes: dict[str, str] = Field(default_factory=_default_routes)
+    forward_client_auth: bool = True
+    passthrough_unknown: bool = True
+
+
 class Settings(BaseModel):
     """Top-level Privyx settings."""
 
@@ -84,6 +113,7 @@ class Settings(BaseModel):
     anchor: AnchorConfig = Field(default_factory=AnchorConfig)
     token: TokenConfig = Field(default_factory=TokenConfig)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
+    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:

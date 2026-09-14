@@ -1,12 +1,14 @@
 # Anthropic
 
-Point the Anthropic SDK at the Privyx gateway:
+Point the Anthropic SDK at Privyx. In the default **transparent** mode the
+`/v1/messages` path is routed and transformed, and the client's `x-api-key` /
+`anthropic-version` headers are forwarded upstream.
 
 ```python
 import anthropic
 
 client = anthropic.Anthropic(
-    base_url="http://localhost:8000",
+    base_url="http://localhost:8000",  # Privyx (transparent) proxy
     api_key="your-key",
 )
 
@@ -15,6 +17,12 @@ message = client.messages.create(
     max_tokens=1024,
     messages=[{"role": "user", "content": "My phone is +1 (555) 123-4567"}],
 )
+```
+
+Start it with:
+
+```bash
+privyx proxy --transparent --upstream https://api.anthropic.com
 ```
 
 ## Configuration
@@ -28,9 +36,13 @@ provider:
     anthropic-version: "2023-06-01"
 ```
 
-## Streaming & Reasoning
+## Streaming, reasoning & tools
 
-Anthropic's `content_block_delta` events carry `delta.text` for text and
-`delta.thinking` for reasoning. `AnthropicStreamAdapter` transforms only
-`text_delta` events — thinking deltas pass through untouched, avoiding the
-corruption that naive proxies suffer with `reasoning_content`.
+Anthropic's `content_block_delta` events carry `delta.text` for text,
+`delta.thinking` for reasoning, and `delta.input_json_delta` for tool inputs.
+`StreamRouter` deanonymizes text and thinking on separate buffers, and
+accumulates a `tool_use` block's partial JSON until `content_block_stop`, then
+emits it restored in one frame. `signature_delta` and other control events pass
+through untouched, and `message_stop` is emitted last so nothing arrives after
+it. Note `system` may be a string or a list of text blocks — both are
+pseudonymized.

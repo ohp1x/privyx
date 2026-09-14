@@ -14,6 +14,11 @@ class SSEStreamAdapter:
     for any provider that speaks SSE.
     """
 
+    #: Wire schema this adapter belongs to.  The stream router reads it to decide
+    #: how to classify events (text vs tool-call vs control) beyond the single
+    #: text delta this adapter locates.  Subclasses override it.
+    schema_name: str = "generic"
+
     def __init__(self, data_path: list[str] | None = None) -> None:
         # If the data payload is JSON, optionally extract a nested field
         # (e.g. ["choices", "0", "delta", "content"] for OpenAI).

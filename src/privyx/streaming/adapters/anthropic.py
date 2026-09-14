@@ -20,6 +20,8 @@ class AnthropicStreamAdapter(SSEStreamAdapter):
     are transformed; everything else passes through untouched.
     """
 
+    schema_name = "anthropic"
+
     def __init__(self) -> None:
         super().__init__(data_path=None)  # no default path; we inspect events
 

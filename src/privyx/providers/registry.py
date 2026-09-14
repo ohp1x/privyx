@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from privyx.core.errors import ConfigError
 from privyx.providers.base import Provider
@@ -92,6 +93,24 @@ def resolve_base_url(settings: Any) -> str:
         or provider_config.base_url
         or DEFAULT_BASE_URLS.get(provider_config.type, DEFAULT_BASE_URLS["generic"])
     )
+
+
+def resolve_origin(settings: Any) -> str:
+    """Return just the ``scheme://host[:port]`` of the resolved upstream.
+
+    The transparent proxy appends the *incoming request path* to this origin, so
+    it must not carry a provider-specific chat path.  :func:`resolve_base_url`
+    may return a full endpoint (``https://api.openai.com/v1/chat/completions``);
+    this strips it back to the origin (``https://api.openai.com``).
+
+    A base URL without a scheme (e.g. ``localhost:20128``) is returned unchanged
+    minus any trailing slash, so an explicit ``http://`` origin still round-trips.
+    """
+    base = resolve_base_url(settings)
+    parts = urlsplit(base)
+    if parts.scheme and parts.netloc:
+        return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+    return base.rstrip("/")
 
 
 def build_provider(settings: Any) -> Any:
