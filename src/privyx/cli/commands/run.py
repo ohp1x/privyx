@@ -176,6 +176,7 @@ async def _run_target(
     """
     from privyx.config.loader import load_config
     from privyx.core.builder import build_audit_logger, build_engine
+    from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider, resolve_base_url
     from privyx.streaming.adapters.registry import build_stream_adapter
 
@@ -187,10 +188,12 @@ async def _run_target(
 
     # The child tool owns the terminal, so we do not configure application
     # logging here; the audit trail still records to its file.
+    hooks = load_plugins(settings)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
     provider = build_provider(settings)
     adapter = build_stream_adapter(settings.provider.type)
+    await hooks.run_startup()
 
     server, bound_port = _make_server(engine, provider, adapter, settings, port, audit)
     serve_task = asyncio.create_task(server.serve())
@@ -206,6 +209,7 @@ async def _run_target(
     finally:
         server.should_exit = True
         await serve_task
+        await hooks.run_shutdown()
         await close_vault()
         await provider.close()
         audit.close()

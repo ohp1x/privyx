@@ -62,16 +62,22 @@ async def _run_server(settings: Any) -> None:
     """Build the engine from settings, serve the selected app, and release resources."""
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.observability.logging import configure_logging
+    from privyx.plugins.loader import load_plugins
 
     configure_logging(settings)
+    # Load plugins before building the engine so a plugin detector/operator/etc.
+    # is registered by the time build_engine resolves the configured types.
+    hooks = load_plugins(settings)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
+    await hooks.run_startup()
     try:
         if settings.proxy.mode == "transparent":
             await _serve_transparent(settings, engine, audit)
         else:
             await _serve_gateway(settings, engine, audit)
     finally:
+        await hooks.run_shutdown()
         await close_vault()
         audit.close()
 

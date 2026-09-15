@@ -32,8 +32,11 @@ def session(session_id: str, config_path: str | None, reveal: bool) -> None:
 async def _inspect_session(session_id: str, config_path: str | None, reveal: bool) -> None:
     from privyx.config.loader import load_config
     from privyx.core.builder import build_vault
+    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
+    # Register plugin component types so a configured plugin vault resolves.
+    load_plugins(settings)
     vault, close = await build_vault(settings)
     try:
         record = await vault.get(session_id)

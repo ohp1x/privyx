@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from privyx.core.errors import ConfigError
+from privyx.plugins.registry import PLUGINS
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector, YamlDetector
 
@@ -51,6 +52,8 @@ def build_detector(config: dict[str, Any]) -> Detector:
     if dtype == "yaml":
         _validate(patterns)
         return YamlDetector(patterns)
+    if dtype in PLUGINS.detectors:
+        return PLUGINS.detectors.build(config)
     raise ConfigError(f"unknown detector type: {dtype}")
 
 

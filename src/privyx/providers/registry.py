@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from privyx.core.errors import ConfigError
+from privyx.plugins.registry import PLUGINS
 from privyx.providers.base import Provider
 from privyx.providers.generic import GenericProvider
 
@@ -132,4 +133,9 @@ def build_provider(settings: Any) -> Any:
         "headers": dict(provider_config.headers),
         "base_url": resolve_base_url(settings),
     }
-    return default_registry().build(ptype, config)
+    registry = default_registry()
+    if ptype in registry.names():
+        return registry.build(ptype, config)
+    if ptype in PLUGINS.providers:
+        return PLUGINS.providers.build({**config, "type": ptype})
+    raise ConfigError(f"unknown provider: {ptype}")

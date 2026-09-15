@@ -70,6 +70,9 @@ def env_config() -> dict[str, Any]:
     audit_path = _env("AUDIT_PATH")
     if audit_path:
         cfg.setdefault("audit", {})["path"] = audit_path
+    plugin_paths = _env("PLUGIN_PATHS")
+    if plugin_paths:
+        cfg["plugins"] = {"paths": [p.strip() for p in plugin_paths.split(",") if p.strip()]}
     return cfg
 
 

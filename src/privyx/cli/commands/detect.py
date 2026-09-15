@@ -54,8 +54,12 @@ async def _detect_async(
     )
     from privyx.core.context import Context
     from privyx.core.session import Session
+    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
+    # Register plugin component types so a configured plugin detector/operator
+    # resolves.  No lifecycle hooks fire: this is a one-shot query, not a server.
+    load_plugins(settings)
     context = Context()
 
     detection = await build_detector_from(settings).detect(text, context)

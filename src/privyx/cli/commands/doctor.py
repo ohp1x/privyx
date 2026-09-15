@@ -30,6 +30,9 @@ def doctor(config_path: str | None) -> None:
     click.echo("Privyx Doctor")
     click.echo("=============")
     checks: list[tuple[str, Check]] = [
+        # First: loads plugins into the registry so the component checks below
+        # can see plugin-provided types.
+        ("plugins", _check_plugins),
         ("detector", _check_detector),
         ("vault", _check_vault),
         ("provider", _check_provider),
@@ -54,6 +57,34 @@ def _settings(config_path: str | None) -> Settings:
     from privyx.config.loader import load_config
 
     return load_config(config_path)
+
+
+def _check_plugins(config_path: str | None) -> tuple[bool, str]:
+    """Configured plugins load, and report what each family gained.
+
+    Runs first so the detector/vault/provider checks below resolve plugin types.
+    """
+    from privyx.plugins.loader import load_plugins
+    from privyx.plugins.registry import PLUGINS
+
+    settings = _settings(config_path)
+    if not settings.plugins.enabled or not settings.plugins.paths:
+        return (True, "no plugin paths configured")
+
+    load_plugins(settings)  # raises ConfigError on a bad path/module/collision
+    families = {
+        "detector": PLUGINS.detectors.names(),
+        "operator": PLUGINS.operators.names(),
+        "policy": PLUGINS.policies.names(),
+        "provider": PLUGINS.providers.names(),
+        "anchor": PLUGINS.anchors.names(),
+        "vault": PLUGINS.vaults.names(),
+    }
+    total = sum(len(names) for names in families.values())
+    if not total:
+        return (True, f"paths {settings.plugins.paths} loaded no components")
+    summary = ", ".join(f"{fam}: {', '.join(names)}" for fam, names in families.items() if names)
+    return (True, f"{total} plugin(s) — {summary}")
 
 
 def _check_detector(config_path: str | None) -> tuple[bool, str]:
@@ -106,13 +137,15 @@ def _check_provider(config_path: str | None) -> tuple[bool, str]:
     if importlib.util.find_spec("httpx") is None:
         return (False, "httpx not installed")
 
+    from privyx.plugins.registry import PLUGINS
     from privyx.providers.registry import build_provider, default_registry, resolve_base_url
 
     settings = _settings(config_path)
     ptype = settings.provider.type
     known = default_registry().names()
-    if ptype not in known:
-        return (False, f"unknown provider {ptype!r} (known: {', '.join(known)})")
+    if ptype not in known and ptype not in PLUGINS.providers:
+        available = known + [f"{n} (plugin)" for n in PLUGINS.providers.names()]
+        return (False, f"unknown provider {ptype!r} (known: {', '.join(available)})")
     build_provider(settings)
     return (True, f"{ptype} → {resolve_base_url(settings)}")
 

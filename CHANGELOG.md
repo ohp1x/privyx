@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Plugins
+
+- Added a local, opt-in plugin loader configured with `plugins.paths` (or
+  `PRIVYX_PLUGIN_PATHS`); configured files and directories are imported without
+  third-party entry points or `sys.path` mutation
+- Concrete subclasses of `BaseDetector`, `BaseOperator`, `BasePolicy`,
+  `BaseProvider`, `BaseAnchor`, and `BaseVault` are auto-discovered and
+  registered by their class-level `name`; optional `from_config` factories are
+  supported
+- Added startup and shutdown lifecycle hooks, duplicate-name detection, and
+  fail-fast `ConfigError` handling for missing paths, import failures, and
+  startup-hook failures
+- Plugin types are available throughout the builders and CLI commands, while
+  built-in types always take precedence. `privyx doctor` reports loaded plugin
+  families and names
+- Added the `plugins/detectors/license_plate.py` example, plugin documentation,
+  and 17 loader/registry tests. Vault plugin types are now accepted by config
+
 ### Observability
 
 - Application logging is now wired in: `configure_logging` runs when `privyx

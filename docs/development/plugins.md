@@ -1,16 +1,58 @@
 # Plugins
 
+Privyx loads plugins from **local paths** you configure — there is no
+third-party entry-point mechanism. Discovery is **opt-in** (nothing loads unless
+you list a path) and works by **subclass**: a plugin module defines a concrete
+subclass of a Privyx component base class, and Privyx registers it under its
+`name`.
+
 ## What Can Be Plugged In
 
-| Extension point | Protocol | Where |
-|---|---|---|
-| Detector | `Detector.detect()` | `privacy/detector/` |
-| Policy | `Policy.decide()` | `privacy/policy/` |
-| Operator | `Operator.pseudonymize()/deanonymize()` | `privacy/operator/` |
-| Anchor | `Anchor.anchor()/deanchor()` | `privacy/anchor/` |
-| Vault | `Vault.get()/put()/delete()` | `vault/` |
-| Provider | `Provider.send()/stream()` | `providers/` |
-| Stream adapter | `extract_delta()/wrap_delta()` | `streaming/adapters/` |
+| Family | Base class | Methods to implement | Selected by |
+|---|---|---|---|
+| Detector | `privyx.privacy.detector.base.BaseDetector` | `detect_sync` | `detector.type` |
+| Policy | `privyx.privacy.policy.base.BasePolicy` | `_decide_sync` | `policy.type` |
+| Operator | `privyx.privacy.operator.base.BaseOperator` | `pseudonymize`, `deanonymize` | `operator.type` |
+| Anchor | `privyx.privacy.anchor.base.BaseAnchor` | `anchor`, `deanchor` | `anchor.type` |
+| Vault | `privyx.vault.base.BaseVault` | `create`, `get`, `save`, `delete` (opt. `connect`/`close`) | `vault.type` |
+| Provider | `privyx.providers.base.BaseProvider` | `send`, `stream`, `close` | `provider.type` |
+
+## The Contract
+
+- **Subclass** one of the base classes above with a concrete implementation.
+- Set a class-level **`name`** — the value a config `type` selects. If omitted,
+  it is derived from the class name with the family suffix stripped
+  (`LicensePlateDetector` → `licenseplate`); setting `name` explicitly is
+  recommended.
+- Optionally add **`@classmethod from_config(cls, config: dict) -> Self`** to
+  construct from the component's config section. Without it, Privyx calls the
+  no-argument constructor `cls()`.
+- Optionally define module-level **`on_startup()`** / **`on_shutdown()`**
+  (sync or async) for lifecycle work (see below).
+
+A plugin never shadows a built-in: built-in types (`regex`, `pseudonym`,
+`hmac`, `memory`, ...) always win, and a plugin is consulted only when the
+configured `type` is not a built-in.
+
+## Enabling
+
+List a directory or a single `.py` file under `plugins.paths`. Each directory
+is walked recursively; files whose names start with `_` are skipped.
+
+```yaml
+plugins:
+  enabled: true          # set false to skip loading even when paths are set
+  paths:
+    - ./plugins          # the conventional in-repo location
+    - /opt/privyx/ext
+detector:
+  type: license_plate    # a name a plugin registered
+```
+
+Paths may also be set via `PRIVYX_PLUGIN_PATHS` (comma-separated).
+
+`privyx doctor` reports what each family loaded, so you can confirm a plugin was
+discovered before serving.
 
 ## Writing a Detector
 
@@ -28,22 +70,50 @@ class LicensePlateDetector(BaseDetector):
         return d
 ```
 
+A ready-to-run copy lives in `plugins/detectors/license_plate.py`.
+
 ## Writing an Operator
 
 ```python
-from privyx.core.session import Session
 from privyx.core.result import TransformResult
 from privyx.privacy.operator.base import BaseOperator
 
 class MyOperator(BaseOperator):
     name = "myop"
-    async def pseudonymize(self, text, detection, session, context):
+
+    async def pseudonymize(self, text, detection, session, context) -> TransformResult:
         ...
-    async def deanonymize(self, text, session, context):
+
+    async def deanonymize(self, text, session, context) -> TransformResult:
         ...
 ```
 
-## Loading Plugins
+Operators that emit tokens or anchor values receive the token codec and anchor
+through their config; read them in `from_config` if needed.
 
-`plugins/loader.py` discovers plugins from configured paths and registers
-them. Third-party packages can expose entry points under `privyx.plugins`.
+## Lifecycle Hooks
+
+A plugin module may define module-level hooks that run around the serving
+lifecycle:
+
+```python
+async def on_startup() -> None:
+    ...  # open a connection, warm a cache
+
+def on_shutdown() -> None:
+    ...  # release resources
+```
+
+Startup hooks run before the server accepts traffic; a failing startup hook
+aborts the process. Shutdown hooks run during teardown and are best-effort
+(errors are logged, not raised).
+
+## How Discovery Works
+
+`privyx.plugins.loader.load_plugins(settings)` clears the plugin registry, then
+imports every module under `plugins.paths` (under a synthetic module name, so
+plugins never touch `sys.path`). For each module it registers every concrete
+`Base*` subclass *defined in that module*, keyed by `name`, into
+`privyx.plugins.registry.PLUGINS`. Two plugins claiming the same name in the
+same family, a missing path, or a module that fails to import all raise
+`ConfigError` at startup rather than failing on the first request.

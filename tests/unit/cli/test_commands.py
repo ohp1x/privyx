@@ -162,14 +162,15 @@ def test_doctor_all_checks_pass_with_defaults(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["doctor"])
 
     assert result.exit_code == 0
-    for check in ("detector", "vault", "provider", "proxy", "streaming", "configuration"):
+    checks = ("plugins", "detector", "vault", "provider", "proxy", "streaming", "configuration")
+    for check in checks:
         assert f"✓ {check}" in result.output
 
 
 def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
-    """context.md lists six checks; none may silently go missing."""
+    """context.md lists six checks, plus the plugins check the plugin system adds."""
     result = runner.invoke(cli, ["doctor"])
-    assert result.output.count("✓") + result.output.count("✗") == 6
+    assert result.output.count("✓") + result.output.count("✗") == 7
 
 
 def test_doctor_fails_on_broken_config(runner: CliRunner, tmp_path: Path) -> None:

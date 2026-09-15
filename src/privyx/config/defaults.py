@@ -43,4 +43,6 @@ DEFAULTS: dict[str, object] = {
         "enabled": True,
         "path": "privyx-audit.log",
     },
+    # Opt-in: no paths means no plugins are loaded.
+    "plugins": {"enabled": True, "paths": []},
 }
