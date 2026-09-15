@@ -33,12 +33,14 @@ from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.operator.base import Operator
+from privyx.privacy.operator.encrypt import EncryptOperator
 from privyx.privacy.operator.faker import FakerOperator
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
 from privyx.privacy.policy.base import Policy
 from privyx.privacy.policy.loader import build_policy
+from privyx.security.keys import load_key
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.vault.base import Vault
 from privyx.vault.memory import MemoryVault
@@ -68,6 +70,10 @@ def _operator_registry() -> Registry[Operator]:
     registry.register(
         "faker",
         lambda cfg: FakerOperator(locale=cfg.get("locale") or None, seed=cfg.get("seed")),
+    )
+    registry.register(
+        "encrypt",
+        lambda cfg: EncryptOperator(key=load_key(cfg.get("key", "")), codec=cfg.get(_CODEC_KEY)),
     )
     return registry
 
@@ -100,13 +106,11 @@ def build_operator(
         codec: Optional token codec, handed to operators that emit tokens.
             Operators that do not (e.g. ``redact``) ignore it.
 
-    ``encrypt`` is intentionally absent: it is an unimplemented placeholder, and
-    registering it would let a config select an operator that raises
-    ``NotImplementedError`` on the first request instead of failing at startup.
-    ``faker`` *is* registered but needs the optional ``faker`` extra — selecting it
-    without the package installed fails at startup with a ``ConfigError`` raised
-    from :class:`~privyx.privacy.operator.faker.FakerOperator`, preserving the
-    same fail-fast guarantee.
+    ``faker`` and ``encrypt`` need optional extras — selecting one without its
+    package installed (``faker``; ``cryptography`` for ``encrypt``) fails at
+    startup with a ``ConfigError`` raised from the operator, not
+    ``NotImplementedError`` mid-request.  ``encrypt`` additionally requires a key:
+    an empty ``operator.key`` fails fast in :func:`~privyx.security.keys.load_key`.
     """
     config = config or {}
     if anchor is not None:

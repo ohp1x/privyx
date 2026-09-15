@@ -190,6 +190,7 @@ def _check_streaming(config_path: str | None) -> tuple[bool, str]:
 
     from privyx.core.builder import build_engine
     from privyx.proxy.http import HTTPProxy
+    from privyx.proxy.stream_router import resolver_for
     from privyx.streaming.adapters.openai import OpenAIStreamAdapter
 
     settings = _settings(config_path)
@@ -203,7 +204,11 @@ def _check_streaming(config_path: str | None) -> tuple[bool, str]:
             if not session.mapping:
                 return (True, "skipped: configured detector found no PII to stream")
             pseudonym = next(iter(session.mapping))
-            if session.mapping[pseudonym] != email:
+            # Reversibility is "can the streaming resolver recover the original?",
+            # not "is the plaintext stored verbatim" — encrypt stores ciphertext
+            # and decrypts through its resolver.
+            resolve = resolver_for(engine.operator, session.mapping)
+            if resolve(pseudonym) != email:
                 return (True, f"skipped: operator {settings.operator.type!r} is not reversible")
 
             payload = {"choices": [{"delta": {"content": f"to {pseudonym} ok"}}]}

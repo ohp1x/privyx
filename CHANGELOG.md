@@ -26,8 +26,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be restored by coincidence — unlike the syntactically distinctive `<PRIVYX_…>`
   tokens. Prefer `pseudonym` when collision-free reversal matters more than realism
 - `faker` is an optional extra (`pip install privyx[faker]`); selecting it without
-  the package fails at startup with a `ConfigError`, never mid-request. It is no
-  longer a placeholder — only `encrypt` remains intentionally unregistered
+  the package fails at startup with a `ConfigError`, never mid-request
+- New `EncryptOperator` (`operator.type: encrypt`): the last operator, and the
+  first that keeps **no plaintext at rest**. It stores the AES-256-GCM
+  *ciphertext* of each value in the session vault (not the original) and decrypts
+  on restore, closing the at-rest gap `docs/security/cryptography.md` called out.
+  Encryption is deterministic (SIV-style nonce derived from the value), so the
+  same value maps to the same token — dedup and idempotent writes — while the GCM
+  tag means a corrupted or foreign token is passed through untouched rather than
+  restored to garbage
+- The token is an ordinary codec token (keyed-HMAC identifier), so streaming reuses
+  the codec recognizer: batch and streaming share one decrypting resolver, and the
+  `stream == batch` property is preserved and property-tested. A new optional
+  `resolve` hook on the shared `restore` helper (and `Operator.build_resolver`)
+  is the seam — no operator hard-codes how the vault value maps back to plaintext
+- `encrypt` is an optional extra (`pip install privyx[crypto]`) and needs a key
+  (`operator.key` / `PRIVYX_ENCRYPT_KEY`, 64 hex chars); a missing package, a
+  missing key, or a malformed key fails at startup, never mid-request. No operator
+  remains a placeholder now
 
 ### Plugins
 

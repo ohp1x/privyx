@@ -33,6 +33,7 @@ class OperatorConfig(BaseModel):
     length: int = 12  # hash operator digest length
     locale: str = ""  # faker operator: Faker locale (empty → Faker's default)
     seed: int | None = None  # faker operator: determinism salt
+    key: str = ""  # encrypt operator: 64 hex chars (`openssl rand -hex 32`)
 
 
 class AnchorConfig(BaseModel):

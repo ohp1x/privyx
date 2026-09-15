@@ -22,7 +22,7 @@ from typing import Any
 from privyx.core.engine import PrivacyEngine
 from privyx.providers.base import Provider
 from privyx.proxy.schemas import restore_response, transform_request
-from privyx.proxy.stream_router import StreamRouter, select_processor_factory
+from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 
 
@@ -85,12 +85,13 @@ class HTTPProxy:
         """
         session = await self._engine.vault.get(session_id)
         mapping = session.mapping if session is not None else {}
+        resolve = resolver_for(self._engine.operator, mapping)
         router = StreamRouter(
             self._engine.codec,
-            mapping.get,
+            resolve,
             self._adapter,
             make_processor=select_processor_factory(
-                self._engine.operator, self._engine.codec, mapping.get, mapping
+                self._engine.operator, self._engine.codec, resolve, mapping
             ),
         )
 

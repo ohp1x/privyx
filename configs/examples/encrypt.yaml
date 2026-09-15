@@ -1,0 +1,15 @@
+# Example: encrypt operator — no plaintext PII at rest in the vault
+#
+# The vault stores the AES-256-GCM ciphertext of each detected value (not the
+# original) and Privyx decrypts on the way back.  Requires the `crypto` extra:
+#   pip install privyx[crypto]
+#
+# Provide the key via the environment (preferred) rather than committing it:
+#   export PRIVYX_ENCRYPT_KEY=$(openssl rand -hex 32)
+
+operator:
+  type: encrypt
+  key: ""                # 64 hex chars; set via PRIVYX_ENCRYPT_KEY
+
+vault:
+  type: memory
