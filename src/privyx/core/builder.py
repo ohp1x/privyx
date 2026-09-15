@@ -19,6 +19,7 @@ Example::
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -26,7 +27,7 @@ from privyx.config.schema import Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ConfigError
 from privyx.observability.audit import AuditLogger
-from privyx.plugins.registry import Registry
+from privyx.plugins.registry import PLUGINS, Registry
 from privyx.privacy.anchor.base import Anchor
 from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.base import Detector
@@ -99,33 +100,40 @@ def build_operator(
     that raises ``NotImplementedError`` on the first request instead of failing
     at startup.
     """
+    config = config or {}
     if anchor is not None:
-        config = {**(config or {}), _ANCHOR_KEY: anchor}
+        config = {**config, _ANCHOR_KEY: anchor}
     if codec is not None:
-        config = {**(config or {}), _CODEC_KEY: codec}
+        config = {**config, _CODEC_KEY: codec}
+    otype = config.get("type", "pseudonym")
+    if otype not in OPERATORS and otype in PLUGINS.operators:
+        return PLUGINS.operators.build(config)
     return OPERATORS.build(config, default="pseudonym")
 
 
 def build_anchor(settings: Settings) -> Anchor | None:
-    """Build the configured anchor, or ``None`` when anchoring is off.
+    """Build the configured anchor, or ``None`` when HMAC anchoring is off.
 
-    An anchor only takes effect once a secret is set: without a key, an HMAC
-    anchor would derive pseudonyms from an empty string — deterministic, but
-    trivially reproducible by anyone, which defeats the point.  So an empty
+    HMAC anchoring only takes effect once a secret is set: without a key, an
+    HMAC anchor would derive pseudonyms from an empty string — deterministic,
+    but trivially reproducible by anyone, which defeats the point.  So an empty
     ``anchor.secret`` means "no anchoring" rather than "anchoring with a
-    guessable key".
+    guessable key".  This gate is specific to ``hmac``; a plugin anchor decides
+    for itself whether it needs a secret.
 
     Raises:
         ConfigError: If ``anchor.type`` is unknown.
     """
-    secret = settings.anchor.secret
-    if not secret:
-        return None
     atype = settings.anchor.type
+    secret = settings.anchor.secret
     if atype == "hmac":
+        if not secret:
+            return None
         return HMACAnchor(secret)
     if atype == "pasp":
         raise ConfigError("anchor type 'pasp' is not implemented yet; use 'hmac'")
+    if atype in PLUGINS.anchors:
+        return PLUGINS.anchors.build(settings.anchor.model_dump())
     raise ConfigError(f"unknown anchor type: {atype!r}")
 
 
@@ -166,6 +174,19 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
 
         client = from_url(settings.vault.redis_url)
         return RedisVault(client, ttl=settings.vault.ttl), client.aclose
+
+    if vault_type in PLUGINS.vaults:
+        plugin_vault = PLUGINS.vaults.build(settings.vault.model_dump())
+        # A plugin vault may need an async handshake and may own resources to
+        # release; call ``connect``/``close`` if present, mirroring SQLiteVault.
+        connect = getattr(plugin_vault, "connect", None)
+        if callable(connect):
+            result = connect()
+            if inspect.isawaitable(result):
+                await result
+        close = getattr(plugin_vault, "close", None)
+        closer: Closer = close if callable(close) else _noop
+        return plugin_vault, closer
 
     raise ConfigError(f"unknown vault type: {vault_type!r}")
 

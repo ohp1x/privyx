@@ -8,7 +8,10 @@ from pydantic import BaseModel, Field
 
 
 class VaultConfig(BaseModel):
-    type: Literal["memory", "sqlite", "redis"] = "memory"
+    # Open string rather than a closed Literal so a plugin vault type validates;
+    # build_vault still raises ConfigError for a type that is neither built-in
+    # nor registered by a plugin.
+    type: str = "memory"
     dsn: str = "sqlite+aiosqlite:///privyx.db"
     redis_url: str = "redis://localhost:6379/0"
     ttl: int | None = None
@@ -107,6 +110,21 @@ class AuditConfig(BaseModel):
     path: str = "privyx-audit.log"
 
 
+class PluginsConfig(BaseModel):
+    """Local plugin discovery.
+
+    Opt-in: nothing is loaded unless ``paths`` lists a directory or a ``.py``
+    file.  Each path is imported and scanned for concrete subclasses of the
+    Privyx component base classes, which are registered under their ``name`` and
+    become selectable as a component ``type``.  Discovery is local to this
+    deployment — there is no third-party entry-point mechanism.  Set
+    ``enabled: false`` to skip loading even when paths are configured.
+    """
+
+    enabled: bool = True
+    paths: list[str] = Field(default_factory=list)
+
+
 class Settings(BaseModel):
     """Top-level Privyx settings."""
 
@@ -127,6 +145,7 @@ class Settings(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
+    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:

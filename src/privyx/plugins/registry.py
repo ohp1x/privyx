@@ -16,9 +16,17 @@ Example::
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from privyx.core.errors import ConfigError
+
+if TYPE_CHECKING:
+    from privyx.privacy.anchor.base import Anchor
+    from privyx.privacy.detector.base import Detector
+    from privyx.privacy.operator.base import Operator
+    from privyx.privacy.policy.base import Policy
+    from privyx.providers.base import Provider
+    from privyx.vault.base import Vault
 
 #: A factory takes the component's config dict and returns an instance.
 Factory = Callable[[dict[str, Any]], Any]
@@ -65,5 +73,46 @@ class Registry[T]:
         """Return the registered type names, sorted."""
         return sorted(self._factories)
 
+    def clear(self) -> None:
+        """Forget every registration."""
+        self._factories.clear()
+
     def __contains__(self, name: object) -> bool:
         return name in self._factories
+
+
+class PluginRegistry:
+    """One :class:`Registry` per pluggable component family.
+
+    Populated by :func:`privyx.plugins.loader.load_plugins` and consulted as a
+    *fallback* by the ``build_*`` functions when a config ``type`` is not one of
+    the built-ins.  Keeping plugin factories in a separate registry (rather than
+    merging them into the built-in dispatch) means a broken or missing plugin
+    can never shadow a built-in component.
+    """
+
+    def __init__(self) -> None:
+        self.detectors: Registry[Detector] = Registry("detector")
+        self.operators: Registry[Operator] = Registry("operator")
+        self.policies: Registry[Policy] = Registry("policy")
+        self.providers: Registry[Provider] = Registry("provider")
+        self.anchors: Registry[Anchor] = Registry("anchor")
+        self.vaults: Registry[Vault] = Registry("vault")
+
+    def clear(self) -> None:
+        """Reset every family to empty (called at the start of each load)."""
+        for registry in (
+            self.detectors,
+            self.operators,
+            self.policies,
+            self.providers,
+            self.anchors,
+            self.vaults,
+        ):
+            registry.clear()
+
+
+#: Process-wide plugin registry.  ``load_plugins`` clears and repopulates it;
+#: the ``build_*`` functions read it.  A module-level singleton is what lets a
+#: plugin registered at startup be seen by every later build call.
+PLUGINS = PluginRegistry()
