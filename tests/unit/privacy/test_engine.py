@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import io
+import json
+
 import pytest
 
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import SessionNotFoundError
+from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
@@ -85,3 +89,27 @@ async def test_strict_policy_filters_entities() -> None:
     # IP_ADDRESS should be filtered out by the strict policy.
     assert "192.168.0.1" in transformed.text
     assert "alice@example.com" not in transformed.text
+
+
+@pytest.mark.asyncio
+async def test_engine_emits_pii_safe_audit_events() -> None:
+    buf = io.StringIO()
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=AuditLogger(buf),
+    )
+    session = await engine.get_or_create_session()
+    await engine.transform("mail alice@example.com", session=session)
+
+    written = buf.getvalue()
+    # The whole point: no original value ever reaches the audit trail.
+    assert "alice@example.com" not in written
+
+    records = [json.loads(line) for line in written.splitlines() if line]
+    assert "session.created" in {r["event"] for r in records}
+    transform = next(r for r in records if r["event"] == "transform")
+    assert transform["entity_counts"] == {"EMAIL": 1}
+    assert transform["transformations"] == 1

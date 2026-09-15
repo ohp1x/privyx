@@ -59,6 +59,17 @@ def env_config() -> dict[str, Any]:
     logging_mode = _env("LOGGING")
     if logging_mode:
         cfg["logging"] = logging_mode
+    audit_enabled = _env("AUDIT_ENABLED")
+    if audit_enabled:
+        cfg.setdefault("audit", {})["enabled"] = audit_enabled.strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    audit_path = _env("AUDIT_PATH")
+    if audit_path:
+        cfg.setdefault("audit", {})["path"] = audit_path
     return cfg
 
 

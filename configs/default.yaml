@@ -71,3 +71,11 @@ provider:
   base_url: ""           # empty → http://localhost:20128 for `generic`
   api_key: ""            # or PRIVYX_OPENAI_API_KEY / PRIVYX_ANTHROPIC_API_KEY
   headers: {}
+
+# --- Audit ---
+# PII-safe audit trail: one JSON object per line, appended to `path`.  Records
+# entity *types* and *counts* (never payload content) plus request metadata.
+# Separate from application logs (log_level / logging above).
+audit:
+  enabled: true
+  path: privyx-audit.log   # or PRIVYX_AUDIT_PATH / PRIVYX_AUDIT_ENABLED

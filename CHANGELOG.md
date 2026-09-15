@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Observability
+
+- Application logging is now wired in: `configure_logging` runs when `privyx
+  proxy` starts, and its JSON formatter serializes with `json.dumps` (the old
+  placeholder embedded `%(message)s` in a JSON template, so any quote or newline
+  corrupted the line). Re-configuring is idempotent
+- New PII-safe audit trail (`observability/audit.py`): `AuditLogger` appends one
+  JSON object per line — `session.created`, `transform`, `restore`,
+  `proxy.request` — to a dedicated file (`audit.path`, default
+  `privyx-audit.log`). It records entity **types and counts** and request
+  metadata, never payload content, original values, or pseudonyms — enforced at
+  the API (the `transform` helper takes a histogram, not spans)
+- Audit events are emitted transport-agnostically: the engine reports privacy
+  events, the transparent proxy and gateway report `proxy.request`. The logger
+  is injected (disabled no-op by default), so `privyx doctor` and unit tests
+  neither open nor write a file
+- Config: `audit.enabled` / `audit.path` (`PRIVYX_AUDIT_ENABLED`,
+  `PRIVYX_AUDIT_PATH`). Writes are resilient — a failed write is logged and
+  swallowed, never breaking a request
+
 ### Token system
 
 - New `token/` subsystem: a `LogicalToken` (namespace/type/identifier) plus a

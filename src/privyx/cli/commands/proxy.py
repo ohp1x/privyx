@@ -60,19 +60,23 @@ def proxy(
 
 async def _run_server(settings: Any) -> None:
     """Build the engine from settings, serve the selected app, and release resources."""
-    from privyx.core.builder import build_engine
+    from privyx.core.builder import build_audit_logger, build_engine
+    from privyx.observability.logging import configure_logging
 
-    engine, close_vault = await build_engine(settings)
+    configure_logging(settings)
+    audit = build_audit_logger(settings)
+    engine, close_vault = await build_engine(settings, audit=audit)
     try:
         if settings.proxy.mode == "transparent":
-            await _serve_transparent(settings, engine)
+            await _serve_transparent(settings, engine, audit)
         else:
-            await _serve_gateway(settings, engine)
+            await _serve_gateway(settings, engine, audit)
     finally:
         await close_vault()
+        audit.close()
 
 
-async def _serve_transparent(settings: Any, engine: Any) -> None:
+async def _serve_transparent(settings: Any, engine: Any, audit: Any) -> None:
     """Serve the drop-in transparent reverse proxy."""
     import uvicorn
 
@@ -88,6 +92,7 @@ async def _serve_transparent(settings: Any, engine: Any) -> None:
         forward_client_auth=settings.proxy.forward_client_auth,
         api_key=settings.provider.api_key or None,
         extra_headers=dict(settings.provider.headers),
+        audit=audit,
     )
 
     routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())
@@ -111,7 +116,7 @@ async def _serve_transparent(settings: Any, engine: Any) -> None:
         await proxy_instance.close()
 
 
-async def _serve_gateway(settings: Any, engine: Any) -> None:
+async def _serve_gateway(settings: Any, engine: Any, audit: Any) -> None:
     """Serve the narrow chat-only gateway."""
     import uvicorn
 
@@ -131,7 +136,7 @@ async def _serve_gateway(settings: Any, engine: Any) -> None:
     )
 
     proxy_instance = HTTPProxy(engine=engine, provider=provider, stream_adapter=adapter)
-    gateway = Gateway(engine=engine, proxy=proxy_instance, settings=settings)
+    gateway = Gateway(engine=engine, proxy=proxy_instance, settings=settings, audit=audit)
     server = uvicorn.Server(
         uvicorn.Config(
             gateway.app, host=settings.host, port=settings.port, log_level=settings.log_level

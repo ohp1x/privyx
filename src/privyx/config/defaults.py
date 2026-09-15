@@ -39,4 +39,8 @@ DEFAULTS: dict[str, object] = {
         "api_key": "",
         "headers": {},
     },
+    "audit": {
+        "enabled": True,
+        "path": "privyx-audit.log",
+    },
 }

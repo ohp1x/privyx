@@ -27,13 +27,16 @@ web server.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 from privyx.core.engine import PrivacyEngine
+from privyx.observability.audit import AuditLogger
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
 from privyx.proxy.stream_router import StreamRouter
@@ -71,6 +74,8 @@ class TransparentProxy:
         client: Optional httpx client (owned by the caller when supplied); used by
             tests to inject a mock transport.
         timeout: Read/write timeout in seconds (generous, for long streams).
+        audit: Optional audit logger for the PII-safe ``proxy.request`` event.
+            Defaults to a disabled no-op logger.
     """
 
     def __init__(
@@ -84,9 +89,12 @@ class TransparentProxy:
         extra_headers: Mapping[str, str] | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = 300.0,
+        audit: AuditLogger | None = None,
     ) -> None:
         self._engine = engine
         self._origin = origin.rstrip("/")
+        self._audit = audit or AuditLogger(None)
+        self._upstream_host = urlsplit(self._origin).netloc or self._origin
         self._routes = routes if routes is not None else {
             "/v1/chat/completions": "openai",
             "/v1/messages": "anthropic",
@@ -115,6 +123,7 @@ class TransparentProxy:
         session_id: str | None = None,
     ) -> ProxyResponse:
         """Run the full per-request pipeline and return a :class:`ProxyResponse`."""
+        start = time.perf_counter()
         schema = detect_schema(path, self._routes)
         content_type = _ci_get(headers, "content-type")
 
@@ -150,7 +159,19 @@ class TransparentProxy:
         resp_headers = filter_response_headers(response.headers)
         resp_headers["x-privyx-session"] = sid
 
-        if _SSE in resp_content_type:
+        is_stream = _SSE in resp_content_type
+        self._audit.request(
+            method=method,
+            path="/" + path.lstrip("/"),
+            schema=schema,
+            status=response.status_code,
+            session_id=sid,
+            stream=is_stream,
+            duration_ms=round((time.perf_counter() - start) * 1000, 2),
+            upstream=self._upstream_host,
+        )
+
+        if is_stream:
             return self._streaming_response(response, resp_headers, schema, sid)
         return await self._batch_response(response, resp_headers, resp_content_type, schema, sid)
 

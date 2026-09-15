@@ -15,17 +15,24 @@ provider SDK. Gateways and proxies call :meth:`PrivacyEngine.transform` and
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
-from privyx.core.result import TransformResult
+from privyx.core.result import Detection, TransformResult
 from privyx.core.session import Session
+from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.operator.base import Operator
 from privyx.privacy.policy.base import Policy
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.vault.base import Vault
+
+
+def _entity_counts(detection: Detection) -> dict[str, int]:
+    """A ``{entity_type: count}`` histogram — types and counts only, no text."""
+    return dict(Counter(span.entity_type for span in detection.spans))
 
 
 class PrivacyEngine:
@@ -40,6 +47,9 @@ class PrivacyEngine:
             restore, and streaming all recognize tokens the same way; defaults
             to the built-in syntax.  Exposed so transports (e.g. the streaming
             proxy) can recognize tokens without knowing their syntax.
+        audit: Optional audit logger for PII-safe privacy events (session
+            created, transform, restore).  Defaults to a disabled no-op logger,
+            so the engine stays transport-agnostic and testable without a file.
     """
 
     def __init__(
@@ -49,6 +59,7 @@ class PrivacyEngine:
         operator: Operator | None = None,
         vault: Vault | None = None,
         codec: TokenCodec | None = None,
+        audit: AuditLogger | None = None,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -63,6 +74,7 @@ class PrivacyEngine:
         self._operator = operator
         self._vault = vault
         self._codec = codec or FormatCodec.default()
+        self._audit = audit or AuditLogger(None)
 
     @property
     def detector(self) -> Detector:
@@ -92,6 +104,7 @@ class PrivacyEngine:
                 return existing
         session = Session(session_id=session_id) if session_id else Session()
         await self._vault.create(session)
+        self._audit.session_created(session.session_id, client_supplied=bool(session_id))
         return session
 
     async def transform(
@@ -120,6 +133,11 @@ class PrivacyEngine:
         detection = await self._policy.decide(detection, context)
         result = await self._operator.pseudonymize(text, detection, session, context)
         await self._vault.save(session)
+        self._audit.transform(
+            session.session_id,
+            entity_counts=_entity_counts(detection),
+            transformations=len(result.transformations),
+        )
         return result
 
     async def restore(
@@ -139,4 +157,6 @@ class PrivacyEngine:
         if session is None:
             raise SessionNotFoundError(f"session not found: {session_id}")
         context = Context(session_id=session_id, vault=self._vault, metadata=metadata or {})
-        return await self._operator.deanonymize(text, session, context)
+        result = await self._operator.deanonymize(text, session, context)
+        self._audit.restore(session_id, transformations=len(result.transformations))
+        return result
