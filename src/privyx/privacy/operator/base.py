@@ -67,6 +67,13 @@ class BaseOperator(ABC):
     """Convenience base class for operators."""
 
     name: str = ""
+    #: How a *stream* of this operator's output is reversed.  ``"token"`` (the
+    #: default) means the substitutions are codec tokens, recognized by syntax;
+    #: ``"literal"`` means they are ordinary text, recognized by matching the
+    #: exact substituted values (a trie).  The proxies read this to pick the
+    #: streaming recognizer; operators that are not reversible can leave it as-is
+    #: (no substitution will match).
+    stream_restore: str = "token"
 
     @abstractmethod
     async def pseudonymize(

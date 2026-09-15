@@ -33,6 +33,7 @@ from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.operator.base import Operator
+from privyx.privacy.operator.faker import FakerOperator
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
@@ -63,6 +64,10 @@ def _operator_registry() -> Registry[Operator]:
     registry.register(
         "hash",
         lambda cfg: HashOperator(length=int(cfg.get("length", 12)), codec=cfg.get(_CODEC_KEY)),
+    )
+    registry.register(
+        "faker",
+        lambda cfg: FakerOperator(locale=cfg.get("locale") or None, seed=cfg.get("seed")),
     )
     return registry
 
@@ -95,10 +100,13 @@ def build_operator(
         codec: Optional token codec, handed to operators that emit tokens.
             Operators that do not (e.g. ``redact``) ignore it.
 
-    ``encrypt`` and ``faker`` are intentionally absent: they are unimplemented
-    placeholders, and registering them would let a config select an operator
-    that raises ``NotImplementedError`` on the first request instead of failing
-    at startup.
+    ``encrypt`` is intentionally absent: it is an unimplemented placeholder, and
+    registering it would let a config select an operator that raises
+    ``NotImplementedError`` on the first request instead of failing at startup.
+    ``faker`` *is* registered but needs the optional ``faker`` extra — selecting it
+    without the package installed fails at startup with a ``ConfigError`` raised
+    from :class:`~privyx.privacy.operator.faker.FakerOperator`, preserving the
+    same fail-fast guarantee.
     """
     config = config or {}
     if anchor is not None:

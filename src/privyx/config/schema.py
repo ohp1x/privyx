@@ -31,6 +31,8 @@ class OperatorConfig(BaseModel):
     type: str = "pseudonym"
     token: str = "[REDACTED]"  # redact operator
     length: int = 12  # hash operator digest length
+    locale: str = ""  # faker operator: Faker locale (empty → Faker's default)
+    seed: int | None = None  # faker operator: determinism salt
 
 
 class AnchorConfig(BaseModel):

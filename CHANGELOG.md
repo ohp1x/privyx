@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Operators
+
+- New `FakerOperator` (`operator.type: faker`): replaces each detected span with a
+  *realistic* fake of the same entity type (fake email, name, phone, SSN, …)
+  instead of a token, so a model can reason over plausibly-shaped data. Reversible
+  through the session vault; the same value fakes identically within a session and
+  — via `operator.seed` — across runs, while `operator.locale` selects the Faker
+  locale
+- Restoration is **literal**: a fake value is ordinary text with no delimiter, so
+  reversal matches the exact substituted strings (leftmost, longest-match) rather
+  than the token codec. Batch and streaming share that matching, so the
+  `stream == batch` property still holds — `StreamRouter` now takes an injectable
+  processor factory, and the transparent proxy and gateway pick the trie
+  recognizer for a literal-restore operator (`stream_restore = "literal"`) and the
+  codec recognizer otherwise
+- Documented trade-off: a fake value that also appears naturally in a response can
+  be restored by coincidence — unlike the syntactically distinctive `<PRIVYX_…>`
+  tokens. Prefer `pseudonym` when collision-free reversal matters more than realism
+- `faker` is an optional extra (`pip install privyx[faker]`); selecting it without
+  the package fails at startup with a `ConfigError`, never mid-request. It is no
+  longer a placeholder — only `encrypt` remains intentionally unregistered
+
 ### Plugins
 
 - Added a local, opt-in plugin loader configured with `plugins.paths` (or

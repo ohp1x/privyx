@@ -39,7 +39,7 @@ from privyx.core.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
-from privyx.proxy.stream_router import StreamRouter
+from privyx.proxy.stream_router import StreamRouter, select_processor_factory
 from privyx.streaming.adapters.registry import build_stream_adapter
 
 _JSON = "application/json"
@@ -202,7 +202,14 @@ class TransparentProxy:
         session = await self._engine.vault.get(session_id)
         mapping = session.mapping if session is not None else {}
         adapter = build_stream_adapter(schema or "generic")
-        router = StreamRouter(self._engine.codec, mapping.get, adapter)
+        router = StreamRouter(
+            self._engine.codec,
+            mapping.get,
+            adapter,
+            make_processor=select_processor_factory(
+                self._engine.operator, self._engine.codec, mapping.get, mapping
+            ),
+        )
         try:
             async for raw in response.aiter_bytes():
                 for out in router.feed(raw):
