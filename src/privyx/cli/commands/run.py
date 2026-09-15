@@ -175,7 +175,7 @@ async def _run_target(
         The tool's exit code.
     """
     from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx.core.builder import build_audit_logger, build_engine
     from privyx.providers.registry import build_provider, resolve_base_url
     from privyx.streaming.adapters.registry import build_stream_adapter
 
@@ -185,11 +185,14 @@ async def _run_target(
         extra["provider"]["base_url"] = upstream
     settings = load_config(config_path, extra=extra)
 
-    engine, close_vault = await build_engine(settings)
+    # The child tool owns the terminal, so we do not configure application
+    # logging here; the audit trail still records to its file.
+    audit = build_audit_logger(settings)
+    engine, close_vault = await build_engine(settings, audit=audit)
     provider = build_provider(settings)
     adapter = build_stream_adapter(settings.provider.type)
 
-    server, bound_port = _make_server(engine, provider, adapter, settings, port)
+    server, bound_port = _make_server(engine, provider, adapter, settings, port, audit)
     serve_task = asyncio.create_task(server.serve())
     try:
         await _wait_until_started(server, serve_task)
@@ -205,10 +208,11 @@ async def _run_target(
         await serve_task
         await close_vault()
         await provider.close()
+        audit.close()
 
 
 def _make_server(
-    engine: Any, provider: Any, adapter: Any, settings: Any, port: int
+    engine: Any, provider: Any, adapter: Any, settings: Any, port: int, audit: Any
 ) -> tuple[Any, int]:
     """Build a uvicorn server bound to ``port`` (0 picks a free one)."""
     import socket
@@ -224,7 +228,7 @@ def _make_server(
             port = int(sock.getsockname()[1])
 
     proxy_instance = HTTPProxy(engine=engine, provider=provider, stream_adapter=adapter)
-    gateway = Gateway(engine=engine, proxy=proxy_instance, settings=settings)
+    gateway = Gateway(engine=engine, proxy=proxy_instance, settings=settings, audit=audit)
     config = uvicorn.Config(
         gateway.app,
         host=settings.host,

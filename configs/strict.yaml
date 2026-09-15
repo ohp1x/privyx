@@ -38,3 +38,8 @@ provider:
   base_url: http://localhost:20128
   api_key: ""
   headers: {}
+
+# Keep the PII-safe audit trail on for higher-sensitivity deployments.
+audit:
+  enabled: true
+  path: privyx-audit.log

@@ -21,6 +21,7 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+*-audit.log
 .env
 .env.local
 

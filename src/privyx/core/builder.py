@@ -25,6 +25,7 @@ from typing import Any
 from privyx.config.schema import Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ConfigError
+from privyx.observability.audit import AuditLogger
 from privyx.plugins.registry import Registry
 from privyx.privacy.anchor.base import Anchor
 from privyx.privacy.anchor.hmac import HMACAnchor
@@ -177,6 +178,20 @@ def _sqlite_path(dsn: str) -> str:
     return dsn
 
 
+def build_audit_logger(settings: Settings) -> AuditLogger:
+    """Build the configured audit logger.
+
+    When ``audit.enabled`` is set, opens ``audit.path`` in append mode and hands
+    the handle to an :class:`AuditLogger`; the caller owns it and must call
+    :meth:`AuditLogger.close` on shutdown.  When disabled, returns a no-op
+    logger (a ``None`` writer), so call sites need no ``if audit:`` guards.
+    """
+    if not settings.audit.enabled:
+        return AuditLogger(None)
+    writer = open(settings.audit.path, "a", encoding="utf-8")
+    return AuditLogger(writer)
+
+
 def build_detector_from(settings: Settings) -> Detector:
     """Build the configured detector."""
     return build_detector(settings.detector.model_dump())
@@ -187,8 +202,16 @@ def build_policy_from(settings: Settings) -> Policy:
     return build_policy(settings.policy.model_dump())
 
 
-async def build_engine(settings: Settings) -> tuple[PrivacyEngine, Closer]:
+async def build_engine(
+    settings: Settings, *, audit: AuditLogger | None = None
+) -> tuple[PrivacyEngine, Closer]:
     """Assemble a :class:`PrivacyEngine` from ``settings``.
+
+    Args:
+        settings: Validated settings.
+        audit: Optional audit logger the engine emits privacy events to.  When
+            omitted the engine gets a no-op logger, so diagnostic callers (e.g.
+            ``privyx doctor``) do not open or write an audit file.
 
     Returns:
         ``(engine, closer)``.  ``closer`` releases the vault's resources and
@@ -207,5 +230,6 @@ async def build_engine(settings: Settings) -> tuple[PrivacyEngine, Closer]:
         ),
         vault=vault,
         codec=codec,
+        audit=audit,
     )
     return engine, closer

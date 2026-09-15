@@ -95,6 +95,18 @@ class ProxyConfig(BaseModel):
     passthrough_unknown: bool = True
 
 
+class AuditConfig(BaseModel):
+    """PII-safe audit trail.
+
+    Events (session created, transform, restore, proxy request) are appended as
+    JSON lines to ``path``.  The trail records counts and entity *types*, never
+    payload content; see :mod:`privyx.observability.audit`.
+    """
+
+    enabled: bool = True
+    path: str = "privyx-audit.log"
+
+
 class Settings(BaseModel):
     """Top-level Privyx settings."""
 
@@ -114,6 +126,7 @@ class Settings(BaseModel):
     token: TokenConfig = Field(default_factory=TokenConfig)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+    audit: AuditConfig = Field(default_factory=AuditConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:

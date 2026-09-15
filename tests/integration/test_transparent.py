@@ -10,12 +10,14 @@ actually received.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 from typing import Any
 
 import httpx
 
 from privyx.core.engine import PrivacyEngine
+from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy
@@ -185,6 +187,37 @@ async def test_non_chat_path_is_forwarded_verbatim() -> None:
     data = json.loads(result.body)
     # Token-shaped text on an unrouted path is not transformed.
     assert data["data"][0]["id"] == "gpt-x <PRIVYX_EMAIL_9>"
+
+
+async def test_audit_trail_records_request_without_pii() -> None:
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=audit,
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
+
+    await _post_json(
+        proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+    )
+
+    written = buf.getvalue()
+    assert EMAIL not in written  # the audit trail never carries payload content
+
+    records = [json.loads(line) for line in written.splitlines() if line]
+    assert "transform" in {r["event"] for r in records}
+    request = next(r for r in records if r["event"] == "proxy.request")
+    assert request["method"] == "POST"
+    assert request["path"] == "/v1/chat/completions"
+    assert request["schema"] == "openai"
+    assert request["status"] == 200
+    assert request["stream"] is False
+    assert request["upstream"] == "up.test"
+    assert isinstance(request["duration_ms"], int | float)
 
 
 async def test_session_header_reused_across_requests() -> None:

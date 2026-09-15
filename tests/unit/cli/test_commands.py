@@ -224,7 +224,9 @@ def test_run_unknown_target_without_env_var_is_a_usage_error(runner: CliRunner) 
     assert "--env-var" in result.output
 
 
-async def test_run_spawns_target_against_a_live_proxy(tmp_path: Path) -> None:
+async def test_run_spawns_target_against_a_live_proxy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The spawned process really can reach the proxy through the injected URL.
 
     This is the whole point of ``privyx run``: an unmodified tool talks to what
@@ -236,6 +238,10 @@ async def test_run_spawns_target_against_a_live_proxy(tmp_path: Path) -> None:
 
     pytest.importorskip("uvicorn")
     pytest.importorskip("fastapi")
+
+    # `run` writes its audit trail to audit.path; keep it inside tmp_path so the
+    # test does not drop a privyx-audit.log in the repo root.
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
 
     from privyx.cli.commands.run import Target, _run_target
 
