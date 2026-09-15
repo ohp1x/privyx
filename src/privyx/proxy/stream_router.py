@@ -35,7 +35,11 @@ from collections.abc import Callable
 from typing import Any
 
 from privyx.streaming.adapters.generic import SSEStreamAdapter
-from privyx.streaming.deanonymizer import TokenStreamProcessor
+from privyx.streaming.deanonymizer import (
+    StreamDeanonymizer,
+    StreamingDeanonymizer,
+    TokenStreamProcessor,
+)
 from privyx.streaming.sse import SSEDecoder, SSEEvent
 from privyx.token.codec import TokenCodec
 
@@ -51,6 +55,13 @@ class StreamRouter:
             token is unknown to this session (then it is passed through verbatim).
         adapter: Stream adapter for the provider; its ``schema_name`` selects the
             event-classification strategy and it locates the primary text delta.
+        make_processor: Factory for the per-field deanonymizer.  Defaults to a
+            codec :class:`TokenStreamProcessor` (recognizes ``<PRIVYX_…>`` tokens
+            by syntax).  A literal-restore operator (faker) supplies a factory
+            building a trie-based :class:`StreamingDeanonymizer` instead — see
+            :func:`select_processor_factory`.  The hold-back scan loop is
+            identical either way; only the "is there a token here?" decision
+            changes.
     """
 
     def __init__(
@@ -58,19 +69,21 @@ class StreamRouter:
         codec: TokenCodec,
         resolve: Callable[[str], str | None],
         adapter: SSEStreamAdapter,
+        make_processor: Callable[[], StreamDeanonymizer] | None = None,
     ) -> None:
         self._codec = codec
         self._resolve = resolve
         self._adapter = adapter
         self._schema = getattr(adapter, "schema_name", "generic")
+        self._make_processor = make_processor or (lambda: TokenStreamProcessor(codec, resolve))
 
         self._decoder = SSEDecoder()
         self._utf8 = codecs.getincrementaldecoder("utf-8")("replace")
 
         # Two independent deanonymizers so a held-back fragment in "thinking"
         # text never bleeds into visible text (and vice versa).
-        self._text = TokenStreamProcessor(codec, resolve)
-        self._think = TokenStreamProcessor(codec, resolve)
+        self._text = self._make_processor()
+        self._think = self._make_processor()
 
         # Templates for re-wrapping a flushed tail into the provider's schema.
         self._text_template: SSEEvent | None = None
@@ -398,9 +411,29 @@ class StreamRouter:
     # -- shared ------------------------------------------------------------
 
     def _restore_full(self, text: str) -> str:
-        """Deanonymize a complete string with the same token recognition as text."""
-        processor = TokenStreamProcessor(self._codec, self._resolve)
+        """Deanonymize a complete string with the same recognition as text."""
+        processor = self._make_processor()
         return processor.feed(text) + processor.flush()
+
+
+def select_processor_factory(
+    operator: object,
+    codec: TokenCodec,
+    resolve: Callable[[str], str | None],
+    mapping: dict[str, str],
+) -> Callable[[], StreamDeanonymizer]:
+    """Choose the streaming restorer for ``operator``.
+
+    An operator whose :attr:`~privyx.privacy.operator.base.BaseOperator.stream_restore`
+    is ``"literal"`` (faker) substitutes ordinary text, so a stream is reversed by
+    matching the exact values with a trie seeded from this session's ``mapping``.
+    Everything else restores by codec syntax (pseudonym, hash) — the default.
+    Read via ``getattr`` so any operator (including a plugin that predates the
+    attribute) defaults to the codec path.
+    """
+    if getattr(operator, "stream_restore", "token") == "literal":
+        return lambda: StreamingDeanonymizer(mapping)
+    return lambda: TokenStreamProcessor(codec, resolve)
 
 
 def _loads(data: str) -> dict[str, Any] | None:

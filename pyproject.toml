@@ -28,6 +28,7 @@ sqlite = ["aiosqlite>=0.20"]
 redis = ["redis>=5.0"]
 server = ["fastapi>=0.111", "uvicorn>=0.30", "sse-starlette>=2.1"]
 providers = ["openai>=1.30", "anthropic>=0.30"]
+faker = ["faker>=25.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -60,3 +61,9 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+# Faker is an optional extra and ships no type information for our usage; keep it
+# out of strict import checking so selecting the operator does not require stubs.
+[[tool.mypy.overrides]]
+module = ["faker.*"]
+ignore_missing_imports = true

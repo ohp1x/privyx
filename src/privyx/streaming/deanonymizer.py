@@ -30,9 +30,24 @@ pseudonyms for :class:`StreamingDeanonymizer`, or the token codec for
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol, runtime_checkable
 
 from privyx.streaming.recognizer import CodecRecognizer, Recognizer, TrieRecognizer
 from privyx.token.codec import TokenCodec
+
+
+@runtime_checkable
+class StreamDeanonymizer(Protocol):
+    """A stateful text deanonymizer fed one chunk at a time.
+
+    Both :class:`StreamingDeanonymizer` (literal-value matching) and
+    :class:`TokenStreamProcessor` (codec-syntax matching) satisfy this, so a
+    caller can pick the restoration strategy without depending on which.
+    """
+
+    def feed(self, chunk: str) -> str: ...
+
+    def flush(self) -> str: ...
 
 
 class _BufferedStream:

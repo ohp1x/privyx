@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from privyx.proxy.stream_router import StreamRouter
+from privyx.proxy.stream_router import StreamRouter, select_processor_factory
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+from privyx.streaming.deanonymizer import StreamingDeanonymizer, TokenStreamProcessor
 from privyx.streaming.sse import SSEDecoder
 from privyx.token.codec import FormatCodec
 
@@ -215,3 +216,46 @@ def test_anthropic_tool_use_buffered_and_restored() -> None:
     ]
     assert len(input_events) == 1
     assert json.loads(input_events[0]["delta"]["partial_json"])["to"] == ORIG
+
+
+# --------------------------------------------------------------------------
+# Literal (faker) restore: match exact substituted values, not codec tokens
+
+
+def test_literal_factory_restores_substituted_values_across_chunks() -> None:
+    """A trie factory restores plain fake values even when split across deltas."""
+    adapter = OpenAIStreamAdapter()
+    mapping = {"Jane Fake": "Alice Real"}
+    router = StreamRouter(
+        FormatCodec.default(),
+        mapping.get,
+        adapter,
+        make_processor=lambda: StreamingDeanonymizer(mapping),
+    )
+    body = "".join(
+        _openai_frame({"choices": [{"delta": {"content": c}}]})
+        for c in ["Hello ", "Jane ", "Fake", "!"]
+    ) + "data: [DONE]\n\n"
+
+    out = _run(router, body)
+
+    assert "Jane Fake" not in out
+    assert _collect_text(out, adapter) == "Hello Alice Real!"
+    assert out.endswith("data: [DONE]\n\n")
+
+
+def test_select_processor_factory_picks_recognizer_by_operator() -> None:
+    class _Literal:
+        stream_restore = "literal"
+
+    class _Token:
+        pass  # no attribute → defaults to the codec recognizer
+
+    mapping = {"fake": "real"}
+    codec = FormatCodec.default()
+
+    literal = select_processor_factory(_Literal(), codec, mapping.get, mapping)
+    token = select_processor_factory(_Token(), codec, mapping.get, mapping)
+
+    assert isinstance(literal(), StreamingDeanonymizer)
+    assert isinstance(token(), TokenStreamProcessor)
