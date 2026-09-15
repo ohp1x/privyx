@@ -38,6 +38,9 @@ def env_config() -> dict[str, Any]:
     anchor_secret = _env("ANCHOR_SECRET")
     if anchor_secret:
         cfg.setdefault("anchor", {})["secret"] = anchor_secret
+    encrypt_key = _env("ENCRYPT_KEY")
+    if encrypt_key:
+        cfg.setdefault("operator", {})["key"] = encrypt_key
     token_format = _env("TOKEN_FORMAT")
     if token_format:
         cfg.setdefault("token", {})["format"] = token_format

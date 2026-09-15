@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from privyx.core.context import Context
@@ -31,7 +32,12 @@ class Operator(Protocol):
     ) -> TransformResult: ...
 
 
-def restore(text: str, session: Session, codec: TokenCodec) -> TransformResult:
+def restore(
+    text: str,
+    session: Session,
+    codec: TokenCodec,
+    resolve: Callable[[str], str | None] | None = None,
+) -> TransformResult:
     """Replace every token in ``text`` that ``session`` knows about.
 
     Shared by the reversible operators: the *codec* decides what a token looks
@@ -48,12 +54,17 @@ def restore(text: str, session: Session, codec: TokenCodec) -> TransformResult:
         text: Text containing tokens.
         session: Source of truth for token text → original.
         codec: Locates tokens in ``text``.
+        resolve: Maps a token's text to its original value, or ``None`` when the
+            token is unknown.  Defaults to the session mapping's own lookup;
+            ``encrypt`` supplies a decrypting resolver because its mapping stores
+            ciphertext rather than plaintext.
     """
+    resolve = resolve if resolve is not None else session.get
     result_text = text
     transforms: list[Transformation] = []
 
     for match in sorted(codec.finditer(text), key=lambda m: m.start, reverse=True):
-        original = session.get(match.text)
+        original = resolve(match.text)
         if original is None:
             continue
         result_text = result_text[: match.start] + original + result_text[match.end :]
@@ -74,6 +85,17 @@ class BaseOperator(ABC):
     #: streaming recognizer; operators that are not reversible can leave it as-is
     #: (no substitution will match).
     stream_restore: str = "token"
+
+    def build_resolver(self, mapping: dict[str, str]) -> Callable[[str], str | None]:
+        """Map a token's text to its original value, for restore (batch + stream).
+
+        The default is the session mapping's own lookup, because most operators
+        store the plaintext there.  An operator whose mapping value is *not* the
+        plaintext overrides this: ``encrypt`` stores ciphertext and returns a
+        resolver that decrypts.  Read by the proxies via ``resolver_for`` so a
+        plugin predating this method still works.
+        """
+        return mapping.get
 
     @abstractmethod
     async def pseudonymize(

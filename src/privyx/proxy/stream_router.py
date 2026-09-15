@@ -416,6 +416,22 @@ class StreamRouter:
         return processor.feed(text) + processor.flush()
 
 
+def resolver_for(operator: object, mapping: dict[str, str]) -> Callable[[str], str | None]:
+    """Build the token → original resolver for ``operator`` over ``mapping``.
+
+    Most operators store the plaintext in the mapping, so the resolver is just
+    ``mapping.get``.  An operator whose mapping value is not the plaintext
+    (``encrypt`` stores ciphertext) overrides
+    :meth:`~privyx.privacy.operator.base.BaseOperator.build_resolver` to transform
+    it.  Read via ``getattr`` so a plugin predating the method still resolves.
+    """
+    builder = getattr(operator, "build_resolver", None)
+    if callable(builder):
+        resolver: Callable[[str], str | None] = builder(mapping)
+        return resolver
+    return mapping.get
+
+
 def select_processor_factory(
     operator: object,
     codec: TokenCodec,
