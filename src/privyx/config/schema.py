@@ -20,6 +20,10 @@ class VaultConfig(BaseModel):
 class DetectorConfig(BaseModel):
     type: str = "regex"
     patterns: dict[str, str] = Field(default_factory=dict)
+    language: str = "en"  # presidio detector
+    model: str = ""  # presidio detector: spaCy model (empty → {language}_core_web_sm)
+    entities: list[str] = Field(default_factory=list)  # presidio: empty → all recognizers
+    score_threshold: float = 0.35  # presidio detector: minimum confidence
 
 
 class PolicyConfig(BaseModel):

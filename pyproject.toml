@@ -29,6 +29,7 @@ redis = ["redis>=5.0"]
 server = ["fastapi>=0.111", "uvicorn>=0.30", "sse-starlette>=2.1"]
 providers = ["openai>=1.30", "anthropic>=0.30"]
 faker = ["faker>=25.0"]
+presidio = ["presidio-analyzer>=2.2", "spacy>=3.6"]
 crypto = ["cryptography>=42"]
 dev = [
     "pytest>=8.0",

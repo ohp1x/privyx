@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Detectors
+
+- `detector.type: presidio` is now selectable. The `PresidioDetector` class
+  existed and its docstring told you to enable it via config, but
+  `build_detector` only knew `regex`, `yaml`, and plugins — so that config
+  failed with `unknown detector type: presidio`
+- Presidio entity names are translated to the vocabulary the rest of Privyx
+  speaks (`EMAIL_ADDRESS` → `EMAIL`, `PHONE_NUMBER` → `PHONE`, `US_SSN` → `SSN`,
+  …). Without this, `policy: strict` would drop every Presidio span — its
+  allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched.
+  Unlisted types keep their Presidio name
+- The spaCy NLP engine is configured explicitly (`detector.model`, default
+  `{language}_core_web_sm`) instead of relying on Presidio's default, which
+  quietly expects `en_core_web_lg` to be installed
+- New config: `detector.language`, `detector.model`, `detector.entities`
+  (empty → every recognizer), `detector.score_threshold` (default `0.35`;
+  Presidio scores NER hits well below 1.0)
+- `presidio` is an optional extra (`pip install privyx[presidio]`); a missing
+  package or a missing spaCy model fails at startup with a `ConfigError`, never
+  mid-request, matching the `faker` and `encrypt` contract. Analyzers are cached
+  per `(language, model)` so repeated builds do not reload spaCy
+- The `llm` detector remains unregistered
+
 ### Operators
 
 - New `FakerOperator` (`operator.type: faker`): replaces each detected span with a

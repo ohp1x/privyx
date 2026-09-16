@@ -52,6 +52,15 @@ def build_detector(config: dict[str, Any]) -> Detector:
     if dtype == "yaml":
         _validate(patterns)
         return YamlDetector(patterns)
+    if dtype == "presidio":
+        from privyx.privacy.detector.presidio import PresidioDetector
+
+        return PresidioDetector(
+            language=config.get("language", "en"),
+            model=config.get("model", ""),
+            entities=list(config.get("entities", [])) or None,
+            score_threshold=float(config.get("score_threshold", 0.35)),
+        )
     if dtype in PLUGINS.detectors:
         return PLUGINS.detectors.build(config)
     raise ConfigError(f"unknown detector type: {dtype}")
