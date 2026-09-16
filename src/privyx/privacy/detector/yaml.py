@@ -10,14 +10,22 @@ from privyx.plugins.registry import PLUGINS
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector, YamlDetector
 
+#: Entity names must round-trip through a token, so they follow the codec's
+#: ``type`` grammar (see :mod:`privyx.token.codec`).
+_ENTITY_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
+
 
 def build_detector(config: dict[str, Any]) -> Detector:
     """Build a detector from a config dict.
 
     Supports:
-        - ``{"type": "regex", "patterns": {...}}``
-        - ``{"type": "yaml", "patterns": {...}}``
+        - ``{"type": "regex", "patterns": {...}, "terms": {...}}``
+        - ``{"type": "yaml", "patterns": {...}, "terms": {...}}``
         - a list of such configs → merged into a single detector.
+
+    ``patterns`` maps an entity to a regex; ``terms`` maps an entity to a list
+    of literal strings, compiled here into one case-insensitive regex.  Both may
+    be set at once — see :func:`_patterns_from` for how they combine.
 
     A ``regex`` detector layers the configured patterns *over* the built-in
     set, so adding one custom pattern never silently disables EMAIL/SSN/etc.
@@ -67,8 +75,19 @@ def build_detector(config: dict[str, Any]) -> Detector:
 
 
 def _validate(patterns: dict[str, str]) -> None:
-    """Fail fast on an invalid regex rather than at first request."""
+    """Fail fast on an invalid entity name or regex rather than at first request.
+
+    The name check mirrors the token codec's ``type`` grammar
+    (:data:`privyx.token.codec._DEFAULT_GRAMMARS`): an entity that cannot be
+    serialized into a token would otherwise only blow up mid-request, once
+    something is actually detected.
+    """
     for entity, pattern in patterns.items():
+        if not _ENTITY_NAME.fullmatch(entity):
+            raise ConfigError(
+                f"invalid entity name {entity!r}: must start with a letter and "
+                "contain only letters, digits, or underscores (max 64 chars)"
+            )
         try:
             re.compile(pattern)
         except re.error as exc:
@@ -76,7 +95,60 @@ def _validate(patterns: dict[str, str]) -> None:
 
 
 def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
+    """Collect ``terms`` and ``patterns`` into a single entity -> regex map.
+
+    A hand-written ``patterns`` entry wins over a ``terms`` entry for the same
+    entity: writing the regex yourself is the deliberate choice.  Entities that
+    appear in only one of the two are all kept.
+    """
     patterns = config.get("patterns", {})
     if not isinstance(patterns, dict):
         raise ConfigError("detector 'patterns' must be a mapping of entity -> regex")
-    return {str(k): str(v) for k, v in patterns.items()}
+    compiled = {str(k): str(v) for k, v in patterns.items()}
+    return {**_terms_to_patterns(config.get("terms", {})), **compiled}
+
+
+def _terms_to_patterns(terms: Any) -> dict[str, str]:
+    """Compile literal term lists into one case-insensitive regex per entity.
+
+    Matching is case-insensitive via an inline ``(?i:...)`` group rather than a
+    compile flag, so the detectors stay untouched and a hand-written ``patterns``
+    regex keeps its own (case-sensitive) semantics.
+
+    Terms are ordered longest-first so a compound term wins over a substring of
+    itself, and each one gets word boundaries only on the sides where it ends in
+    a word character — that keeps ``ann`` out of ``annual`` while still matching
+    a URL that ends in ``/``.
+    """
+    if not isinstance(terms, dict):
+        raise ConfigError("detector 'terms' must be a mapping of entity -> list of strings")
+
+    patterns: dict[str, str] = {}
+    for entity, values in terms.items():
+        if isinstance(values, str) or not isinstance(values, (list, tuple)):
+            raise ConfigError(
+                f"detector 'terms' for entity {str(entity)!r} must be a list of strings, "
+                f"got {type(values).__name__}"
+            )
+        cleaned = {str(v).strip() for v in values}
+        cleaned.discard("")
+        if not cleaned:
+            # An empty alternation would match the empty string everywhere.
+            continue
+        # Longest first; the alphabetical tie-break keeps the pattern stable
+        # across runs, since `cleaned` is a set.
+        ordered = sorted(cleaned, key=lambda term: (-len(term), term))
+        alternatives = [_bounded(term) for term in ordered]
+        patterns[str(entity)] = "(?i:" + "|".join(alternatives) + ")"
+    return patterns
+
+
+def _bounded(term: str) -> str:
+    """Escape ``term`` and guard the sides that would otherwise match mid-word."""
+    prefix = r"(?<!\w)" if _is_word_char(term[0]) else ""
+    suffix = r"(?!\w)" if _is_word_char(term[-1]) else ""
+    return f"{prefix}{re.escape(term)}{suffix}"
+
+
+def _is_word_char(char: str) -> bool:
+    return char.isalnum() or char == "_"

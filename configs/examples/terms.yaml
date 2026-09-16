@@ -1,0 +1,32 @@
+# Example: pseudonymize your own list of literal terms
+#
+# `terms` takes plain strings — Privyx escapes them, orders the longest first so
+# a compound term wins over a substring of itself, and adds word boundaries.
+# Matching is case-insensitive.  The entity name is yours to choose; it is the
+# {type} in the emitted token, e.g. <PRIVYX_PERSON_1>.
+#
+# Every value below is a placeholder — replace it with your own.
+
+detector:
+  type: regex               # keeps the built-in EMAIL/PHONE/CREDIT_CARD/IP_ADDRESS/SSN
+
+  terms:
+    PERSON:       [ann, bob, annbob]
+    ORGANIZATION: [acme, initech]
+    URL:          ["https://git.internal.example/team"]
+    PROJECT:      [bluebird]          # any entity name works
+
+  # `terms` and `patterns` are merged, so hand-written regexes still work.
+  patterns:
+    EMPLOYEE_ID: "\\bEMP-\\d{6}\\b"
+
+operator:
+  type: pseudonym
+
+vault:
+  type: memory
+
+# With `policy.type: strict`, every entity above would also need to appear in
+# `policy.allowed` — the default policy passes everything through.
+policy:
+  type: default
