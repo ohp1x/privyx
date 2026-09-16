@@ -58,6 +58,9 @@ detector:
 ```bash
 privyx detect -c my.yaml --transform "ann at acme"   # → <PRIVYX_PERSON_1> at <PRIVYX_ORGANIZATION_2>
 privyx proxy -c my.yaml --upstream https://api.openai.com
+
+# While tuning the list: --reload restarts the proxy whenever my.yaml changes
+privyx proxy -c my.yaml --reload --upstream https://api.openai.com
 ```
 
 The entity name is yours to choose — it becomes the `{type}` in the token.

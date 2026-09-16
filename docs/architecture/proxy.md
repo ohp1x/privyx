@@ -15,6 +15,16 @@
 - **`gateway`** — a narrow app exposing only `POST /v1/chat/completions`
   (OpenAI schema). Kept for chat-only deployments.
 
+`--reload` (development only, off by default) watches the *config file* — the
+one passed with `-c` or named by `PRIVYX_CONFIG`, not the source code — and
+restarts the server when it changes: uvicorn shuts down gracefully, then the
+engine, vault, plugins, and provider are built again from the new settings. It
+is a restart, not a hot swap, so in-flight requests finish and the listener is
+briefly gone, and an in-memory vault starts empty again (a `sqlite`/encrypted
+vault keeps its mappings). A config that fails to parse or to build is reported
+and the watcher keeps waiting, so a typo pauses the proxy instead of killing the
+process.
+
 Both modes share one implementation of request pseudonymization
 (`proxy/schemas.py`), batch restore (`proxy/schemas.py`), and streaming restore
 (`proxy/stream_router.py`); the transparent proxy only adds path routing,

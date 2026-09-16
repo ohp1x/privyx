@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### CLI
 
+- `privyx proxy --reload` restarts the server when the config file changes, for
+  tuning detectors and policies without a manual restart. Off by default; it is
+  a restart rather than a hot swap, so in-flight requests finish and an
+  in-memory vault starts empty again. A config that does not parse or does not
+  build is reported and the watcher waits for the next edit instead of exiting
+- A config file with invalid YAML now raises a `ConfigError` with the parser's
+  message instead of surfacing a raw `yaml` traceback
+
 - `privyx mask` / `privyx unmask` — pseudonymize and restore text without the
   proxy, for use in pipelines or from another project. Input comes from
   positional arguments, `--stdin`, or `-i FILE` (`-` for stdin); output goes to
