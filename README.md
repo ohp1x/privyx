@@ -39,6 +39,29 @@ Chat requests are pseudonymized before forwarding and the reply is restored on
 the way back (batch or streaming, including tool-call arguments); every other
 path is forwarded verbatim. Use `--gateway` for the narrow chat-only app.
 
+### Pseudonymizing your own terms
+
+Beyond the built-in patterns, `detector.terms` takes plain word lists — Privyx
+escapes them and matches case-insensitively, longest term first:
+
+```yaml
+# my.yaml
+detector:
+  type: regex                 # keeps the built-in EMAIL/PHONE/CREDIT_CARD/IP_ADDRESS/SSN
+  terms:
+    PERSON:       [ann, bob]
+    ORGANIZATION: [acme, initech]
+    URL:          ["https://git.internal.example/team"]
+```
+
+```bash
+privyx detect -c my.yaml --transform "ann at acme"   # → <PRIVYX_PERSON_1> at <PRIVYX_ORGANIZATION_2>
+privyx proxy -c my.yaml --upstream https://api.openai.com
+```
+
+The entity name is yours to choose — it becomes the `{type}` in the token.
+`terms` and `patterns` can both be set; see `configs/examples/terms.yaml`.
+
 ## Installation
 
 ```bash

@@ -18,8 +18,18 @@ class VaultConfig(BaseModel):
 
 
 class DetectorConfig(BaseModel):
+    """Detector selection and its rules.
+
+    ``patterns`` and ``terms`` are complementary and may both be set: the first
+    is entity -> regex, the second entity -> a list of literal strings that
+    Privyx escapes and compiles for you (case-insensitively).  They are merged
+    into one pattern map; a hand-written ``patterns`` entry wins over a ``terms``
+    entry for the same entity.
+    """
+
     type: str = "regex"
     patterns: dict[str, str] = Field(default_factory=dict)
+    terms: dict[str, list[str]] = Field(default_factory=dict)
     language: str = "en"  # presidio detector
     model: str = ""  # presidio detector: spaCy model (empty → {language}_core_web_sm)
     entities: list[str] = Field(default_factory=list)  # presidio: empty → all recognizers

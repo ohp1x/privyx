@@ -26,6 +26,8 @@ DEFAULTS: dict[str, object] = {
     "detector": {
         "type": "regex",
         "patterns": dict(DEFAULT_PATTERNS),
+        # Literal term lists (entity -> list of strings); empty by default.
+        "terms": {},
     },
     "policy": {"type": "default"},
     "operator": {"type": "pseudonym"},

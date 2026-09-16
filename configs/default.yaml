@@ -24,9 +24,26 @@ vault:
 # Omit `patterns` to use the built-in set (EMAIL, PHONE, CREDIT_CARD,
 # IP_ADDRESS, SSN).  Any patterns listed here are merged over the built-ins,
 # so you only need to name the ones you want to override or add.
+#
+# `terms` is the same idea for literal strings: give it a list and Privyx
+# escapes each one, orders the longest first, and adds word boundaries for you.
+# Matching is case-insensitive (`patterns` regexes stay case-sensitive).  The
+# entity name is whatever you write — it is the {type} in the token, so it must
+# start with a letter and contain only letters, digits, or underscores.
+#
+# `terms` and `patterns` can both be set; they are merged.  If the same entity
+# appears in both, the hand-written `patterns` regex wins.
+#
+# Note: with `policy.type: strict`, any entity you add here must also be listed
+# in `policy.allowed` or it will be detected and then silently dropped.
 detector:
   type: regex
   patterns: {}
+  terms: {}
+  # terms:
+  #   PERSON:       [ann, bob]
+  #   ORGANIZATION: [acme, initech]
+  #   URL:          ["https://git.internal.example/team"]
 
 # --- Policy ---
 policy:

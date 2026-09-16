@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Detectors
 
+- `detector.terms` takes a literal word list per entity —
+  `PERSON: [ann, bob]` — instead of a hand-written regex. Privyx escapes each
+  term, orders the longest first so a compound term wins over a substring of
+  itself, and adds word boundaries only where the term ends in a word
+  character, so a URL still matches whole. Matching is case-insensitive.
+  `terms` and `patterns` are merged rather than exclusive; when both name the
+  same entity the hand-written regex wins
+- An invalid entity name in `detector.patterns` or `detector.terms` is now
+  rejected at startup instead of raising mid-request on the first detection.
+  Names follow the token codec's grammar: a letter, then letters, digits, or
+  underscores
+
 - `detector.type: presidio` is now selectable. The `PresidioDetector` class
   existed and its docstring told you to enable it via config, but
   `build_detector` only knew `regex`, `yaml`, and plugins — so that config
