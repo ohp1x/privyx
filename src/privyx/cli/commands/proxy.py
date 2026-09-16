@@ -221,26 +221,24 @@ async def _serve_transparent(
 async def _serve_gateway(
     settings: Any, engine: Any, audit: Any, reload_event: asyncio.Event | None = None
 ) -> None:
-    """Serve the narrow chat-only gateway."""
+    """Serve the gateway: our own endpoints, one fixed upstream endpoint."""
     import uvicorn
 
     from privyx.gateway.server import Gateway
     from privyx.providers.registry import build_provider, resolve_base_url
-    from privyx.proxy.http import HTTPProxy
-    from privyx.streaming.adapters.registry import build_stream_adapter
 
     provider = build_provider(settings)
-    adapter = build_stream_adapter(settings.provider.type)
+    gateway = Gateway(engine=engine, provider=provider, settings=settings, audit=audit)
 
+    routes = ", ".join(f"{path}→{schema}" for path, schema in gateway.routes.items())
     click.echo(f"Privyx proxy listening on http://{settings.host}:{settings.port}")
     click.echo(f"Upstream: {resolve_base_url(settings)}")
+    click.echo(f"Routes: {routes}")
     click.echo(
         f"Engine: detector={settings.detector.type} policy={settings.policy.type} "
         f"operator={settings.operator.type} vault={settings.vault.type}"
     )
 
-    proxy_instance = HTTPProxy(engine=engine, provider=provider, stream_adapter=adapter)
-    gateway = Gateway(engine=engine, proxy=proxy_instance, settings=settings, audit=audit)
     server = uvicorn.Server(
         uvicorn.Config(
             gateway.app, host=settings.host, port=settings.port, log_level=settings.log_level

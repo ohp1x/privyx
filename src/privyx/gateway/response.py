@@ -1,1 +1,0 @@
-"""Response processing utilities for the gateway."""

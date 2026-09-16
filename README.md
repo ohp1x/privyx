@@ -38,7 +38,12 @@ export ANTHROPIC_BASE_URL=http://localhost:8000      # Anthropic clients
 
 Chat requests are pseudonymized before forwarding and the reply is restored on
 the way back (batch or streaming, including tool-call arguments); every other
-path is forwarded verbatim. Use `--gateway` for the narrow chat-only app.
+path is forwarded verbatim.
+
+Use `--gateway` when the upstream endpoint carries a base path (say
+`https://api.deepseek.com/anthropic/v1/messages`): that mode serves Privyx's own
+endpoints and posts to `provider.base_url` verbatim, instead of appending the
+client's path to a bare origin. See [docs/architecture/proxy.md](docs/architecture/proxy.md).
 
 ### Pseudonymizing your own terms
 

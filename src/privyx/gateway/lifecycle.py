@@ -1,1 +1,0 @@
-"""Gateway lifecycle management (startup/shutdown hooks)."""
