@@ -439,3 +439,31 @@ def test_mask_without_input_exits_nonzero(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["mask"])
 
     assert result.exit_code == 1
+
+
+# --------------------------------------------------------------------------
+# proxy
+
+
+def test_proxy_reload_restarts_and_rereads_config(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--reload` re-runs the server with the *new* config, then exits cleanly."""
+    config = tmp_path / "c.yaml"
+    config.write_text("port: 9001\n", encoding="utf-8")
+    ports: list[int] = []
+
+    async def fake_run_server(settings: object, watch_path: Path | None = None) -> bool:
+        assert watch_path == config
+        ports.append(settings.port)  # type: ignore[attr-defined]
+        if len(ports) == 1:
+            config.write_text("port: 9002\n", encoding="utf-8")
+            return True  # as if the watcher had fired
+        return False
+
+    monkeypatch.setattr("privyx.cli.commands.proxy._run_server", fake_run_server)
+
+    result = runner.invoke(cli, ["proxy", "--reload", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert ports == [9001, 9002]

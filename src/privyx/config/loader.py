@@ -61,7 +61,10 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"config file not found: {path}")
     with path.open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
+        try:
+            data = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            raise ConfigError(f"config file is not valid YAML: {path}: {exc}") from exc
     if data is None:
         return {}
     if not isinstance(data, dict):
