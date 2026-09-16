@@ -99,7 +99,14 @@ class AuditLogger:
             entity_counts: ``{entity_type: count}`` histogram — types and counts
                 only, never the matched text.
             transformations: Number of replacements applied.
+
+        A no-op transform (``transformations == 0``) is not recorded: the bulk
+        of a proxied request is untouched text, and one line per skipped field
+        buries the events that matter.  ``proxy.request`` still records that the
+        call happened.
         """
+        if not transformations:
+            return
         self.emit(
             "transform",
             session_id=session_id,
@@ -108,7 +115,9 @@ class AuditLogger:
         )
 
     def restore(self, session_id: str, *, transformations: int) -> None:
-        """Pseudonyms were reversed in a response."""
+        """Pseudonyms were reversed in a response; a no-op restore is not recorded."""
+        if not transformations:
+            return
         self.emit("restore", session_id=session_id, transformations=transformations)
 
     def request(

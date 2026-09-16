@@ -135,3 +135,14 @@ def test_build_audit_logger_disabled_is_noop(tmp_path: Path) -> None:
 
     assert audit.enabled is False
     assert not path.exists()  # disabled must not open or create the file
+
+
+def test_no_op_transform_and_restore_are_not_recorded() -> None:
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+
+    audit.transform("ses_1", entity_counts={}, transformations=0)
+    audit.restore("ses_1", transformations=0)
+    audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
+
+    assert [r["event"] for r in _lines(buf)] == ["transform"]

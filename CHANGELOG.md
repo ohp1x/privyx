@@ -140,6 +140,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config: `audit.enabled` / `audit.path` (`PRIVYX_AUDIT_ENABLED`,
   `PRIVYX_AUDIT_PATH`). Writes are resilient — a failed write is logged and
   swallowed, never breaking a request
+- A no-op `transform` or `restore` (zero replacements) is no longer recorded.
+  Most of a proxied request is untouched text — system prompt, every content
+  block, every tool result — and one line per skipped field buried the events
+  that matter; `proxy.request` still records that the call happened
 
 ### Token system
 
