@@ -195,6 +195,7 @@ async def _serve_transparent(
         api_key=settings.provider.api_key or None,
         extra_headers=dict(settings.provider.headers),
         audit=audit,
+        session_strategy=settings.session.strategy,
     )
 
     routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())
@@ -203,7 +204,8 @@ async def _serve_transparent(
     click.echo(f"Routes: {routes}")
     click.echo(
         f"Engine: detector={settings.detector.type} policy={settings.policy.type} "
-        f"operator={settings.operator.type} vault={settings.vault.type}"
+        f"operator={settings.operator.type} vault={settings.vault.type} "
+        f"session={settings.session.strategy}"
     )
 
     app = create_transparent_app(engine, proxy_instance, settings)
@@ -236,7 +238,8 @@ async def _serve_gateway(
     click.echo(f"Routes: {routes}")
     click.echo(
         f"Engine: detector={settings.detector.type} policy={settings.policy.type} "
-        f"operator={settings.operator.type} vault={settings.vault.type}"
+        f"operator={settings.operator.type} vault={settings.vault.type} "
+        f"session={settings.session.strategy}"
     )
 
     server = uvicorn.Server(

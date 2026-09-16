@@ -86,9 +86,29 @@ class AuditLogger:
 
     # -- typed, PII-safe helpers ------------------------------------------
 
-    def session_created(self, session_id: str, *, client_supplied: bool = False) -> None:
-        """A new session was created (``client_supplied`` = id came from the client)."""
-        self.emit("session.created", session_id=session_id, client_supplied=client_supplied)
+    def session_created(
+        self,
+        session_id: str,
+        *,
+        source: str = "ephemeral",
+        client_supplied: bool | None = None,
+    ) -> None:
+        """A new session was created.
+
+        ``source`` records how its id was chosen — ``header`` (the client sent
+        ``x-privyx-session``), ``client`` / ``conversation`` (derived by the proxy
+        from the request; see :mod:`privyx.proxy.session`), or ``ephemeral`` (a
+        fresh per-request id).  ``client_supplied`` is kept for back-compat and
+        defaults to ``source == "header"``.
+        """
+        if client_supplied is None:
+            client_supplied = source == "header"
+        self.emit(
+            "session.created",
+            session_id=session_id,
+            source=source,
+            client_supplied=client_supplied,
+        )
 
     def transform(
         self, session_id: str, *, entity_counts: dict[str, int], transformations: int

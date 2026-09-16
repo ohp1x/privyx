@@ -12,7 +12,9 @@ no interaction between them.
 from __future__ import annotations
 
 import hmac
+import os
 from hashlib import sha256
+from pathlib import Path
 
 from privyx.core.errors import ConfigError
 
@@ -62,3 +64,42 @@ def generate_key() -> str:
     import secrets
 
     return secrets.token_hex(KEY_BYTES)
+
+
+def default_anchor_secret_path() -> Path:
+    """Where a per-user anchor secret is persisted by default.
+
+    ``$XDG_CONFIG_HOME/privyx/anchor.key``, falling back to
+    ``~/.config/privyx/anchor.key``.
+    """
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return Path(base) / "privyx" / "anchor.key"
+
+
+def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
+    """Return a persisted per-user anchor secret, creating it on first use.
+
+    The secret (64 hex chars) lives at ``path`` (default
+    :func:`default_anchor_secret_path`) with owner-only permissions, so
+    pseudonyms stay stable across runs.  Used by ``privyx run`` to make aliases
+    stable out of the box without changing the library default (an empty
+    ``anchor.secret`` still means "no anchoring").  If the secret cannot be
+    persisted, a fresh in-memory one is returned so the current run is still
+    internally consistent.
+    """
+    target = Path(path) if path is not None else default_anchor_secret_path()
+    try:
+        existing = target.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass  # missing or unreadable — fall through and (re)create
+
+    secret = generate_key()
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(secret, encoding="utf-8")
+        target.chmod(0o600)
+    except OSError:
+        pass  # best effort: an unwritable location still yields a working secret
+    return secret

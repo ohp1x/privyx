@@ -83,6 +83,18 @@ TARGETS: dict[str, Target] = {
     multiple=True,
     help="Extra environment variable to set to the proxy URL (repeatable)",
 )
+@click.option(
+    "--session-strategy",
+    type=click.Choice(["ephemeral", "client", "conversation"]),
+    default=None,
+    help="Session identity for header-less clients (default: conversation).",
+)
+@click.option(
+    "--no-anchor",
+    is_flag=True,
+    default=False,
+    help="Don't auto-provision an anchor secret; leave pseudonym anchoring to config.",
+)
 @click.option("--list", "list_targets", is_flag=True, help="List known targets and exit")
 def run(
     target: str | None,
@@ -92,6 +104,8 @@ def run(
     upstream: str | None,
     port: int,
     env_vars: tuple[str, ...],
+    session_strategy: str | None,
+    no_anchor: bool,
     list_targets: bool,
 ) -> None:
     """Run TARGET with its traffic routed through Privyx.
@@ -153,6 +167,8 @@ def run(
                 upstream=upstream,
                 port=port,
                 env_vars=all_env_vars,
+                session_strategy=session_strategy,
+                no_anchor=no_anchor,
             )
         )
     except PrivyxError as exc:
@@ -168,8 +184,16 @@ async def _run_target(
     upstream: str | None,
     port: int,
     env_vars: tuple[str, ...],
+    session_strategy: str | None = None,
+    no_anchor: bool = False,
 ) -> int:
     """Start the proxy, run the tool against it, and tear everything down.
+
+    ``privyx run`` is opinionated where the library is neutral: unless the user
+    says otherwise it treats one conversation as one session and provisions an
+    anchor secret, so aliases are stable across turns and restarts out of the
+    box.  These are *defaults* (``base_extra``) the user's own config/env still
+    overrides; an explicit ``--session-strategy`` is a hard override (``extra``).
 
     Returns:
         The tool's exit code.
@@ -178,12 +202,22 @@ async def _run_target(
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider, resolve_base_url
+    from privyx.security.keys import read_or_create_anchor_secret
 
     extra: dict[str, Any] = {"provider": {"type": spec.provider}}
     if upstream is not None:
         extra["upstream_url"] = upstream
         extra["provider"]["base_url"] = upstream
-    settings = load_config(config_path, extra=extra)
+
+    base_extra: dict[str, Any] = {}
+    if session_strategy is None:
+        base_extra["session"] = {"strategy": "conversation"}
+    else:
+        extra["session"] = {"strategy": session_strategy}
+    if not no_anchor:
+        base_extra["anchor"] = {"secret": read_or_create_anchor_secret()}
+
+    settings = load_config(config_path, extra=extra, base_extra=base_extra)
 
     # The child tool owns the terminal, so we do not configure application
     # logging here; the audit trail still records to its file.

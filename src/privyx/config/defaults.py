@@ -32,6 +32,9 @@ DEFAULTS: dict[str, object] = {
     "policy": {"type": "default"},
     "operator": {"type": "pseudonym"},
     "anchor": {"type": "hmac", "secret": ""},
+    # Session identity when the client sends no x-privyx-session header.
+    # ephemeral (default) is safe and unchanged; see SessionConfig for the rest.
+    "session": {"strategy": "ephemeral"},
     "token": {"namespace": "PRIVYX", "format": "<{namespace}_{type}_{id}>"},
     "provider": {
         "type": "generic",

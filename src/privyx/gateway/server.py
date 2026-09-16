@@ -25,6 +25,7 @@ from privyx.core.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
+from privyx.proxy.session import resolve_session_id
 from privyx.streaming.adapters.registry import build_stream_adapter
 
 try:
@@ -59,6 +60,7 @@ class Gateway:
         self._settings = settings
         self._audit = audit or AuditLogger(None)
         self._upstream_host = _upstream_host(settings)
+        self._session_strategy = settings.session.strategy if settings else "ephemeral"
         self._routes = dict(settings.proxy.routes) if settings else ProxyConfig().routes
         # One proxy per schema: the stream adapter (and the schema used to
         # restore a batch response) is per-instance, while the provider — hence
@@ -100,11 +102,17 @@ class Gateway:
 
             start = time.perf_counter()
             payload = await request.json()
-            session_id = request.headers.get("x-privyx-session")
+            session_id, source = resolve_session_id(
+                self._session_strategy,
+                header_value=request.headers.get("x-privyx-session"),
+                headers=request.headers,
+                payload=payload,
+                schema=schema,
+            )
             is_stream = bool(payload.get("stream", False))
 
             transformed, session_id = await proxy.process_request(
-                payload, session_id=session_id
+                payload, session_id=session_id, source=source
             )
 
             if session_id is None:

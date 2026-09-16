@@ -19,7 +19,7 @@ from collections import Counter
 from typing import Any
 
 from privyx.core.context import Context
-from privyx.core.errors import ConfigError
+from privyx.core.errors import ConfigError, VaultError
 from privyx.core.result import Detection, TransformResult
 from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
@@ -96,15 +96,31 @@ class PrivacyEngine:
     def codec(self) -> TokenCodec:
         return self._codec
 
-    async def get_or_create_session(self, session_id: str | None = None) -> Session:
-        """Return an existing session or create (and persist) a new one."""
+    async def get_or_create_session(
+        self, session_id: str | None = None, *, source: str = "ephemeral"
+    ) -> Session:
+        """Return an existing session or create (and persist) a new one.
+
+        ``source`` is recorded on the ``session.created`` audit event and
+        describes how ``session_id`` was chosen (see :mod:`privyx.proxy.session`);
+        it has no effect when an existing session is reused.
+        """
         if session_id:
             existing = await self._vault.get(session_id)
             if existing is not None:
                 return existing
         session = Session(session_id=session_id) if session_id else Session()
-        await self._vault.create(session)
-        self._audit.session_created(session.session_id, client_supplied=bool(session_id))
+        try:
+            await self._vault.create(session)
+        except VaultError:
+            # A concurrent request created this id first — clients fan out
+            # parallel requests at conversation start, and a derived (sticky) id
+            # makes them collide. Adopt the winner rather than failing the race.
+            existing = await self._vault.get(session.session_id)
+            if existing is not None:
+                return existing
+            raise
+        self._audit.session_created(session.session_id, source=source)
         return session
 
     async def transform(
