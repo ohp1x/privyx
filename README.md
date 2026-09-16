@@ -12,7 +12,8 @@ deanonymizes streaming responses — all without changing your application code.
 - **Transparent Proxy** — works with OpenAI, Anthropic, and any OpenAI-compatible HTTP provider
 - **Streaming Deanonymization** — real-time pseudonym reversal in SSE streams
 - **Session Vault** — memory, SQLite, or Redis backends
-- **CLI** — `privyx proxy`, `privyx run`, `privyx detect`, `privyx inspect`, `privyx doctor`
+- **CLI** — `privyx proxy`, `privyx run`, `privyx detect`, `privyx mask`/`unmask`,
+  `privyx inspect`, `privyx doctor`
 - **Plugin System** — custom detectors, operators, and providers
 
 ## Quick Start
@@ -61,6 +62,26 @@ privyx proxy -c my.yaml --upstream https://api.openai.com
 
 The entity name is yours to choose — it becomes the `{type}` in the token.
 `terms` and `patterns` can both be set; see `configs/examples/terms.yaml`.
+
+### Masking without the proxy
+
+`mask` and `unmask` run the same engine over a string, a file, JSON, JSONL, or
+stdin — handy in a pipeline, in CI, or from another project:
+
+```bash
+privyx mask --map map.json "mail alice@example.com"   # -> mail <PRIVYX_EMAIL_1>
+privyx unmask --map map.json -i masked.txt            # -> mail alice@example.com
+
+# JSON: every string leaf, or just one subtree
+privyx mask --map map.json -i request.json
+privyx mask --map map.json -i request.json --path '$.messages'
+cat events.jsonl | privyx mask --map map.json -f jsonl -i - -o masked.jsonl
+```
+
+The `--map` file holds the token mapping and is enough to reverse the output
+anywhere. Use `--session ID` instead to keep the mapping in the configured
+vault — that needs a persistent one (`vault.type: sqlite` or `redis`), since
+the default `memory` vault forgets it the moment the command exits.
 
 ## Installation
 

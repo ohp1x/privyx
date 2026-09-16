@@ -99,9 +99,7 @@ def test_detect_reports_bad_config(runner: CliRunner, tmp_path: Path) -> None:
 # inspect session
 
 
-def test_inspect_session_masks_values_by_default(
-    runner: CliRunner, sqlite_config: Path
-) -> None:
+def test_inspect_session_masks_values_by_default(runner: CliRunner, sqlite_config: Path) -> None:
     """A session written by one command is readable by the next — and masked.
 
     Masking is principle #11: routine inspection must not print PII.
@@ -209,9 +207,7 @@ def test_run_without_target_is_a_usage_error(runner: CliRunner) -> None:
 
 
 def test_run_unknown_command_exits_127(runner: CliRunner) -> None:
-    result = runner.invoke(
-        cli, ["run", "definitely-not-installed", "--env-var", "SOME_BASE_URL"]
-    )
+    result = runner.invoke(cli, ["run", "definitely-not-installed", "--env-var", "SOME_BASE_URL"])
 
     assert result.exit_code == 127
     assert "not found on PATH" in result.output
@@ -286,10 +282,10 @@ def test_config_show_outputs_settings(runner: CliRunner) -> None:
 
 
 def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
-    """context.md's CLI tree: proxy, run, detect, inspect (session), config, doctor."""
+    """The CLI tree: proxy, run, detect, mask, unmask, inspect (session), config, doctor."""
     result = runner.invoke(cli, ["--help"])
 
-    for command in ("proxy", "run", "detect", "inspect", "config", "doctor"):
+    for command in ("proxy", "run", "detect", "mask", "unmask", "inspect", "config", "doctor"):
         assert command in result.output
 
     sub = runner.invoke(cli, ["inspect", "--help"])
@@ -316,3 +312,130 @@ def test_detect_json_safe_output_has_no_raw_pii_when_masked() -> None:
     assert _mask("alice@example.com") == "al*************om"
     assert _mask("abc") == "***"
     assert json.dumps(_mask(EMAIL))  # serializable, no surprises
+
+
+# --------------------------------------------------------------------------
+# mask / unmask
+
+
+def test_mask_unmask_round_trips_through_a_map_file(runner: CliRunner, tmp_path: Path) -> None:
+    map_path = tmp_path / "m.json"
+
+    masked = runner.invoke(cli, ["mask", "--map", str(map_path), f"mail {EMAIL}"])
+    assert masked.exit_code == 0
+    assert "<PRIVYX_EMAIL_1>" in masked.stdout
+    assert EMAIL not in masked.stdout
+
+    back = runner.invoke(cli, ["unmask", "--map", str(map_path), masked.stdout.strip()])
+    assert back.exit_code == 0
+    assert back.stdout.strip() == f"mail {EMAIL}"
+
+
+def test_mask_continues_an_existing_map_instead_of_overwriting_it(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A second document masked against the same map keeps the first one's tokens."""
+    map_path = tmp_path / "m.json"
+
+    first = runner.invoke(cli, ["mask", "--map", str(map_path), EMAIL])
+    second = runner.invoke(cli, ["mask", "--map", str(map_path), f"bob@example.com and {EMAIL}"])
+
+    assert first.stdout.strip() in second.stdout
+    mapping = json.loads(map_path.read_text(encoding="utf-8"))["mapping"]
+    assert sorted(mapping.values()) == [EMAIL, "bob@example.com"]
+
+
+def test_mask_unmask_round_trips_through_the_vault(runner: CliRunner, sqlite_config: Path) -> None:
+    masked = runner.invoke(
+        cli, ["mask", "-c", str(sqlite_config), "--session", "demo", f"mail {EMAIL}"]
+    )
+    assert masked.exit_code == 0
+    assert "session: demo" in masked.stderr
+
+    back = runner.invoke(
+        cli, ["unmask", "-c", str(sqlite_config), "--session", "demo", masked.stdout.strip()]
+    )
+    assert back.exit_code == 0
+    assert back.stdout.strip() == f"mail {EMAIL}"
+
+
+def test_mask_json_keeps_structure_and_non_string_values(runner: CliRunner, tmp_path: Path) -> None:
+    """Also covers format auto-detection: the .json extension picks the JSON walk."""
+    source = tmp_path / "in.json"
+    source.write_text(
+        json.dumps({"user": {"email": EMAIL, "age": 30, "ok": True, "x": None}}), encoding="utf-8"
+    )
+
+    result = runner.invoke(cli, ["mask", "--map", str(tmp_path / "m.json"), "-i", str(source)])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "user": {"email": "<PRIVYX_EMAIL_1>", "age": 30, "ok": True, "x": None}
+    }
+
+
+def test_mask_json_path_limits_the_walk(runner: CliRunner, tmp_path: Path) -> None:
+    result = runner.invoke(
+        cli,
+        ["mask", "--map", str(tmp_path / "m.json"), "-f", "json", "--path", "$.user", "--stdin"],
+        input=json.dumps({"user": {"email": EMAIL}, "other": "bob@example.com"}),
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["user"]["email"] == "<PRIVYX_EMAIL_1>"
+    assert payload["other"] == "bob@example.com"
+
+
+def test_mask_jsonl_keeps_one_record_per_line(runner: CliRunner, tmp_path: Path) -> None:
+    source = tmp_path / "in.jsonl"
+    source.write_text(f'{{"e": "{EMAIL}"}}\n{{"e": "bob@example.com"}}\n', encoding="utf-8")
+    out = tmp_path / "out.jsonl"
+
+    result = runner.invoke(
+        cli, ["mask", "--map", str(tmp_path / "m.json"), "-i", str(source), "-o", str(out)]
+    )
+
+    assert result.exit_code == 0
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert [json.loads(line)["e"] for line in lines] == ["<PRIVYX_EMAIL_1>", "<PRIVYX_EMAIL_2>"]
+
+
+def test_unmask_leaves_unknown_tokens_alone(runner: CliRunner, tmp_path: Path) -> None:
+    map_path = tmp_path / "m.json"
+    runner.invoke(cli, ["mask", "--map", str(map_path), EMAIL])
+
+    result = runner.invoke(cli, ["unmask", "--map", str(map_path), "<PRIVYX_EMAIL_99>"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "<PRIVYX_EMAIL_99>"
+
+
+def test_unmask_without_a_mapping_source_exits_nonzero(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["unmask", "<PRIVYX_EMAIL_1>"])
+
+    assert result.exit_code == 1
+    assert "--map" in result.stderr
+
+
+def test_unmask_unknown_session_exits_nonzero(runner: CliRunner, sqlite_config: Path) -> None:
+    result = runner.invoke(cli, ["unmask", "-c", str(sqlite_config), "--session", "nope", "x"])
+
+    assert result.exit_code == 1
+    assert "session not found" in result.stderr
+
+
+def test_mask_warns_when_the_mapping_cannot_survive_the_process(runner: CliRunner) -> None:
+    """The default vault is `memory`, so without --map the output is unrecoverable."""
+    result = runner.invoke(cli, ["mask", f"mail {EMAIL}"])
+
+    assert result.exit_code == 0
+    assert "memory" in result.stderr
+    assert "--map" in result.stderr
+
+
+def test_mask_without_input_exits_nonzero(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["mask"])
+
+    assert result.exit_code == 1
