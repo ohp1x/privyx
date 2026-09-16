@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CLI
+
+- `privyx mask` / `privyx unmask` — pseudonymize and restore text without the
+  proxy, for use in pipelines or from another project. Input comes from
+  positional arguments, `--stdin`, or `-i FILE` (`-` for stdin); output goes to
+  stdout or `-o FILE`. `-f text|json|jsonl` picks the walk (`auto` guesses from
+  the input file's extension), JSON walks every string leaf and can be narrowed
+  with `--path '$.messages'`, and non-string values are left untouched
+- The mapping lives either in a self-contained `--map FILE` — no vault, no
+  deployment needed — or in the configured vault under `--session ID`. An
+  existing map file is continued rather than overwritten, so a second document
+  keeps the tokens the first one was given. Because the default vault is
+  `memory`, `mask` warns when neither is in play and the output could never be
+  unmasked
+
 ### Detectors
 
 - `detector.terms` takes a literal word list per entity —
