@@ -9,7 +9,7 @@ environment variable pointed at that port.  The tool is unmodified and unaware;
 it just talks to what it thinks is the provider.
 
 This is orchestration only (principle #12): no privacy logic lives here.  The
-engine, provider and adapter all come from the same builders ``privyx proxy``
+engine and provider both come from the same builders ``privyx proxy``
 uses, so both commands behave identically.
 """
 
@@ -178,7 +178,6 @@ async def _run_target(
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider, resolve_base_url
-    from privyx.streaming.adapters.registry import build_stream_adapter
 
     extra: dict[str, Any] = {"provider": {"type": spec.provider}}
     if upstream is not None:
@@ -192,10 +191,9 @@ async def _run_target(
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
     provider = build_provider(settings)
-    adapter = build_stream_adapter(settings.provider.type)
     await hooks.run_startup()
 
-    server, bound_port = _make_server(engine, provider, adapter, settings, port, audit)
+    server, bound_port = _make_server(engine, provider, settings, port, audit)
     serve_task = asyncio.create_task(server.serve())
     try:
         await _wait_until_started(server, serve_task)
@@ -216,7 +214,7 @@ async def _run_target(
 
 
 def _make_server(
-    engine: Any, provider: Any, adapter: Any, settings: Any, port: int, audit: Any
+    engine: Any, provider: Any, settings: Any, port: int, audit: Any
 ) -> tuple[Any, int]:
     """Build a uvicorn server bound to ``port`` (0 picks a free one)."""
     import socket
@@ -224,15 +222,13 @@ def _make_server(
     import uvicorn
 
     from privyx.gateway.server import Gateway
-    from privyx.proxy.http import HTTPProxy
 
     if port == 0:
         with socket.socket() as sock:
             sock.bind((settings.host, 0))
             port = int(sock.getsockname()[1])
 
-    proxy_instance = HTTPProxy(engine=engine, provider=provider, stream_adapter=adapter)
-    gateway = Gateway(engine=engine, proxy=proxy_instance, settings=settings, audit=audit)
+    gateway = Gateway(engine=engine, provider=provider, settings=settings, audit=audit)
     config = uvicorn.Config(
         gateway.app,
         host=settings.host,

@@ -1,1 +1,0 @@
-"""Routing configuration for the gateway."""

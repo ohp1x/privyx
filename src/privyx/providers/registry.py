@@ -63,10 +63,16 @@ def default_registry() -> ProviderRegistry:
         )
 
     def anthropic_factory(config: dict[str, Any]) -> Provider:
+        # Anthropic-schema endpoints authenticate with `x-api-key`, not a bearer
+        # token, so the key goes in as a header and `api_key` is left unset —
+        # the same rule the transparent proxy applies in `proxy.headers`.
+        api_key = config.get("api_key")
+        headers = {"anthropic-version": "2023-06-01", **config.get("headers", {})}
+        if api_key and "x-api-key" not in headers:
+            headers["x-api-key"] = api_key
         return GenericProvider(
             base_url=config.get("base_url") or DEFAULT_BASE_URLS["anthropic"],
-            api_key=config.get("api_key"),
-            headers={"anthropic-version": "2023-06-01", **config.get("headers", {})},
+            headers=headers,
         )
 
     registry.register("generic", generic_factory)
