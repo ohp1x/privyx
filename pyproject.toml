@@ -69,3 +69,10 @@ strict = true
 [[tool.mypy.overrides]]
 module = ["faker.*"]
 ignore_missing_imports = true
+
+# Presidio is an optional extra: absent locally, installed in CI (--all-extras).
+# An inline `type: ignore` would be needed in the first case and flagged as
+# unused in the second, so the exemption lives here instead.
+[[tool.mypy.overrides]]
+module = ["presidio_analyzer.*"]
+ignore_missing_imports = true

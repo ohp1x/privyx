@@ -55,10 +55,8 @@ def _load_analyzer(language: str, model: str, kwargs: dict[str, Any]) -> Any:
         return cached
 
     try:
-        from presidio_analyzer import AnalyzerEngine  # type: ignore[import-not-found]
-        from presidio_analyzer.nlp_engine import (  # type: ignore[import-not-found]
-            NlpEngineProvider,
-        )
+        from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
     except ImportError as exc:  # pragma: no cover - optional dep
         raise ConfigError(
             "detector type 'presidio' requires the 'presidio' extra; install with "
