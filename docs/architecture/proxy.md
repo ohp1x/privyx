@@ -58,11 +58,43 @@ The proxy is deliberately thin. It:
 
 ## Sessions
 
-Sessions are resolved from the `x-privyx-session` header when present, and are
-otherwise **ephemeral per request**: a request is pseudonymized and its reply
-restored within a single exchange, and the client only ever sees restored text,
-so a fresh session per request is correct — and, unlike a single shared session,
-cannot collide two concurrent callers' pseudonym maps.
+A session owns the token→value mapping used to restore a response. An explicit
+`x-privyx-session` header always picks the session. Most clients (Claude Code,
+codex, aider, the OpenAI CLI) never send one, so `session.strategy` decides the
+fallback (`proxy/session.py::resolve_session_id`, applied by both the transparent
+proxy and the gateway before `get_or_create_session`):
+
+- **`ephemeral`** (default) — a fresh session per request. Pseudonymize and
+  restore happen within one exchange and the client only ever sees restored text,
+  so a per-request session is correct and — unlike a single shared session —
+  cannot collide two callers' pseudonym maps. The cost is that a multi-turn
+  conversation is re-detected every turn and shows up as *many* sessions, and
+  (without an anchor) its tokens carry no meaning across turns.
+- **`client`** — a stable session derived from the client credential
+  (`Authorization` / `x-api-key`): one API key → one reused session. Simple, but
+  every conversation under that key shares one growing pseudonym map.
+- **`conversation`** — derived from the credential *and* the first user message,
+  so one conversation → one reused session while different conversations (even
+  under the same key) stay isolated. This is what `privyx run` uses.
+
+Because the id is derived from the request, continuity is automatic:
+`get_or_create_session` reuses the vault session whenever the id already exists,
+so tokens stay stable across turns and only the first turn logs `session.created`.
+Keying every derived id on the credential means two callers can never share a map
+— the cross-user collision a single shared session would cause. The
+`session.created` audit event records a `source` (`header` / `client` /
+`conversation` / `ephemeral`) so the trail shows how each id was chosen.
+
+**Trade-off of `conversation`:** the fingerprint is the *first user message*, which
+is immutable across a conversation's turns. Two conversations under the same key
+that open with an identical first message therefore merge, and editing or clearing
+the first message starts a new session — usually what you want, but a heuristic, so
+prefer an explicit `x-privyx-session` header when exact isolation matters.
+
+For cross-turn pseudonym stability *without* continuity — or across restarts and
+across conversations — set an HMAC anchor secret (`PRIVYX_ANCHOR_SECRET`), which
+makes a token value-derived rather than a per-session counter. `privyx run`
+provisions one automatically.
 
 ## Tool calls in a stream
 

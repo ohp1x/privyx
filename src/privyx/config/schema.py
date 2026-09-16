@@ -55,6 +55,30 @@ class AnchorConfig(BaseModel):
     secret: str = ""
 
 
+class SessionConfig(BaseModel):
+    """How a session is identified when the client sends no ``x-privyx-session``.
+
+    An explicit ``x-privyx-session`` header always wins.  Absent one, ``strategy``
+    decides the fallback:
+
+    - ``ephemeral`` (default) — a fresh session per request.  Nothing is shared
+      between requests, so two callers' pseudonym maps can never collide, but a
+      multi-turn conversation is re-tokenized from scratch every turn and shows up
+      as many sessions.
+    - ``client`` — a stable session derived from the client credential
+      (``Authorization`` / ``x-api-key``): one API key → one reused session.
+      Simple, but every conversation under that key shares one pseudonym map.
+    - ``conversation`` — a stable session derived from the credential *and* the
+      first user message, so one conversation → one reused session while different
+      conversations (even under the same key) stay isolated.
+
+    Both derived strategies fall back to ``ephemeral`` when their signal is absent
+    (e.g. a request carries no credential).
+    """
+
+    strategy: Literal["ephemeral", "client", "conversation"] = "ephemeral"
+
+
 class TokenConfig(BaseModel):
     """How placeholder tokens are serialized in text.
 
@@ -158,6 +182,7 @@ class Settings(BaseModel):
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
     operator: OperatorConfig = Field(default_factory=OperatorConfig)
     anchor: AnchorConfig = Field(default_factory=AnchorConfig)
+    session: SessionConfig = Field(default_factory=SessionConfig)
     token: TokenConfig = Field(default_factory=TokenConfig)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)

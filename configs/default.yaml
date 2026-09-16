@@ -68,6 +68,19 @@ anchor:
   type: hmac             # hmac
   secret: ""             # set via PRIVYX_ANCHOR_SECRET, or `openssl rand -hex 32`
 
+# --- Session ---
+# How a session is identified when the client sends no `x-privyx-session` header
+# (Claude Code, codex, aider, ... never do).  An explicit header always wins.
+#   ephemeral    — a fresh session per request (default; safe, but a multi-turn
+#                  conversation is re-tokenized each turn and shows as many sessions)
+#   client       — one reused session per client credential (Authorization/x-api-key)
+#   conversation — one reused session per conversation (credential + first user
+#                  message); different conversations stay isolated
+# `privyx run` defaults this to `conversation`.  See PRIVYX_SESSION_STRATEGY and
+# docs/architecture/proxy.md.
+session:
+  strategy: ephemeral    # ephemeral | client | conversation
+
 # --- Token syntax ---
 # How placeholder tokens look in text.  Purely a serialization choice: the
 # privacy engine, detectors, policies, proxy, and storage never see it.

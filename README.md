@@ -45,6 +45,23 @@ Use `--gateway` when the upstream endpoint carries a base path (say
 endpoints and posts to `provider.base_url` verbatim, instead of appending the
 client's path to a bare origin. See [docs/architecture/proxy.md](docs/architecture/proxy.md).
 
+### Sessions
+
+Most clients (Claude Code, codex, aider) never send an `x-privyx-session` header,
+so by default each request is its own **ephemeral** session — safe, but a
+multi-turn conversation is re-tokenized every turn and shows up as many sessions.
+Set `session.strategy` (or `PRIVYX_SESSION_STRATEGY`) to make sessions stick:
+
+- `client` — one session per API key;
+- `conversation` — one session per conversation, keyed on the first user message,
+  so a conversation's turns share a pseudonym map while different conversations
+  (even under the same key) stay isolated.
+
+`privyx run` uses `conversation` and auto-provisions an HMAC anchor secret
+(`~/.config/privyx/anchor.key`), so pseudonyms are stable across turns and
+restarts out of the box. See
+[docs/architecture/proxy.md](docs/architecture/proxy.md#sessions).
+
 ### Pseudonymizing your own terms
 
 Beyond the built-in patterns, `detector.terms` takes plain word lists — Privyx

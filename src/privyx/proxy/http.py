@@ -49,9 +49,15 @@ class HTTPProxy:
         self,
         payload: dict[str, Any],
         session_id: str | None = None,
+        *,
+        source: str = "ephemeral",
     ) -> tuple[dict[str, Any], str | None]:
-        """Pseudonymize the request payload and return (transformed, session_id)."""
-        session = await self._engine.get_or_create_session(session_id)
+        """Pseudonymize the request payload and return (transformed, session_id).
+
+        ``source`` records how ``session_id`` was chosen for the audit trail; see
+        :func:`privyx.proxy.session.resolve_session_id`.
+        """
+        session = await self._engine.get_or_create_session(session_id, source=source)
         transformed = await transform_request(payload, self._engine, session.session_id)
         return transformed, session.session_id
 

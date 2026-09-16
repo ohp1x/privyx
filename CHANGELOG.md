@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Sessions
+
+- New `session.strategy` (`PRIVYX_SESSION_STRATEGY`) decides how a session is
+  identified when the client sends no `x-privyx-session` header — which Claude
+  Code, codex, aider, and the OpenAI CLI never do, so every request used to become
+  a fresh throwaway session. `ephemeral` (default, the prior behavior) still mints
+  one per request; `client` derives a stable session from the client credential
+  (one API key → one session); `conversation` derives it from the credential and
+  the first user message, so one conversation is one reused session while different
+  conversations — even under the same key — stay isolated
+- Continuity is automatic: the id is derived before `get_or_create_session`, which
+  already reuses a vault session on a hit. So a conversation's turns share one
+  session and one pseudonym map, tokens stay stable across turns, and only the
+  first turn logs `session.created`. Every derived id is keyed on the credential,
+  so two callers can never share a map — the sticky strategies do not reintroduce
+  the cross-user collision a single shared session would cause
+- `session.created` now records a `source` (`header` / `client` / `conversation` /
+  `ephemeral`) next to the existing `client_supplied`, so the audit trail shows how
+  each id was chosen. `get_or_create_session` also tolerates a concurrent create
+  (clients fan out parallel requests at conversation start) instead of failing the
+  race with a `VaultError`
+- `privyx run` is opinionated where the library stays neutral: it defaults to
+  `conversation` and auto-provisions a persisted per-user HMAC anchor secret
+  (`~/.config/privyx/anchor.key`, honoring `$XDG_CONFIG_HOME`), so pseudonyms are
+  stable across turns *and* restarts out of the box. `--session-strategy` overrides
+  the strategy, `--no-anchor` skips provisioning, and a user's own
+  `session.strategy` / `anchor.secret` (config or env) still wins — `load_config`
+  gained a low-precedence `base_extra` channel for exactly these caller defaults
+- `privyx config` and the proxy startup banner now show the active session strategy
+
 ### CLI
 
 - `privyx proxy --reload` restarts the server when the config file changes, for

@@ -38,6 +38,9 @@ def env_config() -> dict[str, Any]:
     anchor_secret = _env("ANCHOR_SECRET")
     if anchor_secret:
         cfg.setdefault("anchor", {})["secret"] = anchor_secret
+    session_strategy = _env("SESSION_STRATEGY")
+    if session_strategy:
+        cfg.setdefault("session", {})["strategy"] = session_strategy
     encrypt_key = _env("ENCRYPT_KEY")
     if encrypt_key:
         cfg.setdefault("operator", {})["key"] = encrypt_key

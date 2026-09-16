@@ -262,12 +262,56 @@ async def test_run_spawns_target_against_a_live_proxy(
         upstream=None,
         port=0,
         env_vars=("PROBE_BASE_URL",),
+        # Keep the test hermetic: no per-user anchor.key written under $HOME.
+        session_strategy="ephemeral",
+        no_anchor=True,
     )
 
     assert code == 0, "the spawned tool could not reach the proxy"
     recorded = json.loads(result_file.read_text())
     assert recorded["health"] == {"status": "ok"}
     assert recorded["url"].startswith("http://127.0.0.1:")
+
+
+async def test_run_provisions_anchor_secret_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """By default `privyx run` persists an anchor secret, so aliases stay stable."""
+    import sys
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.delenv("PRIVYX_ANCHOR_SECRET", raising=False)
+
+    from privyx.cli.commands.run import Target, _run_target
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, urllib.request\n"
+        "urllib.request.urlopen(os.environ['PROBE_BASE_URL'] + '/health', timeout=5).read()\n",
+        encoding="utf-8",
+    )
+    spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
+
+    # Defaults: session=conversation, auto-anchor on.
+    code = await _run_target(
+        spec=spec,
+        argv=[str(probe)],
+        config_path=None,
+        upstream=None,
+        port=0,
+        env_vars=("PROBE_BASE_URL",),
+    )
+
+    assert code == 0
+    anchor_key = tmp_path / "config" / "privyx" / "anchor.key"
+    assert anchor_key.exists()
+    secret = anchor_key.read_text(encoding="utf-8").strip()
+    assert len(secret) == 64
+    int(secret, 16)  # valid hex
 
 
 # --------------------------------------------------------------------------

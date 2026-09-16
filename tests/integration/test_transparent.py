@@ -237,3 +237,90 @@ async def test_session_header_reused_across_requests() -> None:
     )
 
     assert reused.headers["x-privyx-session"] == sid
+
+
+# -- session strategies (header-less clients) -------------------------------
+
+
+def _auth_headers() -> dict[str, str]:
+    return {"content-type": "application/json", "authorization": "Bearer sk-test"}
+
+
+async def _turn(proxy: TransparentProxy, messages: list[dict[str, Any]]) -> Any:
+    """POST a chat turn with a credential but no x-privyx-session header."""
+    return await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers=_auth_headers(),
+        body=json.dumps({"messages": messages}).encode(),
+    )
+
+
+async def test_conversation_strategy_reuses_one_session_across_turns() -> None:
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=audit,
+    )
+    proxy = TransparentProxy(
+        engine, origin="https://up.test", client=_mock_client(), audit=audit,
+        session_strategy="conversation",
+    )
+
+    first = await _turn(proxy, [{"role": "user", "content": f"mail {EMAIL}"}])
+    second = await _turn(
+        proxy,
+        [
+            {"role": "user", "content": f"mail {EMAIL}"},  # same opening line
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "and one more thing"},
+        ],
+    )
+
+    # Same conversation → one reused session across both turns.
+    assert first.headers["x-privyx-session"] == second.headers["x-privyx-session"]
+
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    created = [r for r in records if r["event"] == "session.created"]
+    assert len(created) == 1
+    assert created[0]["source"] == "conversation"
+
+
+async def test_conversation_strategy_isolates_distinct_conversations() -> None:
+    engine = _engine()
+    proxy = TransparentProxy(
+        engine, origin="https://up.test", client=_mock_client(),
+        session_strategy="conversation",
+    )
+
+    a = await _turn(proxy, [{"role": "user", "content": "topic one"}])
+    b = await _turn(proxy, [{"role": "user", "content": "topic two"}])
+
+    assert a.headers["x-privyx-session"] != b.headers["x-privyx-session"]
+
+
+async def test_default_strategy_is_ephemeral_and_audited() -> None:
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=audit,
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
+
+    a = await _turn(proxy, [{"role": "user", "content": f"mail {EMAIL}"}])
+    b = await _turn(proxy, [{"role": "user", "content": f"mail {EMAIL}"}])
+
+    # No continuity by default: a fresh session per request.
+    assert a.headers["x-privyx-session"] != b.headers["x-privyx-session"]
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    created = [r for r in records if r["event"] == "session.created"]
+    assert len(created) == 2
+    assert {r["source"] for r in created} == {"ephemeral"}

@@ -39,6 +39,7 @@ from privyx.core.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
+from privyx.proxy.session import resolve_session_id
 from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
 from privyx.streaming.adapters.registry import build_stream_adapter
 
@@ -76,6 +77,9 @@ class TransparentProxy:
         timeout: Read/write timeout in seconds (generous, for long streams).
         audit: Optional audit logger for the PII-safe ``proxy.request`` event.
             Defaults to a disabled no-op logger.
+        session_strategy: How to identify a session when the client sends no
+            ``x-privyx-session`` header — ``ephemeral`` (default), ``client``, or
+            ``conversation``.  See :func:`privyx.proxy.session.resolve_session_id`.
     """
 
     def __init__(
@@ -90,10 +94,12 @@ class TransparentProxy:
         client: httpx.AsyncClient | None = None,
         timeout: float = 300.0,
         audit: AuditLogger | None = None,
+        session_strategy: str = "ephemeral",
     ) -> None:
         self._engine = engine
         self._origin = origin.rstrip("/")
         self._audit = audit or AuditLogger(None)
+        self._session_strategy = session_strategy
         self._upstream_host = urlsplit(self._origin).netloc or self._origin
         self._routes = routes if routes is not None else {
             "/v1/chat/completions": "openai",
@@ -129,15 +135,24 @@ class TransparentProxy:
 
         if session_id is None:
             session_id = _ci_get(headers, "x-privyx-session") or None
-        session = await self._engine.get_or_create_session(session_id)
+
+        # Parse the body once, up front: the session strategy may fingerprint it
+        # (e.g. the first user message), and the transform reuses the same parse.
+        payload = _loads(body) if schema and body and _JSON in content_type else None
+        resolved_id, source = resolve_session_id(
+            self._session_strategy,
+            header_value=session_id,
+            headers=headers,
+            payload=payload,
+            schema=schema,
+        )
+        session = await self._engine.get_or_create_session(resolved_id, source=source)
         sid = session.session_id
 
         out_body = body
-        if schema and body and _JSON in content_type:
-            payload = _loads(body)
-            if isinstance(payload, dict):
-                transformed = await transform_request(payload, self._engine, sid)
-                out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
+        if isinstance(payload, dict):
+            transformed = await transform_request(payload, self._engine, sid)
+            out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
 
         url = f"{self._origin}/{path.lstrip('/')}"
         request = self._client.build_request(

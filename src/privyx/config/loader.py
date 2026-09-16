@@ -38,9 +38,17 @@ def load_config(
     path: str | Path | None = None,
     *,
     extra: dict[str, Any] | None = None,
+    base_extra: dict[str, Any] | None = None,
 ) -> Settings:
-    """Load and merge configuration into validated :class:`Settings`."""
-    merged: dict[str, Any] = _deep_merge(DEFAULTS, {})
+    """Load and merge configuration into validated :class:`Settings`.
+
+    Precedence, low → high: built-in defaults < ``base_extra`` < YAML file <
+    environment < ``extra``.  ``base_extra`` is for caller *defaults* that the
+    user must still be able to override (e.g. ``privyx run`` preferring a
+    per-conversation session); ``extra`` is for caller *overrides* that win over
+    the user's config (e.g. ``--upstream``).
+    """
+    merged: dict[str, Any] = _deep_merge(DEFAULTS, base_extra or {})
 
     config_path = path or os.environ.get("PRIVYX_CONFIG")
     if config_path:
