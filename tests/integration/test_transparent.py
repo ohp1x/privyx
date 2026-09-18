@@ -283,6 +283,127 @@ async def test_streaming_audit_records_restore_and_response() -> None:
     assert restore["request_id"] == request["request_id"]
 
 
+async def test_ephemeral_batch_session_is_deleted() -> None:
+    buf = io.StringIO()
+    proxy = _audited_proxy(buf, _mock_client())
+
+    result = await _post_json(
+        proxy,
+        "v1/chat/completions",
+        {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+    )
+    sid = result.headers["x-privyx-session"]
+
+    assert await proxy._engine.vault.get(sid) is None  # noqa: SLF001
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    deleted = next(r for r in records if r["event"] == "session.deleted")
+    assert deleted["session_id"] == sid
+    assert deleted["reason"] == "ephemeral_request_complete"
+    assert deleted["mapping_count"] == 1
+
+
+async def test_ephemeral_stream_session_is_deleted_after_drain() -> None:
+    buf = io.StringIO()
+    proxy = _audited_proxy(buf, _mock_client())
+
+    result = await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": "application/json"},
+        body=json.dumps(
+            {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        ).encode(),
+    )
+    sid = result.headers["x-privyx-session"]
+    assert result.stream is not None
+    _ = "".join([chunk async for chunk in result.stream])
+
+    assert await proxy._engine.vault.get(sid) is None  # noqa: SLF001
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    assert any(r["event"] == "session.deleted" and r["session_id"] == sid for r in records)
+
+
+async def test_ephemeral_stream_session_is_deleted_when_closed_early() -> None:
+    buf = io.StringIO()
+    proxy = _audited_proxy(buf, _mock_client())
+
+    result = await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": "application/json"},
+        body=json.dumps(
+            {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        ).encode(),
+    )
+    sid = result.headers["x-privyx-session"]
+    assert result.stream is not None
+    await result.stream.aclose()
+
+    assert await proxy._engine.vault.get(sid) is None  # noqa: SLF001
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    assert any(r["event"] == "session.deleted" and r["session_id"] == sid for r in records)
+
+
+async def test_sticky_session_is_retained_and_not_deleted() -> None:
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=audit,
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
+
+    _ = await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": "application/json", "x-privyx-session": "ses_sticky_1"},
+        body=json.dumps({"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}).encode(),
+    )
+    second = await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": "application/json", "x-privyx-session": "ses_sticky_1"},
+        body=json.dumps({"messages": [{"role": "user", "content": f"again {EMAIL}"}]}).encode(),
+    )
+
+    assert second.headers["x-privyx-session"] == "ses_sticky_1"
+    assert await engine.vault.get("ses_sticky_1") is not None
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    assert not any(r["event"] == "session.deleted" for r in records)
+
+
+async def test_cleanup_failure_preserves_response_and_audits_error() -> None:
+    class FailingDeleteVault(MemoryVault):
+        async def delete(self, session_id: str) -> None:
+            raise RuntimeError("delete failed")
+
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=FailingDeleteVault(),
+        audit=audit,
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
+
+    result = await _post_json(
+        proxy,
+        "v1/chat/completions",
+        {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+    )
+
+    assert result.status_code == 200
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    error = next(r for r in records if r["event"] == "proxy.error" and r["phase"] == "cleanup")
+    assert error["error_type"] == "RuntimeError"
+    assert not any(r["event"] == "session.deleted" for r in records)
+
+
 async def test_upstream_failure_records_proxy_error() -> None:
     def boom(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError(f"cannot reach {EMAIL}")  # message carries PII

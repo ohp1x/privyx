@@ -67,6 +67,7 @@ class AuditEventType(StrEnum):
     SESSION_CREATED = "session.created"
     SESSION_TRANSFORM = "session.transform"
     SESSION_RESTORE = "session.restore"
+    SESSION_DELETED = "session.deleted"
     PROXY_REQUEST = "proxy.request"
     PROXY_RESPONSE = "proxy.response"
     PROXY_ERROR = "proxy.error"
@@ -251,6 +252,28 @@ class AuditLogger:
         fresh per-request id).
         """
         self.emit(AuditEventType.SESSION_CREATED, session_id=session_id, source=source)
+
+    def session_deleted(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        mapping_count: int,
+        request_id: str | None = None,
+    ) -> None:
+        """A session was successfully removed from the vault.
+
+        ``mapping_count`` is a count only; mapping keys and original values never
+        enter the audit trail.  Callers invoke this only after the vault confirms
+        deletion, so the event never claims that a failed cleanup succeeded.
+        """
+        self.emit(
+            AuditEventType.SESSION_DELETED,
+            session_id=session_id,
+            request_id=request_id,
+            reason=reason,
+            mapping_count=mapping_count,
+        )
 
     def transform(
         self, session_id: str, *, entity_counts: dict[str, int], transformations: int

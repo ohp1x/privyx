@@ -48,6 +48,17 @@ and streaming paths.
 |---|---|---|
 | `transformations` | int | Total pseudonyms reversed. |
 
+### `session.deleted`
+A session was successfully deleted from the vault. For the default `ephemeral`
+source, this follows exchange completion (or stream cancellation). Sticky
+`header`, `client`, and `conversation` sessions remain available for reuse and
+therefore do not emit this event during ordinary request cleanup.
+
+| field | type | notes |
+|---|---|---|
+| `reason` | string | Currently `ephemeral_request_complete`. |
+| `mapping_count` | int | Number of mappings destroyed; values and keys are never recorded. |
+
 ### `proxy.request`
 The upstream returned response headers (time to first byte).
 
@@ -76,7 +87,7 @@ An exchange failed.
 
 | field | type | notes |
 |---|---|---|
-| `phase` | string | Where it broke: `upstream`, `stream`, or `response`. |
+| `phase` | string | Where it broke: `upstream`, `stream`, `response`, or `cleanup`. |
 | `error_type` | string | The exception's **class name** — never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |
@@ -88,7 +99,14 @@ An exchange failed.
   histogram, not spans; `proxy.error` takes a class name, not a message.
 - **Correlated.** All events of one exchange share a `request_id`, so a reader can
   reconstruct the timeline (`session.created` → `session.transform` →
-  `proxy.request` → `session.restore` → `proxy.response`, or `proxy.error`).
+  `proxy.request` → `session.restore` → `proxy.response` → `session.deleted`, or
+  `proxy.error`).
+- **Lifecycle-aware.** `session.deleted` is written only after the vault deletion
+  succeeds. A cleanup failure produces `proxy.error` with `phase: "cleanup"` and
+  leaves the session available; it never produces a false deletion event.
+- **Source-aware retention.** Default `ephemeral` sessions are removed after the
+  exchange. Explicit-header and derived `client` / `conversation` sessions stay
+  in the vault until a future explicit or TTL-based deletion.
 - **Resilient.** A failed audit write is logged and swallowed; it can never break
   a proxied request.
 

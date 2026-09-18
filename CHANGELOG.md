@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Audit
 
+- Ephemeral proxy sessions are now deleted from the vault after a batch response
+  completes or a streaming response is drained/cancelled. A new
+  `session.deleted` event records the safe `mapping_count` and reason only, and
+  is written only after deletion succeeds. Header-based and derived
+  `client`/`conversation` sessions remain available for continuity
+- Cleanup is best-effort: a vault deletion failure does not change a successful
+  response or mask an existing stream/upstream error; it emits `proxy.error` with
+  `phase: cleanup` and the exception class name, without a false deletion event
 - The audit trail gained a **versioned, correlated envelope** so it can back a
   long-lived reader (a store, query layer, or dashboard) without reshaping. Every
   line now carries `schema_version`, a human-readable ISO-8601 `time` (next to the

@@ -26,6 +26,7 @@ web server.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterator, Mapping
@@ -41,6 +42,7 @@ from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
+from privyx.proxy.streaming import AuditedStream
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.utils.ids import request_id as new_request_id
 
@@ -141,6 +143,9 @@ class TransparentProxy:
         # transform/restore into one line each; closed in the finally below (the
         # streaming generator carries req_id explicitly, so it needs no scope).
         token = self._audit.begin_request(req_id)
+        sid: str | None = None
+        ephemeral = False
+        defer_cleanup = False
         try:
             schema = detect_schema(path, self._routes)
             content_type = _ci_get(headers, "content-type")
@@ -158,6 +163,7 @@ class TransparentProxy:
                 payload=payload,
                 schema=schema,
             )
+            ephemeral = source == "ephemeral"
             session = await self._engine.get_or_create_session(resolved_id, source=source)
             sid = session.session_id
             self._audit.set_session(sid)
@@ -212,13 +218,18 @@ class TransparentProxy:
             )
 
             if is_stream:
+                # The generator owns cleanup: FastAPI/client cancellation closes
+                # it even when the caller does not drain the upstream stream.
+                defer_cleanup = True
                 return self._streaming_response(
-                    response, resp_headers, schema, sid, req_id, start
+                    response, resp_headers, schema, sid, req_id, start, ephemeral
                 )
             return await self._batch_response(
                 response, resp_headers, resp_content_type, schema, sid, req_id, start
             )
         finally:
+            if not defer_cleanup and ephemeral and sid is not None:
+                await self._cleanup_session(sid, req_id, start)
             self._audit.end_request(token)
 
     # -- internals ---------------------------------------------------------
@@ -231,14 +242,27 @@ class TransparentProxy:
         session_id: str,
         request_id: str,
         start: float,
+        ephemeral: bool,
     ) -> ProxyResponse:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
+        stream_iter = self._stream(
+            response, schema, session_id, request_id, start, ephemeral
+        )
+        cleanup = (
+            (lambda: self._cleanup_session(session_id, request_id, start))
+            if ephemeral
+            else None
+        )
         return ProxyResponse(
             status_code=response.status_code,
             headers=headers,
             media_type=_SSE,
-            stream=self._stream(response, schema, session_id, request_id, start),
+            stream=AuditedStream(
+                stream_iter,
+                response=response,
+                cleanup=cleanup,
+            ),
         )
 
     async def _stream(
@@ -248,34 +272,36 @@ class TransparentProxy:
         session_id: str,
         request_id: str,
         start: float,
+        ephemeral: bool,
     ) -> AsyncIterator[str]:
-        session = await self._engine.vault.get(session_id)
-        mapping = session.mapping if session is not None else {}
-        adapter = build_stream_adapter(schema or "generic")
-        # Count restores by wrapping the resolver: a non-None lookup is one
-        # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
-        # faker's literal trie restore does not consult ``resolve``.)
-        base_resolve = resolver_for(self._engine.operator, mapping)
-        restored = 0
-
-        def resolve(token: str) -> str | None:
-            nonlocal restored
-            original = base_resolve(token)
-            if original is not None:
-                restored += 1
-            return original
-
-        router = StreamRouter(
-            self._engine.codec,
-            resolve,
-            adapter,
-            make_processor=select_processor_factory(
-                self._engine.operator, self._engine.codec, resolve, mapping
-            ),
-        )
         frames = 0
         status = response.status_code
+        restored = 0
+        completed = False
         try:
+            session = await self._engine.vault.get(session_id)
+            mapping = session.mapping if session is not None else {}
+            adapter = build_stream_adapter(schema or "generic")
+            # Count restores by wrapping the resolver: a non-None lookup is one
+            # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
+            # faker's literal trie restore does not consult ``resolve``.)
+            base_resolve = resolver_for(self._engine.operator, mapping)
+
+            def resolve(token: str) -> str | None:
+                nonlocal restored
+                original = base_resolve(token)
+                if original is not None:
+                    restored += 1
+                return original
+
+            router = StreamRouter(
+                self._engine.codec,
+                resolve,
+                adapter,
+                make_processor=select_processor_factory(
+                    self._engine.operator, self._engine.codec, resolve, mapping
+                ),
+            )
             async for raw in response.aiter_bytes():
                 for out in router.feed(raw):
                     frames += 1
@@ -283,6 +309,7 @@ class TransparentProxy:
             for out in router.flush():
                 frames += 1
                 yield out
+            completed = True
         except Exception as exc:
             self._audit.error(
                 phase="stream",
@@ -294,17 +321,44 @@ class TransparentProxy:
             )
             raise
         finally:
-            await response.aclose()
-        self._audit.restore(session_id, transformations=restored, request_id=request_id)
-        self._audit.response(
-            status=status,
-            stream=True,
-            frames=frames,
-            restored=restored,
-            session_id=session_id,
-            request_id=request_id,
-            duration_ms=_elapsed_ms(start),
-        )
+            try:
+                await response.aclose()
+            finally:
+                if completed:
+                    self._audit.restore(
+                        session_id, transformations=restored, request_id=request_id
+                    )
+                    self._audit.response(
+                        status=status,
+                        stream=True,
+                        frames=frames,
+                        restored=restored,
+                        session_id=session_id,
+                        request_id=request_id,
+                        duration_ms=_elapsed_ms(start),
+                    )
+                if ephemeral:
+                    await self._cleanup_session(session_id, request_id, start)
+
+    async def _cleanup_session(self, session_id: str, request_id: str, start: float) -> None:
+        """Best-effort deletion for a request-scoped ephemeral session."""
+        try:
+            await self._engine.delete_session(
+                session_id,
+                reason="ephemeral_request_complete",
+                request_id=request_id,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Cleanup must never mask the response or an upstream/stream error.
+            self._audit.error(
+                phase="cleanup",
+                error_type=type(exc).__name__,
+                session_id=session_id,
+                request_id=request_id,
+                duration_ms=_elapsed_ms(start),
+            )
 
     async def _batch_response(
         self,

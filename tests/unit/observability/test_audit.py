@@ -99,6 +99,26 @@ def test_end_request_flushes_pending_aggregates() -> None:
     assert _lines(buf)[-1]["request_id"] is None
 
 
+def test_session_deleted_event_is_pii_safe() -> None:
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+
+    audit.session_deleted(
+        "ses_1",
+        reason="ephemeral_request_complete",
+        mapping_count=3,
+        request_id="req_1",
+    )
+
+    (record,) = _lines(buf)
+    assert record["event"] == "session.deleted"
+    assert record["session_id"] == "ses_1"
+    assert record["reason"] == "ephemeral_request_complete"
+    assert record["mapping_count"] == 3
+    assert record["request_id"] == "req_1"
+    assert "alice@example.com" not in buf.getvalue()
+
+
 def test_response_event_fields() -> None:
     buf = io.StringIO()
     audit = AuditLogger(buf)

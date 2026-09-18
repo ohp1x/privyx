@@ -16,6 +16,7 @@ an upstream that speaks Anthropic.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -26,6 +27,7 @@ from privyx.observability.audit import AuditLogger
 from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
 from privyx.proxy.session import resolve_session_id
+from privyx.proxy.streaming import AuditedStream
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.utils.ids import request_id as new_request_id
 
@@ -109,6 +111,9 @@ class Gateway:
             start = time.perf_counter()
             req_id = new_request_id()
             token = self._audit.begin_request(req_id)
+            session_id: str | None = None
+            ephemeral = False
+            defer_cleanup = False
             try:
                 payload = await request.json()
                 session_id, source = resolve_session_id(
@@ -118,6 +123,7 @@ class Gateway:
                     payload=payload,
                     schema=schema,
                 )
+                ephemeral = source == "ephemeral"
                 is_stream = bool(payload.get("stream", False))
 
                 transformed, session_id = await proxy.process_request(
@@ -142,13 +148,21 @@ class Gateway:
                 )
 
                 if is_stream:
+                    defer_cleanup = True
+                    stream_iter = self._audited_stream(
+                        proxy.process_stream(transformed, session_id),
+                        session_id=session_id,
+                        request_id=req_id,
+                        start=start,
+                        ephemeral=ephemeral,
+                    )
+                    cleanup = (
+                        (lambda: self._cleanup_session(session_id, req_id, start))
+                        if ephemeral
+                        else None
+                    )
                     return StreamingResponse(
-                        self._audited_stream(
-                            proxy.process_stream(transformed, session_id),
-                            session_id=session_id,
-                            request_id=req_id,
-                            start=start,
-                        ),
+                        AuditedStream(stream_iter, cleanup=cleanup),
                         media_type="text/event-stream",
                         headers={"X-Privyx-Session": session_id},
                     )
@@ -178,6 +192,8 @@ class Gateway:
                 )
                 return result
             finally:
+                if not defer_cleanup and ephemeral and session_id is not None:
+                    await self._cleanup_session(session_id, req_id, start)
                 self._audit.end_request(token)
 
         return handler
@@ -189,6 +205,7 @@ class Gateway:
         session_id: str,
         request_id: str,
         start: float,
+        ephemeral: bool,
     ) -> Any:
         """Forward a gateway SSE stream, recording ``proxy.response`` at the end.
 
@@ -198,10 +215,12 @@ class Gateway:
         breaks mid-flight.
         """
         frames = 0
+        completed = False
         try:
             async for frame in source:
                 frames += 1
                 yield frame
+            completed = True
         except Exception as exc:
             self._audit.error(
                 phase="stream",
@@ -211,15 +230,39 @@ class Gateway:
                 duration_ms=_elapsed_ms(start),
             )
             raise
-        self._audit.response(
-            status=200,
-            stream=True,
-            frames=frames,
-            restored=0,
-            session_id=session_id,
-            request_id=request_id,
-            duration_ms=_elapsed_ms(start),
-        )
+        finally:
+            if completed:
+                self._audit.response(
+                    status=200,
+                    stream=True,
+                    frames=frames,
+                    restored=0,
+                    session_id=session_id,
+                    request_id=request_id,
+                    duration_ms=_elapsed_ms(start),
+                )
+            if ephemeral:
+                await self._cleanup_session(session_id, request_id, start)
+
+    async def _cleanup_session(self, session_id: str, request_id: str, start: float) -> None:
+        """Best-effort deletion for a request-scoped ephemeral session."""
+        try:
+            await self._engine.delete_session(
+                session_id,
+                reason="ephemeral_request_complete",
+                request_id=request_id,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Cleanup must never mask the response or an upstream/stream error.
+            self._audit.error(
+                phase="cleanup",
+                error_type=type(exc).__name__,
+                session_id=session_id,
+                request_id=request_id,
+                duration_ms=_elapsed_ms(start),
+            )
 
 
 def _upstream_host(settings: Settings | None) -> str:

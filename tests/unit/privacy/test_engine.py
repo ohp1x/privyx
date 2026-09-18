@@ -113,3 +113,76 @@ async def test_engine_emits_pii_safe_audit_events() -> None:
     transform = next(r for r in records if r["event"] == "session.transform")
     assert transform["entity_counts"] == {"EMAIL": 1}
     assert transform["transformations"] == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_session_audits_after_vault_delete() -> None:
+    buf = io.StringIO()
+    vault = MemoryVault()
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=vault,
+        audit=AuditLogger(buf),
+    )
+    session = await engine.get_or_create_session()
+    await engine.transform("mail alice@example.com", session=session)
+
+    assert await engine.delete_session(
+        session.session_id,
+        reason="ephemeral_request_complete",
+        request_id="req_1",
+    ) is True
+    assert await vault.get(session.session_id) is None
+
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    deleted = next(r for r in records if r["event"] == "session.deleted")
+    assert deleted["mapping_count"] == 1
+    assert deleted["request_id"] == "req_1"
+    assert buf.getvalue().index('"event": "session.deleted"') > buf.getvalue().index(
+        '"event": "session.transform"'
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_missing_session_is_noop() -> None:
+    buf = io.StringIO()
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=AuditLogger(buf),
+    )
+
+    assert await engine.delete_session(
+        "ses_missing", reason="ephemeral_request_complete", request_id="req_1"
+    ) is False
+    assert buf.getvalue() == ""
+
+
+@pytest.mark.asyncio
+async def test_delete_session_failure_does_not_audit_deleted() -> None:
+    class FailingVault(MemoryVault):
+        async def delete(self, session_id: str) -> None:
+            raise RuntimeError("disk full")
+
+    buf = io.StringIO()
+    vault = FailingVault()
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=vault,
+        audit=AuditLogger(buf),
+    )
+    session = await engine.get_or_create_session()
+
+    with pytest.raises(RuntimeError):
+        await engine.delete_session(
+            session.session_id, reason="ephemeral_request_complete", request_id="req_1"
+        )
+
+    assert await vault.get(session.session_id) is not None
+    assert "session.deleted" not in buf.getvalue()

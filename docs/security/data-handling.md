@@ -24,8 +24,9 @@
   epoch `ts`, `event`, `request_id`, `session_id`) so a downstream reader has a
   stable contract, and one `request_id` ties every event of one proxied exchange
   together. The vocabulary is `session.created`, `session.transform`,
-  `session.restore`, `proxy.request`, `proxy.response`, and `proxy.error` — see
-  [audit events](../observability/audit-events.md) for the full schema.
+  `session.restore`, `session.deleted`, `proxy.request`, `proxy.response`, and
+  `proxy.error` — see [audit events](../observability/audit-events.md) for the
+  full schema.
 - It records entity **types and counts** and request metadata — **never** the
   matched text, original values, or pseudonyms. This is enforced at the API: the
   `transform` helper takes a `{type: count}` histogram (not spans), and
@@ -36,5 +37,11 @@
 ## Data Minimization
 
 - Sessions only store mappings for values actually pseudonymized.
+- Default `ephemeral` proxy sessions are deleted from the vault after the batch
+  response completes or after a streaming response is drained/cancelled;
+  `session.deleted` is emitted only after the deletion succeeds.
+- Explicit-header and derived `client` / `conversation` sessions are retained for
+  continuity and are not deleted at the end of each request. They require an
+  explicit deletion or future TTL/retention policy.
 - `delete()` on the vault removes a session's mappings.
 - Vault TTL (Redis) expires idle sessions.
