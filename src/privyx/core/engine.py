@@ -156,6 +156,36 @@ class PrivacyEngine:
         )
         return result
 
+    async def delete_session(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        request_id: str | None = None,
+    ) -> bool:
+        """Delete a session and audit the deletion after it succeeds.
+
+        The mapping count is captured before deletion for the PII-safe audit
+        event.  A missing session is a no-op, which makes cleanup idempotent
+        when a vault TTL or another owner removed it first.
+
+        Raises:
+            VaultError: If reading or deleting the session fails.  No
+                ``session.deleted`` event is emitted in that case.
+        """
+        session = await self._vault.get(session_id)
+        if session is None:
+            return False
+        mapping_count = len(session.mapping)
+        await self._vault.delete(session_id)
+        self._audit.session_deleted(
+            session_id,
+            reason=reason,
+            mapping_count=mapping_count,
+            request_id=request_id,
+        )
+        return True
+
     async def restore(
         self,
         text: str,
