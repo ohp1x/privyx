@@ -7,6 +7,10 @@ host: 127.0.0.1
 port: 8000
 log_level: info
 logging: text
+# Debug log file (or PRIVYX_LOG_FILE).  The console only shows Privyx's own logs
+# plus third-party warnings; this file also gets third-party logs at log_level.
+# At debug it contains raw vault rows (original PII) — created 0600, keep local.
+log_file: ""             # e.g. privyx-debug.log
 
 # --- Upstream provider ---
 # Explicit override, equivalent to `--upstream` / PRIVYX_UPSTREAM_URL.  Leave

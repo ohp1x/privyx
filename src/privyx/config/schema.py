@@ -173,6 +173,7 @@ class Settings(BaseModel):
     port: int = 8000
     log_level: str = "info"
     logging: str = "text"
+    log_file: str = ""
     #: Explicit upstream override (``--upstream`` / ``PRIVYX_UPSTREAM_URL``).
     #: Empty means "use whatever the configured provider resolves to"; see
     #: :func:`privyx.providers.registry.build_provider` for the precedence.

@@ -62,6 +62,9 @@ def env_config() -> dict[str, Any]:
     log_level = _env("LOG_LEVEL")
     if log_level:
         cfg["log_level"] = log_level
+    log_file = _env("LOG_FILE")
+    if log_file:
+        cfg["log_file"] = log_file
     logging_mode = _env("LOGGING")
     if logging_mode:
         cfg["logging"] = logging_mode

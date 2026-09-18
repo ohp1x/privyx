@@ -14,6 +14,7 @@ DEFAULTS: dict[str, object] = {
     "port": 8000,
     "log_level": "info",
     "logging": "text",
+    "log_file": "",
     # Empty on purpose: this is the explicit override, and a value here would
     # make `provider.base_url` and the per-provider defaults unreachable.
     "upstream_url": "",
