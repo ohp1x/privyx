@@ -42,9 +42,15 @@ from privyx.proxy.schemas import detect_schema, restore_response, transform_requ
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
 from privyx.streaming.adapters.registry import build_stream_adapter
+from privyx.utils.ids import request_id as new_request_id
 
 _JSON = "application/json"
 _SSE = "text/event-stream"
+
+
+def _elapsed_ms(start: float) -> float:
+    """Milliseconds since a ``time.perf_counter()`` mark, rounded for the trail."""
+    return round((time.perf_counter() - start) * 1000, 2)
 
 
 @dataclass(slots=True)
@@ -130,65 +136,90 @@ class TransparentProxy:
     ) -> ProxyResponse:
         """Run the full per-request pipeline and return a :class:`ProxyResponse`."""
         start = time.perf_counter()
-        schema = detect_schema(path, self._routes)
-        content_type = _ci_get(headers, "content-type")
+        req_id = new_request_id()
+        # Correlate every event of this exchange and aggregate its per-leaf
+        # transform/restore into one line each; closed in the finally below (the
+        # streaming generator carries req_id explicitly, so it needs no scope).
+        token = self._audit.begin_request(req_id)
+        try:
+            schema = detect_schema(path, self._routes)
+            content_type = _ci_get(headers, "content-type")
 
-        if session_id is None:
-            session_id = _ci_get(headers, "x-privyx-session") or None
+            if session_id is None:
+                session_id = _ci_get(headers, "x-privyx-session") or None
 
-        # Parse the body once, up front: the session strategy may fingerprint it
-        # (e.g. the first user message), and the transform reuses the same parse.
-        payload = _loads(body) if schema and body and _JSON in content_type else None
-        resolved_id, source = resolve_session_id(
-            self._session_strategy,
-            header_value=session_id,
-            headers=headers,
-            payload=payload,
-            schema=schema,
-        )
-        session = await self._engine.get_or_create_session(resolved_id, source=source)
-        sid = session.session_id
-
-        out_body = body
-        if isinstance(payload, dict):
-            transformed = await transform_request(payload, self._engine, sid)
-            out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
-
-        url = f"{self._origin}/{path.lstrip('/')}"
-        request = self._client.build_request(
-            method,
-            url,
-            headers=filter_request_headers(
-                headers,
+            # Parse the body once, up front: the session strategy may fingerprint
+            # it (e.g. the first user message), and the transform reuses the parse.
+            payload = _loads(body) if schema and body and _JSON in content_type else None
+            resolved_id, source = resolve_session_id(
+                self._session_strategy,
+                header_value=session_id,
+                headers=headers,
+                payload=payload,
                 schema=schema,
-                forward_client_auth=self._forward_client_auth,
-                api_key=self._api_key,
-                extra=self._extra_headers,
-            ),
-            content=out_body,
-            params=query_params,
-        )
-        response = await self._client.send(request, stream=True)
+            )
+            session = await self._engine.get_or_create_session(resolved_id, source=source)
+            sid = session.session_id
+            self._audit.set_session(sid)
 
-        resp_content_type = response.headers.get("content-type", "")
-        resp_headers = filter_response_headers(response.headers)
-        resp_headers["x-privyx-session"] = sid
+            out_body = body
+            if isinstance(payload, dict):
+                transformed = await transform_request(payload, self._engine, sid)
+                out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
+            self._audit.flush_transform()
 
-        is_stream = _SSE in resp_content_type
-        self._audit.request(
-            method=method,
-            path="/" + path.lstrip("/"),
-            schema=schema,
-            status=response.status_code,
-            session_id=sid,
-            stream=is_stream,
-            duration_ms=round((time.perf_counter() - start) * 1000, 2),
-            upstream=self._upstream_host,
-        )
+            url = f"{self._origin}/{path.lstrip('/')}"
+            request = self._client.build_request(
+                method,
+                url,
+                headers=filter_request_headers(
+                    headers,
+                    schema=schema,
+                    forward_client_auth=self._forward_client_auth,
+                    api_key=self._api_key,
+                    extra=self._extra_headers,
+                ),
+                content=out_body,
+                params=query_params,
+            )
+            try:
+                response = await self._client.send(request, stream=True)
+            except Exception as exc:
+                self._audit.error(
+                    phase="upstream",
+                    error_type=type(exc).__name__,
+                    session_id=sid,
+                    request_id=req_id,
+                    duration_ms=_elapsed_ms(start),
+                )
+                raise
 
-        if is_stream:
-            return self._streaming_response(response, resp_headers, schema, sid)
-        return await self._batch_response(response, resp_headers, resp_content_type, schema, sid)
+            resp_content_type = response.headers.get("content-type", "")
+            resp_headers = filter_response_headers(response.headers)
+            resp_headers["x-privyx-session"] = sid
+
+            is_stream = _SSE in resp_content_type
+            self._audit.request(
+                method=method,
+                path="/" + path.lstrip("/"),
+                schema=schema,
+                status=response.status_code,
+                session_id=sid,
+                stream=is_stream,
+                duration_ms=_elapsed_ms(start),
+                upstream=self._upstream_host,
+                request_id=req_id,
+            )
+
+            if is_stream:
+                return self._streaming_response(
+                    response, resp_headers, schema, sid, req_id, start
+                )
+            return await self._batch_response(
+                response, resp_headers, resp_content_type, schema, sid, req_id, start
+            )
+        finally:
+            self._audit.end_request(token)
 
     # -- internals ---------------------------------------------------------
 
@@ -198,6 +229,8 @@ class TransparentProxy:
         headers: dict[str, str],
         schema: str | None,
         session_id: str,
+        request_id: str,
+        start: float,
     ) -> ProxyResponse:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
@@ -205,7 +238,7 @@ class TransparentProxy:
             status_code=response.status_code,
             headers=headers,
             media_type=_SSE,
-            stream=self._stream(response, schema, session_id),
+            stream=self._stream(response, schema, session_id, request_id, start),
         )
 
     async def _stream(
@@ -213,11 +246,25 @@ class TransparentProxy:
         response: httpx.Response,
         schema: str | None,
         session_id: str,
+        request_id: str,
+        start: float,
     ) -> AsyncIterator[str]:
         session = await self._engine.vault.get(session_id)
         mapping = session.mapping if session is not None else {}
         adapter = build_stream_adapter(schema or "generic")
-        resolve = resolver_for(self._engine.operator, mapping)
+        # Count restores by wrapping the resolver: a non-None lookup is one
+        # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
+        # faker's literal trie restore does not consult ``resolve``.)
+        base_resolve = resolver_for(self._engine.operator, mapping)
+        restored = 0
+
+        def resolve(token: str) -> str | None:
+            nonlocal restored
+            original = base_resolve(token)
+            if original is not None:
+                restored += 1
+            return original
+
         router = StreamRouter(
             self._engine.codec,
             resolve,
@@ -226,14 +273,38 @@ class TransparentProxy:
                 self._engine.operator, self._engine.codec, resolve, mapping
             ),
         )
+        frames = 0
+        status = response.status_code
         try:
             async for raw in response.aiter_bytes():
                 for out in router.feed(raw):
+                    frames += 1
                     yield out
             for out in router.flush():
+                frames += 1
                 yield out
+        except Exception as exc:
+            self._audit.error(
+                phase="stream",
+                error_type=type(exc).__name__,
+                session_id=session_id,
+                request_id=request_id,
+                status=status,
+                duration_ms=_elapsed_ms(start),
+            )
+            raise
         finally:
             await response.aclose()
+        self._audit.restore(session_id, transformations=restored, request_id=request_id)
+        self._audit.response(
+            status=status,
+            stream=True,
+            frames=frames,
+            restored=restored,
+            session_id=session_id,
+            request_id=request_id,
+            duration_ms=_elapsed_ms(start),
+        )
 
     async def _batch_response(
         self,
@@ -242,6 +313,8 @@ class TransparentProxy:
         content_type: str,
         schema: str | None,
         session_id: str,
+        request_id: str,
+        start: float,
     ) -> ProxyResponse:
         data = await response.aread()
         await response.aclose()
@@ -250,6 +323,16 @@ class TransparentProxy:
             if isinstance(payload, dict):
                 restored = await restore_response(schema, payload, self._engine, session_id)
                 data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
+        restored_n = self._audit.flush_restore()
+        self._audit.response(
+            status=response.status_code,
+            stream=False,
+            size=len(data),
+            restored=restored_n,
+            session_id=session_id,
+            request_id=request_id,
+            duration_ms=_elapsed_ms(start),
+        )
         return ProxyResponse(
             status_code=response.status_code,
             headers=headers,

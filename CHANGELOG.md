@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Audit
+
+- The audit trail gained a **versioned, correlated envelope** so it can back a
+  long-lived reader (a store, query layer, or dashboard) without reshaping. Every
+  line now carries `schema_version`, a human-readable ISO-8601 `time` (next to the
+  epoch `ts`), and a `request_id` that ties every event of one proxied exchange
+  together. Event names are consistent `<domain>.<action>`: `transform` and
+  `restore` became `session.transform` / `session.restore`, joining
+  `session.created`, `proxy.request`, and the new events below. This is a
+  **breaking change** to the on-disk format, signalled by `schema_version: 1`
+- **Per-request aggregation.** A request pseudonymizes many text leaves; the trail
+  used to write one `transform` line per leaf. It now records a single
+  `session.transform` (merged `entity_counts`, summed `transformations`) and a
+  single `session.restore` per exchange, so the log reads one row per event that
+  matters. Standalone library / `privyx mask` calls (outside a request) still emit
+  per call
+- **New `proxy.response`** records the completed exchange — total duration, batch
+  `bytes` or streamed `frames`, and the `restored` count — complementing
+  `proxy.request` (which stays the time-to-first-byte marker). Streaming responses
+  now also emit `session.restore`; previously the streaming path bypassed the
+  restore accounting entirely and recorded nothing
+- **New `proxy.error`** records a failed exchange with a `phase`
+  (`upstream` / `stream` / `response`) and the exception's **class name** — never
+  its message, which could echo payload text. The "counts, not content" guarantee
+  is unchanged and now documented in `docs/observability/audit-events.md`
+- Dropped the redundant `client_supplied` field from `session.created` (its
+  `source` already says how the id was chosen)
+
 ### Sessions
 
 - New `session.strategy` (`PRIVYX_SESSION_STRATEGY`) decides how a session is

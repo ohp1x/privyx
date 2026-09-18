@@ -15,6 +15,7 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 
 from privyx.core.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
@@ -189,8 +190,7 @@ async def test_non_chat_path_is_forwarded_verbatim() -> None:
     assert data["data"][0]["id"] == "gpt-x <PRIVYX_EMAIL_9>"
 
 
-async def test_audit_trail_records_request_without_pii() -> None:
-    buf = io.StringIO()
+def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> TransparentProxy:
     audit = AuditLogger(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
@@ -199,17 +199,36 @@ async def test_audit_trail_records_request_without_pii() -> None:
         vault=MemoryVault(),
         audit=audit,
     )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
+    return TransparentProxy(engine, origin="https://up.test", client=client, audit=audit)
 
+
+async def test_audit_trail_records_request_without_pii() -> None:
+    buf = io.StringIO()
+    proxy = _audited_proxy(buf, _mock_client())
+
+    # Two PII-bearing message leaves in one request: the per-leaf transforms must
+    # aggregate into a single session.transform line.
     await _post_json(
-        proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        proxy,
+        "v1/chat/completions",
+        {
+            "messages": [
+                {"role": "user", "content": f"mail {EMAIL}"},
+                {"role": "user", "content": f"cc {EMAIL2}"},
+            ]
+        },
     )
 
     written = buf.getvalue()
-    assert EMAIL not in written  # the audit trail never carries payload content
+    assert EMAIL not in written and EMAIL2 not in written  # never any payload content
 
     records = [json.loads(line) for line in written.splitlines() if line]
-    assert "transform" in {r["event"] for r in records}
+
+    transforms = [r for r in records if r["event"] == "session.transform"]
+    assert len(transforms) == 1  # aggregated, not one line per leaf
+    assert transforms[0]["entity_counts"] == {"EMAIL": 2}
+    assert transforms[0]["transformations"] == 2
+
     request = next(r for r in records if r["event"] == "proxy.request")
     assert request["method"] == "POST"
     assert request["path"] == "/v1/chat/completions"
@@ -218,6 +237,75 @@ async def test_audit_trail_records_request_without_pii() -> None:
     assert request["stream"] is False
     assert request["upstream"] == "up.test"
     assert isinstance(request["duration_ms"], int | float)
+
+    response = next(r for r in records if r["event"] == "proxy.response")
+    assert response["stream"] is False
+    assert response["bytes"] > 0
+    assert response["restored"] >= 1
+
+    # Every event of the exchange shares one non-null request_id.
+    request_ids = {r["request_id"] for r in records}
+    assert request_ids == {request["request_id"]}
+    assert request["request_id"] is not None
+
+
+async def test_streaming_audit_records_restore_and_response() -> None:
+    buf = io.StringIO()
+    proxy = _audited_proxy(buf, _mock_client())
+
+    result = await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": "application/json"},
+        body=json.dumps(
+            {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        ).encode(),
+    )
+    # The response/restore events are emitted only once the stream is fully drained.
+    assert result.stream is not None
+    _ = "".join([chunk async for chunk in result.stream])
+
+    written = buf.getvalue()
+    assert EMAIL not in written
+
+    records = [json.loads(line) for line in written.splitlines() if line]
+    restore = next(r for r in records if r["event"] == "session.restore")
+    assert restore["transformations"] >= 1
+
+    response = next(r for r in records if r["event"] == "proxy.response")
+    assert response["stream"] is True
+    assert response["frames"] > 0
+    assert response["restored"] >= 1
+
+    # request_id ties the streamed response back to its request.
+    request = next(r for r in records if r["event"] == "proxy.request")
+    assert response["request_id"] == request["request_id"]
+    assert restore["request_id"] == request["request_id"]
+
+
+async def test_upstream_failure_records_proxy_error() -> None:
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"cannot reach {EMAIL}")  # message carries PII
+
+    buf = io.StringIO()
+    client = httpx.AsyncClient(transport=httpx.MockTransport(boom))
+    proxy = _audited_proxy(buf, client)
+
+    with pytest.raises(httpx.ConnectError):
+        await _post_json(
+            proxy,
+            "v1/chat/completions",
+            {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+
+    written = buf.getvalue()
+    assert EMAIL not in written  # the exception message must not leak into the trail
+
+    records = [json.loads(line) for line in written.splitlines() if line]
+    error = next(r for r in records if r["event"] == "proxy.error")
+    assert error["phase"] == "upstream"
+    assert error["error_type"] == "ConnectError"
+    assert error["request_id"] is not None
 
 
 async def test_session_header_reused_across_requests() -> None:

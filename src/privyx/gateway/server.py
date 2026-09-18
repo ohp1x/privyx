@@ -27,12 +27,18 @@ from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
 from privyx.proxy.session import resolve_session_id
 from privyx.streaming.adapters.registry import build_stream_adapter
+from privyx.utils.ids import request_id as new_request_id
 
 try:
     from fastapi import FastAPI, Request
 except ImportError:  # pragma: no cover - optional extra
     FastAPI = None  # type: ignore[assignment,misc]
     Request = None  # type: ignore[assignment,misc]
+
+
+def _elapsed_ms(start: float) -> float:
+    """Milliseconds since a ``time.perf_counter()`` mark, rounded for the trail."""
+    return round((time.perf_counter() - start) * 1000, 2)
 
 
 class Gateway:
@@ -101,46 +107,119 @@ class Gateway:
             from fastapi.responses import JSONResponse, StreamingResponse
 
             start = time.perf_counter()
-            payload = await request.json()
-            session_id, source = resolve_session_id(
-                self._session_strategy,
-                header_value=request.headers.get("x-privyx-session"),
-                headers=request.headers,
-                payload=payload,
-                schema=schema,
-            )
-            is_stream = bool(payload.get("stream", False))
+            req_id = new_request_id()
+            token = self._audit.begin_request(req_id)
+            try:
+                payload = await request.json()
+                session_id, source = resolve_session_id(
+                    self._session_strategy,
+                    header_value=request.headers.get("x-privyx-session"),
+                    headers=request.headers,
+                    payload=payload,
+                    schema=schema,
+                )
+                is_stream = bool(payload.get("stream", False))
 
-            transformed, session_id = await proxy.process_request(
-                payload, session_id=session_id, source=source
-            )
-
-            if session_id is None:
-                raise HTTPException(status_code=500, detail="session creation failed")
-
-            self._audit.request(
-                method="POST",
-                path=path,
-                schema=schema,
-                status=200,
-                session_id=session_id,
-                stream=is_stream,
-                duration_ms=round((time.perf_counter() - start) * 1000, 2),
-                upstream=self._upstream_host,
-            )
-
-            if is_stream:
-                return StreamingResponse(
-                    proxy.process_stream(transformed, session_id),
-                    media_type="text/event-stream",
-                    headers={"X-Privyx-Session": session_id},
+                transformed, session_id = await proxy.process_request(
+                    payload, session_id=session_id, source=source
                 )
 
-            response = await proxy.send_batch(transformed)
-            deanonymized = await proxy.process_response(response, session_id)
-            return JSONResponse(deanonymized, headers={"X-Privyx-Session": session_id})
+                if session_id is None:
+                    raise HTTPException(status_code=500, detail="session creation failed")
+
+                self._audit.set_session(session_id)
+                self._audit.flush_transform()
+                self._audit.request(
+                    method="POST",
+                    path=path,
+                    schema=schema,
+                    status=200,
+                    session_id=session_id,
+                    stream=is_stream,
+                    duration_ms=_elapsed_ms(start),
+                    upstream=self._upstream_host,
+                    request_id=req_id,
+                )
+
+                if is_stream:
+                    return StreamingResponse(
+                        self._audited_stream(
+                            proxy.process_stream(transformed, session_id),
+                            session_id=session_id,
+                            request_id=req_id,
+                            start=start,
+                        ),
+                        media_type="text/event-stream",
+                        headers={"X-Privyx-Session": session_id},
+                    )
+
+                try:
+                    response = await proxy.send_batch(transformed)
+                    deanonymized = await proxy.process_response(response, session_id)
+                except Exception as exc:
+                    self._audit.error(
+                        phase="upstream",
+                        error_type=type(exc).__name__,
+                        session_id=session_id,
+                        request_id=req_id,
+                        duration_ms=_elapsed_ms(start),
+                    )
+                    raise
+                result = JSONResponse(deanonymized, headers={"X-Privyx-Session": session_id})
+                restored_n = self._audit.flush_restore()
+                self._audit.response(
+                    status=200,
+                    stream=False,
+                    size=len(result.body),
+                    restored=restored_n,
+                    session_id=session_id,
+                    request_id=req_id,
+                    duration_ms=_elapsed_ms(start),
+                )
+                return result
+            finally:
+                self._audit.end_request(token)
 
         return handler
+
+    async def _audited_stream(
+        self,
+        source: Any,
+        *,
+        session_id: str,
+        request_id: str,
+        start: float,
+    ) -> Any:
+        """Forward a gateway SSE stream, recording ``proxy.response`` at the end.
+
+        Gateway mode is the narrow back-compat path: ``HTTPProxy.process_stream``
+        owns the resolver, so the restored count is not observable here (it is on
+        the transparent proxy).  ``proxy.error`` is still recorded if the stream
+        breaks mid-flight.
+        """
+        frames = 0
+        try:
+            async for frame in source:
+                frames += 1
+                yield frame
+        except Exception as exc:
+            self._audit.error(
+                phase="stream",
+                error_type=type(exc).__name__,
+                session_id=session_id,
+                request_id=request_id,
+                duration_ms=_elapsed_ms(start),
+            )
+            raise
+        self._audit.response(
+            status=200,
+            stream=True,
+            frames=frames,
+            restored=0,
+            session_id=session_id,
+            request_id=request_id,
+            duration_ms=_elapsed_ms(start),
+        )
 
 
 def _upstream_host(settings: Settings | None) -> str:

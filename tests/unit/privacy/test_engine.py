@@ -110,6 +110,6 @@ async def test_engine_emits_pii_safe_audit_events() -> None:
 
     records = [json.loads(line) for line in written.splitlines() if line]
     assert "session.created" in {r["event"] for r in records}
-    transform = next(r for r in records if r["event"] == "transform")
+    transform = next(r for r in records if r["event"] == "session.transform")
     assert transform["entity_counts"] == {"EMAIL": 1}
     assert transform["transformations"] == 1
