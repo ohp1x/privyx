@@ -73,7 +73,6 @@ async def transform_request(
 
 
 async def restore_response(
-    schema: str,
     payload: dict[str, Any],
     engine: PrivacyEngine,
     session_id: str,
@@ -84,15 +83,17 @@ async def restore_response(
     that happens to appear in an id or other structural field is left alone
     (unlike a blunt whole-body string replace).  When the session is unknown
     the payload is returned untouched.
+
+    Both response shapes are walked regardless of the route's schema: OpenAI-
+    compatible gateways often answer ``/v1/messages`` with a ``chat.completion``
+    body.  Each walker is a no-op when its shape is absent.
     """
     session = await engine.vault.get(session_id)
     if session is None:
         return payload
     result = copy.deepcopy(payload)
-    if schema == "anthropic":
-        await _restore_anthropic(result, engine, session_id)
-    else:
-        await _restore_openai(result, engine, session_id)
+    await _restore_anthropic(result, engine, session_id)
+    await _restore_openai(result, engine, session_id)
     return result
 
 

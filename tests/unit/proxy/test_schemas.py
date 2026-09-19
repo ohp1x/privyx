@@ -100,7 +100,7 @@ async def test_restore_openai_content_and_tool_arguments() -> None:
             }
         ]
     }
-    out = await restore_response("openai", response, engine, sid)
+    out = await restore_response(response, engine, sid)
 
     message = out["choices"][0]["message"]
     assert message["content"] == f"ok {EMAIL}"
@@ -121,7 +121,7 @@ async def test_restore_anthropic_text_and_tool_input() -> None:
             {"type": "tool_use", "input": {"to": pseudonym}},
         ]
     }
-    out = await restore_response("anthropic", response, engine, sid)
+    out = await restore_response(response, engine, sid)
 
     assert out["content"][0]["text"] == f"hi {EMAIL}"
     assert out["content"][1]["input"]["to"] == EMAIL
@@ -130,5 +130,23 @@ async def test_restore_anthropic_text_and_tool_input() -> None:
 async def test_restore_unknown_session_is_passthrough() -> None:
     engine = _engine()
     response = {"choices": [{"message": {"content": "<PRIVYX_EMAIL_1>"}}]}
-    out = await restore_response("openai", response, engine, "ses_missing")
+    out = await restore_response(response, engine, "ses_missing")
     assert out["choices"][0]["message"]["content"] == "<PRIVYX_EMAIL_1>"
+
+
+async def test_restore_openai_shaped_body_on_anthropic_route() -> None:
+    # OpenAI-compatible gateways answer /v1/messages with a chat.completion body.
+    engine = _engine()
+    sid = await _session(engine)
+    await transform_request(_mail_request(), engine, sid)
+    session = await engine.vault.get(sid)
+    assert session is not None
+    pseudonym = session.pseudonym_for(EMAIL)
+
+    response = {
+        "object": "chat.completion",
+        "choices": [{"message": {"content": f"hi {pseudonym}"}}],
+    }
+    out = await restore_response(response, engine, sid)
+
+    assert out["choices"][0]["message"]["content"] == f"hi {EMAIL}"
