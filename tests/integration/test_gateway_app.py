@@ -251,3 +251,32 @@ async def test_gateway_stream_cleanup_deletes_after_drain() -> None:
     assert EMAIL in body
     assert await vault.get(sid) is None
     assert any(r["event"] == "session.deleted" for r in _records(buf))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_upstream_error_is_relayed(stream: bool) -> None:
+    """An upstream 4xx reaches the client with its status and body, not a 500."""
+    error = {"error": {"message": "bad model"}}
+    vault = MemoryVault()
+    engine = PrivacyEngine(
+        detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
+    )
+    provider = GenericProvider(
+        base_url=UPSTREAM,
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(400, json=error))
+        ),
+    )
+    gateway = Gateway(engine=engine, provider=provider, settings=Settings())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/v1/messages",
+            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == error
+    assert vault._sessions == {}  # ephemeral session still cleaned up

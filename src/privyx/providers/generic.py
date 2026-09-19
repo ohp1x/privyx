@@ -62,7 +62,7 @@ class GenericProvider(BaseProvider):
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise ProviderError(f"upstream request failed: {exc}") from exc
+            raise _provider_error("upstream request failed", exc) from exc
         try:
             return response.json()
         except ValueError:
@@ -86,8 +86,23 @@ class GenericProvider(BaseProvider):
                 json=payload,
                 headers=self._build_headers({"Accept": "text/event-stream"}),
             ) as response:
+                if response.is_error:
+                    await response.aread()  # keep the error body for the caller
                 response.raise_for_status()
                 async for chunk in response.aiter_text():
                     yield chunk
         except httpx.HTTPError as exc:
-            raise ProviderError(f"upstream stream failed: {exc}") from exc
+            raise _provider_error("upstream stream failed", exc) from exc
+
+
+def _provider_error(prefix: str, exc: httpx.HTTPError) -> ProviderError:
+    """Wrap ``exc``, keeping the upstream's error response when there is one."""
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return ProviderError(f"{prefix}: {exc}")
+    response = exc.response
+    return ProviderError(
+        f"{prefix}: {exc}",
+        status_code=response.status_code,
+        body=response.content,
+        content_type=response.headers.get("content-type", ""),
+    )

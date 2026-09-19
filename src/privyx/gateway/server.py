@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 
 from privyx.config.schema import ProxyConfig, Settings
 from privyx.core.engine import PrivacyEngine
+from privyx.core.errors import ProviderError
 from privyx.observability.audit import AuditLogger
 from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
@@ -148,9 +149,23 @@ class Gateway:
                 )
 
                 if is_stream:
+                    frames = proxy.process_stream(transformed, session_id)
+                    # Pull the first frame before committing to a 200, so an
+                    # upstream error status reaches the client as itself.
+                    try:
+                        first = await anext(frames, None)
+                    except ProviderError as exc:
+                        self._audit.error(
+                            phase="upstream",
+                            error_type=type(exc).__name__,
+                            session_id=session_id,
+                            request_id=req_id,
+                            duration_ms=_elapsed_ms(start),
+                        )
+                        return _relay_upstream_error(exc)
                     defer_cleanup = True
                     stream_iter = self._audited_stream(
-                        proxy.process_stream(transformed, session_id),
+                        _prepend(first, frames),
                         session_id=session_id,
                         request_id=req_id,
                         start=start,
@@ -178,6 +193,8 @@ class Gateway:
                         request_id=req_id,
                         duration_ms=_elapsed_ms(start),
                     )
+                    if isinstance(exc, ProviderError):
+                        return _relay_upstream_error(exc)
                     raise
                 result = JSONResponse(deanonymized, headers={"X-Privyx-Session": session_id})
                 restored_n = self._audit.flush_restore()
@@ -263,6 +280,23 @@ class Gateway:
                 request_id=request_id,
                 duration_ms=_elapsed_ms(start),
             )
+
+
+def _relay_upstream_error(exc: ProviderError) -> Any:
+    """The upstream's own error response, or a 502 when it never answered."""
+    from fastapi.responses import JSONResponse, Response
+
+    if exc.status_code is None:
+        return JSONResponse({"error": {"message": str(exc)}}, status_code=502)
+    return Response(exc.body, status_code=exc.status_code, media_type=exc.content_type or None)
+
+
+async def _prepend(first: Any, rest: Any) -> Any:
+    """Yield ``first`` (unless ``None``), then everything left in ``rest``."""
+    if first is not None:
+        yield first
+    async for item in rest:
+        yield item
 
 
 def _upstream_host(settings: Settings | None) -> str:
