@@ -196,3 +196,266 @@ async def test_restore_openai_shaped_body_on_anthropic_route() -> None:
     out = await restore_response(response, engine, sid)
 
     assert out["choices"][0]["message"]["content"] == f"hi {EMAIL}"
+
+
+# --------------------------------------------------------------------------
+# Generic walk: every content leaf in, every leaf out, opaque keys untouched
+
+ARGS = json.dumps({"to": f"x\n{EMAIL}", "name": "Alice"})  # escaped \n right before
+
+
+def _args_ok(arguments: str) -> None:
+    """Still valid JSON, the escape intact, and the address pseudonymized."""
+    parsed = json.loads(arguments)
+    assert parsed["to"].startswith("x\n<PRIVYX_EMAIL_")
+
+
+async def _pseudonym(engine: PrivacyEngine, sid: str) -> str:
+    await transform_request(_mail_request(), engine, sid)
+    session = await engine.vault.get(sid)
+    assert session is not None
+    pseudonym = session.pseudonym_for(EMAIL)
+    assert pseudonym is not None
+    return pseudonym
+
+
+async def test_transform_anthropic_blocks_fail_closed() -> None:
+    engine = _engine()
+    sid = await _session(engine)
+    pdf = {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0xLjQK"}
+    tools = [{"name": "send", "description": "d", "input_schema": {"type": "object"}}]
+    payload = {
+        "model": "claude-x",
+        "tools": tools,
+        "system": [{"type": "text", "text": f"op {EMAIL}", "cache_control": {"type": "ephemeral"}}],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {"type": "text", "media_type": "text/plain", "data": EMAIL},
+                        "title": f"notes of {EMAIL}",
+                        "context": f"from {EMAIL}",
+                    },
+                    {"type": "document", "source": {"type": "content", "content": EMAIL}},
+                    {"type": "document", "source": pdf},
+                    {
+                        "type": "search_result",
+                        "source": "https://acme.test/kb",
+                        "title": f"about {EMAIL}",
+                        "content": [{"type": "text", "text": f"reach {EMAIL}"}],
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": f"is {EMAIL}", "signature": "sig=="},
+                    {"type": "redacted_thinking", "data": "opaque=="},
+                    {
+                        "type": "text",
+                        "text": "see doc",
+                        "citations": [
+                            {"type": "char_location", "cited_text": EMAIL, "document_index": 0}
+                        ],
+                    },
+                    {
+                        "type": "server_tool_use",
+                        "id": "srvtoolu_1",
+                        "name": "web_search",
+                        "input": {"query": EMAIL, "name": "Alice", "type": EMAIL},
+                    },
+                    {
+                        "type": "bash_code_execution_tool_result",
+                        "tool_use_id": "srvtoolu_2",
+                        "content": {
+                            "type": "bash_code_execution_result",
+                            "stdout": EMAIL,
+                            "stderr": f"no {EMAIL}",
+                            "return_code": 0,
+                            "content": [],
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+    original = json.dumps(payload)
+
+    out = await transform_request(payload, engine, sid)
+
+    assert EMAIL not in json.dumps(out)
+    assert json.dumps(payload) == original  # caller payload untouched
+    blocks = out["messages"][1]["content"]
+    assert out["model"] == "claude-x" and out["tools"] == tools
+    assert out["messages"][0]["content"][2]["source"] == pdf  # base64 data byte-identical
+    assert blocks[0]["signature"] == "sig==" and blocks[1]["data"] == "opaque=="
+    assert blocks[3]["id"] == "srvtoolu_1" and blocks[3]["name"] == "web_search"
+    # Inside a tool input nothing is structural: even "type" is user data.
+    assert "<PRIVYX_EMAIL_" in blocks[3]["input"]["type"]
+    assert out["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+
+async def test_transform_openai_chat_gaps() -> None:
+    engine = _engine()
+    sid = await _session(engine)
+    payload = {
+        "model": "gpt-x",
+        "response_format": {"type": "json_schema", "json_schema": {"name": "reply"}},
+        "prediction": {"type": "content", "content": f"draft {EMAIL}"},
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"mail {EMAIL}"},
+                    {"type": "image_url", "image_url": {"url": "https://x.test/a.png"}},
+                    {"type": "input_audio", "input_audio": {"data": "UklGRg==", "format": "wav"}},
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [{"type": "refusal", "refusal": f"not {EMAIL}"}],
+                "refusal": f"no {EMAIL}",
+                "reasoning": f"user is {EMAIL}",
+                "function_call": {"name": "send", "arguments": ARGS},
+                "tool_calls": [
+                    {"id": "call_1", "type": "function",
+                     "function": {"name": "send", "arguments": ARGS}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": f"sent {EMAIL}"},
+        ],
+    }
+
+    out = await transform_request(payload, engine, sid)
+
+    assert EMAIL not in json.dumps(out)
+    assistant = out["messages"][1]
+    _args_ok(assistant["function_call"]["arguments"])
+    _args_ok(assistant["tool_calls"][0]["function"]["arguments"])
+    assert assistant["tool_calls"][0]["id"] == "call_1"
+    assert assistant["function_call"]["name"] == "send"
+    assert out["messages"][0]["content"][1]["image_url"] == {"url": "https://x.test/a.png"}
+    assert out["messages"][0]["content"][2]["input_audio"]["data"] == "UklGRg=="
+    assert out["messages"][2]["tool_call_id"] == "call_1"
+    assert out["response_format"] == payload["response_format"]
+
+
+def _responses_request() -> dict[str, Any]:
+    return {
+        "model": "gpt-x",
+        "instructions": f"assist {EMAIL}",
+        "text": {"format": {"type": "text"}},
+        "reasoning": {"effort": "high", "summary": "auto"},
+        "tools": [{"type": "function", "name": "send", "parameters": {"type": "object"}}],
+        "prompt": {"id": "pmpt_1", "variables": {"who": EMAIL}},
+        "input": [
+            {"type": "message", "role": "developer", "content": f"ctx {EMAIL}"},
+            {"role": "user", "content": [
+                {"type": "input_text", "text": f"mail {EMAIL}"},
+                {"type": "input_image", "image_url": "data:image/png;base64,iVBOR"},
+                {"type": "input_file", "file_data": "JVBERi0=", "filename": "a.pdf"},
+            ]},
+            {"type": "reasoning", "id": "rs_1", "encrypted_content": "gAAAA==",
+             "summary": [{"type": "summary_text", "text": f"think {EMAIL}"}],
+             "content": [{"type": "reasoning_text", "text": f"raw {EMAIL}"}]},
+            {"type": "message", "role": "assistant", "id": "msg_1", "status": "completed",
+             "content": [{"type": "output_text", "text": f"ok {EMAIL}", "annotations": []}]},
+            {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "send",
+             "arguments": ARGS},
+            {"type": "function_call_output", "call_id": "call_1", "output": f"sent {EMAIL}"},
+            {"type": "custom_tool_call", "call_id": "call_2", "name": "apply_patch",
+             "input": f"*** {EMAIL}"},
+            {"type": "custom_tool_call_output", "call_id": "call_2", "output": f"done {EMAIL}"},
+            {"type": "local_shell_call", "id": "lsh_1", "call_id": "call_3", "status": "completed",
+             "action": {"type": "exec", "command": ["grep", EMAIL], "env": {}}},
+            {"type": "local_shell_call_output", "id": "call_3", "output": f"{EMAIL}\n"},
+            {"type": "shell_call_output", "call_id": "call_4", "output": [
+                {"stdout": EMAIL, "stderr": f"warn {EMAIL}",
+                 "outcome": {"type": "exit", "exit_code": 0}}]},
+            {"type": "apply_patch_call", "call_id": "call_5", "status": "completed",
+             "operation": {"type": "update_file", "path": "a.txt", "diff": f"+{EMAIL}"}},
+            {"type": "mcp_call", "id": "mcp_1", "name": "lookup", "server_label": "crm",
+             "arguments": ARGS, "output": f"found {EMAIL}"},
+        ],
+    }
+
+
+async def test_transform_responses_request() -> None:
+    engine = _engine()
+    sid = await _session(engine)
+    payload = _responses_request()
+
+    out = await transform_request(payload, engine, sid)
+
+    assert EMAIL not in json.dumps(out)
+    for key in ("model", "text", "reasoning", "tools"):
+        assert out[key] == payload[key]  # config, left alone
+    items = out["input"]
+    assert out["prompt"]["id"] == "pmpt_1"
+    assert items[1]["content"][1]["image_url"] == "data:image/png;base64,iVBOR"
+    assert items[1]["content"][2]["file_data"] == "JVBERi0="
+    assert items[2]["encrypted_content"] == "gAAAA==" and items[2]["id"] == "rs_1"
+    assert items[4]["name"] == "send" and items[4]["call_id"] == "call_1"
+    _args_ok(items[4]["arguments"])
+    _args_ok(items[-1]["arguments"])  # mcp_call
+
+    # The string shorthand is the user message itself.
+    shorthand = await transform_request({"input": f"mail {EMAIL}"}, engine, sid)
+    assert shorthand["input"].startswith("mail <PRIVYX_EMAIL_")
+
+
+async def test_restore_walks_every_leaf_of_all_three_shapes() -> None:
+    engine = _engine()
+    sid = await _session(engine)
+    token = await _pseudonym(engine, sid)
+    args = json.dumps({"to": f"x\n{token}"})
+
+    anthropic = {
+        "id": "msg_1",
+        "content": [
+            {"type": "text", "text": "cf", "citations": [{"cited_text": token}]},
+            {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search",
+             "input": {"query": token}},
+            {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_1",
+             "content": {"type": "code_execution_result", "stdout": token, "stderr": token}},
+            {"type": "thinking", "thinking": token, "signature": token},  # opaque stays
+        ],
+    }
+    chat = {
+        "choices": [{"message": {
+            "refusal": token, "reasoning": token,
+            "function_call": {"name": "send", "arguments": args},
+        }}],
+    }
+    responses = {
+        "id": "resp_1",
+        "object": "response",
+        "instructions": f"assist {token}",
+        "output": [
+            {"type": "reasoning", "id": "rs_1",
+             "summary": [{"type": "summary_text", "text": token}]},
+            {"type": "message", "id": "msg_1", "role": "assistant",
+             "content": [{"type": "output_text", "text": f"hi {token}", "annotations": []},
+                         {"type": "refusal", "refusal": token}]},
+            {"type": "function_call", "call_id": "call_1", "name": "send", "arguments": args},
+            {"type": "mcp_call", "id": "mcp_1", "name": "m", "server_label": "crm",
+             "arguments": args, "output": token},
+        ],
+    }
+
+    a = await restore_response(anthropic, engine, sid)
+    c = await restore_response(chat, engine, sid)
+    r = await restore_response(responses, engine, sid)
+
+    assert a["content"][0]["citations"][0]["cited_text"] == EMAIL
+    assert a["content"][1]["input"]["query"] == EMAIL
+    assert a["content"][2]["content"]["stdout"] == EMAIL
+    assert a["content"][3]["signature"] == token
+    message = c["choices"][0]["message"]
+    assert message["refusal"] == EMAIL and message["reasoning"] == EMAIL
+    assert json.loads(message["function_call"]["arguments"])["to"] == f"x\n{EMAIL}"
+    assert token not in json.dumps(r)
+    assert r["instructions"] == f"assist {EMAIL}"
+    assert json.loads(r["output"][2]["arguments"])["to"] == f"x\n{EMAIL}"

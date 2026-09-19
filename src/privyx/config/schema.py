@@ -111,9 +111,15 @@ class ProviderConfig(BaseModel):
 
 
 def _default_routes() -> dict[str, str]:
+    # Unlisted paths (embeddings, legacy /v1/completions, Gemini-native) are
+    # forwarded without pseudonymization; see docs/architecture/proxy.md.
     return {
         "/v1/chat/completions": "openai",
         "/v1/messages": "anthropic",
+        "/v1/messages/count_tokens": "anthropic",
+        "/v1/responses": "responses",
+        "/v1/responses/input_tokens": "responses",
+        "/v1/responses/compact": "responses",
     }
 
 

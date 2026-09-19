@@ -39,6 +39,14 @@ except ImportError:  # pragma: no cover - optional extra
     Request = None  # type: ignore[assignment,misc]
 
 
+#: Token-counting and compaction endpoints.  The gateway posts every path to
+#: one chat endpoint, which would turn a token count into a billed completion,
+#: so these stay unserved (404) and clients fall back as they would upstream.
+_AUXILIARY_ROUTES = frozenset(
+    {"/v1/messages/count_tokens", "/v1/responses/input_tokens", "/v1/responses/compact"}
+)
+
+
 def _elapsed_ms(start: float) -> float:
     """Milliseconds since a ``time.perf_counter()`` mark, rounded for the trail."""
     return round((time.perf_counter() - start) * 1000, 2)
@@ -70,7 +78,8 @@ class Gateway:
         self._audit = audit or AuditLogger(None)
         self._upstream_host = _upstream_host(settings)
         self._session_strategy = settings.session.strategy if settings else "ephemeral"
-        self._routes = dict(settings.proxy.routes) if settings else ProxyConfig().routes
+        routes = dict(settings.proxy.routes) if settings else ProxyConfig().routes
+        self._routes = {path: s for path, s in routes.items() if path not in _AUXILIARY_ROUTES}
         # One proxy per schema: the stream adapter (and the schema used to
         # restore a batch response) is per-instance, while the provider — hence
         # the upstream endpoint and its connection pool — is shared.

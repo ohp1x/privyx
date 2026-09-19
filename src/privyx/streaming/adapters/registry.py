@@ -2,7 +2,8 @@
 
 Providers differ in where the text delta lives inside an SSE ``data`` payload:
 OpenAI puts it at ``choices[0].delta.content``, Anthropic emits
-``content_block_delta`` events.  Keeping that knowledge in adapters — selected
+``content_block_delta`` events, and the OpenAI Responses API emits typed
+``response.*`` events.  Keeping that knowledge in adapters — selected
 by name here — is what stops the proxy from growing per-provider branches.
 
 Unknown names fall back to the plain-SSE adapter rather than raising: a custom
@@ -13,11 +14,12 @@ from __future__ import annotations
 
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
 from privyx.streaming.adapters.generic import SSEStreamAdapter
-from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+from privyx.streaming.adapters.openai import OpenAIStreamAdapter, ResponsesStreamAdapter
 
 _ADAPTERS: dict[str, type[SSEStreamAdapter]] = {
     "openai": OpenAIStreamAdapter,
     "anthropic": AnthropicStreamAdapter,
+    "responses": ResponsesStreamAdapter,
     "generic": SSEStreamAdapter,
 }
 

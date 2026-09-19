@@ -58,6 +58,9 @@ including exhaustive single-boundary coverage.
 
 ## Reasoning Content
 
-Non-text deltas (e.g. Anthropic `thinking_delta`, OpenAI `reasoning_content`)
-are handled by adapters: they pass through untouched, never entering the text
-transformation layer.
+Reasoning deltas (Anthropic `thinking_delta`, OpenAI `reasoning_content` /
+`reasoning`, Responses `reasoning_summary_text` / `reasoning_text`) are
+deanonymized like visible text, each on its own buffer so a held-back fragment
+never crosses from one stream into another. Events that are not deltas carry
+complete strings and are restored leaf by leaf — see
+[proxy.md](proxy.md#what-gets-transformed-and-restored).
