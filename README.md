@@ -36,9 +36,10 @@ export OPENAI_BASE_URL=http://localhost:8000/v1      # OpenAI clients
 export ANTHROPIC_BASE_URL=http://localhost:8000      # Anthropic clients
 ```
 
-Chat requests are pseudonymized before forwarding and the reply is restored on
-the way back (batch or streaming, including tool-call arguments); every other
-path is forwarded verbatim.
+Chat Completions, Anthropic Messages, and OpenAI Responses requests (plus their
+token-count endpoints) are pseudonymized before forwarding and the reply is
+restored on the way back (batch or streaming, including tool-call arguments);
+every other path is forwarded verbatim.
 
 Use `--gateway` when the upstream endpoint carries a base path (say
 `https://api.deepseek.com/anthropic/v1/messages`): that mode serves Privyx's own

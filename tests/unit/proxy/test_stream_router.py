@@ -9,6 +9,7 @@ from privyx.proxy.stream_router import StreamRouter, select_processor_factory
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.streaming.deanonymizer import StreamingDeanonymizer, TokenStreamProcessor
 from privyx.streaming.sse import SSEDecoder
 from privyx.token.codec import FormatCodec
@@ -131,6 +132,54 @@ def test_openai_truncated_tool_call_is_dropped() -> None:
     assert "tool_calls" not in out
 
 
+def test_openai_refusal_and_reasoning_split_tokens_restored() -> None:
+    adapter = OpenAIStreamAdapter()
+    router = _router(adapter, {TOKEN: ORIG})
+    body = "".join(
+        _openai_frame({"choices": [{"index": 0, "delta": {field: part}}]})
+        for field in ("reasoning", "refusal")
+        for part in ("user ", TOKEN[:7], TOKEN[7:], ".")
+    ) + _openai_frame(
+        {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+    ) + "data: [DONE]\n\n"
+
+    out = _run(router, body)
+
+    assert TOKEN not in out
+    deltas = [ev["choices"][0]["delta"] for ev in _events(out)]
+    for field in ("reasoning", "refusal"):
+        assert "".join(d.get(field, "") for d in deltas) == f"user {ORIG}."
+    assert out.endswith("data: [DONE]\n\n")
+
+
+def test_openai_legacy_function_call_buffered_and_restored() -> None:
+    adapter = OpenAIStreamAdapter()
+    router = _router(adapter, {TOKEN: ORIG})
+    args = json.dumps({"to": TOKEN})
+    frames = [
+        _openai_frame({"choices": [{"index": 0, "delta": {"function_call": {"name": "send"}}}]}),
+        *[
+            _openai_frame(
+                {"choices": [{"index": 0, "delta": {"function_call": {"arguments": part}}}]}
+            )
+            for part in (args[:9], args[9:])
+        ],
+        _openai_frame({"choices": [{"index": 0, "delta": {}, "finish_reason": "function_call"}]}),
+        "data: [DONE]\n\n",
+    ]
+
+    out = _run(router, "".join(frames))
+
+    assert TOKEN not in out
+    calls = [
+        ev["choices"][0]["delta"]["function_call"]
+        for ev in _events(out)
+        if "function_call" in ev["choices"][0]["delta"]
+    ]
+    assert len(calls) == 1 and calls[0]["name"] == "send"
+    assert json.loads(calls[0]["arguments"])["to"] == ORIG
+
+
 # --------------------------------------------------------------------------
 # Anthropic
 
@@ -216,6 +265,109 @@ def test_anthropic_tool_use_buffered_and_restored() -> None:
     ]
     assert len(input_events) == 1
     assert json.loads(input_events[0]["delta"]["partial_json"])["to"] == ORIG
+
+
+def test_anthropic_citations_delta_restored_whole() -> None:
+    adapter = AnthropicStreamAdapter()
+    router = _router(adapter, {TOKEN: ORIG})
+    body = _anthropic(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "citations_delta",
+                "citation": {"type": "char_location", "cited_text": f"mail {TOKEN}"},
+            },
+        },
+    )
+
+    out = _run(router, body)
+
+    assert out.startswith("event: content_block_delta\n")
+    assert _events(out)[0]["delta"]["citation"]["cited_text"] == f"mail {ORIG}"
+
+
+# --------------------------------------------------------------------------
+# OpenAI Responses
+
+
+def _rs(payload: dict[str, Any]) -> str:
+    return f"event: {payload['type']}\ndata: {json.dumps(payload)}\n\n"
+
+
+def test_responses_split_text_done_and_completed_restored() -> None:
+    router = _router(build_stream_adapter("responses"), {TOKEN: ORIG})
+    ids = {"item_id": "msg_1", "output_index": 0, "content_index": 0}
+    text = f"Hi {TOKEN}!"
+    part = {"type": "output_text", "text": text, "annotations": []}
+    message = {
+        "type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+        "content": [part],
+    }
+    body = "".join(
+        [
+            _rs({"type": "response.created", "sequence_number": 0,
+                 "response": {"id": "resp_1", "output": []}}),
+            _rs({"type": "response.output_text.delta", "sequence_number": 1,
+                 "delta": "Hi " + TOKEN[:6], **ids}),
+            _rs({"type": "response.output_text.delta", "sequence_number": 2,
+                 "delta": TOKEN[6:] + "!", **ids}),
+            _rs({"type": "response.output_text.done", "sequence_number": 3,
+                 "text": text, **ids}),
+            _rs({"type": "response.content_part.done", "sequence_number": 4,
+                 "part": part, **ids}),
+            _rs({"type": "response.output_item.done", "sequence_number": 5,
+                 "output_index": 0, "item": message}),
+            _rs({"type": "response.completed", "sequence_number": 6,
+                 "response": {"id": "resp_1", "output": [message]}}),
+        ]
+    )
+
+    out = _run(router, body)
+
+    assert TOKEN not in out
+    events = _events(out)
+    types = [ev["type"] for ev in events]
+    assert types[-1] == "response.completed"
+    assert "event: response.output_text.delta\n" in out  # event lines preserved
+    deltas = "".join(ev["delta"] for ev in events if ev["type"] == "response.output_text.delta")
+    assert deltas == f"Hi {ORIG}!"
+    done = next(ev for ev in events if ev["type"] == "response.output_text.done")
+    assert done["text"] == f"Hi {ORIG}!"
+    item = next(ev for ev in events if ev["type"] == "response.output_item.done")["item"]
+    assert item["content"][0]["text"] == f"Hi {ORIG}!" and item["id"] == "msg_1"
+    assert events[-1]["response"]["output"][0]["content"][0]["text"] == f"Hi {ORIG}!"
+
+
+def test_responses_function_call_arguments_buffered_until_done() -> None:
+    router = _router(build_stream_adapter("responses"), {TOKEN: ORIG})
+    ids = {"item_id": "fc_1", "output_index": 1}
+    args = json.dumps({"to": TOKEN})
+    body = "".join(
+        [
+            *[
+                _rs({"type": "response.function_call_arguments.delta", "delta": part, **ids})
+                for part in (args[:5], args[5:14], args[14:])
+            ],
+            _rs({"type": "response.function_call_arguments.done", "arguments": args,
+                 "name": "send", **ids}),
+            _rs({"type": "response.output_item.done", "output_index": 1, "item": {
+                "type": "function_call", "id": "fc_1", "call_id": "call_1",
+                "name": "send", "arguments": args}}),
+        ]
+    )
+
+    out = _run(router, body)
+
+    assert TOKEN not in out
+    events = _events(out)
+    deltas = [ev for ev in events if ev["type"] == "response.function_call_arguments.delta"]
+    assert len(deltas) == 1 and json.loads(deltas[0]["delta"])["to"] == ORIG
+    assert events.index(deltas[0]) < [ev["type"] for ev in events].index(
+        "response.function_call_arguments.done"
+    )
+    assert json.loads(events[-1]["item"]["arguments"])["to"] == ORIG
 
 
 # --------------------------------------------------------------------------

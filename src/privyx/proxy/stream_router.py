@@ -9,10 +9,18 @@ across events) — and adds two more concerns on top:
 * **Held-back text ordering.** The deanonymizer holds a trailing fragment that
   might still grow into a token; that fragment is flushed *before* any pass-through
   event and at end of stream, never after, so nothing arrives out of order.
-* **Tool-call buffering.** OpenAI ``tool_calls`` and Anthropic ``tool_use`` stream
-  their arguments as partial JSON across many events.  Forwarding the partials
-  would leak pseudonyms and fragment the JSON, so they are accumulated in
-  pseudonym space and emitted — deanonymized, in one frame — only once complete.
+* **Tool-call buffering.** OpenAI ``tool_calls`` / ``function_call``, Anthropic
+  ``tool_use``, and Responses ``function_call_arguments`` (and kin) stream their
+  arguments as partial JSON across many events.  Forwarding the partials would
+  leak pseudonyms and fragment the JSON, so they are accumulated in pseudonym
+  space and emitted — deanonymized, in one frame — only once complete.
+
+Only deltas need that per-event care (a token may split across them).  Every
+other event — ``message_start``, ``content_block_start``, ``citations_delta``,
+Responses ``*.done`` / ``output_item.done`` / ``response.completed``, … — carries
+complete strings, so its JSON is restored leaf by leaf with the same walk as a
+batch body (:func:`~privyx.proxy.schemas.walk_sync`) and re-serialized only when
+something changed.
 
 Terminal events (OpenAI ``[DONE]``, Anthropic ``message_stop``) are deferred and
 emitted last, after every held-back fragment and buffered tool call has been
@@ -32,8 +40,10 @@ import codecs
 import copy
 import json
 from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import Any
 
+from privyx.proxy.schemas import walk_sync
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 from privyx.streaming.deanonymizer import (
     StreamDeanonymizer,
@@ -44,6 +54,38 @@ from privyx.streaming.sse import SSEDecoder, SSEEvent
 from privyx.token.codec import TokenCodec
 
 _DONE = "[DONE]"
+
+#: OpenAI Chat delta fields streamed as text, each on its own deanonymizer.
+#: ``reasoning`` is the non-standard field OpenRouter / vLLM / Ollama send.
+_OA_TEXT_FIELDS = ("content", "reasoning_content", "reasoning", "refusal")
+#: ``_oa_tools`` slot for the legacy single ``delta.function_call``.
+_LEGACY_CALL = -1
+
+#: Responses delta kinds carrying tool-call input: buffered until ``.done``.
+_RS_BUFFERED = frozenset(
+    {
+        "response.function_call_arguments",
+        "response.mcp_call_arguments",
+        "response.custom_tool_call_input",
+    }
+)
+#: Responses events that end the stream: every held-back delta is flushed first.
+_RS_TERMINAL = frozenset(
+    {"response.completed", "response.incomplete", "response.failed", "error"}
+)
+#: Fields that, with the event kind, identify one Responses delta stream.
+_RS_INDEXES = ("item_id", "output_index", "content_index", "summary_index", "command_index")
+
+
+@dataclass(slots=True)
+class _Delta:
+    """One Responses delta stream: its latest event (the re-wrap template), and
+    a text deanonymizer — or ``None`` when tool input is buffered instead."""
+
+    event: SSEEvent
+    payload: dict[str, Any]
+    processor: StreamDeanonymizer | None
+    buffer: str = ""
 
 
 class StreamRouter:
@@ -84,18 +126,24 @@ class StreamRouter:
         # text never bleeds into visible text (and vice versa).
         self._text = self._make_processor()
         self._think = self._make_processor()
+        # Reused for complete strings: feed + flush always leaves it empty.
+        self._full = self._make_processor()
 
         # Templates for re-wrapping a flushed tail into the provider's schema.
         self._text_template: SSEEvent | None = None
-        self._reasoning_payload: dict[str, Any] | None = None  # OpenAI
         self._think_index: int | None = None  # Anthropic
 
         self._pending_terminal: list[str] = []
+        # OpenAI: delta text field -> its deanonymizer and latest chunk (template).
+        self._oa_fields: dict[str, StreamDeanonymizer] = {}
+        self._oa_templates: dict[str, dict[str, Any]] = {}
         # OpenAI: tool-call index -> {"id", "name", "args"} (pseudonym space).
         self._oa_tools: dict[int, dict[str, str]] = {}
         # Anthropic: content-block index -> accumulated partial_json.
         self._an_tools: dict[int, str] = {}
         self._block_types: dict[int, str] = {}
+        # Responses: (kind, *indexes) -> its delta stream.
+        self._rs: dict[tuple[Any, ...], _Delta] = {}
 
     # -- public API --------------------------------------------------------
 
@@ -115,14 +163,13 @@ class StreamRouter:
         for event in self._decoder.feed(self._utf8.decode(b"", final=True)) + self._decoder.flush():
             out.extend(self._handle(event))
 
-        tail = self._flush_text_tail()
-        if tail:
-            out.append(tail)
+        out.extend(self._flush_text_tail())
         reasoning = self._flush_reasoning_tail()
         if reasoning:
             out.append(reasoning)
         out.extend(self._flush_openai_tools())
         out.extend(self._flush_anthropic_tools())
+        out.extend(self._flush_responses())
         out.extend(self._pending_terminal)
         self._pending_terminal = []
         return out
@@ -140,9 +187,11 @@ class StreamRouter:
             return self._passthrough(event)
         if self._schema == "anthropic":
             return self._handle_anthropic(event, payload)
+        if self._schema == "responses":
+            return self._handle_responses(event, payload)
         return self._handle_openai(event, payload)
 
-    # -- primary text (generic + OpenAI content + Anthropic text_delta) -----
+    # -- primary text (generic + Anthropic text_delta) ---------------------
 
     def _text_via_adapter(self, event: SSEEvent) -> list[str]:
         delta = self._adapter.extract_delta(event)
@@ -152,25 +201,28 @@ class StreamRouter:
         out = self._text.feed(delta)
         return [self._adapter.wrap_delta(out, event).to_str()] if out else []
 
-    def _flush_text_tail(self) -> str | None:
+    def _flush_text_tail(self) -> list[str]:
+        """Held-back visible text: the primary text buffer and OpenAI's fields."""
+        frames: list[str] = []
         tail = self._text.flush()
-        if not tail or self._text_template is None:
-            return None
-        return self._adapter.wrap_delta(tail, self._text_template).to_str()
+        if tail and self._text_template is not None:
+            frames.append(self._adapter.wrap_delta(tail, self._text_template).to_str())
+        for field, processor in self._oa_fields.items():
+            tail = processor.flush()
+            if tail:
+                frames.append(self._openai_field_frame(field, tail))
+        return frames
 
     def _passthrough(self, event: SSEEvent, *, drain: bool = True) -> list[str]:
-        """Forward a non-transformed event.
+        """Forward an event that is not restored delta by delta.
 
+        Its complete strings are restored in place (:meth:`_restore_event`).
         ``drain`` flushes any held-back text first so ordering is preserved; it
         is disabled for Anthropic control events (e.g. ``ping``) that may arrive
         *between* the chunks of a single token, where flushing would split it.
         """
-        out: list[str] = []
-        if drain:
-            tail = self._flush_text_tail()
-            if tail:
-                out.append(tail)
-        out.append(event.to_str())
+        out = self._flush_text_tail() if drain else []
+        out.append(self._restore_event(event).to_str())
         return out
 
     # -- OpenAI ------------------------------------------------------------
@@ -182,31 +234,45 @@ class StreamRouter:
         choice = choices[0]
         delta = choice.get("delta")
         delta = delta if isinstance(delta, dict) else {}
+        finishing = bool(choice.get("finish_reason"))
 
         tool_calls = delta.get("tool_calls")
-        if isinstance(tool_calls, list):
-            self._accumulate_openai_tools(tool_calls)
-            if choice.get("finish_reason"):
+        function_call = delta.get("function_call")
+        if isinstance(tool_calls, list) or isinstance(function_call, dict):
+            if isinstance(tool_calls, list):
+                self._accumulate_openai_tools(tool_calls)
+            if isinstance(function_call, dict):
+                self._accumulate_openai_tools([{"index": _LEGACY_CALL, "function": function_call}])
+            if finishing:
                 return self._flush_openai_tools() + [self._openai_finish_frame(payload)]
             return []  # still accumulating — suppress the partial
 
-        if choice.get("finish_reason") and self._oa_tools:
+        if finishing and self._oa_tools:
             # Tools closed by a separate finish chunk carrying no tool_calls.
             return self._flush_openai_tools() + self._passthrough(event)
 
-        content = delta.get("content")
-        if isinstance(content, str) and content:
-            self._text_template = event
-            out = self._text.feed(content)
-            return [self._adapter.wrap_delta(out, event).to_str()] if out else []
+        fields = [f for f in _OA_TEXT_FIELDS if isinstance(delta.get(f), str) and delta[f]]
+        if not fields:
+            return self._passthrough(event)  # role-only / usage / finish
 
-        reasoning = delta.get("reasoning_content")
-        if isinstance(reasoning, str) and reasoning:
-            self._reasoning_payload = payload
-            out = self._think.feed(reasoning)
-            return [self._wrap_openai_field(payload, "reasoning_content", out)] if out else []
-
-        return self._passthrough(event)  # role-only / usage / finish
+        # The rest of the chunk (e.g. OpenRouter ``reasoning_details``) carries
+        # complete strings: restore them whole, then splice in the text fields.
+        new = walk_sync(payload, self._restore_full)
+        out_delta = new["choices"][0]["delta"]
+        for field in fields:
+            processor = self._oa_fields.get(field)
+            if processor is None:
+                processor = self._oa_fields[field] = self._make_processor()
+            self._oa_templates[field] = payload
+            # A finishing chunk closes the field: nothing may follow it.
+            text = processor.feed(delta[field]) + (processor.flush() if finishing else "")
+            if text:
+                out_delta[field] = text
+            else:
+                del out_delta[field]
+        if not out_delta and not finishing:
+            return []  # everything held back
+        return [_reframe(event, new)]
 
     def _accumulate_openai_tools(self, tool_calls: list[Any]) -> None:
         for call in tool_calls:
@@ -237,7 +303,7 @@ class StreamRouter:
             args = self._oa_tools[index]["args"]
             if not args:
                 continue
-            restored = self._restore_full(args)
+            restored = self._restore_arguments(args)
             if not _is_valid_json(restored):
                 continue
             slot = self._oa_tools[index]
@@ -246,16 +312,17 @@ class StreamRouter:
         return frames
 
     def _flush_reasoning_tail(self) -> str | None:
+        """An Anthropic thinking block the upstream never closed."""
         tail = self._think.flush()
-        if not tail:
+        if not tail or self._think_index is None:
             return None
-        if self._reasoning_payload is not None:  # OpenAI
-            return self._wrap_openai_field(self._reasoning_payload, "reasoning_content", tail)
-        if self._think_index is not None:  # Anthropic thinking block never closed
-            return self._anthropic_delta_frame(
-                self._think_index, "thinking_delta", "thinking", tail
-            )
-        return None
+        return self._anthropic_delta_frame(self._think_index, "thinking_delta", "thinking", tail)
+
+    def _openai_field_frame(self, field: str, text: str) -> str:
+        """``text`` as the only delta field of ``field``'s latest chunk."""
+        new = copy.deepcopy(self._oa_templates[field])
+        new["choices"][0]["delta"] = {field: text}
+        return SSEEvent(data=json.dumps(new, separators=(",", ":"))).to_str()
 
     @staticmethod
     def _openai_finish_frame(payload: dict[str, Any]) -> str:
@@ -268,37 +335,18 @@ class StreamRouter:
 
     @staticmethod
     def _openai_tool_frame(index: int, call_id: str, name: str, arguments: str) -> str:
-        payload = {
-            "object": "chat.completion.chunk",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "tool_calls": [
-                            {
-                                "index": index,
-                                "id": call_id,
-                                "type": "function",
-                                "function": {"name": name, "arguments": arguments},
-                            }
-                        ]
-                    },
-                }
-            ],
-        }
+        function = {"name": name, "arguments": arguments}
+        delta: dict[str, Any] = (
+            {"function_call": function}
+            if index == _LEGACY_CALL
+            else {
+                "tool_calls": [
+                    {"index": index, "id": call_id, "type": "function", "function": function}
+                ]
+            }
+        )
+        payload = {"object": "chat.completion.chunk", "choices": [{"index": 0, "delta": delta}]}
         return SSEEvent(data=json.dumps(payload, separators=(",", ":"))).to_str()
-
-    @staticmethod
-    def _wrap_openai_field(payload: dict[str, Any], field: str, text: str) -> str:
-        new = copy.deepcopy(payload)
-        choices = new.get("choices")
-        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-            delta = choices[0].get("delta")
-            if not isinstance(delta, dict):
-                delta = {}
-                choices[0]["delta"] = delta
-            delta[field] = text
-        return SSEEvent(data=json.dumps(new, separators=(",", ":"))).to_str()
 
     # -- Anthropic ---------------------------------------------------------
 
@@ -357,7 +405,8 @@ class StreamRouter:
                 self._an_tools[index] = self._an_tools.get(index, "") + partial
             return []  # buffer; flushed at content_block_stop
 
-        return self._passthrough(event, drain=False)  # signature_delta etc.
+        # citations_delta (whole cited_text), signature_delta, etc.
+        return self._passthrough(event, drain=False)
 
     def _flush_anthropic_block(self, index: int) -> list[str]:
         block_type = self._block_types.get(index, "")
@@ -366,7 +415,7 @@ class StreamRouter:
             buffered = self._an_tools.pop(index, "")
             if not buffered:
                 return []
-            restored = self._restore_full(buffered)
+            restored = self._restore_arguments(buffered)
             return [
                 self._anthropic_delta_frame(index, "input_json_delta", "partial_json", restored)
             ]
@@ -389,7 +438,7 @@ class StreamRouter:
         for index in sorted(self._an_tools):
             buffered = self._an_tools[index]
             if buffered:
-                restored = self._restore_full(buffered)
+                restored = self._restore_arguments(buffered)
                 frames.append(
                     self._anthropic_delta_frame(index, "input_json_delta", "partial_json", restored)
                 )
@@ -408,12 +457,89 @@ class StreamRouter:
             event="content_block_delta",
         ).to_str()
 
+    # -- OpenAI Responses --------------------------------------------------
+
+    def _handle_responses(self, event: SSEEvent, payload: dict[str, Any]) -> list[str]:
+        """Typed ``response.*`` events: deltas per stream, the rest restored whole.
+
+        A delta stream is keyed by its kind (``type`` minus ``.delta``) and the
+        indexes present, so parallel parts never share a held-back tail.  Its
+        ``.done`` event (same kind and indexes) flushes that tail first.
+        """
+        ptype = str(payload.get("type", ""))
+        if ptype == "response.audio.delta":
+            return [event.to_str()]  # base64 audio: no text to restore
+        kind, _, suffix = ptype.rpartition(".")
+        key = (kind, *(payload.get(name) for name in _RS_INDEXES))
+        delta = payload.get("delta")
+
+        if isinstance(delta, str):
+            slot = self._rs.get(key)
+            if slot is None:
+                processor = None if kind in _RS_BUFFERED else self._make_processor()
+                slot = self._rs[key] = _Delta(event, payload, processor)
+            slot.event, slot.payload = event, payload
+            if slot.processor is None:
+                slot.buffer += delta
+                return []  # buffer; flushed at .done
+            out = slot.processor.feed(delta)
+            return [self._responses_delta_frame(slot, out)] if out else []
+
+        if suffix == "done":
+            return self._flush_responses(key) + [self._restore_event(event).to_str()]
+        if ptype in _RS_TERMINAL:
+            return self._flush_responses() + [self._restore_event(event).to_str()]
+        # ponytail: object deltas (shell_call_output_content's stdout/stderr) are
+        # restored per event, so a token split across two of them reaches the
+        # client as fragments (its .done is whole); give them processors if seen.
+        return [self._restore_event(event).to_str()]
+
+    def _flush_responses(self, key: tuple[Any, ...] | None = None) -> list[str]:
+        """Emit the held-back tail of one delta stream (``key``), or of all."""
+        keys = [key] if key is not None else list(self._rs)
+        frames: list[str] = []
+        for k in keys:
+            slot = self._rs.pop(k, None)
+            if slot is None:
+                continue
+            if slot.processor is None:
+                text = self._restore_arguments(slot.buffer)
+            else:
+                text = slot.processor.flush()
+            if text:
+                frames.append(self._responses_delta_frame(slot, text))
+        return frames
+
+    @staticmethod
+    def _responses_delta_frame(slot: _Delta, text: str) -> str:
+        # An extra flushed frame repeats its template's sequence_number; clients
+        # key deltas by item/index, not by a gap-free sequence, so it is harmless.
+        return _reframe(slot.event, {**slot.payload, "delta": text})
+
     # -- shared ------------------------------------------------------------
 
     def _restore_full(self, text: str) -> str:
         """Deanonymize a complete string with the same recognition as text."""
-        processor = self._make_processor()
-        return processor.feed(text) + processor.flush()
+        return self._full.feed(text) + self._full.flush()
+
+    def _restore_arguments(self, text: str) -> str:
+        """Deanonymize complete tool-call arguments, JSON-aware when they parse."""
+        restored: str = walk_sync(text, self._restore_full, "arguments")
+        return restored
+
+    def _restore_event(self, event: SSEEvent) -> SSEEvent:
+        """``event`` with every string leaf of its JSON restored.
+
+        Re-serialized only when something changed, so an event without a token
+        is forwarded byte for byte.
+        """
+        payload = _loads(event.data)
+        if payload is None:
+            return event
+        restored = walk_sync(payload, self._restore_full)
+        if restored == payload:
+            return event
+        return replace(event, data=_dumps(restored))
 
 
 def resolver_for(operator: object, mapping: dict[str, str]) -> Callable[[str], str | None]:
@@ -450,6 +576,15 @@ def select_processor_factory(
     if getattr(operator, "stream_restore", "token") == "literal":
         return lambda: StreamingDeanonymizer(mapping)
     return lambda: TokenStreamProcessor(codec, resolve)
+
+
+def _reframe(event: SSEEvent, payload: dict[str, Any]) -> str:
+    """``payload`` serialized into ``event``'s envelope (keeps ``event:``/``id:``)."""
+    return replace(event, data=_dumps(payload)).to_str()
+
+
+def _dumps(payload: Any) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def _loads(data: str) -> dict[str, Any] | None:

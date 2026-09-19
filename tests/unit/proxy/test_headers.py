@@ -37,10 +37,12 @@ def test_drops_client_auth_when_disabled() -> None:
 
 
 def test_api_key_override_openai_uses_bearer() -> None:
-    out = filter_request_headers(
-        {"Authorization": "Bearer client"}, schema="openai", api_key="server"
-    )
-    assert out["authorization"] == "Bearer server"
+    for schema in ("openai", "responses"):
+        out = filter_request_headers(
+            {"Authorization": "Bearer client"}, schema=schema, api_key="server"
+        )
+        assert out["authorization"] == "Bearer server"
+        assert "anthropic-version" not in out
 
 
 def test_api_key_override_anthropic_uses_x_api_key() -> None:

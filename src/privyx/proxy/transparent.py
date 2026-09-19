@@ -36,6 +36,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from privyx.config.schema import ProxyConfig
 from privyx.core.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
@@ -76,7 +77,8 @@ class TransparentProxy:
         engine: Configured privacy engine.
         origin: Upstream origin (``scheme://host[:port]``); the request path is
             appended to it.  See :func:`privyx.providers.registry.resolve_origin`.
-        routes: Path → wire-schema map (defaults to OpenAI + Anthropic chat).
+        routes: Path → wire-schema map (defaults to ``proxy.routes``' default:
+            OpenAI Chat and Responses, Anthropic Messages and token counting).
         forward_client_auth: Forward the client's ``Authorization`` / ``x-api-key``.
         api_key: When set, overrides the upstream credential with this key.
         extra_headers: Static headers merged into every upstream request.
@@ -109,10 +111,7 @@ class TransparentProxy:
         self._audit = audit or AuditLogger(None)
         self._session_strategy = session_strategy
         self._upstream_host = urlsplit(self._origin).netloc or self._origin
-        self._routes = routes if routes is not None else {
-            "/v1/chat/completions": "openai",
-            "/v1/messages": "anthropic",
-        }
+        self._routes = routes if routes is not None else ProxyConfig().routes
         self._forward_client_auth = forward_client_auth
         self._api_key = api_key
         self._extra_headers = dict(extra_headers or {})

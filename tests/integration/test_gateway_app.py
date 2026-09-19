@@ -156,15 +156,18 @@ async def test_messages_route_masks_and_restores() -> None:
 
 @pytest.mark.asyncio
 async def test_routes_come_from_config() -> None:
-    """Both configured paths are registered; unknown ones still 404."""
+    """Configured chat paths are registered; auxiliary and unknown ones 404."""
     client, gateway = _client(_engine())
     assert gateway.routes == {
         "/v1/chat/completions": "openai",
         "/v1/messages": "anthropic",
+        "/v1/responses": "responses",
     }
     async with client:
         assert (await client.get("/health")).json() == {"status": "ok"}
-        assert (await client.post("/v1/responses", json={})).status_code == 404
+        assert (await client.post("/v1/embeddings", json={})).status_code == 404
+        # Never forwarded to the chat endpoint as a billed completion.
+        assert (await client.post("/v1/messages/count_tokens", json={})).status_code == 404
 
 
 @pytest.mark.asyncio

@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from typing import Any
 
 #: Wire schemas whose request body this module knows how to fingerprint.
-_CHAT_SCHEMAS = frozenset({"openai", "anthropic"})
+_CHAT_SCHEMAS = frozenset({"openai", "anthropic", "responses"})
 
 
 def resolve_session_id(
@@ -81,15 +81,20 @@ def _credential(headers: Mapping[str, str]) -> str:
 def _first_user_message(payload: Any) -> str:
     """Text of the first ``user`` message, or ``""`` when there is none.
 
-    OpenAI and Anthropic share the shape read here: ``messages`` is a list of
-    ``{"role", "content"}`` and ``content`` is a string or a list of
-    ``{"type": "text", "text": ...}`` parts (mirrors
-    :func:`privyx.proxy.schemas._transform_content`).  The first user message is
-    immutable across a conversation's turns, so it is a stable fingerprint.
+    OpenAI Chat and Anthropic share the shape read here: ``messages`` is a list
+    of ``{"role", "content"}`` and ``content`` is a string or a list of text
+    parts.  The Responses API sends the same items as ``input`` (text parts typed
+    ``input_text``), or a bare string that *is* the user message.  The first user
+    message is immutable across a conversation's turns, so it is a stable
+    fingerprint — unless a Responses client chains turns with
+    ``previous_response_id`` and sends only the new turn, which then derives a
+    new session per turn.
     """
     if not isinstance(payload, Mapping):
         return ""
-    messages = payload.get("messages")
+    messages = payload.get("messages", payload.get("input"))
+    if isinstance(messages, str):
+        return messages
     if not isinstance(messages, list):
         return ""
     for message in messages:
@@ -107,7 +112,7 @@ def _content_text(content: Any) -> str:
             part["text"]
             for part in content
             if isinstance(part, Mapping)
-            and part.get("type") == "text"
+            and part.get("type") in ("text", "input_text")
             and isinstance(part.get("text"), str)
         )
     return ""

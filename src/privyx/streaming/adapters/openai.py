@@ -1,4 +1,4 @@
-"""OpenAI chat-completions stream adapter."""
+"""OpenAI stream adapters: Chat Completions and the Responses API."""
 
 from __future__ import annotations
 
@@ -15,3 +15,14 @@ class OpenAIStreamAdapter(SSEStreamAdapter):
 
     def __init__(self) -> None:
         super().__init__(data_path=OPENAI_DATA_PATH)
+
+
+class ResponsesStreamAdapter(SSEStreamAdapter):
+    """Adapter for the OpenAI Responses API (``/v1/responses``) stream.
+
+    Its typed ``response.*`` events carry text at several kinds of ``delta``, so
+    :class:`~privyx.proxy.stream_router.StreamRouter` classifies every event
+    itself; this adapter only names the schema.
+    """
+
+    schema_name = "responses"

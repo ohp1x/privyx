@@ -182,3 +182,22 @@ def test_first_user_message_handles_content_block_lists() -> None:
         "conversation", header_value=None, headers=XKEY, payload=plain, schema="anthropic"
     )
     assert a == b
+
+
+def test_first_user_message_reads_responses_input() -> None:
+    """A Responses body fingerprints on ``input``: an item list or the bare string."""
+    items = {
+        "input": [
+            {"role": "developer", "content": "be brief"},
+            {"role": "user", "content": [{"type": "input_text", "text": "hi Alice"}]},
+        ]
+    }
+    later = {"input": [*items["input"], {"role": "assistant", "content": "hello"}]}
+
+    def sid(payload: object) -> str | None:
+        return resolve_session_id(
+            "conversation", header_value=None, headers=BEARER, payload=payload, schema="responses"
+        )[0]
+
+    assert sid(items) == sid(later) == sid({"input": "hi Alice"})
+    assert sid(items) != sid({"input": "hi Bob"})

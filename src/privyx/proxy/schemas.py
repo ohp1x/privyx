@@ -4,28 +4,70 @@ A *wire schema* is the JSON shape a provider speaks on a given path.  The
 transparent proxy needs to know, per request, three things:
 
 1. which path maps to which schema (:func:`detect_schema`);
-2. where the sensitive *text leaves* live in a request body, so they can be
-   pseudonymized before forwarding (:func:`transform_request`);
-3. where the assistant's text lives in a batch response, so it can be restored
-   (:func:`restore_response`).
+2. which text leaves of a request body to pseudonymize before forwarding
+   (:func:`transform_request`);
+3. which text leaves of a batch response to restore (:func:`restore_response`).
 
-Keeping this here — rather than as ``if openai / elif anthropic`` branches
-scattered through the proxy — is what lets one catch-all route serve both
-providers.  Streaming responses are handled separately by
-:class:`~privyx.proxy.stream_router.StreamRouter`, which needs event-by-event
-classification this module does not.
+Both directions share one leaf walk (:func:`walk_sync` / :func:`walk_async`)
+instead of a walker per field, so a field a provider adds later is covered by
+default rather than leaking:
+
+- **restore** walks *every* string leaf of a response.  Placeholders only exist
+  because Privyx minted them, so restoring anywhere is safe, and one walk serves
+  OpenAI Chat, OpenAI Responses, and Anthropic bodies alike;
+- **transform** walks only the top-level keys that carry conversation content
+  (:data:`CONTENT_KEYS`) — everything else there is config (``model``, ``tools``,
+  ``response_format``, …) and is forwarded as-is — and inside them pseudonymizes
+  every string leaf except opaque/structural keys (:func:`_opaque`).  It fails
+  closed: an unknown field is pseudonymized, never forwarded raw.
+
+Streaming responses are handled by
+:class:`~privyx.proxy.stream_router.StreamRouter`, which reuses the same walk
+for every event it does not restore delta by delta.
 """
 
 from __future__ import annotations
 
-import copy
 import json
+from collections.abc import Awaitable, Callable, Generator, Mapping
 from typing import Any
 
 from privyx.core.engine import PrivacyEngine
 
 #: The schemas whose request/response bodies this module knows how to walk.
-KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic"})
+KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic", "responses"})
+
+#: Top-level request keys that carry conversation content.  ``messages`` and
+#: ``system`` (Chat, Anthropic); ``input``, ``instructions``, and ``prompt``
+#: (template variables) for Responses; ``prediction`` (Chat predicted output).
+CONTENT_KEYS: frozenset[str] = frozenset(
+    {"messages", "system", "input", "instructions", "prompt", "prediction"}
+)
+
+#: Keys whose value is structural or opaque — skipped with their whole subtree.
+#: Ids, enums, tool/function names, signatures, binary payloads, and URLs: a
+#: detector match there would corrupt the request, and none holds prose.  Any
+#: key ending in ``_id`` or ``_url`` or starting with ``encrypted_`` is opaque too.
+OPAQUE_KEYS: frozenset[str] = frozenset(
+    {
+        "id",
+        "type",
+        "role",
+        "name",
+        "signature",
+        "data",
+        "file_data",
+        "url",
+        "media_type",
+        "cache_control",
+        "status",
+    }
+)
+
+# A generator that yields each string leaf, receives its replacement, and
+# returns the rebuilt value.  Written once as a generator so the async
+# transform/restore and the synchronous stream restore share one walk.
+_Walk = Generator[str, str, Any]
 
 
 def detect_schema(path: str, routes: dict[str, str]) -> str | None:
@@ -44,40 +86,24 @@ async def transform_request(
     engine: PrivacyEngine,
     session_id: str,
 ) -> dict[str, Any]:
-    """Return a copy of ``payload`` with sensitive text leaves pseudonymized.
+    """Return a copy of ``payload`` with its content leaves pseudonymized.
 
-    Covers the fields common to the OpenAI and Anthropic request bodies:
-
-    - ``messages[].content`` — a string, or a list of content parts / blocks:
-      ``text`` and ``thinking`` text, ``tool_use.input`` string leaves, and
-      ``tool_result.content`` (itself a string or a list of blocks);
-    - ``messages[].reasoning_content`` and ``tool_calls[].function.arguments``
-      (OpenAI);
-    - ``system`` — a string (OpenAI top-level / Anthropic) or a list of text
-      blocks (Anthropic).
-
-    Every field :func:`restore_response` restores is covered here too: clients
-    echo the assistant's turns back, and a restored value that is not
+    Only :data:`CONTENT_KEYS` are walked; inside them every string leaf is
+    pseudonymized except the opaque keys (see :func:`_opaque`), including the
+    assistant turns a client echoes back — a restored value that is not
     pseudonymized again would reach the upstream in the clear.
 
-    The caller's ``payload`` is never mutated.
+    The caller's ``payload`` is never mutated (the walk rebuilds every container
+    it descends into; config values are shared, not copied).
     """
-    result = copy.deepcopy(payload)
 
-    messages = result.get("messages")
-    if isinstance(messages, list):
-        for message in messages:
-            if isinstance(message, dict):
-                message["content"] = await _transform_content(
-                    message.get("content"), engine, session_id
-                )
-                await _transform_openai_message(message, engine, session_id)
+    async def transform(text: str) -> str:
+        return (await engine.transform(text, session_id=session_id)).text
 
-    system = result.get("system")
-    if system is not None:
-        result["system"] = await _transform_content(system, engine, session_id)
-
-    return result
+    return {
+        key: await walk_async(value, transform, key) if key in CONTENT_KEYS else value
+        for key, value in payload.items()
+    }
 
 
 async def restore_response(
@@ -87,168 +113,94 @@ async def restore_response(
 ) -> dict[str, Any]:
     """Return a copy of a batch ``payload`` with pseudonyms restored.
 
-    Restoration is precise — only known text leaves are rewritten, so a token
-    that happens to appear in an id or other structural field is left alone
-    (unlike a blunt whole-body string replace).  When the session is unknown
-    the payload is returned untouched.
-
-    Both response shapes are walked regardless of the route's schema: OpenAI-
-    compatible gateways often answer ``/v1/messages`` with a ``chat.completion``
-    body.  Each walker is a no-op when its shape is absent.
+    Every string leaf is restored whatever the route's schema (OpenAI-compatible
+    gateways often answer ``/v1/messages`` with a ``chat.completion`` body); only
+    opaque keys are skipped, so a token-shaped id is left alone.  When the
+    session is unknown the payload is returned untouched.
     """
-    session = await engine.vault.get(session_id)
-    if session is None:
+    if await engine.vault.get(session_id) is None:
         return payload
-    result = copy.deepcopy(payload)
-    await _restore_anthropic(result, engine, session_id)
-    await _restore_openai(result, engine, session_id)
+
+    # ponytail: one vault read per leaf (engine.restore re-fetches the session);
+    # fetch once and deanonymize through the operator if large bodies profile hot.
+    async def restore(text: str) -> str:
+        return (await engine.restore(text, session_id)).text
+
+    result: dict[str, Any] = await walk_async(payload, restore)
     return result
 
 
-# ---------------------------------------------------------------------------
-# Request helpers
-# ---------------------------------------------------------------------------
+def walk_sync(value: Any, fn: Callable[[str], str], key: str | None = None) -> Any:
+    """Rebuild ``value`` with ``fn`` applied to each content string leaf."""
+    walker = _walk(value, key)
+    try:
+        text = next(walker)
+        while True:
+            text = walker.send(fn(text))
+    except StopIteration as done:
+        return done.value
 
 
-async def _transform_text(text: str, engine: PrivacyEngine, session_id: str) -> str:
-    result = await engine.transform(text, session_id=session_id)
-    return result.text
+async def walk_async(
+    value: Any, fn: Callable[[str], Awaitable[str]], key: str | None = None
+) -> Any:
+    """Async twin of :func:`walk_sync` for the engine's ``transform``/``restore``."""
+    walker = _walk(value, key)
+    try:
+        text = next(walker)
+        while True:
+            text = walker.send(await fn(text))
+    except StopIteration as done:
+        return done.value
 
 
-async def _transform_content(content: Any, engine: PrivacyEngine, session_id: str) -> Any:
-    """Transform a ``content`` value: a string, or a list of parts/blocks."""
-    if isinstance(content, str):
-        return await _transform_text(content, engine, session_id)
-    if isinstance(content, list):
-        for part in content:
-            if not isinstance(part, dict):
-                continue
-            for field in ("text", "thinking"):
-                if isinstance(part.get(field), str):
-                    part[field] = await _transform_text(part[field], engine, session_id)
-            if part.get("type") == "tool_use" and "input" in part:
-                part["input"] = await _transform_json(part["input"], engine, session_id)
-            if part.get("type") == "tool_result" and "content" in part:
-                part["content"] = await _transform_content(part["content"], engine, session_id)
-        return content
-    return content
+def _walk(value: Any, key: str | None, document: bool = False) -> _Walk:
+    """Yield every content string leaf of ``value`` and return the rebuilt value.
 
-
-async def _transform_openai_message(
-    message: dict[str, Any], engine: PrivacyEngine, session_id: str
-) -> None:
-    if isinstance(message.get("reasoning_content"), str):
-        message["reasoning_content"] = await _transform_text(
-            message["reasoning_content"], engine, session_id
-        )
-    tool_calls = message.get("tool_calls")
-    if isinstance(tool_calls, list):
-        for call in tool_calls:
-            function = call.get("function") if isinstance(call, dict) else None
-            if isinstance(function, dict) and isinstance(function.get("arguments"), str):
-                function["arguments"] = await _transform_arguments(
-                    function["arguments"], engine, session_id
-                )
-
-
-async def _transform_json(value: Any, engine: PrivacyEngine, session_id: str) -> Any:
-    """Pseudonymize every string leaf of a JSON value.
-
-    Walked leaf by leaf rather than as serialized text, so a detector match can
-    never straddle JSON syntax (an escape, a quote) and corrupt the document.
+    ``key`` is the key ``value`` sits under.  A tool-argument *document* — an
+    object under ``input`` (Anthropic ``tool_use``/``server_tool_use``) or
+    ``arguments``, or the JSON a string ``arguments`` holds — is user data with
+    no wire structure, so inside it no key is opaque (a ``name`` argument is
+    PII).  A string ``arguments`` is walked parsed and re-serialized, never as
+    one text blob (a match could straddle a JSON escape); unparseable arguments
+    are walked as plain text, never passed through raw.
     """
     if isinstance(value, str):
-        return await _transform_text(value, engine, session_id)
+        if not value:
+            return value
+        if key == "arguments":
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                return (yield value)
+            rebuilt = yield from _walk(parsed, None, True)
+            return value if rebuilt == parsed else json.dumps(rebuilt, ensure_ascii=False)
+        return (yield value)
     if isinstance(value, list):
-        return [await _transform_json(item, engine, session_id) for item in value]
+        items = []
+        for item in value:
+            items.append((yield from _walk(item, key, document)))
+        return items
     if isinstance(value, dict):
-        return {key: await _transform_json(item, engine, session_id) for key, item in value.items()}
+        out: dict[str, Any] = {}
+        for k, v in value.items():
+            if not document and _opaque(k, value):
+                out[k] = v
+            else:
+                nested = document or (k in ("input", "arguments") and isinstance(v, dict))
+                out[k] = yield from _walk(v, k, nested)
+        return out
     return value
 
 
-async def _transform_arguments(arguments: str, engine: PrivacyEngine, session_id: str) -> str:
-    """Pseudonymize OpenAI tool-call arguments (a JSON document as a string).
-
-    Unparseable arguments are still transformed, as plain text: falling back to
-    the raw string would send it upstream in the clear.
-    """
-    try:
-        parsed = json.loads(arguments)
-    except ValueError:
-        return await _transform_text(arguments, engine, session_id)
-    return json.dumps(await _transform_json(parsed, engine, session_id), ensure_ascii=False)
-
-
-# ---------------------------------------------------------------------------
-# Response helpers
-# ---------------------------------------------------------------------------
-
-
-async def _restore_text(text: str, engine: PrivacyEngine, session_id: str) -> str:
-    result = await engine.restore(text, session_id)
-    return result.text
-
-
-async def _restore_openai(
-    payload: dict[str, Any], engine: PrivacyEngine, session_id: str
-) -> None:
-    choices = payload.get("choices")
-    if not isinstance(choices, list):
-        return
-    for choice in choices:
-        if not isinstance(choice, dict):
-            continue
-        message = choice.get("message")
-        if not isinstance(message, dict):
-            delta = choice.get("delta")
-            message = delta if isinstance(delta, dict) else None
-        if isinstance(message, dict):
-            await _restore_openai_message(message, engine, session_id)
-
-
-async def _restore_openai_message(
-    message: dict[str, Any], engine: PrivacyEngine, session_id: str
-) -> None:
-    for field in ("content", "reasoning_content"):
-        value = message.get(field)
-        if isinstance(value, str):
-            message[field] = await _restore_text(value, engine, session_id)
-    tool_calls = message.get("tool_calls")
-    if isinstance(tool_calls, list):
-        for call in tool_calls:
-            function = call.get("function") if isinstance(call, dict) else None
-            if isinstance(function, dict) and isinstance(function.get("arguments"), str):
-                function["arguments"] = await _restore_text(
-                    function["arguments"], engine, session_id
-                )
-
-
-async def _restore_anthropic(
-    payload: dict[str, Any], engine: PrivacyEngine, session_id: str
-) -> None:
-    content = payload.get("content")
-    if not isinstance(content, list):
-        return
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-        for field in ("text", "thinking"):
-            if isinstance(block.get(field), str):
-                block[field] = await _restore_text(block[field], engine, session_id)
-        if block.get("type") == "tool_use" and isinstance(block.get("input"), (dict, list)):
-            block["input"] = await _restore_json_value(block["input"], engine, session_id)
-
-
-async def _restore_json_value(value: Any, engine: PrivacyEngine, session_id: str) -> Any:
-    """Restore pseudonyms inside a JSON value by round-tripping through text.
-
-    Tool inputs are structured JSON; serializing, restoring, and re-parsing
-    reaches string leaves at any depth without walking the tree by hand.  If the
-    restored text is somehow no longer valid JSON the original value is kept.
-    """
-    raw = json.dumps(value, ensure_ascii=False)
-    restored = await _restore_text(raw, engine, session_id)
-    try:
-        return json.loads(restored)
-    except (json.JSONDecodeError, ValueError):
-        return value
+def _opaque(key: str, parent: Mapping[str, Any]) -> bool:
+    """Whether ``key`` (in the object ``parent``) is structural, not content."""
+    if key == "data" and parent.get("type") == "text":
+        return False  # Anthropic plain-text document source: the document itself
+    if key == "result" and parent.get("type") == "image_generation_call":
+        return True  # base64 image, echoed back in a Responses input
+    return (
+        key in OPAQUE_KEYS
+        or key.endswith(("_id", "_url"))
+        or key.startswith("encrypted_")
+    )

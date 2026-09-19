@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Proxy coverage
+
+- **Privacy fix.** Many request and response fields bypassed the engine, so real
+  PII reached the upstream or placeholders reached the client. Both directions
+  now share one leaf walk instead of a walker per field. Restore walks *every*
+  string leaf of a response (placeholders only exist because Privyx minted them).
+  Transform walks the content subtrees (`messages`, `system`, `input`,
+  `instructions`, `prompt`, `prediction`) and pseudonymizes every string there
+  except opaque keys — ids and `*_id`, `type`, `role`, `name`, `signature`,
+  `encrypted_*`, base64 `data` / `file_data`, URLs, `media_type`,
+  `cache_control`, `status` — so a field added later is pseudonymized rather than
+  leaked. Tool arguments are walked as parsed JSON, never as one text blob
+- **OpenAI Responses API** (`/v1/responses`, `/input_tokens`, `/compact`) is now
+  routed with a new `responses` schema — previously forwarded raw, though it is
+  the wire API Codex CLI speaks. Requests cover `instructions`, `input` (string
+  or items: messages, function / custom / MCP / shell / apply-patch calls and
+  their outputs, reasoning), and prompt variables. Streams restore every string
+  `delta` per item and index, buffer tool-call input until its `.done`, and
+  restore the full text repeated in `*.done`, `output_item.done`, and
+  `response.completed`, keeping the `event:` lines. Works in transparent and
+  gateway modes
+- `/v1/messages/count_tokens` is routed with the `anthropic` schema — its body is
+  a Messages body and was forwarded raw
+- Anthropic: `server_tool_use.input`, `document` blocks (plain-text
+  `source.data`, `source.content`, `title`, `context`), `search_result`,
+  `citations[].cited_text`, and code-execution `stdout` / `stderr` are now
+  pseudonymized and restored; a streamed `citations_delta` is restored
+- OpenAI Chat: `refusal` (field and content part), the non-standard `reasoning`
+  field (OpenRouter / vLLM / Ollama), legacy `function_call.arguments`, and
+  `prediction.content` are covered in requests, batch responses, and streams;
+  `reasoning` and `refusal` stream on their own buffers, and `function_call` is
+  buffered like `tool_calls`
+- Streams restore every non-delta event (`message_start`, `content_block_start`,
+  finish/usage chunks, …) leaf by leaf, re-serializing only when something
+  changed
+- `session.strategy: conversation` fingerprints a Responses body on the first
+  user message in `input`
+- Still forwarded verbatim: `/v1/embeddings`, the legacy `/v1/completions`, and
+  Gemini-native paths. A gateway serving the default routes now also forwards
+  `/v1/responses` to its single upstream endpoint; the token-counting and
+  compaction routes stay unserved there (404) so a count never becomes a
+  billed completion
+
 ### Audit
 
 - Ephemeral proxy sessions are now deleted from the vault after a batch response
