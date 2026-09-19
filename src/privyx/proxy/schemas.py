@@ -48,10 +48,17 @@ async def transform_request(
 
     Covers the fields common to the OpenAI and Anthropic request bodies:
 
-    - ``messages[].content`` — a string, or a list of ``{"type": "text", ...}``
-      content parts / blocks;
+    - ``messages[].content`` — a string, or a list of content parts / blocks:
+      ``text`` and ``thinking`` text, ``tool_use.input`` string leaves, and
+      ``tool_result.content`` (itself a string or a list of blocks);
+    - ``messages[].reasoning_content`` and ``tool_calls[].function.arguments``
+      (OpenAI);
     - ``system`` — a string (OpenAI top-level / Anthropic) or a list of text
       blocks (Anthropic).
+
+    Every field :func:`restore_response` restores is covered here too: clients
+    echo the assistant's turns back, and a restored value that is not
+    pseudonymized again would reach the upstream in the clear.
 
     The caller's ``payload`` is never mutated.
     """
@@ -64,6 +71,7 @@ async def transform_request(
                 message["content"] = await _transform_content(
                     message.get("content"), engine, session_id
                 )
+                await _transform_openai_message(message, engine, session_id)
 
     system = result.get("system")
     if system is not None:
@@ -108,19 +116,67 @@ async def _transform_text(text: str, engine: PrivacyEngine, session_id: str) -> 
 
 
 async def _transform_content(content: Any, engine: PrivacyEngine, session_id: str) -> Any:
-    """Transform a ``content`` value: a string, or a list of text parts/blocks."""
+    """Transform a ``content`` value: a string, or a list of parts/blocks."""
     if isinstance(content, str):
         return await _transform_text(content, engine, session_id)
     if isinstance(content, list):
         for part in content:
-            if (
-                isinstance(part, dict)
-                and part.get("type") == "text"
-                and isinstance(part.get("text"), str)
-            ):
-                part["text"] = await _transform_text(part["text"], engine, session_id)
+            if not isinstance(part, dict):
+                continue
+            for field in ("text", "thinking"):
+                if isinstance(part.get(field), str):
+                    part[field] = await _transform_text(part[field], engine, session_id)
+            if part.get("type") == "tool_use" and "input" in part:
+                part["input"] = await _transform_json(part["input"], engine, session_id)
+            if part.get("type") == "tool_result" and "content" in part:
+                part["content"] = await _transform_content(part["content"], engine, session_id)
         return content
     return content
+
+
+async def _transform_openai_message(
+    message: dict[str, Any], engine: PrivacyEngine, session_id: str
+) -> None:
+    if isinstance(message.get("reasoning_content"), str):
+        message["reasoning_content"] = await _transform_text(
+            message["reasoning_content"], engine, session_id
+        )
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for call in tool_calls:
+            function = call.get("function") if isinstance(call, dict) else None
+            if isinstance(function, dict) and isinstance(function.get("arguments"), str):
+                function["arguments"] = await _transform_arguments(
+                    function["arguments"], engine, session_id
+                )
+
+
+async def _transform_json(value: Any, engine: PrivacyEngine, session_id: str) -> Any:
+    """Pseudonymize every string leaf of a JSON value.
+
+    Walked leaf by leaf rather than as serialized text, so a detector match can
+    never straddle JSON syntax (an escape, a quote) and corrupt the document.
+    """
+    if isinstance(value, str):
+        return await _transform_text(value, engine, session_id)
+    if isinstance(value, list):
+        return [await _transform_json(item, engine, session_id) for item in value]
+    if isinstance(value, dict):
+        return {key: await _transform_json(item, engine, session_id) for key, item in value.items()}
+    return value
+
+
+async def _transform_arguments(arguments: str, engine: PrivacyEngine, session_id: str) -> str:
+    """Pseudonymize OpenAI tool-call arguments (a JSON document as a string).
+
+    Unparseable arguments are still transformed, as plain text: falling back to
+    the raw string would send it upstream in the clear.
+    """
+    try:
+        parsed = json.loads(arguments)
+    except ValueError:
+        return await _transform_text(arguments, engine, session_id)
+    return json.dumps(await _transform_json(parsed, engine, session_id), ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -176,8 +232,9 @@ async def _restore_anthropic(
     for block in content:
         if not isinstance(block, dict):
             continue
-        if isinstance(block.get("text"), str):
-            block["text"] = await _restore_text(block["text"], engine, session_id)
+        for field in ("text", "thinking"):
+            if isinstance(block.get(field), str):
+                block[field] = await _restore_text(block[field], engine, session_id)
         if block.get("type") == "tool_use" and isinstance(block.get("input"), (dict, list)):
             block["input"] = await _restore_json_value(block["input"], engine, session_id)
 

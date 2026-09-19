@@ -79,6 +79,50 @@ async def test_transform_request_anthropic_system_list_and_str() -> None:
     assert EMAIL not in stringy["system"]
 
 
+async def test_transform_request_covers_echoed_and_tool_fields() -> None:
+    """Assistant turns echoed back, and tool results, never reach upstream raw."""
+    engine = _engine()
+    sid = await _session(engine)
+    payload = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": f"user is {EMAIL}", "signature": "s"},
+                    {"type": "tool_use", "id": "t1", "name": "send", "input": {"to": [EMAIL]}},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": f"sent {EMAIL}"},
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "t2",
+                        "content": [{"type": "text", "text": f"file: {EMAIL}"}],
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "reasoning_content": f"user is {EMAIL}",
+                "tool_calls": [
+                    {"function": {"name": "a", "arguments": json.dumps({"to": f"x\n{EMAIL}"})}},
+                    {"function": {"name": "b", "arguments": f"{{broken {EMAIL}"}},
+                ],
+            },
+        ]
+    }
+
+    out = await transform_request(payload, engine, sid)
+
+    assert EMAIL not in json.dumps(out)
+    args = out["messages"][2]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(args)["to"].startswith("x\n")  # still valid JSON
+    assert out["messages"][0]["content"][0]["signature"] == "s"
+
+
 async def test_restore_openai_content_and_tool_arguments() -> None:
     engine = _engine()
     sid = await _session(engine)
@@ -107,7 +151,7 @@ async def test_restore_openai_content_and_tool_arguments() -> None:
     assert json.loads(message["tool_calls"][0]["function"]["arguments"])["to"] == EMAIL
 
 
-async def test_restore_anthropic_text_and_tool_input() -> None:
+async def test_restore_anthropic_text_thinking_and_tool_input() -> None:
     engine = _engine()
     sid = await _session(engine)
     await transform_request(_mail_request(), engine, sid)
@@ -119,12 +163,14 @@ async def test_restore_anthropic_text_and_tool_input() -> None:
         "content": [
             {"type": "text", "text": f"hi {pseudonym}"},
             {"type": "tool_use", "input": {"to": pseudonym}},
+            {"type": "thinking", "thinking": f"mail {pseudonym}", "signature": "sig"},
         ]
     }
     out = await restore_response(response, engine, sid)
 
     assert out["content"][0]["text"] == f"hi {EMAIL}"
     assert out["content"][1]["input"]["to"] == EMAIL
+    assert out["content"][2]["thinking"] == f"mail {EMAIL}"
 
 
 async def test_restore_unknown_session_is_passthrough() -> None:
