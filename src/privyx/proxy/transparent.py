@@ -375,7 +375,7 @@ class TransparentProxy:
         if schema and _JSON in content_type:
             payload = _loads(data)
             if isinstance(payload, dict):
-                restored = await restore_response(schema, payload, self._engine, session_id)
+                restored = await restore_response(payload, self._engine, session_id)
                 data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
         restored_n = self._audit.flush_restore()
         self._audit.response(

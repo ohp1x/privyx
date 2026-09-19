@@ -72,9 +72,7 @@ class HTTPProxy:
     ) -> Any:
         """Deanonymize a batch response."""
         if isinstance(response, dict):
-            return await restore_response(
-                self._adapter.schema_name, response, self._engine, session_id
-            )
+            return await restore_response(response, self._engine, session_id)
         return response
 
     async def process_stream(
