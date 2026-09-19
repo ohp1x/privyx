@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format check run proxy clean
+.PHONY: install dev test e2e lint format check run proxy clean
 
 install:
 	uv sync --all-extras
@@ -8,6 +8,10 @@ dev:
 
 test:
 	uv run pytest
+
+e2e:
+	uv run python scripts/e2e_claude.py
+	uv run python scripts/e2e_claude.py --transparent
 
 lint:
 	uv run ruff check src tests

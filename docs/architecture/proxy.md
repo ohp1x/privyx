@@ -85,7 +85,9 @@ per field, so a field a provider adds later is covered by default:
 - **Transform walks only the content subtrees** — the top-level keys `messages`,
   `system`, `input`, `instructions`, `prompt`, `prediction`. Every other
   top-level key is config (`model`, `tools`, `tool_choice`, `response_format`,
-  Responses `text` / `reasoning`, `metadata`, …) and is forwarded as-is. Inside
+  Responses `text` / `reasoning`, `metadata`, …) and is forwarded as-is — except
+  every `description` string inside `tools` (tool and parameter descriptions are
+  prose an MCP server writes; names, `enum`, `pattern`, `default` stay). Inside
   a content subtree *every* string leaf is pseudonymized except the opaque keys,
   which are skipped with their whole subtree: `id` and anything ending in `_id`,
   `type`, `role`, `name` (tool/function names must survive), `signature`,
@@ -93,6 +95,16 @@ per field, so a field a provider adds later is covered by default:
   `file_data`, `url` and anything ending in `_url`, `media_type`,
   `cache_control`, `status`, and an `image_generation_call`'s base64 `result`.
   It fails closed: an unknown field is pseudonymized, never forwarded raw.
+- **A conversation stays byte-stable across turns.** The request is walked in
+  cache-prefix order (`tools`, `system` / `instructions`, then the rest), so a
+  per-session counter cannot renumber the system prompt when a later message
+  brings a new value. An echoed Anthropic `thinking` block gets back the exact
+  text the upstream signed, remembered by `signature` from the batch or
+  streamed response. Re-pseudonymizing its restored form is not always the
+  inverse (a value the model wrote itself is new to the detector), and the
+  provider rejects thinking whose text no longer matches its signature. The
+  memory is per process: after a restart, or on another worker, the block falls
+  back to being re-pseudonymized.
 - **Tool arguments are documents.** An Anthropic `input` object and a parsed
   `arguments` string are user data with no wire structure, so no key inside
   them is opaque (a `name` argument is PII). A string `arguments` is parsed,

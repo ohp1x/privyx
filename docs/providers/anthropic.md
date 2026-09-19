@@ -47,8 +47,9 @@ reaches, among others, `text` / `thinking`, `tool_use` and `server_tool_use`
 `input` (every leaf, whatever its key), `tool_result` content, `document` blocks
 (a plain-text `source.data`, `source.content`, `title`, `context`),
 `search_result` (`title`, `content[].text`), `citations[].cited_text`, and
-code-execution results (`stdout` / `stderr`). `tools`, `tool_choice`,
-`metadata`, and the rest of the top level are config and left alone. A batch
+code-execution results (`stdout` / `stderr`). `tools` is config apart from its
+`description` strings (tool and `input_schema` parameter descriptions);
+`tool_choice`, `metadata`, and the rest of the top level are left alone. A batch
 response is restored at every string leaf.
 
 ## Streaming, reasoning & tools
@@ -61,4 +62,7 @@ accumulates a `tool_use` / `server_tool_use` block's partial JSON until
 `citations_delta` (a complete `cited_text`), a `content_block_start` carrying a
 whole server-tool result, `message_start` — is restored leaf by leaf;
 `signature` values are never touched, and `message_stop` is emitted last so
-nothing arrives after it.
+nothing arrives after it. The thinking text a signature covers is remembered as
+the upstream sent it, so when the client echoes the block back it goes upstream
+byte-identical, not re-pseudonymized
+([proxy.md](../architecture/proxy.md#what-gets-transformed-and-restored)).

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from privyx.proxy import schemas
 from privyx.proxy.stream_router import StreamRouter, select_processor_factory
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
 from privyx.streaming.adapters.generic import SSEStreamAdapter
@@ -223,6 +224,32 @@ def test_anthropic_text_deanon_and_message_stop_last() -> None:
     assert TOKEN not in out
     assert _collect_text(out, adapter) == f"Hi {ORIG}!"
     assert _events(out)[-1] == {"type": "message_stop"}
+
+
+def test_anthropic_thinking_remembered_as_sent_by_signature() -> None:
+    router = _router(AnthropicStreamAdapter(), {TOKEN: ORIG})
+
+    def delta(payload: dict[str, Any]) -> str:
+        return _anthropic(
+            "content_block_delta", {"type": "content_block_delta", "index": 0, "delta": payload}
+        )
+
+    start = {"type": "thinking", "thinking": "", "signature": ""}
+    out = _run(
+        router,
+        _anthropic(
+            "content_block_start",
+            {"type": "content_block_start", "index": 0, "content_block": start},
+        )
+        + delta({"type": "thinking_delta", "thinking": f"mail {TOKEN[:9]}"})
+        + delta({"type": "thinking_delta", "thinking": f"{TOKEN[9:]} or ops@vendor.test"})
+        + delta({"type": "signature_delta", "signature": "sig-stream-1"})
+        + _anthropic("content_block_stop", {"type": "content_block_stop", "index": 0}),
+    )
+
+    assert TOKEN not in out  # the client sees it restored...
+    # ...while the upstream's own text is kept for when the client echoes it back.
+    assert schemas._THINKING["sig-stream-1"] == f"mail {TOKEN} or ops@vendor.test"
 
 
 def test_anthropic_tool_use_buffered_and_restored() -> None:

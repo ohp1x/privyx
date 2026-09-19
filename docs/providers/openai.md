@@ -48,8 +48,9 @@ Every string in `messages` is pseudonymized except opaque keys (ids, `role`,
 `reasoning_content` and the non-standard `reasoning` (OpenRouter / vLLM /
 Ollama), `tool_calls[].function.arguments` and the legacy
 `function_call.arguments` (walked as parsed JSON), and `prediction.content`.
-`tools`, `response_format`, `metadata`, `user`, and the rest of the top level
-are config and left alone. A batch response is restored at every string leaf.
+`tools` is config apart from its `description` strings (function and parameter
+descriptions); `response_format`, `metadata`, `user`, and the rest of the top
+level are left alone. A batch response is restored at every string leaf.
 
 ## Streaming
 
@@ -72,7 +73,8 @@ covered — is routed with the `responses` schema, as are
   `custom_tool_call` input / output, `local_shell_call.action.command`, shell
   output `stdout` / `stderr`, `apply_patch_call.operation.diff`, `mcp_call`
   `arguments` / `output`, and any string field added later. Top-level `text`,
-  `reasoning`, `tools`, and `tool_choice` are config and left alone.
+  `reasoning`, and `tool_choice` are config and left alone; so is `tools`, apart
+  from its `description` strings.
 - **Stream.** Every event with a string `delta` (`output_text`, `refusal`,
   `reasoning_summary_text`, `reasoning_text`, `audio.transcript`, …) is restored
   per stream, keyed by kind and `item_id` / `output_index` / `content_index` /

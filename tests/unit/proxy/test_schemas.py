@@ -297,6 +297,82 @@ async def test_transform_anthropic_blocks_fail_closed() -> None:
     assert out["system"][0]["cache_control"] == {"type": "ephemeral"}
 
 
+async def test_transform_tool_descriptions_only() -> None:
+    engine = _engine()
+    sid = await _session(engine)
+    # A property *named* "description", with a PII-looking enum it must keep.
+    schema = {
+        "type": "object",
+        "properties": {
+            "description": {"type": "string", "description": f"cc {EMAIL}", "enum": [EMAIL]}
+        },
+        "required": ["description"],
+    }
+    payload = {
+        "tools": [
+            {"name": "send", "description": f"mail {EMAIL}", "input_schema": schema},
+            {
+                "type": "function",
+                "function": {"name": "send", "description": f"mail {EMAIL}", "parameters": schema},
+            },
+        ],
+        "messages": [],
+    }
+    original = json.dumps(payload)
+
+    out = await transform_request(payload, engine, sid)
+
+    assert json.dumps(payload) == original
+    anthropic, openai = out["tools"][0], out["tools"][1]["function"]
+    for tool, params in ((anthropic, anthropic["input_schema"]), (openai, openai["parameters"])):
+        assert tool["name"] == "send"
+        assert tool["description"].startswith("mail <PRIVYX_EMAIL_")
+        prop = params["properties"]["description"]
+        assert prop["description"].startswith("cc <PRIVYX_EMAIL_")
+        assert prop["enum"] == [EMAIL] and params["required"] == ["description"]
+
+
+async def test_transform_numbers_the_cache_prefix_first() -> None:
+    # Ephemeral sessions: a fresh session per request.  A value first seen in a
+    # later message must not renumber the system prompt (a cache miss per turn).
+    system = f"owner {PHONE}"
+    turn1 = {"messages": [{"role": "user", "content": f"mail {EMAIL}"}], "system": system}
+    turn2 = {
+        "messages": [
+            *turn1["messages"],
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "cc bob@example.com"},
+        ],
+        "system": system,
+    }
+    outs = []
+    for payload in (turn1, turn2):
+        engine = _engine()
+        outs.append(await transform_request(payload, engine, await _session(engine)))
+
+    assert outs[0]["system"] == outs[1]["system"]
+    assert list(outs[1]) == ["messages", "system"]  # key order kept
+
+
+async def test_echoed_thinking_gets_the_signed_text_back() -> None:
+    engine = _engine()
+    sid = await _session(engine)
+    request = await transform_request(_mail_request(), engine, sid)
+    token = request["messages"][0]["content"].removeprefix("mail ")
+    signed = f"mail {token}; vendor is ops@vendor.test"  # the model's own email
+    response = {"content": [{"type": "thinking", "thinking": signed, "signature": "sig-b-1"}]}
+
+    restored = await restore_response(response, engine, sid)
+    block = restored["content"][0]
+    assert block["thinking"] == f"mail {EMAIL}; vendor is ops@vendor.test"
+
+    echo = {"messages": [*_mail_request()["messages"], {"role": "assistant", "content": [block]}]}
+    out = await transform_request(echo, engine, sid)
+
+    assert out["messages"][1]["content"][0]["thinking"] == signed
+    assert echo["messages"][1]["content"][0]["thinking"] == block["thinking"]  # no mutation
+
+
 async def test_transform_openai_chat_gaps() -> None:
     engine = _engine()
     sid = await _session(engine)

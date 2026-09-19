@@ -43,7 +43,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
-from privyx.proxy.schemas import walk_sync
+from privyx.proxy.schemas import remember_thinking, walk_sync
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 from privyx.streaming.deanonymizer import (
     StreamDeanonymizer,
@@ -141,6 +141,8 @@ class StreamRouter:
         self._oa_tools: dict[int, dict[str, str]] = {}
         # Anthropic: content-block index -> accumulated partial_json.
         self._an_tools: dict[int, str] = {}
+        # Anthropic: content-block index -> thinking text as sent (for its signature).
+        self._an_thinking: dict[int, str] = {}
         self._block_types: dict[int, str] = {}
         # Responses: (kind, *indexes) -> its delta stream.
         self._rs: dict[tuple[Any, ...], _Delta] = {}
@@ -393,6 +395,7 @@ class StreamRouter:
                 return self._passthrough(event, drain=False)
             index = _index_of(payload)
             self._think_index = index
+            self._an_thinking[index] = self._an_thinking.get(index, "") + text
             out = self._think.feed(text)
             if not out:
                 return []
@@ -405,7 +408,11 @@ class StreamRouter:
                 self._an_tools[index] = self._an_tools.get(index, "") + partial
             return []  # buffer; flushed at content_block_stop
 
-        # citations_delta (whole cited_text), signature_delta, etc.
+        if dtype == "signature_delta":
+            text = self._an_thinking.pop(_index_of(payload), "")
+            remember_thinking(delta.get("signature"), text)
+
+        # citations_delta (whole cited_text), signature_delta (recorded above), etc.
         return self._passthrough(event, drain=False)
 
     def _flush_anthropic_block(self, index: int) -> list[str]:

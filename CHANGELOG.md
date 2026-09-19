@@ -28,6 +28,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   restore the full text repeated in `*.done`, `output_item.done`, and
   `response.completed`, keeping the `event:` lines. Works in transparent and
   gateway modes
+- Tool and parameter `description` strings in `tools` are now pseudonymized
+  (Anthropic, Chat, Responses). An MCP server writes them, so they can name a
+  customer or an org, and they were forwarded raw on every turn. Everything else
+  in `tools` (names, `enum`, `pattern`, `default`, `required`) is left untouched
+- An echoed Anthropic `thinking` block now goes back upstream with the exact
+  text the upstream signed. It was re-pseudonymized from the restored copy, and
+  any PII-shaped value the model wrote itself (an email, a name) came back as a
+  new placeholder, so the text no longer matched its signature. The upstream
+  text is remembered by `signature` (per process, 4096 entries) from batch and
+  streamed responses
+- Requests are walked in cache-prefix order (`tools`, `system` /
+  `instructions`, then the rest). Without an anchor, a value first seen in a
+  later message used to renumber the system prompt's placeholders, so every
+  turn missed the prompt cache
+- `scripts/e2e_claude.py` (`make e2e`): runs the real Claude Code CLI through
+  `privyx run`, and with `--transparent` through `privyx proxy` on its defaults,
+  against a recording fake Anthropic API in an isolated temp HOME. It fails on a
+  planted canary reaching the upstream, a placeholder left unrestored, an
+  echoed assistant turn that differs from what the upstream sent, or `system` /
+  `tools` changing between turns
 - `/v1/messages/count_tokens` is routed with the `anthropic` schema — its body is
   a Messages body and was forwarded raw
 - Anthropic: `server_tool_use.input`, `document` blocks (plain-text
