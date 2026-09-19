@@ -16,10 +16,19 @@ default rather than leaking:
   because Privyx minted them, so restoring anywhere is safe, and one walk serves
   OpenAI Chat, OpenAI Responses, and Anthropic bodies alike;
 - **transform** walks only the top-level keys that carry conversation content
-  (:data:`CONTENT_KEYS`) — everything else there is config (``model``, ``tools``,
+  (:data:`CONTENT_KEYS`) — everything else there is config (``model``,
   ``response_format``, …) and is forwarded as-is — and inside them pseudonymizes
   every string leaf except opaque/structural keys (:func:`_opaque`).  It fails
-  closed: an unknown field is pseudonymized, never forwarded raw.
+  closed: an unknown field is pseudonymized, never forwarded raw.  ``tools`` is
+  config too, except its ``description`` prose (:func:`_descriptions`): an MCP
+  server writes those, and they reach the model on every turn.
+
+Two things keep a multi-turn conversation byte-stable, which prompt caching and
+Anthropic's thinking signatures both need: the request is walked in cache-prefix
+order (``tools``, then ``system`` / ``instructions``, then the rest), so a value
+first seen in a later message cannot renumber the system prompt; and an echoed
+``thinking`` block gets back the exact text the upstream signed
+(:func:`remember_thinking`) instead of a re-pseudonymization of its restored form.
 
 Streaming responses are handled by
 :class:`~privyx.proxy.stream_router.StreamRouter`, which reuses the same walk
@@ -64,6 +73,18 @@ OPAQUE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+#: Top-level keys walked first, in the order the provider caches the prompt.
+_PREFIX_KEYS: tuple[str, ...] = ("tools", "system", "instructions")
+
+#: Thinking text exactly as the upstream sent it, by signature.  The client gets
+#: it restored and echoes it back, but re-pseudonymizing that is not always the
+#: exact inverse (a value the model wrote itself is new to the detector), and the
+#: provider rejects a thinking block whose text no longer matches its signature.
+# ponytail: process-local FIFO — lost on restart, not shared between workers;
+# move it into the vault if multi-instance deployments hit signature errors.
+_THINKING: dict[str, str] = {}
+_THINKING_MAX = 4096
+
 # A generator that yields each string leaf, receives its replacement, and
 # returns the rebuilt value.  Written once as a generator so the async
 # transform/restore and the synchronous stream restore share one walk.
@@ -100,10 +121,43 @@ async def transform_request(
     async def transform(text: str) -> str:
         return (await engine.transform(text, session_id=session_id)).text
 
-    return {
-        key: await walk_async(value, transform, key) if key in CONTENT_KEYS else value
-        for key, value in payload.items()
-    }
+    def rank(key: str) -> int:
+        return _PREFIX_KEYS.index(key) if key in _PREFIX_KEYS else len(_PREFIX_KEYS)
+
+    rebuilt: dict[str, Any] = {}
+    for key in sorted(payload, key=rank):  # stable: the rest keep their order
+        value = payload[key]
+        if key == "tools":
+            rebuilt[key] = await _drive(_descriptions(value), transform)
+        elif key in CONTENT_KEYS:
+            rebuilt[key] = await walk_async(value, transform, key)
+        else:
+            rebuilt[key] = value
+    _pin_thinking(rebuilt.get("messages"))
+    return {key: rebuilt[key] for key in payload}
+
+
+def remember_thinking(signature: Any, text: str) -> None:
+    """Record the thinking ``text`` the upstream signed with ``signature``."""
+    if not isinstance(signature, str) or not signature:
+        return
+    _THINKING[signature] = text
+    if len(_THINKING) > _THINKING_MAX:
+        del _THINKING[next(iter(_THINKING))]
+
+
+def _pin_thinking(messages: Any) -> None:
+    """Put the signed upstream text back into each echoed ``thinking`` block.
+
+    ``messages`` is the walk's rebuilt copy, so mutating it is safe.
+    """
+    for message in messages if isinstance(messages, list) else []:
+        content = message.get("content") if isinstance(message, dict) else None
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict) and block.get("type") == "thinking":
+                original = _THINKING.get(block.get("signature") or "")
+                if original is not None:
+                    block["thinking"] = original
 
 
 async def restore_response(
@@ -118,6 +172,10 @@ async def restore_response(
     opaque keys are skipped, so a token-shaped id is left alone.  When the
     session is unknown the payload is returned untouched.
     """
+    content = payload.get("content")
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") == "thinking":
+            remember_thinking(block.get("signature"), str(block.get("thinking", "")))
     if await engine.vault.get(session_id) is None:
         return payload
 
@@ -145,7 +203,11 @@ async def walk_async(
     value: Any, fn: Callable[[str], Awaitable[str]], key: str | None = None
 ) -> Any:
     """Async twin of :func:`walk_sync` for the engine's ``transform``/``restore``."""
-    walker = _walk(value, key)
+    return await _drive(_walk(value, key), fn)
+
+
+async def _drive(walker: _Walk, fn: Callable[[str], Awaitable[str]]) -> Any:
+    """Feed each leaf ``walker`` yields through ``fn``; return the rebuilt value."""
     try:
         text = next(walker)
         while True:
@@ -189,6 +251,30 @@ def _walk(value: Any, key: str | None, document: bool = False) -> _Walk:
             else:
                 nested = document or (k in ("input", "arguments") and isinstance(v, dict))
                 out[k] = yield from _walk(v, k, nested)
+        return out
+    return value
+
+
+def _descriptions(value: Any, key: str | None = None) -> _Walk:
+    """Yield only the ``description`` strings of a ``tools`` value.
+
+    Tool and parameter descriptions are prose (an MCP server's may name a
+    customer or an org); everything else there is wire structure the provider
+    validates — ``name``, ``enum``, ``pattern``, ``default``, ``required`` — so it
+    is kept byte-identical.  A JSON-schema property *named* ``description`` holds
+    an object, not a string, and is descended into like any other.
+    """
+    if isinstance(value, str):
+        return (yield value) if key == "description" and value else value
+    if isinstance(value, list):
+        items = []
+        for item in value:
+            items.append((yield from _descriptions(item, key)))
+        return items
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for k, v in value.items():
+            out[k] = yield from _descriptions(v, k)
         return out
     return value
 
