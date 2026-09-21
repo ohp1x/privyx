@@ -185,7 +185,8 @@ class Settings(BaseModel):
     #: :func:`privyx.providers.registry.build_provider` for the precedence.
     upstream_url: str = ""
     vault: VaultConfig = Field(default_factory=VaultConfig)
-    detector: DetectorConfig = Field(default_factory=DetectorConfig)
+    #: One detector, or a list of them run together (their spans are pooled).
+    detector: DetectorConfig | list[DetectorConfig] = Field(default_factory=DetectorConfig)
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
     operator: OperatorConfig = Field(default_factory=OperatorConfig)
     anchor: AnchorConfig = Field(default_factory=AnchorConfig)
@@ -195,6 +196,13 @@ class Settings(BaseModel):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+
+    @property
+    def detector_type(self) -> str:
+        """The detector type for display, e.g. ``regex`` or ``regex+presidio``."""
+        if isinstance(self.detector, list):
+            return "+".join(d.type for d in self.detector)
+        return self.detector.type
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:

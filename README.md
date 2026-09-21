@@ -89,6 +89,18 @@ privyx proxy -c my.yaml --reload --upstream https://api.openai.com
 The entity name is yours to choose — it becomes the `{type}` in the token.
 `terms` and `patterns` can both be set; see `configs/examples/terms.yaml`.
 
+To run several detectors at once, give `detector` a list. Each item is its own
+detector config, and their spans are pooled:
+
+```yaml
+detector:
+  - type: regex               # structured PII + your terms
+    terms:
+      PROJECT: [bluebird]
+  - type: presidio            # names, orgs, locations (needs privyx[presidio])
+    language: en
+```
+
 ### Masking without the proxy
 
 `mask` and `unmask` run the same engine over a string, a file, JSON, JSONL, or

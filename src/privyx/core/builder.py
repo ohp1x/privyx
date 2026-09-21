@@ -226,7 +226,9 @@ def build_audit_logger(settings: Settings) -> AuditLogger:
 
 
 def build_detector_from(settings: Settings) -> Detector:
-    """Build the configured detector."""
+    """Build the configured detector (a composite when a list is configured)."""
+    if isinstance(settings.detector, list):
+        return build_detector([d.model_dump() for d in settings.detector])
     return build_detector(settings.detector.model_dump())
 
 

@@ -193,6 +193,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mid-request, matching the `faker` and `encrypt` contract. Analyzers are cached
   per `(language, model)` so repeated builds do not reload spaCy
 - The `llm` detector remains unregistered
+- `detector` also takes a list of configs, run concurrently with their spans
+  pooled — e.g. `regex` with `terms` alongside `presidio`, or two `presidio`
+  languages. Overlaps are resolved after the policy, as for a single detector,
+  so an allowed span is never folded into a dropped one; exact duplicates are
+  collapsed so audit counts are not doubled. An empty list is rejected at
+  startup. The previous list handling, reachable only from code, merged regex
+  patterns into one detector and silently ignored `presidio` and plugin items
 
 ### Operators
 

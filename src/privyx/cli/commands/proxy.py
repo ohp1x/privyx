@@ -203,7 +203,7 @@ async def _serve_transparent(
     click.echo(f"Upstream origin: {origin}")
     click.echo(f"Routes: {routes}")
     click.echo(
-        f"Engine: detector={settings.detector.type} policy={settings.policy.type} "
+        f"Engine: detector={settings.detector_type} policy={settings.policy.type} "
         f"operator={settings.operator.type} vault={settings.vault.type} "
         f"session={settings.session.strategy}"
     )
@@ -237,7 +237,7 @@ async def _serve_gateway(
     click.echo(f"Upstream: {resolve_base_url(settings)}")
     click.echo(f"Routes: {routes}")
     click.echo(
-        f"Engine: detector={settings.detector.type} policy={settings.policy.type} "
+        f"Engine: detector={settings.detector_type} policy={settings.policy.type} "
         f"operator={settings.operator.type} vault={settings.vault.type} "
         f"session={settings.session.strategy}"
     )

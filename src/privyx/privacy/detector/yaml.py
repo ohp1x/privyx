@@ -8,20 +8,27 @@ from typing import Any
 from privyx.core.errors import ConfigError
 from privyx.plugins.registry import PLUGINS
 from privyx.privacy.detector.base import Detector
-from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector, YamlDetector
+from privyx.privacy.detector.builtin import (
+    DEFAULT_PATTERNS,
+    CompositeDetector,
+    RegexDetector,
+    YamlDetector,
+)
 
 #: Entity names must round-trip through a token, so they follow the codec's
 #: ``type`` grammar (see :mod:`privyx.token.codec`).
 _ENTITY_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 
 
-def build_detector(config: dict[str, Any]) -> Detector:
+def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
     """Build a detector from a config dict.
 
     Supports:
         - ``{"type": "regex", "patterns": {...}, "terms": {...}}``
         - ``{"type": "yaml", "patterns": {...}, "terms": {...}}``
-        - a list of such configs → merged into a single detector.
+        - ``{"type": "presidio", ...}`` or a plugin detector type
+        - a list of such configs → each is built on its own and run together
+          (see :class:`~privyx.privacy.detector.builtin.CompositeDetector`).
 
     ``patterns`` maps an entity to a regex; ``terms`` maps an entity to a list
     of literal strings, compiled here into one case-insensitive regex.  Both may
@@ -36,17 +43,15 @@ def build_detector(config: dict[str, Any]) -> Detector:
         ConfigError: If the config shape, detector type, or any regex is invalid.
     """
     if isinstance(config, list):
-        merged: dict[str, str] = {}
-        dtype = "yaml"
+        if not config:
+            # No detector means nothing is ever pseudonymized — fail loudly.
+            raise ConfigError("detector list must not be empty")
+        detectors = []
         for item in config:
             if not isinstance(item, dict):
                 raise ConfigError(f"invalid detector config: {item!r}")
-            if item.get("type") == "regex":
-                dtype = "regex"
-            merged.update(_patterns_from(item))
-        patterns = {**DEFAULT_PATTERNS, **merged} if dtype == "regex" else merged
-        _validate(patterns)
-        return YamlDetector(patterns)
+            detectors.append(build_detector(item))
+        return detectors[0] if len(detectors) == 1 else CompositeDetector(detectors)
 
     if not isinstance(config, dict):
         raise ConfigError(f"invalid detector config: {config!r}")
