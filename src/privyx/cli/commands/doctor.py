@@ -98,7 +98,7 @@ def _check_detector(config_path: str | None) -> tuple[bool, str]:
     if not result.spans:
         return (False, "configured detector found nothing in a known-PII sample")
     types = sorted({span.entity_type for span in result.spans})
-    return (True, f"{settings.detector.type}: {len(result.spans)} span(s) {types}")
+    return (True, f"{settings.detector_type}: {len(result.spans)} span(s) {types}")
 
 
 def _check_vault(config_path: str | None) -> tuple[bool, str]:
@@ -246,7 +246,7 @@ def _check_configuration(config_path: str | None) -> tuple[bool, str]:
     anchoring = f"anchor={s.anchor.type}" if anchor else "anchor=off"
     return (
         True,
-        f"valid: detector={s.detector.type} policy={s.policy.type} "
+        f"valid: detector={s.detector_type} policy={s.policy.type} "
         f"operator={s.operator.type} vault={s.vault.type} {anchoring}",
     )
 

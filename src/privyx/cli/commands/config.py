@@ -33,6 +33,6 @@ def config_cmd(show: bool, path: bool, config_path: str | None) -> None:
         click.echo(f"  Provider: {settings.provider.type}")
         click.echo(f"  Vault: {settings.vault.type}")
         click.echo(f"  Session: {settings.session.strategy}")
-        click.echo(f"  Detector: {settings.detector.type}")
+        click.echo(f"  Detector: {settings.detector_type}")
         click.echo(f"  Policy: {settings.policy.type}")
         click.echo(f"  Operator: {settings.operator.type}")

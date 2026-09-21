@@ -50,3 +50,14 @@ def test_base_extra_leaves_unrelated_defaults_intact(tmp_path: Path) -> None:
     assert settings.session.strategy == "conversation"
     assert settings.policy.type == "strict"
     assert settings.operator.type == "pseudonym"  # untouched default
+
+
+def test_detector_accepts_a_list(tmp_path: Path) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        "detector:\n  - type: regex\n  - type: yaml\n    patterns: {CODE: 'X\\d+'}\n",
+        encoding="utf-8",
+    )
+    settings = load_config(cfg)
+    assert isinstance(settings.detector, list)
+    assert settings.detector_type == "regex+yaml"

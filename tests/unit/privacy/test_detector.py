@@ -132,3 +132,27 @@ def test_malformed_terms_raise_config_error(terms: object) -> None:
 def test_invalid_entity_name_raises_config_error(entity: str) -> None:
     with pytest.raises(ConfigError, match="invalid entity name"):
         build_detector({"type": "regex", "terms": {entity: ["ann"]}})
+
+
+@pytest.mark.asyncio
+async def test_detector_list_pools_spans_from_every_detector() -> None:
+    detector = build_detector(
+        [{"type": "regex"}, {"type": "yaml", "patterns": {"CODE": r"\b[A-Z]{3}\d{2}\b"}}]
+    )
+    detection = await detector.detect("mail alice@example.com code ABC12", Context())
+    assert sorted((s.entity_type, s.text) for s in detection.spans) == [
+        ("CODE", "ABC12"),
+        ("EMAIL", "alice@example.com"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_detector_list_collapses_exact_duplicates() -> None:
+    detector = build_detector([{"type": "regex"}, {"type": "regex"}])
+    detection = await detector.detect("mail alice@example.com", Context())
+    assert len(detection.spans) == 1
+
+
+def test_empty_detector_list_raises_config_error() -> None:
+    with pytest.raises(ConfigError, match="must not be empty"):
+        build_detector([])

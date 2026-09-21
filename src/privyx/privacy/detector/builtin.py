@@ -5,11 +5,12 @@ These are intentionally dependency-free: pure regex + simple heuristics.
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from privyx.core.context import Context
-from privyx.core.result import Detection
-from privyx.privacy.detector.base import BaseDetector
+from privyx.core.result import Detection, Span
+from privyx.privacy.detector.base import BaseDetector, Detector
 
 #: The phone pattern accepts an optional ``+<country>`` prefix and 2-3 groups
 #: separated by space/dot/dash.  The lookarounds keep it from biting a chunk out
@@ -79,3 +80,27 @@ class YamlDetector(BaseDetector):
             for match in pattern.finditer(text):
                 detection.add(match.start(), match.end(), entity, match.group())
         return detection
+
+
+class CompositeDetector:
+    """Run several detectors concurrently and pool their spans.
+
+    Overlaps are left in place on purpose: the policy must see every span before
+    the operator merges them.  Merging first could fold an allowed EMAIL into a
+    longer span of a type ``strict`` drops, and the email would leak.  Only exact
+    duplicates (two detectors finding the same entity at the same range) are
+    collapsed, so audit counts are not doubled.  A failing detector fails the
+    whole detection rather than silently skipping its spans.
+    """
+
+    def __init__(self, detectors: list[Detector]) -> None:
+        self._detectors = detectors
+        self.name = "+".join(d.name for d in detectors)
+
+    async def detect(self, text: str, context: Context) -> Detection:
+        results = await asyncio.gather(*(d.detect(text, context) for d in self._detectors))
+        unique: dict[tuple[int, int, str], Span] = {}
+        for result in results:
+            for span in result.spans:
+                unique.setdefault((span.start, span.end, span.entity_type), span)
+        return Detection(spans=list(unique.values()))
