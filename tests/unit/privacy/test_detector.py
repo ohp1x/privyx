@@ -46,6 +46,20 @@ async def test_no_false_positive_on_plain_text() -> None:
     detection = await detector.detect("hello world, nothing sensitive here", Context())
     assert not detection
 
+
+@pytest.mark.asyncio
+async def test_value_group_marks_only_the_value() -> None:
+    # `value` group → only it; an alternative without it → the whole match;
+    # an empty `value` → nothing.
+    detector = YamlDetector({"SECRET": r"PASSWORD=(?P<value>\S*)|sk-\w+"})
+    detection = await detector.detect("DB_PASSWORD=hunter2 sk-abc PASSWORD= x", Context())
+    assert [(s.entity_type, s.text) for s in detection.spans] == [
+        ("SECRET", "hunter2"),
+        ("SECRET", "sk-abc"),
+    ]
+    assert detection.spans[0].start == len("DB_PASSWORD=")
+
+
 async def _detect_terms(text: str, **config: object) -> dict[str, list[str]]:
     """Build a detector from a `terms` config and return {entity: [matched text]}."""
     detector = build_detector({"type": "regex", **config})
