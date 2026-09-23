@@ -88,6 +88,8 @@ privyx proxy -c my.yaml --reload --upstream https://api.openai.com
 
 The entity name is yours to choose — it becomes the `{type}` in the token.
 `terms` and `patterns` can both be set; see `configs/examples/terms.yaml`.
+A `patterns` regex with a `(?P<value>...)` group masks only that group —
+`PASSWORD=(?P<value>\S+)` hides the secret, not the variable name.
 
 To run several detectors at once, give `detector` a list. Each item is its own
 detector config, and their spans are pooled:

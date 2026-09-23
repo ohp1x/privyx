@@ -161,6 +161,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Detectors
 
+- **Privacy fix.** `configs/default.yaml` now ships secret patterns — the
+  built-ins cover only EMAIL/PHONE/CREDIT_CARD/IP_ADDRESS/SSN, so API keys
+  reached the upstream as-is. `API_KEY` (vendor-prefixed keys: OpenAI,
+  Anthropic, GitHub, AWS, Google, Slack, Stripe, …), `JWT`, `PRIVATE_KEY`
+  (PEM/PGP, even cut off before `END`), `AUTH_TOKEN` (`Bearer`/`Basic`),
+  `URL_CREDENTIAL` (`scheme://user:PASS@host`), and `SECRET` (a value
+  assigned to a secret-looking name in `.env`, YAML, JSON, code, query
+  strings, or CLI flags)
+- A `detector.patterns` regex with a `(?P<value>...)` group masks only that
+  group: `PASSWORD=(?P<value>\S+)` hides the secret but leaves the variable
+  name readable, so a secret can be matched by the name it is assigned to.
+  A match where the group did not take part masks the whole match
 - `detector.terms` takes a literal word list per entity —
   `PERSON: [ann, bob]` — instead of a hand-written regex. Privyx escapes each
   term, orders the longest first so a compound term wins over a substring of

@@ -33,6 +33,26 @@ DEFAULT_PATTERNS: dict[str, str] = {
 }
 
 
+def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection:
+    """Run each entity's regex over ``text``.
+
+    A pattern with a ``value`` group marks only that group, so
+    ``DB_PASSWORD=(?P<value>\\S+)`` hides the secret but leaves the variable
+    name for the model to read.  A match whose ``value`` group did not take part
+    (another alternative matched) marks the whole match; an empty span marks
+    nothing.
+    """
+    detection = Detection()
+    for entity, pattern in compiled:
+        has_value = "value" in pattern.groupindex
+        for match in pattern.finditer(text):
+            group = "value" if has_value and match["value"] is not None else 0
+            start, end = match.span(group)
+            if start < end:
+                detection.add(start, end, entity, match[group])
+    return detection
+
+
 class RegexDetector(BaseDetector):
     """Detect entities with a set of named regular expressions."""
 
@@ -44,11 +64,7 @@ class RegexDetector(BaseDetector):
         self._compiled = [(name, re.compile(pattern)) for name, pattern in patterns.items()]
 
     def detect_sync(self, text: str, context: Context) -> Detection:
-        detection = Detection()
-        for entity, pattern in self._compiled:
-            for match in pattern.finditer(text):
-                detection.add(match.start(), match.end(), entity, match.group())
-        return detection
+        return _detect(self._compiled, text)
 
 
 class YamlDetector(BaseDetector):
@@ -75,11 +91,7 @@ class YamlDetector(BaseDetector):
         ]
 
     def detect_sync(self, text: str, context: Context) -> Detection:
-        detection = Detection()
-        for entity, pattern in self._compiled:
-            for match in pattern.finditer(text):
-                detection.add(match.start(), match.end(), entity, match.group())
-        return detection
+        return _detect(self._compiled, text)
 
 
 class CompositeDetector:
