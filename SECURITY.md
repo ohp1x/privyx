@@ -4,7 +4,7 @@
 
 Please report security issues privately. Do **not** open a public issue.
 
-- Email: security@privyx.example (replace with real address)
+- Email: security@privyx.io
 - Include: affected version, impact, and a minimal reproduction.
 
 You will receive a response within 72 hours.
