@@ -82,6 +82,14 @@ def env_config() -> dict[str, Any]:
     plugin_paths = _env("PLUGIN_PATHS")
     if plugin_paths:
         cfg["plugins"] = {"paths": [p.strip() for p in plugin_paths.split(",") if p.strip()]}
+    detector_cache = _env("DETECTOR_CACHE")
+    if detector_cache:
+        cfg.setdefault("detector", {})["cache"] = detector_cache.strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
     return cfg
 
 
