@@ -23,21 +23,22 @@ Client ──► [Privyx] ──► Provider
 | Threat | Mitigation |
 |---|---|
 | Provider sees PII | Pseudonymize before forwarding |
-| Vault leak | Encrypt session payloads at rest (future: `encrypt.py`) |
+| Vault leak | `operator.type: encrypt` stores AES-256-GCM ciphertext instead of plaintext (see [cryptography.md](cryptography.md)); the default `pseudonym`/`hash`/`faker` operators still store plaintext and rely on the vault being trusted |
 | Log leakage | Default logging never prints payload text |
 | Pseudonym collision | Counter + entity type + session isolation |
 | Streaming boundary corruption | Hold-back scan + property tests |
 | Session injection | Random `session_id` (uuid), vault-backed |
-| Key exposure | `PRIVYX_ANCHOR_SECRET` via env, never logged |
+| Key exposure | `PRIVYX_ANCHOR_SECRET` / `PRIVYX_ENCRYPT_KEY` via env, never logged |
+| Transport eavesdropping | Native TLS termination (`tls.enabled` / `PRIVYX_SSL_*` / `PRIVYX_TLS_*`) or a TLS-terminating reverse proxy in front — see [proxy.md](../architecture/proxy.md) |
 
 ## Assumptions
 
-- The operator controls the network path; TLS is assumed in front.
-- The vault is a trusted component.
+- The proxy either terminates TLS itself or sits behind a TLS-terminating reverse proxy; plaintext HTTP between the operator's network boundary and the client is not assumed safe.
+- The vault is a trusted component **unless** `operator.type: encrypt` is selected, in which case a vault leak exposes ciphertext, not plaintext.
 - HMAC anchoring requires the secret to remain secret.
 
 ## Out of Scope (v0.1)
 
 - Multi-tenant authN/authZ (future work).
 - Key rotation for active sessions.
-- AT-rest encryption of vault (placeholder `EncryptOperator`).
+- Encryption at rest for the *default* operators (`pseudonym`, `hash`, `faker`) — use `operator.type: encrypt` where this matters; see [cryptography.md](cryptography.md).
