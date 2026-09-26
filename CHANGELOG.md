@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-27
+
+### Added
+
+- **Detectors:** `detector.type: llm` is now selectable. `LLMDetector` builds a client from the `providers` extra (`openai` or `anthropic` SDK) given `llm_provider` / `llm_model` / `llm_api_key`, or accepts a ready-made `client` for tests and custom endpoints. A missing SDK, an unsupported provider name, or a client the SDK itself refuses to construct (most commonly: no API key found) all fail at startup with a `ConfigError`, matching the `faker`/`encrypt`/`presidio` contract, never mid-request
+
+### Fixed
+
+- **Detectors:** `LLMDetector` could not be instantiated — it extended `BaseDetector`, which requires `detect_sync`, but every LLM call is inherently async, so there was no meaningful sync path (the same reasoning `CompositeDetector` follows by not extending it either). It now implements the `Detector` protocol directly
+- **Detectors:** The LLM detector's response parser silently accepted spans with out-of-range offsets — Python slicing does not raise for an out-of-bounds `start`/`end`, it clamps — so a hallucinated offset outside the scanned text used to reach a `Span` unnoticed. Offsets are now validated (`0 <= start < end <= len(text)`) before a span is accepted
+
 ## [0.1.0] - 2026-09-26
 
 First release: the privacy pipeline, the streaming proxy, and the CLI that drives them. Every component named in a config is pluggable through a registry, and the core stays free of FastAPI and provider SDKs.
@@ -94,5 +105,6 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ohp1x/privyx/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ohp1x/privyx/releases/tag/v0.1.0
