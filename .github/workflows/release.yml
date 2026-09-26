@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Type check
+        run: uv run mypy src
+
+      - name: Test
+        run: uv run pytest
+
+      - name: Verify tag matches package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(uv run python -c 'from privyx.version import __version__; print(__version__)')"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match package version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Extract changelog section for this version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            BEGIN { found=0 }
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found=1; next }
+            }
+            /^\[[A-Za-z0-9._-]+\]:/ { if (found) exit }
+            found { print }
+          ' CHANGELOG.md > changelog-excerpt.md
+          echo "--- changelog-excerpt.md ---"
+          cat changelog-excerpt.md
+
+      - name: Generate PR-based release notes (categorized via .github/release.yml)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="${GITHUB_REF_NAME}" \
+            --jq .body > generated-notes.md
+          echo "--- generated-notes.md ---"
+          cat generated-notes.md
+
+      - name: Assemble final release notes
+        run: |
+          {
+            cat changelog-excerpt.md
+            echo
+            echo "---"
+            echo
+            cat generated-notes.md
+          } > release-notes.md
+          echo "--- release-notes.md (final) ---"
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            dist/*.whl dist/*.tar.gz
