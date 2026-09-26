@@ -1,0 +1,55 @@
+services:
+  privyx:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: privyx:latest
+    container_name: privyx
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PRIVYX_HOST=0.0.0.0
+      - PRIVYX_PORT=8000
+      - PRIVYX_UPSTREAM_URL=${PRIVYX_UPSTREAM_URL:-https://api.openai.com}
+      - PRIVYX_OPENAI_API_KEY=${PRIVYX_OPENAI_API_KEY:-}
+      - PRIVYX_ANTHROPIC_API_KEY=${PRIVYX_ANTHROPIC_API_KEY:-}
+      - PRIVYX_ENCRYPT_KEY=${PRIVYX_ENCRYPT_KEY:-}
+      - PRIVYX_ANCHOR_SECRET=${PRIVYX_ANCHOR_SECRET:-}
+      - PRIVYX_VAULT=${PRIVYX_VAULT:-redis}
+      - PRIVYX_REDIS_URL=${PRIVYX_REDIS_URL:-redis://redis:6379/0}
+      - PRIVYX_VAULT_DSN=${PRIVYX_VAULT_DSN:-sqlite+aiosqlite:////data/privyx.db}
+      - PRIVYX_SESSION_STRATEGY=${PRIVYX_SESSION_STRATEGY:-conversation}
+      - PRIVYX_LOG_LEVEL=${PRIVYX_LOG_LEVEL:-info}
+      - PRIVYX_AUDIT_ENABLED=${PRIVYX_AUDIT_ENABLED:-true}
+      - PRIVYX_AUDIT_PATH=${PRIVYX_AUDIT_PATH:-/data/privyx-audit.log}
+    volumes:
+      - privyx_data:/data
+      - ./configs:/app/configs:ro
+      - ./plugins:/app/plugins:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: privyx-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "${REDIS_PORT:-127.0.0.1:16379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+      start_period: 1s
+
+volumes:
+  privyx_data:
+  redis_data:
