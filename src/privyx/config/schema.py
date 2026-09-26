@@ -46,6 +46,14 @@ class DetectorConfig(BaseModel):
     model: str = ""  # presidio detector: spaCy model (empty → {language}_core_web_sm)
     entities: list[str] = Field(default_factory=list)  # presidio: empty → all recognizers
     score_threshold: float = 0.35  # presidio detector: minimum confidence
+    # llm detector fields are prefixed (unlike presidio's) because their
+    # unprefixed names would be ambiguous here: "provider" could read as the
+    # proxy's upstream ProviderConfig, and "model" already means a spaCy model
+    # name for presidio in this same schema.
+    llm_provider: str = "openai"  # llm detector: built-in SDK ("openai" or "anthropic")
+    llm_model: str = ""  # llm detector: model name (empty → a small default per provider)
+    llm_api_key: str = ""  # llm detector: empty defers to the SDK's own env lookup
+    llm_instructions: str = ""  # llm detector: prompt instructions (empty → built-in default)
 
     @field_validator("cache", mode="before")
     @classmethod

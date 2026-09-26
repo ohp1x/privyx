@@ -134,6 +134,8 @@ detector:
       PROJECT: [bluebird]
   - type: presidio            # names, orgs, locations (needs privyx[presidio])
     language: en
+  - type: llm                 # context-dependent PII an LLM can spot (needs privyx[providers])
+    llm_provider: openai      # or anthropic; api key defaults to the SDK's own env var
 ```
 
 Detection results are cached in an LRU cache (`detector.cache: true`, default) so that

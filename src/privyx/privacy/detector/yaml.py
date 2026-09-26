@@ -76,6 +76,15 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
             entities=list(config.get("entities", [])) or None,
             score_threshold=float(config.get("score_threshold", 0.35)),
         )
+    elif dtype == "llm":
+        from privyx.privacy.detector.llm import LLMDetector
+
+        detector = LLMDetector(
+            provider=config.get("llm_provider", "openai"),
+            model=config.get("llm_model", ""),
+            api_key=config.get("llm_api_key", ""),
+            instructions=config.get("llm_instructions") or None,
+        )
     elif dtype in PLUGINS.detectors:
         detector = PLUGINS.detectors.build(config)
     else:
