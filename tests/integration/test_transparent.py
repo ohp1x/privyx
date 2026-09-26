@@ -54,10 +54,13 @@ def _mock_client(capture: list[httpx.Request] | None = None) -> httpx.AsyncClien
         if path == "/v1/chat/completions":
             content = body["messages"][-1]["content"]
             if body.get("stream"):
-                frames = "".join(
-                    f"data: {json.dumps({'choices': [{'delta': {'content': part}}]})}\n\n"
-                    for part in _chunks(content)
-                ) + "data: [DONE]\n\n"
+                frames = (
+                    "".join(
+                        f"data: {json.dumps({'choices': [{'delta': {'content': part}}]})}\n\n"
+                        for part in _chunks(content)
+                    )
+                    + "data: [DONE]\n\n"
+                )
                 return httpx.Response(
                     200, headers={"content-type": "text/event-stream"}, content=frames.encode()
                 )
@@ -79,9 +82,7 @@ def _mock_client(capture: list[httpx.Request] | None = None) -> httpx.AsyncClien
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-async def _post_json(
-    proxy: TransparentProxy, path: str, payload: dict[str, Any]
-) -> Any:
+async def _post_json(proxy: TransparentProxy, path: str, payload: dict[str, Any]) -> Any:
     return await proxy.handle(
         method="POST",
         path=path,
@@ -476,7 +477,10 @@ async def test_conversation_strategy_reuses_one_session_across_turns() -> None:
         audit=audit,
     )
     proxy = TransparentProxy(
-        engine, origin="https://up.test", client=_mock_client(), audit=audit,
+        engine,
+        origin="https://up.test",
+        client=_mock_client(),
+        audit=audit,
         session_strategy="conversation",
     )
 
@@ -502,7 +506,9 @@ async def test_conversation_strategy_reuses_one_session_across_turns() -> None:
 async def test_conversation_strategy_isolates_distinct_conversations() -> None:
     engine = _engine()
     proxy = TransparentProxy(
-        engine, origin="https://up.test", client=_mock_client(),
+        engine,
+        origin="https://up.test",
+        client=_mock_client(),
         session_strategy="conversation",
     )
 

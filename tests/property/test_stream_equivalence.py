@@ -57,9 +57,7 @@ PII_POOL = [
 # point of these tests is the algorithm, not the detector's precision.
 FILLER = st.text(alphabet=string.ascii_letters + string.digits + " .,!?-\n", max_size=30)
 
-PROSE = st.lists(st.one_of(FILLER, st.sampled_from(PII_POOL)), min_size=1, max_size=8).map(
-    " ".join
-)
+PROSE = st.lists(st.one_of(FILLER, st.sampled_from(PII_POOL)), min_size=1, max_size=8).map(" ".join)
 
 # Chunk sizes, not offsets: a list of small positive ints slices the text into
 # pieces whose boundaries land inside pseudonyms often enough to matter.

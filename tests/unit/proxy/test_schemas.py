@@ -396,8 +396,11 @@ async def test_transform_openai_chat_gaps() -> None:
                 "reasoning": f"user is {EMAIL}",
                 "function_call": {"name": "send", "arguments": ARGS},
                 "tool_calls": [
-                    {"id": "call_1", "type": "function",
-                     "function": {"name": "send", "arguments": ARGS}}
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "send", "arguments": ARGS},
+                    }
                 ],
             },
             {"role": "tool", "tool_call_id": "call_1", "content": f"sent {EMAIL}"},
@@ -428,32 +431,76 @@ def _responses_request() -> dict[str, Any]:
         "prompt": {"id": "pmpt_1", "variables": {"who": EMAIL}},
         "input": [
             {"type": "message", "role": "developer", "content": f"ctx {EMAIL}"},
-            {"role": "user", "content": [
-                {"type": "input_text", "text": f"mail {EMAIL}"},
-                {"type": "input_image", "image_url": "data:image/png;base64,iVBOR"},
-                {"type": "input_file", "file_data": "JVBERi0=", "filename": "a.pdf"},
-            ]},
-            {"type": "reasoning", "id": "rs_1", "encrypted_content": "gAAAA==",
-             "summary": [{"type": "summary_text", "text": f"think {EMAIL}"}],
-             "content": [{"type": "reasoning_text", "text": f"raw {EMAIL}"}]},
-            {"type": "message", "role": "assistant", "id": "msg_1", "status": "completed",
-             "content": [{"type": "output_text", "text": f"ok {EMAIL}", "annotations": []}]},
-            {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "send",
-             "arguments": ARGS},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": f"mail {EMAIL}"},
+                    {"type": "input_image", "image_url": "data:image/png;base64,iVBOR"},
+                    {"type": "input_file", "file_data": "JVBERi0=", "filename": "a.pdf"},
+                ],
+            },
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "encrypted_content": "gAAAA==",
+                "summary": [{"type": "summary_text", "text": f"think {EMAIL}"}],
+                "content": [{"type": "reasoning_text", "text": f"raw {EMAIL}"}],
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "id": "msg_1",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": f"ok {EMAIL}", "annotations": []}],
+            },
+            {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "send",
+                "arguments": ARGS,
+            },
             {"type": "function_call_output", "call_id": "call_1", "output": f"sent {EMAIL}"},
-            {"type": "custom_tool_call", "call_id": "call_2", "name": "apply_patch",
-             "input": f"*** {EMAIL}"},
+            {
+                "type": "custom_tool_call",
+                "call_id": "call_2",
+                "name": "apply_patch",
+                "input": f"*** {EMAIL}",
+            },
             {"type": "custom_tool_call_output", "call_id": "call_2", "output": f"done {EMAIL}"},
-            {"type": "local_shell_call", "id": "lsh_1", "call_id": "call_3", "status": "completed",
-             "action": {"type": "exec", "command": ["grep", EMAIL], "env": {}}},
+            {
+                "type": "local_shell_call",
+                "id": "lsh_1",
+                "call_id": "call_3",
+                "status": "completed",
+                "action": {"type": "exec", "command": ["grep", EMAIL], "env": {}},
+            },
             {"type": "local_shell_call_output", "id": "call_3", "output": f"{EMAIL}\n"},
-            {"type": "shell_call_output", "call_id": "call_4", "output": [
-                {"stdout": EMAIL, "stderr": f"warn {EMAIL}",
-                 "outcome": {"type": "exit", "exit_code": 0}}]},
-            {"type": "apply_patch_call", "call_id": "call_5", "status": "completed",
-             "operation": {"type": "update_file", "path": "a.txt", "diff": f"+{EMAIL}"}},
-            {"type": "mcp_call", "id": "mcp_1", "name": "lookup", "server_label": "crm",
-             "arguments": ARGS, "output": f"found {EMAIL}"},
+            {
+                "type": "shell_call_output",
+                "call_id": "call_4",
+                "output": [
+                    {
+                        "stdout": EMAIL,
+                        "stderr": f"warn {EMAIL}",
+                        "outcome": {"type": "exit", "exit_code": 0},
+                    }
+                ],
+            },
+            {
+                "type": "apply_patch_call",
+                "call_id": "call_5",
+                "status": "completed",
+                "operation": {"type": "update_file", "path": "a.txt", "diff": f"+{EMAIL}"},
+            },
+            {
+                "type": "mcp_call",
+                "id": "mcp_1",
+                "name": "lookup",
+                "server_label": "crm",
+                "arguments": ARGS,
+                "output": f"found {EMAIL}",
+            },
         ],
     }
 
@@ -492,32 +539,59 @@ async def test_restore_walks_every_leaf_of_all_three_shapes() -> None:
         "id": "msg_1",
         "content": [
             {"type": "text", "text": "cf", "citations": [{"cited_text": token}]},
-            {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search",
-             "input": {"query": token}},
-            {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_1",
-             "content": {"type": "code_execution_result", "stdout": token, "stderr": token}},
+            {
+                "type": "server_tool_use",
+                "id": "srvtoolu_1",
+                "name": "web_search",
+                "input": {"query": token},
+            },
+            {
+                "type": "code_execution_tool_result",
+                "tool_use_id": "srvtoolu_1",
+                "content": {"type": "code_execution_result", "stdout": token, "stderr": token},
+            },
             {"type": "thinking", "thinking": token, "signature": token},  # opaque stays
         ],
     }
     chat = {
-        "choices": [{"message": {
-            "refusal": token, "reasoning": token,
-            "function_call": {"name": "send", "arguments": args},
-        }}],
+        "choices": [
+            {
+                "message": {
+                    "refusal": token,
+                    "reasoning": token,
+                    "function_call": {"name": "send", "arguments": args},
+                }
+            }
+        ],
     }
     responses = {
         "id": "resp_1",
         "object": "response",
         "instructions": f"assist {token}",
         "output": [
-            {"type": "reasoning", "id": "rs_1",
-             "summary": [{"type": "summary_text", "text": token}]},
-            {"type": "message", "id": "msg_1", "role": "assistant",
-             "content": [{"type": "output_text", "text": f"hi {token}", "annotations": []},
-                         {"type": "refusal", "refusal": token}]},
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [{"type": "summary_text", "text": token}],
+            },
+            {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "content": [
+                    {"type": "output_text", "text": f"hi {token}", "annotations": []},
+                    {"type": "refusal", "refusal": token},
+                ],
+            },
             {"type": "function_call", "call_id": "call_1", "name": "send", "arguments": args},
-            {"type": "mcp_call", "id": "mcp_1", "name": "m", "server_label": "crm",
-             "arguments": args, "output": token},
+            {
+                "type": "mcp_call",
+                "id": "mcp_1",
+                "name": "m",
+                "server_label": "crm",
+                "arguments": args,
+                "output": token,
+            },
         ],
     }
 

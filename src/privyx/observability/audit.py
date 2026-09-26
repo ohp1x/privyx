@@ -76,9 +76,7 @@ class AuditEventType(StrEnum):
 def _iso(ts: float) -> str:
     """Format an epoch timestamp as an ISO-8601 UTC millisecond string."""
     return (
-        datetime.fromtimestamp(ts, tz=UTC)
-        .isoformat(timespec="milliseconds")
-        .replace("+00:00", "Z")
+        datetime.fromtimestamp(ts, tz=UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     )
 
 

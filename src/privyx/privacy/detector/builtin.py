@@ -86,9 +86,7 @@ class YamlDetector(BaseDetector):
     def __init__(self, rules: dict[str, str] | None = None) -> None:
         super().__init__()
         self._rules = rules or {}
-        self._compiled = [
-            (entity, re.compile(pattern)) for entity, pattern in self._rules.items()
-        ]
+        self._compiled = [(entity, re.compile(pattern)) for entity, pattern in self._rules.items()]
 
     def detect_sync(self, text: str, context: Context) -> Detection:
         return _detect(self._compiled, text)

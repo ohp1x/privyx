@@ -95,7 +95,5 @@ def filter_response_headers(headers: Mapping[str, str]) -> dict[str, str]:
     decoded) and ``content-length`` (recomputed by the server).
     """
     return {
-        key.lower(): value
-        for key, value in headers.items()
-        if key.lower() not in _RESPONSE_DROP
+        key.lower(): value for key, value in headers.items() if key.lower() not in _RESPONSE_DROP
     }

@@ -77,8 +77,7 @@ def _load_analyzer(language: str, model: str, kwargs: dict[str, Any]) -> Any:
         )
     except OSError as exc:  # pragma: no cover - depends on the local model set
         raise ConfigError(
-            f"spaCy model {model!r} is not installed; run "
-            f"`python -m spacy download {model}`"
+            f"spaCy model {model!r} is not installed; run `python -m spacy download {model}`"
         ) from exc
 
     _ANALYZERS[(language, model)] = analyzer

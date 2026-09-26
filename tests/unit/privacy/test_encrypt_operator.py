@@ -31,10 +31,18 @@ def _operator(key: str = KEY) -> EncryptOperator:
 def _detection() -> Detection:
     return Detection(
         spans=[
-            Span(TEXT.index("alice@example.com"), TEXT.index("alice@example.com") + 17, "EMAIL",
-                 "alice@example.com"),
-            Span(TEXT.index("bob@example.com"), TEXT.index("bob@example.com") + 15, "EMAIL",
-                 "bob@example.com"),
+            Span(
+                TEXT.index("alice@example.com"),
+                TEXT.index("alice@example.com") + 17,
+                "EMAIL",
+                "alice@example.com",
+            ),
+            Span(
+                TEXT.index("bob@example.com"),
+                TEXT.index("bob@example.com") + 15,
+                "EMAIL",
+                "bob@example.com",
+            ),
             Span(TEXT.index("123-45-6789"), TEXT.index("123-45-6789") + 11, "SSN", "123-45-6789"),
         ]
     )

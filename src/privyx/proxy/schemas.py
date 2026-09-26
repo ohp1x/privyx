@@ -285,8 +285,4 @@ def _opaque(key: str, parent: Mapping[str, Any]) -> bool:
         return False  # Anthropic plain-text document source: the document itself
     if key == "result" and parent.get("type") == "image_generation_call":
         return True  # base64 image, echoed back in a Responses input
-    return (
-        key in OPAQUE_KEYS
-        or key.endswith(("_id", "_url"))
-        or key.startswith("encrypted_")
-    )
+    return key in OPAQUE_KEYS or key.endswith(("_id", "_url")) or key.startswith("encrypted_")

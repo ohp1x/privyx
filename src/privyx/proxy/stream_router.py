@@ -70,9 +70,7 @@ _RS_BUFFERED = frozenset(
     }
 )
 #: Responses events that end the stream: every held-back delta is flushed first.
-_RS_TERMINAL = frozenset(
-    {"response.completed", "response.incomplete", "response.failed", "error"}
-)
+_RS_TERMINAL = frozenset({"response.completed", "response.incomplete", "response.failed", "error"})
 #: Fields that, with the event kind, identify one Responses delta stream.
 _RS_INDEXES = ("item_id", "output_index", "content_index", "summary_index", "command_index")
 

@@ -72,7 +72,10 @@ def _responses_reply(body: dict[str, Any]) -> httpx.Response:
     """Echo the last input_text as a Responses message, batch or streamed."""
     text = body["input"][-1]["content"][0]["text"]
     item = {
-        "type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
         "content": [{"type": "output_text", "text": text, "annotations": []}],
     }
     if not body.get("stream"):
@@ -179,7 +182,7 @@ async def test_responses_stream_round_trip() -> None:
     assert EMAIL.encode() not in seen[-1]
     assert "<PRIVYX_" not in body
     events = [
-        json.loads(line[len("data: "):]) for line in body.splitlines() if line.startswith("data: ")
+        json.loads(line[len("data: ") :]) for line in body.splitlines() if line.startswith("data: ")
     ]
     deltas = [ev["delta"] for ev in events if ev["type"] == "response.output_text.delta"]
     assert "".join(deltas) == f"mail {EMAIL}"

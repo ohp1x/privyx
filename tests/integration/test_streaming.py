@@ -31,9 +31,7 @@ async def test_request_pseudonymize_response_deanonymize() -> None:
     session = await engine.get_or_create_session()
 
     request = {"messages": [{"role": "user", "content": "My email is alice@example.com"}]}
-    transformed = await engine.transform(
-        request["messages"][0]["content"], session=session
-    )
+    transformed = await engine.transform(request["messages"][0]["content"], session=session)
     request["messages"][0]["content"] = transformed.text
 
     # Simulate the provider echoing back the pseudonym in an SSE stream.

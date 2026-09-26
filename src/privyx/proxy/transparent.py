@@ -245,13 +245,9 @@ class TransparentProxy:
     ) -> ProxyResponse:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
-        stream_iter = self._stream(
-            response, schema, session_id, request_id, start, ephemeral
-        )
+        stream_iter = self._stream(response, schema, session_id, request_id, start, ephemeral)
         cleanup = (
-            (lambda: self._cleanup_session(session_id, request_id, start))
-            if ephemeral
-            else None
+            (lambda: self._cleanup_session(session_id, request_id, start)) if ephemeral else None
         )
         return ProxyResponse(
             status_code=response.status_code,
@@ -324,9 +320,7 @@ class TransparentProxy:
                 await response.aclose()
             finally:
                 if completed:
-                    self._audit.restore(
-                        session_id, transformations=restored, request_id=request_id
-                    )
+                    self._audit.restore(session_id, transformations=restored, request_id=request_id)
                     self._audit.response(
                         status=status,
                         stream=True,

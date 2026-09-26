@@ -72,9 +72,7 @@ def _client(
     ), gateway
 
 
-def _stream_client(
-    engine: PrivacyEngine, audit: AuditLogger
-) -> tuple[httpx.AsyncClient, Any]:
+def _stream_client(engine: PrivacyEngine, audit: AuditLogger) -> tuple[httpx.AsyncClient, Any]:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         text = body["messages"][-1]["content"]

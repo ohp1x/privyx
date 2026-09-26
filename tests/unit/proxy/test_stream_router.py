@@ -30,9 +30,7 @@ def _run(router: StreamRouter, body: str) -> str:
 def _events(raw: str) -> list[Any]:
     decoder = SSEDecoder()
     return [
-        json.loads(ev.data)
-        for ev in decoder.feed(raw) + decoder.flush()
-        if ev.data != "[DONE]"
+        json.loads(ev.data) for ev in decoder.feed(raw) + decoder.flush() if ev.data != "[DONE]"
     ]
 
 
@@ -52,10 +50,13 @@ def _openai_frame(payload: dict[str, Any]) -> str:
 def test_openai_text_deanon_and_done_is_last() -> None:
     adapter = OpenAIStreamAdapter()
     router = _router(adapter, {TOKEN: ORIG})
-    body = "".join(
-        _openai_frame({"choices": [{"delta": {"content": c}}]})
-        for c in ["Hi ", TOKEN[:8], TOKEN[8:], " bye"]
-    ) + "data: [DONE]\n\n"
+    body = (
+        "".join(
+            _openai_frame({"choices": [{"delta": {"content": c}}]})
+            for c in ["Hi ", TOKEN[:8], TOKEN[8:], " bye"]
+        )
+        + "data: [DONE]\n\n"
+    )
 
     out = _run(router, body)
 
@@ -68,8 +69,7 @@ def test_openai_held_tail_flushed_before_done() -> None:
     adapter = OpenAIStreamAdapter()
     router = _router(adapter, {})  # empty mapping: token-shaped text stays verbatim
     body = (
-        _openai_frame({"choices": [{"delta": {"content": "end <PRIVYX_EMA"}}]})
-        + "data: [DONE]\n\n"
+        _openai_frame({"choices": [{"delta": {"content": "end <PRIVYX_EMA"}}]}) + "data: [DONE]\n\n"
     )
 
     out = _run(router, body)
@@ -86,15 +86,37 @@ def test_openai_tool_calls_buffered_and_restored_before_done() -> None:
 
     frames = [
         _openai_frame(
-            {"choices": [{"index": 0, "delta": {"tool_calls": [
-                {"index": 0, "id": "call_1", "function": {"name": "send", "arguments": ""}}
-            ]}}]}
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "send", "arguments": ""},
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
         )
     ]
     frames += [
-        _openai_frame({"choices": [{"index": 0, "delta": {"tool_calls": [
-            {"index": 0, "function": {"arguments": fragment}}
-        ]}}]})
+        _openai_frame(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [{"index": 0, "function": {"arguments": fragment}}]
+                        },
+                    }
+                ]
+            }
+        )
         for fragment in fragments
     ]
     frames.append(
@@ -105,9 +127,7 @@ def test_openai_tool_calls_buffered_and_restored_before_done() -> None:
     out = _run(router, "".join(frames))
 
     assert TOKEN not in out
-    tool_frames = [
-        ev for ev in _events(out) if ev["choices"][0]["delta"].get("tool_calls")
-    ]
+    tool_frames = [ev for ev in _events(out) if ev["choices"][0]["delta"].get("tool_calls")]
     assert len(tool_frames) == 1
     call = tool_frames[0]["choices"][0]["delta"]["tool_calls"][0]
     assert call["id"] == "call_1"
@@ -120,9 +140,24 @@ def test_openai_truncated_tool_call_is_dropped() -> None:
     adapter = OpenAIStreamAdapter()
     router = _router(adapter, {})
     frames = [
-        _openai_frame({"choices": [{"index": 0, "delta": {"tool_calls": [
-            {"index": 0, "id": "c", "function": {"name": "f", "arguments": '{"to": "al'}}
-        ]}}]}),
+        _openai_frame(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "c",
+                                    "function": {"name": "f", "arguments": '{"to": "al'},
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        ),
         _openai_frame({"choices": [{"index": 0, "delta": {}, "finish_reason": "length"}]}),
         "data: [DONE]\n\n",
     ]
@@ -136,13 +171,15 @@ def test_openai_truncated_tool_call_is_dropped() -> None:
 def test_openai_refusal_and_reasoning_split_tokens_restored() -> None:
     adapter = OpenAIStreamAdapter()
     router = _router(adapter, {TOKEN: ORIG})
-    body = "".join(
-        _openai_frame({"choices": [{"index": 0, "delta": {field: part}}]})
-        for field in ("reasoning", "refusal")
-        for part in ("user ", TOKEN[:7], TOKEN[7:], ".")
-    ) + _openai_frame(
-        {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
-    ) + "data: [DONE]\n\n"
+    body = (
+        "".join(
+            _openai_frame({"choices": [{"index": 0, "delta": {field: part}}]})
+            for field in ("reasoning", "refusal")
+            for part in ("user ", TOKEN[:7], TOKEN[7:], ".")
+        )
+        + _openai_frame({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+        + "data: [DONE]\n\n"
+    )
 
     out = _run(router, body)
 
@@ -329,25 +366,54 @@ def test_responses_split_text_done_and_completed_restored() -> None:
     text = f"Hi {TOKEN}!"
     part = {"type": "output_text", "text": text, "annotations": []}
     message = {
-        "type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
         "content": [part],
     }
     body = "".join(
         [
-            _rs({"type": "response.created", "sequence_number": 0,
-                 "response": {"id": "resp_1", "output": []}}),
-            _rs({"type": "response.output_text.delta", "sequence_number": 1,
-                 "delta": "Hi " + TOKEN[:6], **ids}),
-            _rs({"type": "response.output_text.delta", "sequence_number": 2,
-                 "delta": TOKEN[6:] + "!", **ids}),
-            _rs({"type": "response.output_text.done", "sequence_number": 3,
-                 "text": text, **ids}),
-            _rs({"type": "response.content_part.done", "sequence_number": 4,
-                 "part": part, **ids}),
-            _rs({"type": "response.output_item.done", "sequence_number": 5,
-                 "output_index": 0, "item": message}),
-            _rs({"type": "response.completed", "sequence_number": 6,
-                 "response": {"id": "resp_1", "output": [message]}}),
+            _rs(
+                {
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {"id": "resp_1", "output": []},
+                }
+            ),
+            _rs(
+                {
+                    "type": "response.output_text.delta",
+                    "sequence_number": 1,
+                    "delta": "Hi " + TOKEN[:6],
+                    **ids,
+                }
+            ),
+            _rs(
+                {
+                    "type": "response.output_text.delta",
+                    "sequence_number": 2,
+                    "delta": TOKEN[6:] + "!",
+                    **ids,
+                }
+            ),
+            _rs({"type": "response.output_text.done", "sequence_number": 3, "text": text, **ids}),
+            _rs({"type": "response.content_part.done", "sequence_number": 4, "part": part, **ids}),
+            _rs(
+                {
+                    "type": "response.output_item.done",
+                    "sequence_number": 5,
+                    "output_index": 0,
+                    "item": message,
+                }
+            ),
+            _rs(
+                {
+                    "type": "response.completed",
+                    "sequence_number": 6,
+                    "response": {"id": "resp_1", "output": [message]},
+                }
+            ),
         ]
     )
 
@@ -377,11 +443,27 @@ def test_responses_function_call_arguments_buffered_until_done() -> None:
                 _rs({"type": "response.function_call_arguments.delta", "delta": part, **ids})
                 for part in (args[:5], args[5:14], args[14:])
             ],
-            _rs({"type": "response.function_call_arguments.done", "arguments": args,
-                 "name": "send", **ids}),
-            _rs({"type": "response.output_item.done", "output_index": 1, "item": {
-                "type": "function_call", "id": "fc_1", "call_id": "call_1",
-                "name": "send", "arguments": args}}),
+            _rs(
+                {
+                    "type": "response.function_call_arguments.done",
+                    "arguments": args,
+                    "name": "send",
+                    **ids,
+                }
+            ),
+            _rs(
+                {
+                    "type": "response.output_item.done",
+                    "output_index": 1,
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "send",
+                        "arguments": args,
+                    },
+                }
+            ),
         ]
     )
 
@@ -411,10 +493,13 @@ def test_literal_factory_restores_substituted_values_across_chunks() -> None:
         adapter,
         make_processor=lambda: StreamingDeanonymizer(mapping),
     )
-    body = "".join(
-        _openai_frame({"choices": [{"delta": {"content": c}}]})
-        for c in ["Hello ", "Jane ", "Fake", "!"]
-    ) + "data: [DONE]\n\n"
+    body = (
+        "".join(
+            _openai_frame({"choices": [{"delta": {"content": c}}]})
+            for c in ["Hello ", "Jane ", "Fake", "!"]
+        )
+        + "data: [DONE]\n\n"
+    )
 
     out = _run(router, body)
 

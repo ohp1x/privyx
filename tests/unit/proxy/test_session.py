@@ -37,8 +37,11 @@ def test_explicit_header_beats_every_strategy() -> None:
 
 def test_ephemeral_returns_none() -> None:
     sid, source = resolve_session_id(
-        "ephemeral", header_value=None, headers=BEARER,
-        payload=_convo("user", "hi"), schema="openai",
+        "ephemeral",
+        header_value=None,
+        headers=BEARER,
+        payload=_convo("user", "hi"),
+        schema="openai",
     )
     assert sid is None
     assert source == "ephemeral"
@@ -59,9 +62,7 @@ def test_client_differs_by_credential() -> None:
     a, _ = resolve_session_id(
         "client", header_value=None, headers=BEARER, payload=None, schema=None
     )
-    b, _ = resolve_session_id(
-        "client", header_value=None, headers=XKEY, payload=None, schema=None
-    )
+    b, _ = resolve_session_id("client", header_value=None, headers=XKEY, payload=None, schema=None)
     assert a != b
 
 
@@ -98,12 +99,18 @@ def test_conversation_stable_as_history_grows() -> None:
 
 def test_conversation_isolates_distinct_conversations() -> None:
     a, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER,
-        payload=_convo("user", "topic one"), schema="openai",
+        "conversation",
+        header_value=None,
+        headers=BEARER,
+        payload=_convo("user", "topic one"),
+        schema="openai",
     )
     b, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER,
-        payload=_convo("user", "topic two"), schema="openai",
+        "conversation",
+        header_value=None,
+        headers=BEARER,
+        payload=_convo("user", "topic two"),
+        schema="openai",
     )
     assert a != b
 
@@ -131,8 +138,11 @@ def test_conversation_without_any_signal_is_ephemeral() -> None:
 def test_conversation_ignores_body_on_unknown_schema() -> None:
     """A non-chat path is not fingerprinted; it degrades to a per-credential id."""
     with_body, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER,
-        payload=_convo("user", "hi"), schema=None,
+        "conversation",
+        header_value=None,
+        headers=BEARER,
+        payload=_convo("user", "hi"),
+        schema=None,
     )
     no_body, _ = resolve_session_id(
         "conversation", header_value=None, headers=BEARER, payload=None, schema=None
@@ -161,19 +171,18 @@ def test_first_user_message_prefers_first_user_over_system() -> None:
         ]
     }
     b, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER,
-        payload=same_first_different_tail, schema="openai",
+        "conversation",
+        header_value=None,
+        headers=BEARER,
+        payload=same_first_different_tail,
+        schema="openai",
     )
     assert keyed_on_first == b
 
 
 def test_first_user_message_handles_content_block_lists() -> None:
     """Anthropic-style content parts are flattened the same as a plain string."""
-    blocks = {
-        "messages": [
-            {"role": "user", "content": [{"type": "text", "text": "hello world"}]}
-        ]
-    }
+    blocks = {"messages": [{"role": "user", "content": [{"type": "text", "text": "hello world"}]}]}
     plain = _convo("user", "hello world")
     a, _ = resolve_session_id(
         "conversation", header_value=None, headers=XKEY, payload=blocks, schema="anthropic"

@@ -129,11 +129,14 @@ async def test_delete_session_audits_after_vault_delete() -> None:
     session = await engine.get_or_create_session()
     await engine.transform("mail alice@example.com", session=session)
 
-    assert await engine.delete_session(
-        session.session_id,
-        reason="ephemeral_request_complete",
-        request_id="req_1",
-    ) is True
+    assert (
+        await engine.delete_session(
+            session.session_id,
+            reason="ephemeral_request_complete",
+            request_id="req_1",
+        )
+        is True
+    )
     assert await vault.get(session.session_id) is None
 
     records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
@@ -156,9 +159,12 @@ async def test_delete_missing_session_is_noop() -> None:
         audit=AuditLogger(buf),
     )
 
-    assert await engine.delete_session(
-        "ses_missing", reason="ephemeral_request_complete", request_id="req_1"
-    ) is False
+    assert (
+        await engine.delete_session(
+            "ses_missing", reason="ephemeral_request_complete", request_id="req_1"
+        )
+        is False
+    )
     assert buf.getvalue() == ""
 
 

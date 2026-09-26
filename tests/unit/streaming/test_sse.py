@@ -52,8 +52,7 @@ def test_openai_adapter_roundtrip() -> None:
 def test_anthropic_adapter_ignores_thinking_delta() -> None:
     adapter = AnthropicStreamAdapter()
     payload = (
-        '{"type": "content_block_delta", '
-        '"delta": {"type": "thinking_delta", "thinking": "..."}}'
+        '{"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "..."}}'
     )
     event = SSEEvent(data=payload)
     assert adapter.extract_delta(event) == ""

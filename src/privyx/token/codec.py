@@ -125,9 +125,7 @@ class FormatCodec:
                 self._fields[value] = self._build_field(value, grammars)
 
         if "type" not in self._fields or "id" not in self._fields:
-            raise TokenFormatError(
-                f"token format must contain {{type}} and {{id}}: {format!r}"
-            )
+            raise TokenFormatError(f"token format must contain {{type}} and {{id}}: {format!r}")
 
         self._token_re = re.compile(self._build_token_pattern(segments))
         self._prefix_re = re.compile(self._build_prefix_pattern(segments))
@@ -158,8 +156,7 @@ class FormatCodec:
         for name, field in self._fields.items():
             if not field.fullmatch.match(values[name]):
                 raise TokenFormatError(
-                    f"token {name} {values[name]!r} is not representable in "
-                    f"format {self._format!r}"
+                    f"token {name} {values[name]!r} is not representable in format {self._format!r}"
                 )
         return self._format.format(**values)
 
@@ -224,8 +221,7 @@ class FormatCodec:
             name = match.group(1)
             if name not in _KNOWN_FIELDS:
                 raise TokenFormatError(
-                    f"unknown token field {{{name}}}; expected one of "
-                    f"{sorted(_KNOWN_FIELDS)}"
+                    f"unknown token field {{{name}}}; expected one of {sorted(_KNOWN_FIELDS)}"
                 )
             if name in seen:
                 raise TokenFormatError(f"token field {{{name}}} appears more than once")

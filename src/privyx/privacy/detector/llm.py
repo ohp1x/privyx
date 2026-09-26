@@ -38,9 +38,7 @@ class LLMDetector(BaseDetector):
 
     async def detect(self, text: str, context: Context) -> Detection:
         try:
-            response = await self._client.complete(
-                f"{self._instructions}\n\nTEXT:\n{text}"
-            )
+            response = await self._client.complete(f"{self._instructions}\n\nTEXT:\n{text}")
         except Exception as exc:  # pragma: no cover - external dependency
             raise DetectorError(f"LLM detector failed: {exc}") from exc
         return _parse_spans(response, text)

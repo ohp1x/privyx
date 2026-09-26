@@ -15,9 +15,7 @@ from privyx.streaming.deanonymizer import StreamingDeanonymizer
 @given(
     pseudo=st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ<>_1234567890", min_size=2, max_size=50),
     original=st.text(alphabet="abcdefghijklmnopqrstuvwxyz @.", min_size=1, max_size=40),
-    boundaries=st.lists(
-        st.integers(min_value=0, max_value=2), max_size=10
-    ),
+    boundaries=st.lists(st.integers(min_value=0, max_value=2), max_size=10),
 )
 def test_chunk_boundaries(pseudo: str, original: str, boundaries: list[int]) -> None:
     """Splitting a pseudonym at any boundaries restores to the original."""

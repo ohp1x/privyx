@@ -129,9 +129,7 @@ async def test_stream_restores_pseudonym_at_any_framing(chunk_size: int | None) 
     engine = _engine()
     proxy_payload, session_id = await HTTPProxy(
         engine=engine, provider=FakeProvider([]), stream_adapter=OpenAIStreamAdapter()
-    ).process_request(
-        {"messages": [{"role": "user", "content": f"Email {EMAIL} please"}]}
-    )
+    ).process_request({"messages": [{"role": "user", "content": f"Email {EMAIL} please"}]})
 
     session = await engine.vault.get(session_id)
     assert session is not None

@@ -124,8 +124,7 @@ def _register_module(module: ModuleType, hooks: HookManager) -> None:
         registry = getattr(PLUGINS, attr)
         if name in registry:
             raise ConfigError(
-                f"duplicate plugin name {name!r} in family {attr!r} "
-                f"(from {module.__name__})"
+                f"duplicate plugin name {name!r} in family {attr!r} (from {module.__name__})"
             )
         registry.register(name, _make_factory(cls))
 

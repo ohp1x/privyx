@@ -28,10 +28,18 @@ def _detection() -> Detection:
     """Spans for ``TEXT``, hand-written so these tests do not depend on the detector."""
     return Detection(
         spans=[
-            Span(TEXT.index("alice@example.com"), TEXT.index("alice@example.com") + 17, "EMAIL",
-                 "alice@example.com"),
-            Span(TEXT.index("bob@example.com"), TEXT.index("bob@example.com") + 15, "EMAIL",
-                 "bob@example.com"),
+            Span(
+                TEXT.index("alice@example.com"),
+                TEXT.index("alice@example.com") + 17,
+                "EMAIL",
+                "alice@example.com",
+            ),
+            Span(
+                TEXT.index("bob@example.com"),
+                TEXT.index("bob@example.com") + 15,
+                "EMAIL",
+                "bob@example.com",
+            ),
             Span(TEXT.index("4111"), len(TEXT), "CREDIT_CARD", "4111 1111 1111 1111"),
         ]
     )
