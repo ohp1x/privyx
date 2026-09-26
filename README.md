@@ -10,8 +10,10 @@ deanonymizes streaming responses — all without changing your application code.
 
 - **Privacy Engine** — pluggable detectors, policies, operators, and anchors
 - **Transparent Proxy** — works with OpenAI, Anthropic, and any OpenAI-compatible HTTP provider
+- **Native TLS/HTTPS** — the proxy can terminate TLS directly, no reverse proxy required
 - **Streaming Deanonymization** — real-time pseudonym reversal in SSE streams
 - **Session Vault** — memory, SQLite, or Redis backends
+- **Docker-ready** — multi-stage `Dockerfile` and `docker-compose.yml` with a Redis vault
 - **CLI** — `privyx proxy`, `privyx run`, `privyx detect`, `privyx mask`/`unmask`,
   `privyx inspect`, `privyx doctor`
 - **Plugin System** — custom detectors, operators, and providers
@@ -45,6 +47,37 @@ Use `--gateway` when the upstream endpoint carries a base path (say
 `https://api.deepseek.com/anthropic/v1/messages`): that mode serves Privyx's own
 endpoints and posts to `provider.base_url` verbatim, instead of appending the
 client's path to a bare origin. See [docs/architecture/proxy.md](docs/architecture/proxy.md).
+
+### TLS / HTTPS
+
+The proxy can terminate TLS natively instead of sitting behind a separate reverse
+proxy:
+
+```bash
+privyx proxy --upstream https://api.openai.com \
+  --ssl-certfile cert.pem --ssl-keyfile key.pem
+```
+
+Equivalent config via `tls:` in `config.yaml`, or the `PRIVYX_SSL_*` /
+`PRIVYX_TLS_*` environment variables. When configured, both transparent and
+gateway proxy modes listen on `https://`.
+
+### Docker
+
+```bash
+cp .env.example .env   # fill in upstream keys and secrets
+docker compose up -d
+```
+
+This starts Privyx alongside a Redis-backed session vault (see
+`docker-compose.yml`). Configs and plugins are mounted read-only from
+`./configs` and `./plugins`; persistent data (vault DB, audit log) lives in the
+`privyx_data` volume. Build and run the image standalone with:
+
+```bash
+docker build -t privyx .
+docker run -p 8000:8000 --env-file .env privyx
+```
 
 ### Sessions
 
