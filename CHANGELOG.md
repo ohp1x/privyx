@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Proxy
+
+- **Native TLS / HTTPS proxy support.** The proxy server can now terminate TLS natively
+  using `--ssl-certfile`, `--ssl-keyfile`, `--ssl-keyfile-password`, and `--ssl-ca-certs`,
+  or via the new `tls` section in `config.yaml` / `PRIVYX_SSL_*` (`PRIVYX_TLS_*`) environment
+  variables. When configured, both transparent and gateway proxy modes listen on `https://`.
+
 ### Performance
 
 - **Turn detection caching.** In multi-turn chat sessions, LLM clients re-send the

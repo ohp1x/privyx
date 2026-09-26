@@ -511,3 +511,42 @@ def test_proxy_reload_restarts_and_rereads_config(
 
     assert result.exit_code == 0, result.output
     assert ports == [9001, 9002]
+
+
+def test_proxy_ssl_options_applied(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_settings: list[object] = []
+
+    async def fake_run_server(settings: object, watch_path: Path | None = None) -> bool:
+        captured_settings.append(settings)
+        return False
+
+    monkeypatch.setattr("privyx.cli.commands.proxy._run_server", fake_run_server)
+
+    result = runner.invoke(
+        cli,
+        [
+            "proxy",
+            "--ssl-certfile",
+            "/tmp/cert.pem",
+            "--ssl-keyfile",
+            "/tmp/key.pem",
+            "--ssl-keyfile-password",
+            "mypass",
+            "--ssl-ca-certs",
+            "/tmp/ca.pem",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(captured_settings) == 1
+    s = captured_settings[0]
+    assert s.tls.certfile == "/tmp/cert.pem"  # type: ignore[attr-defined]
+    assert s.tls.keyfile == "/tmp/key.pem"  # type: ignore[attr-defined]
+    assert s.tls.keyfile_password == "mypass"  # type: ignore[attr-defined]
+    assert s.tls.ca_certs == "/tmp/ca.pem"  # type: ignore[attr-defined]
+    assert s.is_tls  # type: ignore[attr-defined]
+
+
+def test_proxy_ssl_requires_both_cert_and_key(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["proxy", "--ssl-certfile", "/tmp/cert.pem"])
+    assert result.exit_code == 1
+    assert "Both --ssl-certfile and --ssl-keyfile are required" in result.output

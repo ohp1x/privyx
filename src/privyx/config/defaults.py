@@ -51,4 +51,11 @@ DEFAULTS: dict[str, object] = {
     },
     # Opt-in: no paths means no plugins are loaded.
     "plugins": {"enabled": True, "paths": []},
+    # Server TLS / HTTPS termination: empty paths mean plain HTTP.
+    "tls": {
+        "certfile": "",
+        "keyfile": "",
+        "keyfile_password": "",
+        "ca_certs": "",
+    },
 }

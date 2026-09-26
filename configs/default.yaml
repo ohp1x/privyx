@@ -12,6 +12,13 @@ logging: text
 # At debug it contains raw vault rows (original PII) — created 0600, keep local.
 log_file: ""             # e.g. privyx-debug.log
 
+# --- TLS / HTTPS ---
+tls:
+  certfile: ""           # path to cert.pem (enables HTTPS)
+  keyfile: ""            # path to key.pem
+  keyfile_password: ""   # optional password for private key
+  ca_certs: ""           # optional CA bundle
+
 # --- Upstream provider ---
 # Explicit override, equivalent to `--upstream` / PRIVYX_UPSTREAM_URL.  Leave
 # it empty to use `provider.base_url` below, or — if that is empty too — the
