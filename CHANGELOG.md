@@ -2,386 +2,97 @@
 
 All notable changes to Privyx are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ## [0.1.0] - 2026-09-26
 
-First release: the privacy pipeline, the streaming proxy, and the CLI that
-drives them. Every component named in a config is pluggable through a
-registry, and the core stays free of FastAPI and provider SDKs.
+First release: the privacy pipeline, the streaming proxy, and the CLI that drives them. Every component named in a config is pluggable through a registry, and the core stays free of FastAPI and provider SDKs.
 
 ### Added
 
-- **Privacy engine:** `PrivacyEngine` orchestrating detect → policy → operate
-  over a session vault (`core/engine.py`, `core/session.py`,
-  `core/context.py`, `core/result.py`); `core/builder.py` assembles an engine
-  from validated settings, so every knob in `configs/*.yaml` reaches a real
-  component
-- **Privacy engine:** Detectors: `regex` (layered over the built-in patterns)
-  and `yaml` (exactly the patterns you list); Presidio and LLM detectors
-  started as placeholders
+- **Privacy engine:** `PrivacyEngine` orchestrating detect → policy → operate over a session vault (`core/engine.py`, `core/session.py`, `core/context.py`, `core/result.py`); `core/builder.py` assembles an engine from validated settings, so every knob in `configs/*.yaml` reaches a real component
+- **Privacy engine:** Detectors: `regex` (layered over the built-in patterns) and `yaml` (exactly the patterns you list); Presidio and LLM detectors started as placeholders
 - **Privacy engine:** Policies: `default` and `strict` (allow-list)
 - **Privacy engine:** Operators: `pseudonym`, `redact`, `hash`
-- **Privacy engine:** Anchors: `hmac` makes pseudonyms deterministic across
-  sessions — the same value gets the same pseudonym under the same key. An
-  empty `anchor.secret` means no anchoring rather than anchoring with a
-  guessable key
-- **Streaming:** `StreamingDeanonymizer`: trie plus hold-back buffer, so a
-  pseudonym split across chunk boundaries is restored before the client sees
-  any of it
+- **Privacy engine:** Anchors: `hmac` makes pseudonyms deterministic across sessions — the same value gets the same pseudonym under the same key. An empty `anchor.secret` means no anchoring rather than anchoring with a guessable key
+- **Streaming:** `StreamingDeanonymizer`: trie plus hold-back buffer, so a pseudonym split across chunk boundaries is restored before the client sees any of it
 - **Streaming:** Stateful `SSEDecoder` alongside the stateless `parse_sse`
-- **Streaming:** Stream adapters for OpenAI and Anthropic envelopes, selected
-  by name, with plain SSE as the fallback for custom endpoints; SSE envelope
-  handling is kept separate from text transformation
-- **Transport:** Vaults: `memory`, `sqlite` (optional extra), `redis`
-  (optional extra) behind one `Vault` protocol — no pipeline state lives in
-  process memory
-- **Transport:** Providers: `generic`, `openai`, `anthropic`, resolved through
-  a registry
-- **Transport:** `HTTPProxy` connecting the engine to any provider; FastAPI
-  gateway ships as the optional `[server]` extra
+- **Streaming:** Stream adapters for OpenAI and Anthropic envelopes, selected by name, with plain SSE as the fallback for custom endpoints; SSE envelope handling is kept separate from text transformation
+- **Transport:** Vaults: `memory`, `sqlite` (optional extra), `redis` (optional extra) behind one `Vault` protocol — no pipeline state lives in process memory
+- **Transport:** Providers: `generic`, `openai`, `anthropic`, resolved through a registry
+- **Transport:** `HTTPProxy` connecting the engine to any provider; FastAPI gateway ships as the optional `[server]` extra
 - **CLI:** `privyx proxy` — run the gateway
-- **CLI:** `privyx run <tool>` — start a proxy on a free port and launch
-  `claude`, `codex`, `openai`, or `aider` pointed at it
-- **CLI:** `privyx detect` — inspect what the *configured* detector and
-  policy see
-- **CLI:** `privyx inspect session` — show a session's mapping, masked unless
-  `--reveal`
+- **CLI:** `privyx run <tool>` — start a proxy on a free port and launch `claude`, `codex`, `openai`, or `aider` pointed at it
+- **CLI:** `privyx detect` — inspect what the *configured* detector and policy see
+- **CLI:** `privyx inspect session` — show a session's mapping, masked unless `--reveal`
 - **CLI:** `privyx doctor` — checks, each exercising the configured component
 - **CLI:** `privyx config` — show the resolved configuration
-- **CLI:** `privyx proxy --reload` restarts the server when the config file
-  changes, for tuning detectors and policies without a manual restart. Off by
-  default; it is a restart rather than a hot swap, so in-flight requests
-  finish and an in-memory vault starts empty again
-- **CLI:** `privyx mask` / `privyx unmask` — pseudonymize and restore text
-  without the proxy, for use in pipelines or from another project. Input
-  comes from positional arguments, `--stdin`, or `-i FILE` (`-` for stdin);
-  output goes to stdout or `-o FILE`. `-f text|json|jsonl` picks the walk
-  (`auto` guesses from the input file's extension), JSON walks every string
-  leaf and can be narrowed with `--path '$.messages'`, and non-string values
-  are left untouched. The mapping lives either in a self-contained `--map
-  FILE` — no vault, no deployment needed — or in the configured vault under
-  `--session ID`. An existing map file is continued rather than overwritten,
-  so a second document keeps the tokens the first one was given. Because the
-  default vault is `memory`, `mask` warns when neither is in play and the
-  output could never be unmasked
+- **CLI:** `privyx proxy --reload` restarts the server when the config file changes, for tuning detectors and policies without a manual restart. Off by default; it is a restart rather than a hot swap, so in-flight requests finish and an in-memory vault starts empty again
+- **CLI:** `privyx mask` / `privyx unmask` — pseudonymize and restore text without the proxy, for use in pipelines or from another project. Input comes from positional arguments, `--stdin`, or `-i FILE` (`-` for stdin); output goes to stdout or `-o FILE`. `-f text|json|jsonl` picks the walk (`auto` guesses from the input file's extension), JSON walks every string leaf and can be narrowed with `--path '$.messages'`, and non-string values are left untouched. The mapping lives either in a self-contained `--map FILE` — no vault, no deployment needed — or in the configured vault under `--session ID`. An existing map file is continued rather than overwritten, so a second document keeps the tokens the first one was given. Because the default vault is `memory`, `mask` warns when neither is in play and the output could never be unmasked
 - **Configuration:** Precedence: built-in defaults < YAML file < environment
-- **Configuration:** Upstream resolution: `upstream_url` < `provider.base_url`
-  < the provider type's documented default
-- **Configuration:** Shipped configs: `default`, `strict`, and examples for
-  OpenAI, Anthropic, and a custom endpoint
-- **Proxy:** Native TLS / HTTPS proxy support. The proxy server can now
-  terminate TLS natively using `--ssl-certfile`, `--ssl-keyfile`,
-  `--ssl-keyfile-password`, and `--ssl-ca-certs`, or via the new `tls` section
-  in `config.yaml` / `PRIVYX_SSL_*` (`PRIVYX_TLS_*`) environment variables.
-  When configured, both transparent and gateway proxy modes listen on
-  `https://`
-- **Performance:** Turn detection caching. In multi-turn chat sessions, LLM
-  clients re-send the entire conversation history on every request, causing
-  Privyx to redundantly scan past turns with all regex and NLP detectors on
-  every single turn. A new `CachedDetector` implements an in-memory LRU cache
-  (`detector.cache.enabled`, default: `true`, `detector.cache.max_size`,
-  default: 10,000) for entity detections. Repeated text leaves from previous
-  turns hit the cache in ~0.001 ms, speeding up request transformation in
-  long conversations by over 100x. Can be disabled via `detector.cache: false`
-  in YAML or `PRIVYX_DETECTOR_CACHE=false`
-- **Proxy coverage:** OpenAI Responses API (`/v1/responses`,
-  `/input_tokens`, `/compact`) is now routed with a new `responses` schema —
-  the wire API Codex CLI speaks. Requests cover `instructions`, `input`
-  (string or items: messages, function / custom / MCP / shell / apply-patch
-  calls and their outputs, reasoning), and prompt variables. Streams restore
-  every string `delta` per item and index, buffer tool-call input until its
-  `.done`, and restore the full text repeated in `*.done`, `output_item.done`,
-  and `response.completed`, keeping the `event:` lines. Works in transparent
-  and gateway modes
-- **Proxy coverage:** `session.strategy: conversation` fingerprints a
-  Responses body on the first user message in `input`
-- **Proxy coverage:** `scripts/e2e_claude.py` (`make e2e`): runs the real
-  Claude Code CLI through `privyx run`, and with `--transparent` through
-  `privyx proxy` on its defaults, against a recording fake Anthropic API in
-  an isolated temp HOME. It fails on a planted canary reaching the upstream, a
-  placeholder left unrestored, an echoed assistant turn that differs from
-  what the upstream sent, or `system` / `tools` changing between turns
-- **Proxy coverage:** Scope is now explicit: `/v1/embeddings`, the legacy
-  `/v1/completions`, and Gemini-native paths are still forwarded verbatim. A
-  gateway serving the default routes now also forwards `/v1/responses` to its
-  single upstream endpoint; the token-counting and compaction routes stay
-  unserved there (404) so a count never becomes a billed completion
-- **Audit:** Ephemeral proxy sessions are now deleted from the vault after a
-  batch response completes or a streaming response is drained/cancelled. A
-  new `session.deleted` event records the safe `mapping_count` and reason
-  only, and is written only after deletion succeeds. Header-based and derived
-  `client`/`conversation` sessions remain available for continuity. Cleanup
-  is best-effort: a vault deletion failure does not change a successful
-  response or mask an existing stream/upstream error; it emits `proxy.error`
-  with `phase: cleanup` and the exception class name, without a false
-  deletion event
-- **Audit:** New `proxy.response` records the completed exchange — total
-  duration, batch `bytes` or streamed `frames`, and the `restored` count —
-  complementing `proxy.request` (which stays the time-to-first-byte marker).
-  Streaming responses now also emit `session.restore`; previously the
-  streaming path bypassed the restore accounting entirely and recorded
-  nothing
-- **Audit:** New `proxy.error` records a failed exchange with a `phase`
-  (`upstream` / `stream` / `response`) and the exception's **class name** —
-  never its message, which could echo payload text. The "counts, not
-  content" guarantee is documented in `docs/observability/audit-events.md`
-- **Sessions:** New `session.strategy` (`PRIVYX_SESSION_STRATEGY`) decides how
-  a session is identified when the client sends no `x-privyx-session` header
-  — which Claude Code, codex, aider, and the OpenAI CLI never do, so every
-  request used to become a fresh throwaway session. `ephemeral` (default)
-  still mints one per request; `client` derives a stable session from the
-  client credential (one API key → one session); `conversation` derives it
-  from the credential and the first user message, so one conversation is one
-  reused session while different conversations — even under the same key —
-  stay isolated. Continuity is automatic: the id is derived before
-  `get_or_create_session`, which already reuses a vault session on a hit. So
-  a conversation's turns share one session and one pseudonym map, tokens stay
-  stable across turns, and only the first turn logs `session.created`. Every
-  derived id is keyed on the credential, so two callers can never share a map
-- **Sessions:** `session.created` now records a `source` (`header` / `client`
-  / `conversation` / `ephemeral`) next to the existing `client_supplied`, so
-  the audit trail shows how each id was chosen. `get_or_create_session` also
-  tolerates a concurrent create (clients fan out parallel requests at
-  conversation start) instead of failing the race with a `VaultError`
-- **Sessions:** `privyx run` is opinionated where the library stays neutral:
-  it defaults to `conversation` and auto-provisions a persisted per-user HMAC
-  anchor secret (`~/.config/privyx/anchor.key`, honoring `$XDG_CONFIG_HOME`),
-  so pseudonyms are stable across turns *and* restarts out of the box.
-  `--session-strategy` overrides the strategy, `--no-anchor` skips
-  provisioning, and a user's own `session.strategy` / `anchor.secret` (config
-  or env) still wins — `load_config` gained a low-precedence `base_extra`
-  channel for exactly these caller defaults. `privyx config` and the proxy
-  startup banner now show the active session strategy
-- **Detectors:** A `detector.patterns` regex with a `(?P<value>...)` group
-  masks only that group: `PASSWORD=(?P<value>\S+)` hides the secret but
-  leaves the variable name readable, so a secret can be matched by the name
-  it is assigned to. A match where the group did not take part masks the
-  whole match
-- **Detectors:** `detector.terms` takes a literal word list per entity —
-  `PERSON: [ann, bob]` — instead of a hand-written regex. Privyx escapes each
-  term, orders the longest first so a compound term wins over a substring of
-  itself, and adds word boundaries only where the term ends in a word
-  character, so a URL still matches whole. Matching is case-insensitive.
-  `terms` and `patterns` are merged rather than exclusive; when both name the
-  same entity the hand-written regex wins
-- **Detectors:** `detector.type: presidio` is now selectable, translating
-  Presidio entity names to the vocabulary the rest of Privyx speaks
-  (`EMAIL_ADDRESS` → `EMAIL`, `PHONE_NUMBER` → `PHONE`, `US_SSN` → `SSN`, …;
-  unlisted types keep their Presidio name). New config: `detector.language`,
-  `detector.model` (default `{language}_core_web_sm`), `detector.entities`
-  (empty → every recognizer), `detector.score_threshold` (default `0.35`).
-  `presidio` is an optional extra (`pip install privyx[presidio]`); a missing
-  package or a missing spaCy model fails at startup with a `ConfigError`,
-  never mid-request, matching the `faker` and `encrypt` contract. Analyzers
-  are cached per `(language, model)` so repeated builds do not reload spaCy.
-  The `llm` detector remains unregistered
-- **Detectors:** `detector` also takes a list of configs, run concurrently
-  with their spans pooled — e.g. `regex` with `terms` alongside `presidio`,
-  or two `presidio` languages. Overlaps are resolved after the policy, as for
-  a single detector, so an allowed span is never folded into a dropped one;
-  exact duplicates are collapsed so audit counts are not doubled. An empty
-  list is rejected at startup
-- **Operators:** New `FakerOperator` (`operator.type: faker`): replaces each
-  detected span with a *realistic* fake of the same entity type (fake email,
-  name, phone, SSN, …) instead of a token, so a model can reason over
-  plausibly-shaped data. Reversible through the session vault; the same value
-  fakes identically within a session and — via `operator.seed` — across runs,
-  while `operator.locale` selects the Faker locale. Restoration is
-  **literal**: a fake value is ordinary text with no delimiter, so reversal
-  matches the exact substituted strings (leftmost, longest-match) rather than
-  the token codec. Batch and streaming share that matching, so the
-  `stream == batch` property still holds — `StreamRouter` now takes an
-  injectable processor factory, and the transparent proxy and gateway pick
-  the trie recognizer for a literal-restore operator
-  (`stream_restore = "literal"`) and the codec recognizer otherwise.
-  Documented trade-off: a fake value that also appears naturally in a
-  response can be restored by coincidence — unlike the syntactically
-  distinctive `<PRIVYX_…>` tokens. Prefer `pseudonym` when collision-free
-  reversal matters more than realism. `faker` is an optional extra (`pip
-  install privyx[faker]`); selecting it without the package fails at startup
-  with a `ConfigError`, never mid-request
-- **Operators:** New `EncryptOperator` (`operator.type: encrypt`): the first
-  operator that keeps **no plaintext at rest**. It stores the AES-256-GCM
-  *ciphertext* of each value in the session vault (not the original) and
-  decrypts on restore, closing the at-rest gap `docs/security/cryptography.md`
-  called out. Encryption is deterministic (SIV-style nonce derived from the
-  value), so the same value maps to the same token — dedup and idempotent
-  writes — while the GCM tag means a corrupted or foreign token is passed
-  through untouched rather than restored to garbage. The token is an
-  ordinary codec token (keyed-HMAC identifier), so streaming reuses the codec
-  recognizer: batch and streaming share one decrypting resolver, and the
-  `stream == batch` property is preserved and property-tested. A new
-  optional `resolve` hook on the shared `restore` helper (and
-  `Operator.build_resolver`) is the seam — no operator hard-codes how the
-  vault value maps back to plaintext. `encrypt` is an optional extra (`pip
-  install privyx[crypto]`) and needs a key (`operator.key` /
-  `PRIVYX_ENCRYPT_KEY`, 64 hex chars); a missing package, a missing key, or a
-  malformed key fails at startup, never mid-request
-- **Plugins:** Added a local, opt-in plugin loader configured with
-  `plugins.paths` (or `PRIVYX_PLUGIN_PATHS`); configured files and
-  directories are imported without third-party entry points or `sys.path`
-  mutation. Concrete subclasses of `BaseDetector`, `BaseOperator`,
-  `BasePolicy`, `BaseProvider`, `BaseAnchor`, and `BaseVault` are
-  auto-discovered and registered by their class-level `name`; optional
-  `from_config` factories are supported. Added startup and shutdown lifecycle
-  hooks, duplicate-name detection, and fail-fast `ConfigError` handling for
-  missing paths, import failures, and startup-hook failures. Plugin types are
-  available throughout the builders and CLI commands, while built-in types
-  always take precedence. `privyx doctor` reports loaded plugin families and
-  names. Added the `plugins/detectors/license_plate.py` example, plugin
-  documentation, and loader/registry tests. Vault plugin types are now
-  accepted by config
-- **Observability:** New PII-safe audit trail (`observability/audit.py`):
-  `AuditLogger` appends one JSON object per line — `session.created`,
-  `transform`, `restore`, `proxy.request` — to a dedicated file
-  (`audit.path`, default `privyx-audit.log`). It records entity **types and
-  counts** and request metadata, never payload content, original values, or
-  pseudonyms — enforced at the API (the `transform` helper takes a
-  histogram, not spans). Audit events are emitted transport-agnostically: the
-  engine reports privacy events, the transparent proxy and gateway report
-  `proxy.request`. The logger is injected (disabled no-op by default), so
-  `privyx doctor` and unit tests neither open nor write a file. Config:
-  `audit.enabled` / `audit.path` (`PRIVYX_AUDIT_ENABLED`,
-  `PRIVYX_AUDIT_PATH`). Writes are resilient — a failed write is logged and
-  swallowed, never breaking a request
-- **Token system:** New `token/` subsystem: a `LogicalToken`
-  (namespace/type/identifier) plus a configurable `FormatCodec` that is the
-  single source of truth for how tokens look in text (`token/model.py`,
-  `token/codec.py`). Token syntax is now configuration (`token.format` /
-  `token.namespace`, `PRIVYX_TOKEN_FORMAT`, `PRIVYX_TOKEN_NAMESPACE`). The
-  default reproduces the existing `<PRIVYX_EMAIL_1>` output; alternatives
-  such as `[[{namespace}:{type}:{id}]]` need no code change
-- **Token system:** Streaming reversal is codec-driven
-  (`streaming/recognizer.py`, `TokenStreamProcessor`): tokens split across
-  arbitrary chunk boundaries are reconstructed as logical tokens, with
-  `stream == batch` property-tested
-- **Docker:** Docker and Docker Compose configuration. A multi-stage
-  `Dockerfile` (builder + slim runtime, non-root user) and a
-  `docker-compose.yml` wiring Privyx to a Redis-backed vault, so the proxy
-  runs in a container out of the box
-- **Tests:** 429 tests: unit, integration, and Hypothesis property tests. The
-  streaming properties compare against the batch operator rather than the
-  streaming path itself, and run over both pseudonym suffix styles — counters
-  and anchor tokens
+- **Configuration:** Upstream resolution: `upstream_url` < `provider.base_url` < the provider type's documented default
+- **Configuration:** Shipped configs: `default`, `strict`, and examples for OpenAI, Anthropic, and a custom endpoint
+- **Proxy:** Native TLS / HTTPS proxy support. The proxy server can now terminate TLS natively using `--ssl-certfile`, `--ssl-keyfile`, `--ssl-keyfile-password`, and `--ssl-ca-certs`, or via the new `tls` section in `config.yaml` / `PRIVYX_SSL_*` (`PRIVYX_TLS_*`) environment variables. When configured, both transparent and gateway proxy modes listen on `https://`
+- **Performance:** Turn detection caching. In multi-turn chat sessions, LLM clients re-send the entire conversation history on every request, causing Privyx to redundantly scan past turns with all regex and NLP detectors on every single turn. A new `CachedDetector` implements an in-memory LRU cache (`detector.cache.enabled`, default: `true`, `detector.cache.max_size`, default: 10,000) for entity detections. Repeated text leaves from previous turns hit the cache in ~0.001 ms, speeding up request transformation in long conversations by over 100x. Can be disabled via `detector.cache: false` in YAML or `PRIVYX_DETECTOR_CACHE=false`
+- **Proxy coverage:** OpenAI Responses API (`/v1/responses`, `/input_tokens`, `/compact`) is now routed with a new `responses` schema — the wire API Codex CLI speaks. Requests cover `instructions`, `input` (string or items: messages, function / custom / MCP / shell / apply-patch calls and their outputs, reasoning), and prompt variables. Streams restore every string `delta` per item and index, buffer tool-call input until its `.done`, and restore the full text repeated in `*.done`, `output_item.done`, and `response.completed`, keeping the `event:` lines. Works in transparent and gateway modes
+- **Proxy coverage:** `session.strategy: conversation` fingerprints a Responses body on the first user message in `input`
+- **Proxy coverage:** `scripts/e2e_claude.py` (`make e2e`): runs the real Claude Code CLI through `privyx run`, and with `--transparent` through `privyx proxy` on its defaults, against a recording fake Anthropic API in an isolated temp HOME. It fails on a planted canary reaching the upstream, a placeholder left unrestored, an echoed assistant turn that differs from what the upstream sent, or `system` / `tools` changing between turns
+- **Proxy coverage:** Scope is now explicit: `/v1/embeddings`, the legacy `/v1/completions`, and Gemini-native paths are still forwarded verbatim. A gateway serving the default routes now also forwards `/v1/responses` to its single upstream endpoint; the token-counting and compaction routes stay unserved there (404) so a count never becomes a billed completion
+- **Audit:** Ephemeral proxy sessions are now deleted from the vault after a batch response completes or a streaming response is drained/cancelled. A new `session.deleted` event records the safe `mapping_count` and reason only, and is written only after deletion succeeds. Header-based and derived `client`/`conversation` sessions remain available for continuity. Cleanup is best-effort: a vault deletion failure does not change a successful response or mask an existing stream/upstream error; it emits `proxy.error` with `phase: cleanup` and the exception class name, without a false deletion event
+- **Audit:** New `proxy.response` records the completed exchange — total duration, batch `bytes` or streamed `frames`, and the `restored` count — complementing `proxy.request` (which stays the time-to-first-byte marker). Streaming responses now also emit `session.restore`; previously the streaming path bypassed the restore accounting entirely and recorded nothing
+- **Audit:** New `proxy.error` records a failed exchange with a `phase` (`upstream` / `stream` / `response`) and the exception's **class name** — never its message, which could echo payload text. The "counts, not content" guarantee is documented in `docs/observability/audit-events.md`
+- **Sessions:** New `session.strategy` (`PRIVYX_SESSION_STRATEGY`) decides how a session is identified when the client sends no `x-privyx-session` header — which Claude Code, codex, aider, and the OpenAI CLI never do, so every request used to become a fresh throwaway session. `ephemeral` (default) still mints one per request; `client` derives a stable session from the client credential (one API key → one session); `conversation` derives it from the credential and the first user message, so one conversation is one reused session while different conversations — even under the same key — stay isolated. Continuity is automatic: the id is derived before `get_or_create_session`, which already reuses a vault session on a hit. So a conversation's turns share one session and one pseudonym map, tokens stay stable across turns, and only the first turn logs `session.created`. Every derived id is keyed on the credential, so two callers can never share a map
+- **Sessions:** `session.created` now records a `source` (`header` / `client` / `conversation` / `ephemeral`) next to the existing `client_supplied`, so the audit trail shows how each id was chosen. `get_or_create_session` also tolerates a concurrent create (clients fan out parallel requests at conversation start) instead of failing the race with a `VaultError`
+- **Sessions:** `privyx run` is opinionated where the library stays neutral: it defaults to `conversation` and auto-provisions a persisted per-user HMAC anchor secret (`~/.config/privyx/anchor.key`, honoring `$XDG_CONFIG_HOME`), so pseudonyms are stable across turns *and* restarts out of the box. `--session-strategy` overrides the strategy, `--no-anchor` skips provisioning, and a user's own `session.strategy` / `anchor.secret` (config or env) still wins — `load_config` gained a low-precedence `base_extra` channel for exactly these caller defaults. `privyx config` and the proxy startup banner now show the active session strategy
+- **Detectors:** A `detector.patterns` regex with a `(?P<value>...)` group masks only that group: `PASSWORD=(?P<value>\S+)` hides the secret but leaves the variable name readable, so a secret can be matched by the name it is assigned to. A match where the group did not take part masks the whole match
+- **Detectors:** `detector.terms` takes a literal word list per entity — `PERSON: [ann, bob]` — instead of a hand-written regex. Privyx escapes each term, orders the longest first so a compound term wins over a substring of itself, and adds word boundaries only where the term ends in a word character, so a URL still matches whole. Matching is case-insensitive. `terms` and `patterns` are merged rather than exclusive; when both name the same entity the hand-written regex wins
+- **Detectors:** `detector.type: presidio` is now selectable, translating Presidio entity names to the vocabulary the rest of Privyx speaks (`EMAIL_ADDRESS` → `EMAIL`, `PHONE_NUMBER` → `PHONE`, `US_SSN` → `SSN`, …; unlisted types keep their Presidio name). New config: `detector.language`, `detector.model` (default `{language}_core_web_sm`), `detector.entities` (empty → every recognizer), `detector.score_threshold` (default `0.35`). `presidio` is an optional extra (`pip install privyx[presidio]`); a missing package or a missing spaCy model fails at startup with a `ConfigError`, never mid-request, matching the `faker` and `encrypt` contract. Analyzers are cached per `(language, model)` so repeated builds do not reload spaCy. The `llm` detector remains unregistered
+- **Detectors:** `detector` also takes a list of configs, run concurrently with their spans pooled — e.g. `regex` with `terms` alongside `presidio`, or two `presidio` languages. Overlaps are resolved after the policy, as for a single detector, so an allowed span is never folded into a dropped one; exact duplicates are collapsed so audit counts are not doubled. An empty list is rejected at startup
+- **Operators:** New `FakerOperator` (`operator.type: faker`): replaces each detected span with a *realistic* fake of the same entity type (fake email, name, phone, SSN, …) instead of a token, so a model can reason over plausibly-shaped data. Reversible through the session vault; the same value fakes identically within a session and — via `operator.seed` — across runs, while `operator.locale` selects the Faker locale. Restoration is **literal**: a fake value is ordinary text with no delimiter, so reversal matches the exact substituted strings (leftmost, longest-match) rather than the token codec. Batch and streaming share that matching, so the `stream == batch` property still holds — `StreamRouter` now takes an injectable processor factory, and the transparent proxy and gateway pick the trie recognizer for a literal-restore operator (`stream_restore = "literal"`) and the codec recognizer otherwise. Documented trade-off: a fake value that also appears naturally in a response can be restored by coincidence — unlike the syntactically distinctive `<PRIVYX_…>` tokens. Prefer `pseudonym` when collision-free reversal matters more than realism. `faker` is an optional extra (`pip install privyx[faker]`); selecting it without the package fails at startup with a `ConfigError`, never mid-request
+- **Operators:** New `EncryptOperator` (`operator.type: encrypt`): the first operator that keeps **no plaintext at rest**. It stores the AES-256-GCM *ciphertext* of each value in the session vault (not the original) and decrypts on restore, closing the at-rest gap `docs/security/cryptography.md` called out. Encryption is deterministic (SIV-style nonce derived from the value), so the same value maps to the same token — dedup and idempotent writes — while the GCM tag means a corrupted or foreign token is passed through untouched rather than restored to garbage. The token is an ordinary codec token (keyed-HMAC identifier), so streaming reuses the codec recognizer: batch and streaming share one decrypting resolver, and the `stream == batch` property is preserved and property-tested. A new optional `resolve` hook on the shared `restore` helper (and `Operator.build_resolver`) is the seam — no operator hard-codes how the vault value maps back to plaintext. `encrypt` is an optional extra (`pip install privyx[crypto]`) and needs a key (`operator.key` / `PRIVYX_ENCRYPT_KEY`, 64 hex chars); a missing package, a missing key, or a malformed key fails at startup, never mid-request
+- **Plugins:** Added a local, opt-in plugin loader configured with `plugins.paths` (or `PRIVYX_PLUGIN_PATHS`); configured files and directories are imported without third-party entry points or `sys.path` mutation. Concrete subclasses of `BaseDetector`, `BaseOperator`, `BasePolicy`, `BaseProvider`, `BaseAnchor`, and `BaseVault` are auto-discovered and registered by their class-level `name`; optional `from_config` factories are supported. Added startup and shutdown lifecycle hooks, duplicate-name detection, and fail-fast `ConfigError` handling for missing paths, import failures, and startup-hook failures. Plugin types are available throughout the builders and CLI commands, while built-in types always take precedence. `privyx doctor` reports loaded plugin families and names. Added the `plugins/detectors/license_plate.py` example, plugin documentation, and loader/registry tests. Vault plugin types are now accepted by config
+- **Observability:** New PII-safe audit trail (`observability/audit.py`): `AuditLogger` appends one JSON object per line — `session.created`, `transform`, `restore`, `proxy.request` — to a dedicated file (`audit.path`, default `privyx-audit.log`). It records entity **types and counts** and request metadata, never payload content, original values, or pseudonyms — enforced at the API (the `transform` helper takes a histogram, not spans). Audit events are emitted transport-agnostically: the engine reports privacy events, the transparent proxy and gateway report `proxy.request`. The logger is injected (disabled no-op by default), so `privyx doctor` and unit tests neither open nor write a file. Config: `audit.enabled` / `audit.path` (`PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH`). Writes are resilient — a failed write is logged and swallowed, never breaking a request
+- **Token system:** New `token/` subsystem: a `LogicalToken` (namespace/type/identifier) plus a configurable `FormatCodec` that is the single source of truth for how tokens look in text (`token/model.py`, `token/codec.py`). Token syntax is now configuration (`token.format` / `token.namespace`, `PRIVYX_TOKEN_FORMAT`, `PRIVYX_TOKEN_NAMESPACE`). The default reproduces the existing `<PRIVYX_EMAIL_1>` output; alternatives such as `[[{namespace}:{type}:{id}]]` need no code change
+- **Token system:** Streaming reversal is codec-driven (`streaming/recognizer.py`, `TokenStreamProcessor`): tokens split across arbitrary chunk boundaries are reconstructed as logical tokens, with `stream == batch` property-tested
+- **Docker:** Docker and Docker Compose configuration. A multi-stage `Dockerfile` (builder + slim runtime, non-root user) and a `docker-compose.yml` wiring Privyx to a Redis-backed vault, so the proxy runs in a container out of the box
+- **Tests:** 429 tests: unit, integration, and Hypothesis property tests. The streaming properties compare against the batch operator rather than the streaming path itself, and run over both pseudonym suffix styles — counters and anchor tokens
 
 ### Changed
 
-- **Audit:** The audit trail gained a **versioned, correlated envelope** so
-  it can back a long-lived reader (a store, query layer, or dashboard)
-  without reshaping. Every line now carries `schema_version`, a
-  human-readable ISO-8601 `time` (next to the epoch `ts`), and a
-  `request_id` that ties every event of one proxied exchange together. Event
-  names are consistent `<domain>.<action>`: `transform` and `restore` became
-  `session.transform` / `session.restore`, joining `session.created`,
-  `proxy.request`, and the new `proxy.response` / `proxy.error` /
-  `session.deleted` events. **This is a breaking change to the on-disk
-  format**, signalled by `schema_version: 1`
-- **Audit:** Per-request aggregation. A request pseudonymizes many text
-  leaves; the trail used to write one `transform` line per leaf. It now
-  records a single `session.transform` (merged `entity_counts`, summed
-  `transformations`) and a single `session.restore` per exchange, so the log
-  reads one row per event that matters. Standalone library / `privyx mask`
-  calls (outside a request) still emit per call
-- **Detectors:** The spaCy NLP engine is configured explicitly
-  (`detector.model`) instead of relying on Presidio's default, which quietly
-  expects `en_core_web_lg` to be installed
-- **Token system:** Operators build logical tokens and delegate
-  serialization to the codec; `restore` locates tokens via the codec. No
-  operator, the proxy, or storage hard-codes token syntax anymore
-- **Token system:** `HashOperator` now emits the one configured token syntax
-  instead of its own `HASH_…` placeholder
-- **Observability:** A no-op `transform` or `restore` (zero replacements) is
-  no longer recorded. Most of a proxied request is untouched text — system
-  prompt, every content block, every tool result — and one line per skipped
-  field buried the events that matter; `proxy.request` still records that the
-  call happened
+- **Audit:** The audit trail gained a **versioned, correlated envelope** so it can back a long-lived reader (a store, query layer, or dashboard) without reshaping. Every line now carries `schema_version`, a human-readable ISO-8601 `time` (next to the epoch `ts`), and a `request_id` that ties every event of one proxied exchange together. Event names are consistent `<domain>.<action>`: `transform` and `restore` became `session.transform` / `session.restore`, joining `session.created`, `proxy.request`, and the new `proxy.response` / `proxy.error` / `session.deleted` events. **This is a breaking change to the on-disk format**, signalled by `schema_version: 1`
+- **Audit:** Per-request aggregation. A request pseudonymizes many text leaves; the trail used to write one `transform` line per leaf. It now records a single `session.transform` (merged `entity_counts`, summed `transformations`) and a single `session.restore` per exchange, so the log reads one row per event that matters. Standalone library / `privyx mask` calls (outside a request) still emit per call
+- **Detectors:** The spaCy NLP engine is configured explicitly (`detector.model`) instead of relying on Presidio's default, which quietly expects `en_core_web_lg` to be installed
+- **Token system:** Operators build logical tokens and delegate serialization to the codec; `restore` locates tokens via the codec. No operator, the proxy, or storage hard-codes token syntax anymore
+- **Token system:** `HashOperator` now emits the one configured token syntax instead of its own `HASH_…` placeholder
+- **Observability:** A no-op `transform` or `restore` (zero replacements) is no longer recorded. Most of a proxied request is untouched text — system prompt, every content block, every tool result — and one line per skipped field buried the events that matter; `proxy.request` still records that the call happened
 
 ### Removed
 
-- **Audit:** Dropped the redundant `client_supplied` field from
-  `session.created` (its `source` already says how the id was chosen)
+- **Audit:** Dropped the redundant `client_supplied` field from `session.created` (its `source` already says how the id was chosen)
 - **Token system:** Removed the unused `streaming/frontier.py`
 
 ### Fixed
 
-- **Proxy coverage:** Requests are walked in cache-prefix order (`tools`,
-  `system` / `instructions`, then the rest). Without an anchor, a value first
-  seen in a later message used to renumber the system prompt's placeholders,
-  so every turn missed the prompt cache
-- **Detectors:** `detector.type: presidio` previously failed with `unknown
-  detector type: presidio` even though the `PresidioDetector` class existed
-  and its docstring told you to enable it via config —
-  `build_detector` only knew `regex`, `yaml`, and plugins
-- **Detectors:** An invalid entity name in `detector.patterns` or
-  `detector.terms` is now rejected at startup instead of raising mid-request
-  on the first detection. Names follow the token codec's grammar: a letter,
-  then letters, digits, or underscores
-- **Detectors:** The previous `detector` list handling, reachable only from
-  code, merged regex patterns into one detector and silently ignored
-  `presidio` and plugin items
-- **CLI:** A config file with invalid YAML now raises a `ConfigError` with
-  the parser's message instead of surfacing a raw `yaml` traceback
-- **Observability:** `configure_logging`'s JSON formatter now serializes with
-  `json.dumps` (the old placeholder embedded `%(message)s` in a JSON
-  template, so any quote or newline corrupted the line). Re-configuring is
-  idempotent
+- **Proxy coverage:** Requests are walked in cache-prefix order (`tools`, `system` / `instructions`, then the rest). Without an anchor, a value first seen in a later message used to renumber the system prompt's placeholders, so every turn missed the prompt cache
+- **Detectors:** `detector.type: presidio` previously failed with `unknown detector type: presidio` even though the `PresidioDetector` class existed and its docstring told you to enable it via config — `build_detector` only knew `regex`, `yaml`, and plugins
+- **Detectors:** An invalid entity name in `detector.patterns` or `detector.terms` is now rejected at startup instead of raising mid-request on the first detection. Names follow the token codec's grammar: a letter, then letters, digits, or underscores
+- **Detectors:** The previous `detector` list handling, reachable only from code, merged regex patterns into one detector and silently ignored `presidio` and plugin items
+- **CLI:** A config file with invalid YAML now raises a `ConfigError` with the parser's message instead of surfacing a raw `yaml` traceback
+- **Observability:** `configure_logging`'s JSON formatter now serializes with `json.dumps` (the old placeholder embedded `%(message)s` in a JSON template, so any quote or newline corrupted the line). Re-configuring is idempotent
 
 ### Security
 
-- **Detectors:** `configs/default.yaml` now ships secret patterns — the
-  built-ins previously covered only EMAIL/PHONE/CREDIT_CARD/IP_ADDRESS/SSN,
-  so API keys reached the upstream as-is. Adds `API_KEY` (vendor-prefixed
-  keys: OpenAI, Anthropic, GitHub, AWS, Google, Slack, Stripe, …), `JWT`,
-  `PRIVATE_KEY` (PEM/PGP, even cut off before `END`), `AUTH_TOKEN`
-  (`Bearer`/`Basic`), `URL_CREDENTIAL` (`scheme://user:pass@host`), and
-  `SECRET` (a value assigned to a secret-looking name in `.env`, YAML, JSON,
-  code, query strings, or CLI flags)
-- **Proxy coverage:** Many request and response fields bypassed the engine,
-  so real PII reached the upstream or placeholders reached the client. Both
-  directions now share one leaf walk instead of a walker per field. Restore
-  walks *every* string leaf of a response (placeholders only exist because
-  Privyx minted them). Transform walks the content subtrees (`messages`,
-  `system`, `input`, `instructions`, `prompt`, `prediction`) and
-  pseudonymizes every string there except opaque keys — ids and `*_id`,
-  `type`, `role`, `name`, `signature`, `encrypted_*`, base64 `data` /
-  `file_data`, URLs, `media_type`, `cache_control`, `status` — so a field
-  added later is pseudonymized rather than leaked. Tool arguments are walked
-  as parsed JSON, never as one text blob
-- **Proxy coverage:** Tool and parameter `description` strings in `tools` are
-  now pseudonymized (Anthropic, Chat, Responses). An MCP server writes them,
-  so they can name a customer or an org, and they were forwarded raw on
-  every turn. Everything else in `tools` (names, `enum`, `pattern`,
-  `default`, `required`) is left untouched
-- **Proxy coverage:** An echoed Anthropic `thinking` block now goes back
-  upstream with the exact text the upstream signed. It was re-pseudonymized
-  from the restored copy, and any PII-shaped value the model wrote itself
-  (an email, a name) came back as a new placeholder, so the text no longer
-  matched its signature. The upstream text is remembered by `signature` (per
-  process, 4096 entries) from batch and streamed responses
-- **Proxy coverage:** `/v1/messages/count_tokens` is routed with the
-  `anthropic` schema — its body is a full Messages body and was previously
-  forwarded raw, unmasked
-- **Proxy coverage:** Anthropic `server_tool_use.input`, `document` blocks
-  (plain-text `source.data`, `source.content`, `title`, `context`),
-  `search_result`, `citations[].cited_text`, and code-execution `stdout` /
-  `stderr` are now pseudonymized and restored; a streamed `citations_delta`
-  is restored
-- **Proxy coverage:** OpenAI Chat `refusal` (field and content part), the
-  non-standard `reasoning` field (OpenRouter / vLLM / Ollama), legacy
-  `function_call.arguments`, and `prediction.content` are covered in
-  requests, batch responses, and streams; `reasoning` and `refusal` stream on
-  their own buffers, and `function_call` is buffered like `tool_calls`
-- **Proxy coverage:** Streams restore every non-delta event
-  (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by
-  leaf, re-serializing only when something changed
-- **Detectors:** Presidio entity names are translated to the vocabulary the
-  rest of Privyx speaks. Without this, `policy: strict` would drop every
-  Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and
-  forward the PII untouched
+- **Detectors:** `configs/default.yaml` now ships secret patterns — the built-ins previously covered only EMAIL/PHONE/CREDIT_CARD/IP_ADDRESS/SSN, so API keys reached the upstream as-is. Adds `API_KEY` (vendor-prefixed keys: OpenAI, Anthropic, GitHub, AWS, Google, Slack, Stripe, …), `JWT`, `PRIVATE_KEY` (PEM/PGP, even cut off before `END`), `AUTH_TOKEN` (`Bearer`/`Basic`), `URL_CREDENTIAL` (`scheme://user:pass@host`), and `SECRET` (a value assigned to a secret-looking name in `.env`, YAML, JSON, code, query strings, or CLI flags)
+- **Proxy coverage:** Many request and response fields bypassed the engine, so real PII reached the upstream or placeholders reached the client. Both directions now share one leaf walk instead of a walker per field. Restore walks *every* string leaf of a response (placeholders only exist because Privyx minted them). Transform walks the content subtrees (`messages`, `system`, `input`, `instructions`, `prompt`, `prediction`) and pseudonymizes every string there except opaque keys — ids and `*_id`, `type`, `role`, `name`, `signature`, `encrypted_*`, base64 `data` / `file_data`, URLs, `media_type`, `cache_control`, `status` — so a field added later is pseudonymized rather than leaked. Tool arguments are walked as parsed JSON, never as one text blob
+- **Proxy coverage:** Tool and parameter `description` strings in `tools` are now pseudonymized (Anthropic, Chat, Responses). An MCP server writes them, so they can name a customer or an org, and they were forwarded raw on every turn. Everything else in `tools` (names, `enum`, `pattern`, `default`, `required`) is left untouched
+- **Proxy coverage:** An echoed Anthropic `thinking` block now goes back upstream with the exact text the upstream signed. It was re-pseudonymized from the restored copy, and any PII-shaped value the model wrote itself (an email, a name) came back as a new placeholder, so the text no longer matched its signature. The upstream text is remembered by `signature` (per process, 4096 entries) from batch and streamed responses
+- **Proxy coverage:** `/v1/messages/count_tokens` is routed with the `anthropic` schema — its body is a full Messages body and was previously forwarded raw, unmasked
+- **Proxy coverage:** Anthropic `server_tool_use.input`, `document` blocks (plain-text `source.data`, `source.content`, `title`, `context`), `search_result`, `citations[].cited_text`, and code-execution `stdout` / `stderr` are now pseudonymized and restored; a streamed `citations_delta` is restored
+- **Proxy coverage:** OpenAI Chat `refusal` (field and content part), the non-standard `reasoning` field (OpenRouter / vLLM / Ollama), legacy `function_call.arguments`, and `prediction.content` are covered in requests, batch responses, and streams; `reasoning` and `refusal` stream on their own buffers, and `function_call` is buffered like `tool_calls`
+- **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
+- **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
 [Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/ohp1x/privyx/releases/tag/v0.1.0
