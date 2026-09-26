@@ -39,6 +39,12 @@ dev = [
     "mypy>=1.10",
 ]
 
+[project.urls]
+Homepage = "https://github.com/ohp1x/privyx"
+Repository = "https://github.com/ohp1x/privyx"
+Changelog = "https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ohp1x/privyx/issues"
+
 [project.scripts]
 privyx = "privyx.cli.main:cli"
 
