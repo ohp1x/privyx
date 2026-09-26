@@ -14,6 +14,7 @@ from privyx.privacy.detector.builtin import (
     RegexDetector,
     YamlDetector,
 )
+from privyx.privacy.detector.cache import CachedDetector
 
 #: Entity names must round-trip through a token, so they follow the codec's
 #: ``type`` grammar (see :mod:`privyx.token.codec`).
@@ -58,25 +59,35 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
 
     dtype = config.get("type", "regex")
     patterns = _patterns_from(config)
+    detector: Detector
     if dtype == "regex":
         combined = {**DEFAULT_PATTERNS, **patterns}
         _validate(combined)
-        return RegexDetector(combined)
-    if dtype == "yaml":
+        detector = RegexDetector(combined)
+    elif dtype == "yaml":
         _validate(patterns)
-        return YamlDetector(patterns)
-    if dtype == "presidio":
+        detector = YamlDetector(patterns)
+    elif dtype == "presidio":
         from privyx.privacy.detector.presidio import PresidioDetector
 
-        return PresidioDetector(
+        detector = PresidioDetector(
             language=config.get("language", "en"),
             model=config.get("model", ""),
             entities=list(config.get("entities", [])) or None,
             score_threshold=float(config.get("score_threshold", 0.35)),
         )
-    if dtype in PLUGINS.detectors:
-        return PLUGINS.detectors.build(config)
-    raise ConfigError(f"unknown detector type: {dtype}")
+    elif dtype in PLUGINS.detectors:
+        detector = PLUGINS.detectors.build(config)
+    else:
+        raise ConfigError(f"unknown detector type: {dtype}")
+
+    cache = config.get("cache")
+    if cache is not None:
+        enabled = cache if isinstance(cache, bool) else cache.get("enabled", True)
+        if enabled:
+            max_size = 10000 if isinstance(cache, bool) else cache.get("max_size", 10000)
+            return CachedDetector(detector, max_size=max_size)
+    return detector
 
 
 def _validate(patterns: dict[str, str]) -> None:

@@ -42,6 +42,11 @@ vault:
 # in `policy.allowed` or it will be detected and then silently dropped.
 detector:
   type: regex
+  # Turn / Detection caching — skips redundant regex scanning on previous turns
+  # in multi-turn conversations.
+  cache:
+    enabled: true
+    max_size: 10000
   # Built-ins don't cover secrets — without these, keys go upstream as-is.
   # Block scalars + (?x): whitespace and `# ...` are ignored, so one vendor per
   # line.  A `(?P<value>...)` group masks only that part (the variable name

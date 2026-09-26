@@ -103,6 +103,10 @@ detector:
     language: en
 ```
 
+Detection results are cached in an LRU cache (`detector.cache: true`, default) so that
+in multi-turn conversations, unchanged previous turns do not need to be scanned again.
+Disable with `cache: false` or `PRIVYX_DETECTOR_CACHE=false`.
+
 ### Masking without the proxy
 
 `mask` and `unmask` run the same engine over a string, a file, JSON, JSONL, or

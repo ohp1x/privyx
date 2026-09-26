@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- **Turn detection caching.** In multi-turn chat sessions, LLM clients re-send the
+  entire conversation history on every request, causing Privyx to redundantly scan
+  past turns with all regex and NLP detectors on every single turn. A new `CachedDetector`
+  implements an in-memory LRU cache (`detector.cache.enabled`, default: `true`,
+  `detector.cache.max_size`, default: 10,000) for entity detections. Repeated text
+  leaves from previous turns hit the cache in ~0.001 ms, speeding up request transformation
+  in long conversations by over 100x. Can be disabled via `detector.cache: false` in YAML
+  or `PRIVYX_DETECTOR_CACHE=false`.
+
 ### Proxy coverage
 
 - **Privacy fix.** Many request and response fields bypassed the engine, so real

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class VaultConfig(BaseModel):
@@ -15,6 +15,17 @@ class VaultConfig(BaseModel):
     dsn: str = "sqlite+aiosqlite:///privyx.db"
     redis_url: str = "redis://localhost:6379/0"
     ttl: int | None = None
+
+
+class DetectorCacheConfig(BaseModel):
+    """Configuration for turn/detection caching.
+
+    Caches entity detections for previously seen text spans, avoiding
+    redundant regex or NLP scans across conversation turns.
+    """
+
+    enabled: bool = True
+    max_size: int = 10000
 
 
 class DetectorConfig(BaseModel):
@@ -30,10 +41,18 @@ class DetectorConfig(BaseModel):
     type: str = "regex"
     patterns: dict[str, str] = Field(default_factory=dict)
     terms: dict[str, list[str]] = Field(default_factory=dict)
+    cache: DetectorCacheConfig | bool = Field(default_factory=DetectorCacheConfig)
     language: str = "en"  # presidio detector
     model: str = ""  # presidio detector: spaCy model (empty → {language}_core_web_sm)
     entities: list[str] = Field(default_factory=list)  # presidio: empty → all recognizers
     score_threshold: float = 0.35  # presidio detector: minimum confidence
+
+    @field_validator("cache", mode="before")
+    @classmethod
+    def _coerce_cache(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            return DetectorCacheConfig(enabled=v)
+        return v
 
 
 class PolicyConfig(BaseModel):
