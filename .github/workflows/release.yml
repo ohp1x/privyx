@@ -6,11 +6,15 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      is_prerelease: ${{ steps.check_prerelease.outputs.is_prerelease }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +41,17 @@ jobs:
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
             echo "::error::Tag v$TAG_VERSION does not match package version $PKG_VERSION"
             exit 1
+          fi
+
+      - name: Determine if this is a pre-release (rc/alpha/beta/dev)
+        id: check_prerelease
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if echo "$VERSION" | grep -qE '(a|b|rc|alpha|beta|pre)[0-9]*$|\.?dev[0-9]*$'; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$VERSION looks like a pre-release; will publish a GitHub prerelease and SKIP the PyPI production publish job."
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build sdist and wheel
@@ -82,8 +97,49 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          IS_PRERELEASE: ${{ steps.check_prerelease.outputs.is_prerelease }}
         run: |
+          PRERELEASE_FLAG=""
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file release-notes.md \
+            $PRERELEASE_FLAG \
             dist/*.whl dist/*.tar.gz
+
+      - name: Upload build artifacts for PyPI publish
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    # Safety gate: only real, stable releases reach production PyPI. A version
+    # with a pre-release suffix (rc/alpha/beta/dev) only produces a GitHub
+    # prerelease above; nothing is uploaded to PyPI for it. PyPI releases are
+    # permanent (a version string can never be reused, even after deletion),
+    # so this check exists specifically to prevent test/rc tags from leaking
+    # into the production index.
+    if: needs.build.outputs.is_prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/privyx
+    permissions:
+      id-token: write # required for PyPI Trusted Publishing (OIDC), no API token stored
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
