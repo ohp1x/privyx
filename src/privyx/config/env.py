@@ -90,6 +90,18 @@ def env_config() -> dict[str, Any]:
             "yes",
             "on",
         }
+    ssl_certfile = _env("SSL_CERTFILE") or _env("TLS_CERTFILE")
+    if ssl_certfile:
+        cfg.setdefault("tls", {})["certfile"] = ssl_certfile
+    ssl_keyfile = _env("SSL_KEYFILE") or _env("TLS_KEYFILE")
+    if ssl_keyfile:
+        cfg.setdefault("tls", {})["keyfile"] = ssl_keyfile
+    ssl_keyfile_password = _env("SSL_KEYFILE_PASSWORD") or _env("TLS_KEYFILE_PASSWORD")
+    if ssl_keyfile_password:
+        cfg.setdefault("tls", {})["keyfile_password"] = ssl_keyfile_password
+    ssl_ca_certs = _env("SSL_CA_CERTS") or _env("TLS_CA_CERTS")
+    if ssl_ca_certs:
+        cfg.setdefault("tls", {})["ca_certs"] = ssl_ca_certs
     return cfg
 
 

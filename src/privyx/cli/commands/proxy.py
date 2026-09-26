@@ -31,6 +31,10 @@ import click
     default=False,
     help="Restart the server when the config file changes (development).",
 )
+@click.option("--ssl-certfile", default=None, help="SSL/TLS certificate file path (PEM)")
+@click.option("--ssl-keyfile", default=None, help="SSL/TLS private key file path (PEM)")
+@click.option("--ssl-keyfile-password", default=None, help="Password for SSL/TLS private key")
+@click.option("--ssl-ca-certs", default=None, help="CA certificates file path (PEM)")
 def proxy(
     config_path: str | None,
     host: str | None,
@@ -38,6 +42,10 @@ def proxy(
     upstream: str | None,
     transparent_mode: bool | None,
     reload_on_change: bool,
+    ssl_certfile: str | None = None,
+    ssl_keyfile: str | None = None,
+    ssl_keyfile_password: str | None = None,
+    ssl_ca_certs: str | None = None,
 ) -> None:
     """Start the privacy proxy server."""
     from privyx.config.loader import load_config
@@ -53,6 +61,17 @@ def proxy(
         extra.setdefault("provider", {})["base_url"] = upstream
     if transparent_mode is not None:
         extra["proxy"] = {"mode": "transparent" if transparent_mode else "gateway"}
+    tls_extra: dict[str, Any] = {}
+    if ssl_certfile is not None:
+        tls_extra["certfile"] = ssl_certfile
+    if ssl_keyfile is not None:
+        tls_extra["keyfile"] = ssl_keyfile
+    if ssl_keyfile_password is not None:
+        tls_extra["keyfile_password"] = ssl_keyfile_password
+    if ssl_ca_certs is not None:
+        tls_extra["ca_certs"] = ssl_ca_certs
+    if tls_extra:
+        extra["tls"] = tls_extra
 
     if importlib.util.find_spec("uvicorn") is None:  # pragma: no cover
         click.echo(
@@ -73,6 +92,15 @@ def proxy(
         settings = load_config(config_path, extra=extra)
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    if (settings.tls.certfile and not settings.tls.keyfile) or (
+        settings.tls.keyfile and not settings.tls.certfile
+    ):
+        click.echo(
+            "Error: Both --ssl-certfile and --ssl-keyfile are required for HTTPS.",
+            err=True,
+        )
         sys.exit(1)
 
     while True:
@@ -198,8 +226,9 @@ async def _serve_transparent(
         session_strategy=settings.session.strategy,
     )
 
+    scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())
-    click.echo(f"Privyx transparent proxy listening on http://{settings.host}:{settings.port}")
+    click.echo(f"Privyx transparent proxy listening on {scheme}://{settings.host}:{settings.port}")
     click.echo(f"Upstream origin: {origin}")
     click.echo(f"Routes: {routes}")
     click.echo(
@@ -211,7 +240,14 @@ async def _serve_transparent(
     app = create_transparent_app(engine, proxy_instance, settings)
     server = uvicorn.Server(
         uvicorn.Config(
-            app, host=settings.host, port=settings.port, log_level=settings.log_level
+            app,
+            host=settings.host,
+            port=settings.port,
+            log_level=settings.log_level,
+            ssl_certfile=settings.tls.certfile or None,
+            ssl_keyfile=settings.tls.keyfile or None,
+            ssl_keyfile_password=settings.tls.keyfile_password or None,
+            ssl_ca_certs=settings.tls.ca_certs or None,
         )
     )
     try:
@@ -232,8 +268,9 @@ async def _serve_gateway(
     provider = build_provider(settings)
     gateway = Gateway(engine=engine, provider=provider, settings=settings, audit=audit)
 
+    scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in gateway.routes.items())
-    click.echo(f"Privyx proxy listening on http://{settings.host}:{settings.port}")
+    click.echo(f"Privyx proxy listening on {scheme}://{settings.host}:{settings.port}")
     click.echo(f"Upstream: {resolve_base_url(settings)}")
     click.echo(f"Routes: {routes}")
     click.echo(
@@ -244,7 +281,14 @@ async def _serve_gateway(
 
     server = uvicorn.Server(
         uvicorn.Config(
-            gateway.app, host=settings.host, port=settings.port, log_level=settings.log_level
+            gateway.app,
+            host=settings.host,
+            port=settings.port,
+            log_level=settings.log_level,
+            ssl_certfile=settings.tls.certfile or None,
+            ssl_keyfile=settings.tls.keyfile or None,
+            ssl_keyfile_password=settings.tls.keyfile_password or None,
+            ssl_ca_certs=settings.tls.ca_certs or None,
         )
     )
     try:

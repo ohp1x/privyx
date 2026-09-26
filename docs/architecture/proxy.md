@@ -51,6 +51,76 @@ per-request schema selection, and header/credential forwarding on top. The
 `gateway/` package holds nothing but the two FastAPI apps — `server.py` and
 `transparent.py` — since all privacy logic lives in `proxy/`.
 
+## HTTPS & TLS Termination
+
+Privyx supports HTTPS via two methods:
+
+### 1. Built-in Native TLS (Uvicorn)
+
+Pass the certificate and private key via CLI options:
+
+```bash
+privyx proxy --ssl-certfile /path/to/cert.pem --ssl-keyfile /path/to/key.pem
+```
+
+Or configure via `config.yaml`:
+
+```yaml
+tls:
+  certfile: /path/to/cert.pem
+  keyfile: /path/to/key.pem
+  keyfile_password: ""  # optional password if key is encrypted
+  ca_certs: ""          # optional CA bundle
+```
+
+Or via environment variables:
+
+```bash
+export PRIVYX_SSL_CERTFILE=/path/to/cert.pem
+export PRIVYX_SSL_KEYFILE=/path/to/key.pem
+```
+
+When both files are configured, the proxy serves HTTPS (`https://host:port`) directly.
+
+### 2. Reverse Proxy (Production Recommended)
+
+In production deployments, you can place a dedicated reverse proxy (e.g. Caddy, Nginx, Traefik, or Cloudflare Tunnel) in front of Privyx:
+
+**Caddy Example (`Caddyfile`):**
+
+```caddy
+api.privacy.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Caddy handles automatic TLS certificate issuance and renewal via Let's Encrypt.
+
+**Nginx Example:**
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name api.privacy.example.com;
+
+    ssl_certificate /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Support Server-Sent Events (SSE) streaming:
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+    }
+}
+```
+
 ## Routes
 
 `proxy.routes` maps a request path (matched without its query string, so

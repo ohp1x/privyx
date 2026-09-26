@@ -191,6 +191,19 @@ class PluginsConfig(BaseModel):
     paths: list[str] = Field(default_factory=list)
 
 
+class TLSConfig(BaseModel):
+    """TLS/SSL server configuration for HTTPS termination."""
+
+    certfile: str = ""
+    keyfile: str = ""
+    keyfile_password: str = ""
+    ca_certs: str = ""
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.certfile and self.keyfile)
+
+
 class Settings(BaseModel):
     """Top-level Privyx settings."""
 
@@ -215,6 +228,12 @@ class Settings(BaseModel):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+    tls: TLSConfig = Field(default_factory=TLSConfig)
+
+    @property
+    def is_tls(self) -> bool:
+        """Whether TLS/SSL is active for the proxy server."""
+        return self.tls.enabled
 
     @property
     def detector_type(self) -> str:
