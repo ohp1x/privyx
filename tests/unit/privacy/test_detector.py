@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
+import time
+
 import pytest
 
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
-from privyx.privacy.detector.builtin import RegexDetector, YamlDetector
+from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector, YamlDetector
 from privyx.privacy.detector.yaml import build_detector
 
 
@@ -45,6 +48,64 @@ async def test_no_false_positive_on_plain_text() -> None:
     detector = RegexDetector()
     detection = await detector.detect("hello world, nothing sensitive here", Context())
     assert not detection
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "a@b.io",
+        "first.last+tag@mail.example.co.uk",
+        # At the RFC 5321 limits: 64-character local part, 251-character domain.
+        "x" * 64 + "@" + "sub." * 58 + "example.photography",
+    ],
+)
+def test_email_matches_the_whole_address(address: str) -> None:
+    detection = RegexDetector().detect_sync(f"mail {address} now", Context())
+    assert [s.text for s in detection.spans] == [address]
+
+
+def _fill(unit: str, size: int = 100_000) -> str:
+    return (unit * (size // len(unit) + 1))[:size]
+
+
+#: Near-misses that make an unbounded quantifier backtrack: long runs of one
+#: character class, and the prefixes the built-in patterns look for.
+_ADVERSARIAL = {
+    "letters": _fill("a"),
+    "hex": _fill("0123456789abcdef"),
+    "dotted": _fill("abc."),
+    "digits": _fill("1 "),
+    "spaced digits": "1" + " " * 100_000 + "1",
+    "dashes": _fill("-"),
+    "at signs": _fill("a@"),
+    "long domain": "a@" + _fill("b"),
+    "dotted domain": "a@" + _fill("b."),
+    "local parts": _fill("b" * 64 + "@" + "c" * 255),
+    "key header": "-----BEGIN RSA PRIVATE KEY-----\n" + _fill("A"),
+    "jwt": "eyJ" + _fill("a") + ".eyJ",
+    "schemes": _fill("a://"),
+    "bearer": _fill("bearer "),
+    "whitespace": _fill("a b\n"),
+    "escaped newlines": _fill("\\n"),
+    "open quote": 'password="' + _fill("x"),
+    "assignments": _fill("token="),
+}
+
+
+def test_builtin_patterns_stay_linear_on_adversarial_input() -> None:
+    # Each takes ~20 ms at most here; the unbounded EMAIL pattern took ~8 s on
+    # several of these inputs and froze the event loop for that long.
+    slow = []
+    for entity, pattern in DEFAULT_PATTERNS.items():
+        compiled = re.compile(pattern)
+        for shape, text in _ADVERSARIAL.items():
+            start = time.perf_counter()
+            for _ in compiled.finditer(text):
+                pass
+            elapsed = time.perf_counter() - start
+            if elapsed > 0.5:
+                slow.append(f"{entity} on {shape}: {elapsed:.1f} s")
+    assert not slow
 
 
 @pytest.mark.asyncio
