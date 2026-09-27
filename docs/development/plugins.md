@@ -26,7 +26,9 @@ subclass of a Privyx component base class, and Privyx registers it under its
   recommended.
 - Optionally add **`@classmethod from_config(cls, config: dict) -> Self`** to
   construct from the component's config section. Without it, Privyx calls the
-  no-argument constructor `cls()`.
+  no-argument constructor `cls()`. The section may carry options of your own
+  (`detector: {type: license_plate, region: EU}` passes `region`); Privyx
+  rejects such unknown keys only under a built-in type, where they are typos.
 - Optionally define module-level **`on_startup()`** / **`on_shutdown()`**
   (sync or async) for lifecycle work (see below).
 

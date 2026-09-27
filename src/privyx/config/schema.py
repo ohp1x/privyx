@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class VaultConfig(BaseModel):
+class PluggableConfig(BaseModel):
+    """A section whose ``type`` may name a plugin.
+
+    Keys the schema does not define are kept: they are a plugin's own options,
+    handed to its ``from_config``.  Under a built-in type they can only be typos,
+    so :func:`~privyx.config.loader.load_config` rejects them there.
+    """
+
+    model_config = ConfigDict(extra="allow")
+    #: The ``type`` values Privyx implements itself (a plugin never shadows one).
+    builtin_types: ClassVar[frozenset[str]] = frozenset()
+
+
+class VaultConfig(PluggableConfig):
+    builtin_types = frozenset({"memory", "sqlite", "redis"})
     # Open string rather than a closed Literal so a plugin vault type validates;
     # build_vault still raises ConfigError for a type that is neither built-in
     # nor registered by a plugin.
@@ -31,7 +45,7 @@ class DetectorCacheConfig(BaseModel):
     max_size: int = 10000
 
 
-class DetectorConfig(BaseModel):
+class DetectorConfig(PluggableConfig):
     """Detector selection and its rules.
 
     ``patterns`` and ``terms`` are complementary and may both be set: the first
@@ -41,6 +55,7 @@ class DetectorConfig(BaseModel):
     entry for the same entity.
     """
 
+    builtin_types = frozenset({"regex", "yaml", "presidio", "llm"})
     type: str = "regex"
     patterns: dict[str, str] = Field(default_factory=dict)
     terms: dict[str, list[str]] = Field(default_factory=dict)
@@ -69,12 +84,14 @@ class DetectorConfig(BaseModel):
         return v
 
 
-class PolicyConfig(BaseModel):
+class PolicyConfig(PluggableConfig):
+    builtin_types = frozenset({"default", "strict"})
     type: str = "default"
     allowed: list[str] = Field(default_factory=list)
 
 
-class OperatorConfig(BaseModel):
+class OperatorConfig(PluggableConfig):
+    builtin_types = frozenset({"pseudonym", "redact", "hash", "faker", "encrypt"})
     type: str = "pseudonym"
     token: str = "[REDACTED]"  # redact operator
     length: int = 12  # hash operator digest length
@@ -83,7 +100,8 @@ class OperatorConfig(BaseModel):
     key: str = ""  # encrypt operator: 64 hex chars (`openssl rand -hex 32`)
 
 
-class AnchorConfig(BaseModel):
+class AnchorConfig(PluggableConfig):
+    builtin_types = frozenset({"hmac", "pasp"})
     type: str = "hmac"
     secret: str = ""
 
@@ -125,7 +143,7 @@ class TokenConfig(BaseModel):
     format: str = "<{namespace}_{type}_{id}>"
 
 
-class ProviderConfig(BaseModel):
+class ProviderConfig(PluggableConfig):
     """Provider transport settings.
 
     ``base_url`` defaults to empty rather than to a URL: an empty value lets
@@ -134,6 +152,7 @@ class ProviderConfig(BaseModel):
     non-empty default here would silently override every such fallback.
     """
 
+    builtin_types = frozenset({"generic", "openai", "anthropic"})
     type: str = "generic"
     base_url: str = ""
     api_key: str = ""

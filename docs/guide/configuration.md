@@ -23,10 +23,14 @@ never clears a value from the file.
 anchor secret) just above the built-in ones, so your file and environment
 still override them.
 
-A config with an unknown type, an invalid regex, or a value of the wrong kind
-fails at startup, before any request is served:
+A config with a misspelled setting, an unknown type, an invalid regex, or a
+value of the wrong kind fails at startup, before any request is served. A
+section whose `type` names a plugin is the exception to the first: keys Privyx
+does not define there are the plugin's own options, and are passed to it.
 
 ```console
+$ privyx proxy -c broken.yaml
+Error: unknown setting 'detector.term' (did you mean 'terms'?)
 $ privyx proxy -c broken.yaml
 Error: unknown detector type: nope
 $ privyx proxy -c broken.yaml

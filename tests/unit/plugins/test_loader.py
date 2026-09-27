@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+from privyx.config.loader import load_config
 from privyx.config.schema import Settings
-from privyx.core.builder import build_anchor, build_operator, build_vault
+from privyx.core.builder import build_anchor, build_detector_from, build_operator, build_vault
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
 from privyx.plugins.loader import load_plugins
@@ -62,6 +64,13 @@ from privyx.providers.base import BaseProvider
 
 class EchoProvider(BaseProvider):
     name = "echo"
+
+    def __init__(self, config=None):
+        self.config = config or {}
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(config)
 
     async def send(self, payload, session_id=None):
         return payload
@@ -236,6 +245,25 @@ def test_from_config_receives_config(tmp_path: Path) -> None:
     load_plugins(_settings(tmp_path, CONFIGURED))
     detector = build_detector({"type": "configured", "marker": "Z"})
     assert detector.marker == "Z"  # type: ignore[attr-defined]
+
+
+def test_plugin_options_reach_from_config(tmp_path: Path) -> None:
+    # The settings model dropped every key it does not define, so a plugin
+    # configured from a file never saw its own options.
+    _write(tmp_path, "detector.py", CONFIGURED)
+    _write(tmp_path, "provider.py", PROVIDER)
+    cfg = tmp_path / "c.yaml"
+    config = {
+        "plugins": {"paths": [str(tmp_path)]},
+        "detector": {"type": "configured", "marker": "Z", "cache": False},
+        "provider": {"type": "echo", "region": "eu"},
+    }
+    cfg.write_text(json.dumps(config), encoding="utf-8")
+    settings = load_config(cfg)
+    load_plugins(settings)
+
+    assert build_detector_from(settings).marker == "Z"  # type: ignore[attr-defined]
+    assert build_provider(settings).config["region"] == "eu"
 
 
 def test_name_derived_when_unset(tmp_path: Path) -> None:

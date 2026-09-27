@@ -15,8 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Packaging:** `pip install privyx` now includes the proxy. FastAPI and uvicorn moved from the `server` extra into the base dependencies, so `privyx proxy` and `privyx run` work without an extra; before, they stopped with "requires privyx[server]", which the README's install line did not mention. The `server` extra is gone; `pip install privyx[server]` still installs everything, with a warning that the extra does not exist. The unused `sse-starlette` dependency is dropped
 
+### Removed
+
+- **Examples:** `examples/transparent_proxy.py`, a stub that proxied nothing and described a TLS-interception design Privyx does not use. `privyx proxy` is the transparent proxy
+
 ### Fixed
 
+- **Config:** an unknown setting was ignored without a word, so a typo such as `term:` for `terms:` or `detectors:` for `detector:` left the values it listed unmasked while `privyx doctor` reported the configuration as valid. Unknown settings now stop Privyx at startup with their path and the closest valid name, never their value: `unknown setting 'detector.term' (did you mean 'terms'?)`. A config that carried keys Privyx ignored needs them removed
+- **Plugins:** options in a plugin component's section (`detector: {type: license_plate, region: EU}`) never reached its `from_config`, which saw only the settings Privyx itself defines. They are now passed through in every family, providers included
 - **Config:** `PRIVYX_DETECTOR_CACHE` replaced a `detector` list with one default regex detector, so the listed detectors (an `llm` or `presidio` detector, `terms`) silently stopped scanning and what only they caught went upstream unmasked. The variable now applies to each listed detector
 - **Config:** a `yaml` detector written as a single mapping also detected the five built-in entities, although `yaml` is meant to use only the patterns it is given. The list form was not affected. `privyx config --show` no longer lists the built-in patterns under `detector.patterns`; the `regex` detector still adds them
 - **Examples:** `examples/fastapi_gateway.py` passed an `HTTPProxy` to `Gateway`, which takes the provider, and failed with a `TypeError`

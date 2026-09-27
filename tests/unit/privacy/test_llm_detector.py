@@ -222,13 +222,18 @@ def test_config_can_select_llm_with_an_unknown_provider() -> None:
         build_detector({"type": "llm", "llm_provider": "does-not-exist"})
 
 
-def test_config_selects_llm_and_fails_fast_without_the_providers_extra() -> None:
+def test_config_selects_llm_and_fails_fast_without_the_providers_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Selecting ``llm`` never fails with 'unknown detector type'.
 
     Whether it succeeds depends on whether the ``providers`` extra (openai/
     anthropic) is installed in this environment; either way it must not reach
     a request before failing.
     """
+    # Without a key the SDK refuses to construct a client, so this skipped as
+    # "extra not installed" even where it is (CI included).
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     try:
         detector = build_detector({"type": "llm"})
     except ConfigError as exc:
