@@ -4,7 +4,8 @@
 
 Please report security issues privately. Do **not** open a public issue.
 
-- Email: security@privyx.io
+- Use GitHub's [private vulnerability reporting](https://github.com/ohp1x/privyx/security/advisories/new)
+  (Security tab → "Report a vulnerability"). Only maintainers can see the report.
 - Include: affected version, impact, and a minimal reproduction.
 
 You will receive a response within 72 hours.
