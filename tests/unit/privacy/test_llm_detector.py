@@ -148,13 +148,45 @@ async def test_an_array_wrapped_in_a_fence_or_prose_is_still_read(response: str)
 
 async def test_spans_follow_the_reported_text_not_the_offsets() -> None:
     """A miscounted offset must not mask the wrong words and leak the name."""
-    text = "Call Ana, then ana again; bananas are fine."
+    text = "Call Ana, then Ana again; bananas are fine."
     detector = LLMDetector(client=_FakeLLMClient('[[1, 4, "PERSON", "Ana"]]'))
 
     detection = await detector.detect(text, Context())
 
-    # Every whole-word occurrence, case-insensitively; never inside "bananas".
-    assert [(s.start, s.text) for s in detection.spans] == [(5, "Ana"), (15, "ana")]
+    # Every whole-word occurrence; never inside "bananas".
+    assert [(s.start, s.text) for s in detection.spans] == [(5, "Ana"), (15, "Ana")]
+
+
+async def test_a_name_that_is_also_a_word_masks_only_its_own_case() -> None:
+    detector = LLMDetector(client=_FakeLLMClient('[[0, 3, "PERSON", "May"]]'))
+
+    detection = await detector.detect("May said you may go", Context())
+
+    assert [(s.start, s.text) for s in detection.spans] == [(0, "May")]
+
+
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [
+        ("PERSON", "PERSON"),
+        ("person", "PERSON"),
+        ("phone number", "PHONE_NUMBER"),
+        ("E-mail", "E_MAIL"),
+        ("", "PII"),
+        ("1X", "PII"),
+        ("?!", "PII"),
+        ("A" * 65, "PII"),
+    ],
+)
+async def test_entity_types_are_normalized_to_token_safe_names(
+    reported: str, expected: str
+) -> None:
+    reply = json.dumps([[0, 3, reported, "Ana"]])
+    detector = LLMDetector(client=_FakeLLMClient(reply))
+
+    detection = await detector.detect("Ana called", Context())
+
+    assert [s.entity_type for s in detection.spans] == [expected]
 
 
 async def test_reported_text_that_does_not_occur_is_dropped() -> None:

@@ -103,8 +103,11 @@ def tail(file: Path | None, config_path: str | None, lines: int, follow: bool) -
             while True:
                 chunk = fh.readline()
                 if not chunk:
-                    if path.stat().st_size < fh.tell():  # truncated by copytruncate rotation
-                        fh.seek(0)
+                    try:
+                        if path.stat().st_size < fh.tell():  # truncated by copytruncate
+                            fh.seek(0)
+                    except OSError:
+                        pass  # moved away mid-rotation; keep reading the open file
                     time.sleep(0.5)
                     continue
                 partial += chunk

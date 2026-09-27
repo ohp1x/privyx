@@ -22,6 +22,7 @@ import httpx  # noqa: E402
 
 from privyx.config.schema import Settings  # noqa: E402
 from privyx.core.engine import PrivacyEngine  # noqa: E402
+from privyx.core.errors import DetectorError  # noqa: E402
 from privyx.gateway.server import Gateway  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
@@ -173,6 +174,41 @@ async def test_metrics_count_masked_entities() -> None:
     assert 'privyx_entities_masked_total{entity_type="EMAIL"} 1' in text
     assert 'privyx_audit_events_total{event="proxy.response"} 1' in text
     assert EMAIL not in text
+
+
+@pytest.mark.asyncio
+async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
+    class _Broken:
+        name = "broken"
+
+        async def detect(self, text: str, context: Any) -> Any:
+            raise DetectorError(f"boom while reading {text}")
+
+    seen.clear()
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    vault = MemoryVault()
+    engine = PrivacyEngine(
+        detector=_Broken(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=vault,
+        audit=audit,
+    )
+    client, _ = _client(engine, audit)
+    async with client:
+        response = await client.post(
+            "/v1/messages", json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["type"] == "privyx_scan_failed"
+    assert EMAIL not in response.text
+    assert seen == []
+    errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
+    assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "DetectorError")]
+    # The ephemeral session is known before masking starts, so it is cleaned up.
+    assert await vault.list_sessions() == []
 
 
 @pytest.mark.asyncio

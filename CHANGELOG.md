@@ -8,8 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Proxy:** when masking a request fails (a detector error or timeout, including the LLM detector's fail-closed default), both proxy modes now answer `503` with a `privyx_scan_failed` JSON error and record `proxy.error` with `phase: "transform"`. The request was already never forwarded, but the client got a bare `500`, and neither the audit trail nor `/metrics` showed the failure. The console log gets the exception class only; the traceback goes to `log_file` at `DEBUG`
+- **Gateway:** an ephemeral session is deleted even when masking fails part-way. The gateway created it inside the masking step, so after a failure it did not know the id, and any mappings made before the failure stayed in the vault until `vault.ttl` expired them
+- **Detector:** entity types from the LLM are normalized: `person` and `phone number` become `PERSON` and `PHONE_NUMBER`, and a type that still cannot go into a token (empty, leading digit, over 64 characters) becomes `PII`. They used to be used verbatim, so `phone number` crashed the request and `person` got tokens separate from `PERSON`
+- **CLI:** `privyx audit tail` keeps following when the log is moved away during rotation instead of crashing. The docs now say to rotate the audit log with `copytruncate`, since Privyx keeps the file open
+
 - **Detector:** an LLM reply with no JSON array in it (prose, an empty reply, or an array cut off at the token limit) used to count as "no PII found", so the text went upstream with only the other detectors' masking and no sign of it in the audit trail. It now fails the scan like a timeout: the request fails, or falls back to regex under `llm_fallback_on_error` and is counted as `llm_fallbacks`. An array wrapped in a code fence or prose is still read
-- **Detector:** LLM spans are located by the text the model reports, not its character offsets. Models miscount characters, and an offset that still landed inside the text masked the wrong words and let the real value through. Every whole-word, case-insensitive occurrence of the reported text is now masked; reported text that does not occur is dropped. Offsets are used only for a span given without text
+- **Detector:** LLM spans are located by the text the model reports, not its character offsets. Models miscount characters, and an offset that still landed inside the text masked the wrong words and let the real value through. Every whole-word occurrence of the reported text, in the same case, is now masked (same case, so a name like "May" does not mask every "may"); reported text that does not occur is dropped. Offsets are used only for a span given without text
 
 ### Changed
 

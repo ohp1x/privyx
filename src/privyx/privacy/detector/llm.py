@@ -38,9 +38,10 @@ from privyx.core.context import Context
 from privyx.core.errors import ConfigError, DetectorError
 from privyx.core.result import Detection, Span
 from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.detector.yaml import _bounded
+from privyx.privacy.detector.yaml import _ENTITY_NAME, _bounded
 
 _log = logging.getLogger(__name__)
+_NOT_ALNUM = re.compile(r"[^A-Za-z0-9]+")
 
 #: Default instructions appended before the text to scan. Kept strict about
 #: the output shape (JSON array only) since the response is parsed, not read.
@@ -253,9 +254,10 @@ def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
 
     Each span is located by the text the model reports, not by its offsets:
     models miscount characters, and a wrong offset inside ``text`` would mask
-    the wrong words and let the real value through.  Every whole-word,
-    case-insensitive occurrence is masked, and reported text that does not
-    occur at all is a hallucination and is dropped.  Offsets are used only for a
+    the wrong words and let the real value through.  Every whole-word occurrence
+    with the same case is masked (case-insensitive would turn every "may" into
+    a token once "May" is a name), and reported text that does not occur at all
+    is a hallucination and is dropped.  Offsets are used only for a
     ``[start, end, type]`` span without text, and only when they are in range.
     A malformed span is dropped; it does not fail the reply.  ``offset`` shifts
     the spans of a chunk back to positions in the full text.
@@ -276,10 +278,10 @@ def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
     for item in payload:
         if not isinstance(item, (list, tuple)) or len(item) < 3:
             continue
-        entity = str(item[2])
+        entity = _entity_type(item[2])
         reported = item[3].strip() if len(item) > 3 and isinstance(item[3], str) else ""
         if reported:
-            for match in re.finditer(_bounded(reported), text, re.IGNORECASE):
+            for match in re.finditer(_bounded(reported), text):
                 detection.add(match.start() + offset, match.end() + offset, entity, match[0])
             continue
         try:
@@ -289,3 +291,15 @@ def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
         if 0 <= first < last <= len(text):
             detection.add(first + offset, last + offset, entity, text[first:last])
     return detection
+
+
+def _entity_type(value: Any) -> str:
+    """The model's entity type as a name a token can carry, or ``PII``.
+
+    ``phone number`` becomes ``PHONE_NUMBER`` so it shares tokens with the
+    regex detector's types; anything that still is not a valid name (empty,
+    leading digit, over 64 characters) becomes ``PII`` rather than crash the
+    token codec mid-request with the model's text in the error.
+    """
+    name = _NOT_ALNUM.sub("_", str(value)).strip("_").upper()
+    return name if _ENTITY_NAME.fullmatch(name) else "PII"
