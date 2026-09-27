@@ -211,7 +211,7 @@ async def _serve_transparent(
     import uvicorn
 
     from privyx.gateway.transparent import create_transparent_app
-    from privyx.providers.registry import resolve_origin
+    from privyx.providers.registry import resolve_api_key, resolve_origin
     from privyx.proxy.transparent import TransparentProxy
 
     origin = resolve_origin(settings)
@@ -221,7 +221,7 @@ async def _serve_transparent(
         routes=dict(settings.proxy.routes),
         passthrough_unknown=settings.proxy.passthrough_unknown,
         forward_client_auth=settings.proxy.forward_client_auth,
-        api_key=settings.provider.api_key or None,
+        api_key=resolve_api_key(settings),
         extra_headers=dict(settings.provider.headers),
         audit=audit,
         session_strategy=settings.session.strategy,

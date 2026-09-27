@@ -41,11 +41,11 @@ provider:
 Do not write `api_key: ${VAR}`: Privyx does not expand environment variables in
 config files, so the literal string is sent upstream as the key.
 
-- **Transparent** relays the client's own `Authorization` header, so Privyx needs
-  no key. `provider.api_key`, when set, replaces the client's key on every
-  request.
-- **Gateway** sends its own key, read from the `PRIVYX_OPENAI_API_KEY`
-  environment variable (gateway only) or `provider.api_key`.
+Privyx's own key comes, in both modes, from `PRIVYX_OPENAI_API_KEY` when
+`provider.type` is `openai`, else from `PRIVYX_API_KEY` / `provider.api_key`.
+When one is set it replaces the client's key on every request; when none is,
+the transparent proxy relays the client's own `Authorization` header and the
+gateway sends none.
 
 ## What is covered
 

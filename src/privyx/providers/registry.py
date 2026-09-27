@@ -102,6 +102,26 @@ def resolve_base_url(settings: Any) -> str:
     )
 
 
+def resolve_api_key(settings: Any) -> str | None:
+    """Return the upstream key ``settings`` resolves to, or ``None``.
+
+    Precedence, highest first — the same in gateway and transparent mode:
+
+    1. ``provider.<type>_api_key`` (``PRIVYX_OPENAI_API_KEY``, ...), so one
+       environment can hold a key per provider type.
+    2. ``provider.api_key`` (``PRIVYX_API_KEY``).
+
+    ``None`` means no key is configured: the gateway sends none, and the
+    transparent proxy relays the client's own.
+    """
+    provider_config = settings.provider
+    return (
+        getattr(provider_config, f"{provider_config.type}_api_key", "")
+        or provider_config.api_key
+        or None
+    )
+
+
 def resolve_origin(settings: Any) -> str:
     """Return just the ``scheme://host[:port]`` of the resolved upstream.
 
@@ -123,9 +143,8 @@ def resolve_origin(settings: Any) -> str:
 def build_provider(settings: Any) -> Any:
     """Build the provider described by ``settings``.
 
-    The upstream URL follows :func:`resolve_base_url`.  Per-provider API keys
-    (``provider.openai_api_key``, ...) take precedence over the generic
-    ``provider.api_key``.
+    The upstream URL follows :func:`resolve_base_url` and the key
+    :func:`resolve_api_key`.
 
     Raises:
         ConfigError: If ``provider.type`` is not registered.
@@ -133,9 +152,7 @@ def build_provider(settings: Any) -> Any:
     provider_config = settings.provider
     ptype = provider_config.type
     config: dict[str, Any] = {
-        "api_key": (
-            getattr(provider_config, f"{ptype}_api_key", "") or provider_config.api_key or None
-        ),
+        "api_key": resolve_api_key(settings),
         "headers": dict(provider_config.headers),
         "base_url": resolve_base_url(settings),
     }

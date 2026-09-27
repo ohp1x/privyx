@@ -30,6 +30,9 @@ def env_config() -> dict[str, Any]:
     if upstream:
         cfg["upstream_url"] = upstream
         cfg.setdefault("provider", {})["base_url"] = upstream
+    api_key = _env("API_KEY")
+    if api_key:
+        cfg.setdefault("provider", {})["api_key"] = api_key
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"):
         value = _env(key)
         if value:
