@@ -134,7 +134,7 @@ jobs:
       id-token: write # required for PyPI Trusted Publishing (OIDC), no API token stored
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
