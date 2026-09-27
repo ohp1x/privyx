@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-27
+
 ### Added
 
 - **Docker:** Docker Hub shows `docs/docker.md` as the image overview (quick start, environment variables, volumes, tags), synced by a workflow whenever the page changes. The README's `docker run` example now uses the public Docker Hub image
@@ -142,7 +144,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/ohp1x/privyx/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ohp1x/privyx/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ohp1x/privyx/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ohp1x/privyx/releases/tag/v0.1.0
