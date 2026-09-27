@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Docs:** security issues and Code of Conduct violations are reported through GitHub's private vulnerability reporting. The `security@privyx.io` address the docs gave has no mailbox behind it, so reports sent there were lost
 - **Detector:** the Anthropic LLM detector allows 4096 output tokens per call (was 1024), so the span list for a dense 4000-character chunk is not cut off, which would now fail the scan
 
 ## [0.1.4] - 2026-09-27

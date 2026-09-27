@@ -39,4 +39,4 @@ Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore
 ## Code of Conduct
 
 This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Report
-unacceptable behavior to security@privyx.io.
+unacceptable behavior through a [private report](https://github.com/ohp1x/privyx/security/advisories/new) on GitHub.
