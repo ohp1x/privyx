@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Proxy:** a request's session is read and written once instead of once per text leaf, so long conversations no longer slow down with the sqlite or redis vault (~1.5 s → ~0.03 s per request at 300 turns). Concurrent requests on one session no longer overwrite each other's pseudonyms
+
 ## [0.1.6] - 2026-09-27
 
 ### Added

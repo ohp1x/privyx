@@ -118,21 +118,23 @@ async def transform_request(
     it descends into; config values are shared, not copied).
     """
 
-    async def transform(text: str) -> str:
-        return (await engine.transform(text, session_id=session_id)).text
-
     def rank(key: str) -> int:
         return _PREFIX_KEYS.index(key) if key in _PREFIX_KEYS else len(_PREFIX_KEYS)
 
     rebuilt: dict[str, Any] = {}
-    for key in sorted(payload, key=rank):  # stable: the rest keep their order
-        value = payload[key]
-        if key == "tools":
-            rebuilt[key] = await _drive(_descriptions(value), transform)
-        elif key in CONTENT_KEYS:
-            rebuilt[key] = await walk_async(value, transform, key)
-        else:
-            rebuilt[key] = value
+    async with engine.session_scope(session_id) as session:
+
+        async def transform(text: str) -> str:
+            return (await engine.transform(text, session=session, persist=False)).text
+
+        for key in sorted(payload, key=rank):  # stable: the rest keep their order
+            value = payload[key]
+            if key == "tools":
+                rebuilt[key] = await _drive(_descriptions(value), transform)
+            elif key in CONTENT_KEYS:
+                rebuilt[key] = await walk_async(value, transform, key)
+            else:
+                rebuilt[key] = value
     _pin_thinking(rebuilt.get("messages"))
     return {key: rebuilt[key] for key in payload}
 
@@ -176,13 +178,12 @@ async def restore_response(
     for block in content if isinstance(content, list) else []:
         if isinstance(block, dict) and block.get("type") == "thinking":
             remember_thinking(block.get("signature"), str(block.get("thinking", "")))
-    if await engine.vault.get(session_id) is None:
+    session = await engine.vault.get(session_id)
+    if session is None:
         return payload
 
-    # ponytail: one vault read per leaf (engine.restore re-fetches the session);
-    # fetch once and deanonymize through the operator if large bodies profile hot.
     async def restore(text: str) -> str:
-        return (await engine.restore(text, session_id)).text
+        return (await engine.restore(text, session_id, session=session)).text
 
     result: dict[str, Any] = await walk_async(payload, restore)
     return result
