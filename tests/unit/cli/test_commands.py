@@ -133,6 +133,73 @@ def test_inspect_session_missing_exits_nonzero(runner: CliRunner, sqlite_config:
     assert "Session not found" in result.output
 
 
+# session list / prune (show is the same command as `inspect session`)
+
+
+def test_session_list_shows_counts_not_values(runner: CliRunner, sqlite_config: Path) -> None:
+    session_id = _seed_session(sqlite_config)
+
+    result = runner.invoke(cli, ["session", "list", "-c", str(sqlite_config)])
+
+    assert result.exit_code == 0
+    assert session_id in result.output
+    assert "1 session(s)" in result.output
+    assert EMAIL not in result.output
+
+
+def test_session_prune_deletes_idle_sessions_and_audits(
+    runner: CliRunner, sqlite_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audit_log = tmp_path / "audit.log"
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(audit_log))
+    idle, active = _seed_session(sqlite_config), _seed_session(sqlite_config)
+    _age_session(sqlite_config, idle, 8 * 86400)
+    prune = ["session", "prune", "-c", str(sqlite_config), "--older-than", "7d"]
+
+    dry = runner.invoke(cli, [*prune, "--dry-run"])
+    assert dry.exit_code == 0
+    assert idle in dry.output and "Would prune 1 session(s)" in dry.output
+    assert not audit_log.exists()
+
+    result = runner.invoke(cli, prune)
+    assert result.exit_code == 0
+    assert "Pruned 1 session(s)" in result.output
+
+    listed = runner.invoke(cli, ["session", "list", "-c", str(sqlite_config)]).output
+    assert idle not in listed and active in listed
+    events = [json.loads(line) for line in audit_log.read_text().splitlines()]
+    assert [(e["event"], e["session_id"], e["reason"], e["mapping_count"]) for e in events] == [
+        ("session.deleted", idle, "prune", 1)
+    ]
+
+
+def test_session_prune_rejects_a_bare_number(runner: CliRunner, sqlite_config: Path) -> None:
+    result = runner.invoke(cli, ["session", "prune", "-c", str(sqlite_config), "--older-than", "7"])
+
+    assert result.exit_code == 2
+    assert "e.g. 7d" in result.output
+
+
+def _age_session(config: Path, session_id: str, seconds: float) -> None:
+    """Push a session's last activity ``seconds`` into the past."""
+    import asyncio
+
+    from privyx.config.loader import load_config
+    from privyx.core.builder import build_vault
+
+    async def _run() -> None:
+        vault, close = await build_vault(load_config(config))
+        try:
+            session = await vault.get(session_id)
+            assert session is not None
+            session.updated_at -= seconds
+            await vault.save(session)
+        finally:
+            await close()
+
+    asyncio.run(_run())
+
+
 def _seed_session(config: Path) -> str:
     """Write one session through the configured vault and return its id."""
     import asyncio
@@ -362,14 +429,27 @@ def test_config_show_masks_secrets(
 
 
 def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
-    """The CLI tree: proxy, run, detect, mask, unmask, inspect (session), config, doctor."""
+    """The CLI tree: proxy, run, detect, mask, unmask, inspect, session, config, doctor."""
     result = runner.invoke(cli, ["--help"])
 
-    for command in ("proxy", "run", "detect", "mask", "unmask", "inspect", "config", "doctor"):
+    for command in (
+        "proxy",
+        "run",
+        "detect",
+        "mask",
+        "unmask",
+        "inspect",
+        "session",
+        "config",
+        "doctor",
+    ):
         assert command in result.output
 
     sub = runner.invoke(cli, ["inspect", "--help"])
     assert "session" in sub.output
+    sub = runner.invoke(cli, ["session", "--help"])
+    for command in ("list", "show", "prune"):
+        assert command in sub.output
 
 
 def test_version_flag(runner: CliRunner) -> None:

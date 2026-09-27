@@ -148,6 +148,9 @@ class PrivacyEngine:
         detection = await self._detector.detect(text, context)
         detection = await self._policy.decide(detection, context)
         result = await self._operator.pseudonymize(text, detection, session, context)
+        # Every turn counts as activity, not only turns that add a mapping, so a
+        # vault TTL never expires a conversation that is still in use.
+        session.touch()
         await self._vault.save(session)
         self._audit.transform(
             session.session_id,

@@ -166,12 +166,12 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
 
     vault_type = settings.vault.type
     if vault_type == "memory":
-        return MemoryVault(), _noop
+        return MemoryVault(ttl=settings.vault.ttl), _noop
 
     if vault_type == "sqlite":
         from privyx.vault.sqlite import SQLiteVault
 
-        vault = SQLiteVault(_sqlite_path(settings.vault.dsn))
+        vault = SQLiteVault(_sqlite_path(settings.vault.dsn), ttl=settings.vault.ttl)
         await vault.connect()
         return vault, vault.close
 

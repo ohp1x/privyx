@@ -51,6 +51,24 @@ async def test_consistent_pseudonym_for_same_value() -> None:
 
 
 @pytest.mark.asyncio
+async def test_transform_keeps_a_ttl_session_alive_without_new_mappings() -> None:
+    """Last activity is the last turn, not the last turn that added a mapping."""
+    vault = MemoryVault(ttl=60)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=vault,
+    )
+    session = await engine.get_or_create_session()
+    session.updated_at -= 120
+
+    await engine.transform("nothing sensitive here", session=session)
+
+    assert await vault.get(session.session_id) is not None
+
+
+@pytest.mark.asyncio
 async def test_restore_missing_session_raises() -> None:
     engine = PrivacyEngine(
         detector=RegexDetector(),

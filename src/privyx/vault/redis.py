@@ -60,3 +60,13 @@ class RedisVault(BaseVault):
 
     async def delete(self, session_id: str) -> None:
         await self._client.delete(self._key(session_id))
+
+    async def list_sessions(self) -> list[Session]:
+        sessions = []
+        async for key in self._client.scan_iter(match=f"{_KEY_PREFIX}*"):
+            if isinstance(key, bytes):
+                key = key.decode()
+            session = await self.get(key.removeprefix(_KEY_PREFIX))
+            if session is not None:  # it expired between SCAN and GET
+                sessions.append(session)
+        return sessions

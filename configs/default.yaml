@@ -30,6 +30,7 @@ vault:
   type: memory          # memory | sqlite | redis
   dsn: sqlite+aiosqlite:///privyx.db
   redis_url: redis://localhost:6379/0
+  # ttl: 604800         # expire sessions idle this many seconds (unset = keep)
 
 # --- Detector ---
 # Omit `patterns` to use the built-in set (EMAIL, PHONE, CREDIT_CARD,

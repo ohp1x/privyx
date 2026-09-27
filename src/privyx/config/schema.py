@@ -14,7 +14,10 @@ class VaultConfig(BaseModel):
     type: str = "memory"
     dsn: str = "sqlite+aiosqlite:///privyx.db"
     redis_url: str = "redis://localhost:6379/0"
-    ttl: int | None = None
+    # Idle expiry in seconds, measured from a session's last transform.  Unset
+    # keeps sessions until deleted; 0 is rejected (it would expire every
+    # session on creation, and Redis refuses it).
+    ttl: int | None = Field(default=None, gt=0)
 
 
 class DetectorCacheConfig(BaseModel):
