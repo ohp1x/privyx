@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Docker:** Docker Hub shows `docs/docker.md` as the image overview (quick start, environment variables, volumes, tags), synced by a workflow whenever the page changes. The README's `docker run` example now uses the public Docker Hub image
 
+### Fixed
+
+- **Docker:** Images are built for `linux/arm64` as well as `linux/amd64`. v0.1.2 shipped amd64 only, so pulling it on Apple Silicon or an ARM server failed with "no matching manifest"
+- **Docker:** The image no longer ships pytest, ruff, mypy, and the other development tools. `dev` is an optional extra, so `--all-extras` installed it despite `--no-dev`; the image now installs 14 fewer packages
+
 ## [0.1.2] - 2026-09-27
 
 ### Added

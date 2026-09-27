@@ -11,15 +11,17 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Install dependencies in a separate layer to maximize cache reuse
+# Install dependencies in a separate layer to maximize cache reuse.  `dev` is
+# an optional extra here, not a dependency group, so --no-dev alone would not
+# keep pytest, ruff, and mypy out: --no-extra dev does.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev --all-extras
+    uv sync --frozen --no-install-project --no-dev --all-extras --no-extra dev
 
 COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable --all-extras
+    uv sync --frozen --no-dev --no-editable --all-extras --no-extra dev
 
 # Install default spaCy model for the presidio extra
 RUN --mount=type=cache,target=/root/.cache/uv \
