@@ -104,15 +104,15 @@ pseudonyms stay the same across turns and restarts. See
 
 ## Mask secrets as well
 
-With no config file, Privyx detects five kinds of values: email addresses,
-phone numbers, credit card numbers, IP addresses, and US social security
-numbers. It does not detect API keys, passwords, or names.
+With no config file, Privyx detects email addresses, phone numbers, credit
+card numbers, IP addresses, US social security numbers, and secrets with a
+recognizable shape: vendor API keys, bearer tokens, JWTs, private keys, and
+passwords in URLs. It does not detect other passwords or names.
 
 The repository's
 [`configs/default.yaml`](https://github.com/ohp1x/privyx/blob/main/configs/default.yaml)
-adds patterns for secrets: vendor API keys, bearer tokens, JWTs, private keys,
-passwords in URLs, and values assigned to secret-looking names. Download it and
-pass it with `-c`:
+adds a pattern for values assigned to secret-looking names (`password=…`,
+`api_key: …`). Download it and pass it with `-c`:
 
 ```bash
 privyx proxy -c default.yaml --upstream https://api.openai.com

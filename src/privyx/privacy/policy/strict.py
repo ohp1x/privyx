@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from privyx.core.context import Context
 from privyx.core.result import Detection
+from privyx.privacy.detector.builtin import DEFAULT_PATTERNS
 from privyx.privacy.policy.base import BasePolicy
 
 
@@ -11,14 +12,15 @@ class StrictPolicy(BasePolicy):
     """Only pass through detections whose entity type is in ``allowed_types``.
 
     Args:
-        allowed_types: Set of entity type strings to keep.
+        allowed_types: Set of entity type strings to keep.  Empty or ``None``
+            means the built-in entities.
     """
 
     name = "strict"
 
     def __init__(self, allowed_types: set[str] | None = None) -> None:
         super().__init__()
-        self._allowed = allowed_types or {"EMAIL", "PHONE", "SSN", "CREDIT_CARD", "IP_ADDRESS"}
+        self._allowed = allowed_types or set(DEFAULT_PATTERNS)
 
     def _decide_sync(self, detection: Detection, context: Context) -> Detection:
         filtered = Detection()

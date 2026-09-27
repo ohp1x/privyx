@@ -134,7 +134,7 @@ escapes them and matches case-insensitively, longest term first:
 ```yaml
 # my.yaml
 detector:
-  type: regex                 # keeps the built-in EMAIL/PHONE/CREDIT_CARD/IP_ADDRESS/SSN
+  type: regex                 # keeps the built-in patterns (PII and secrets)
   terms:
     PERSON:       [ann, bob]
     ORGANIZATION: [acme, initech]
