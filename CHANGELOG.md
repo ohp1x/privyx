@@ -9,9 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Docker:** Release tags now publish a Docker image to GHCR (`ghcr.io/ohp1x/privyx`), and to Docker Hub when the `DOCKERHUB_USERNAME` repo variable and `DOCKERHUB_TOKEN` secret are set. Images are tagged `X.Y.Z` and `X.Y`; `latest` moves only on stable releases, never on rc/alpha/beta/dev tags
+- **Config:** `PRIVYX_API_KEY` sets `provider.api_key`, the provider-independent counterpart of `PRIVYX_UPSTREAM_URL`. It works in both proxy modes and with `provider.type: generic`, where no per-provider variable applies
 
 ### Fixed
 
+- **Proxy:** the transparent proxy resolves its upstream key like the gateway: `PRIVYX_<TYPE>_API_KEY` (`provider.<type>_api_key`) first, then `provider.api_key`. It used to read only `provider.api_key`, so `PRIVYX_OPENAI_API_KEY` / `PRIVYX_ANTHROPIC_API_KEY`, which `configs/default.yaml` pointed at, were ignored and the client's key was relayed instead. If you run the transparent proxy with `provider.type` set and one of those variables exported, that key now replaces the client's
 - **Proxy:** `proxy.passthrough_unknown: false` now takes effect. The option was never read, so the transparent proxy forwarded unrouted paths (embeddings, Gemini-native `generateContent`, …) unmasked whatever it was set to. With `false`, it answers them with a 403 and forwards nothing
 
 ## [0.1.1] - 2026-09-27

@@ -23,19 +23,21 @@ proxy:
   routes:
     /v1/chat/completions: openai
 provider:
-  type: openai
+  type: generic
   base_url: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
 ```
 
 ```bash
-export PRIVYX_OPENAI_API_KEY=<your Gemini API key>
+export PRIVYX_API_KEY=<your Gemini API key>
 privyx proxy -c privyx.yaml
 ```
 
-The gateway does not relay the client's key; Privyx sends its own. With
-`provider.type: openai` that key is read from `PRIVYX_OPENAI_API_KEY` (or
-`provider.api_key`), not `PRIVYX_GOOGLE_API_KEY`. Narrowing `routes` to the one
-chat path keeps Anthropic and Responses requests from being posted to Gemini.
+The gateway does not relay the client's key; Privyx sends its own, from
+`PRIVYX_API_KEY` (or `provider.api_key`). `provider.type: generic` matters here:
+with `openai`, an exported `PRIVYX_OPENAI_API_KEY` would take precedence and
+your OpenAI key would be sent to Google. The wire schema comes from `routes`,
+not from the provider type. Narrowing `routes` to the one chat path keeps
+Anthropic and Responses requests from being posted to Gemini.
 
 ```python
 from openai import OpenAI

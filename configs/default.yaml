@@ -171,12 +171,16 @@ token:
   # format: "<{namespace}:{type}:{id}>"    # -> <PRIVYX:EMAIL:1>
 
 # --- Provider ---
-# Resolution order for the upstream URL:
-#   upstream_url  →  provider.base_url  →  the default for provider.type
+# Resolution order, the same in gateway and transparent mode:
+#   URL:  upstream_url  →  provider.base_url  →  the default for provider.type
+#   key:  PRIVYX_<TYPE>_API_KEY  →  provider.api_key / PRIVYX_API_KEY  →  none
+# <TYPE> is provider.type (OPENAI, ANTHROPIC).  With no key the transparent
+# proxy relays the client's own.  Keys have no CLI flag: a command line leaks
+# into shell history and `ps`.
 provider:
   type: generic          # generic | openai | anthropic
   base_url: ""           # empty → http://localhost:20128 for `generic`
-  api_key: ""            # or PRIVYX_OPENAI_API_KEY / PRIVYX_ANTHROPIC_API_KEY
+  api_key: ""            # or PRIVYX_API_KEY; keep real keys out of this file
   headers: {}
 
 # --- Audit ---

@@ -11,6 +11,7 @@ from privyx.providers.registry import (
     DEFAULT_BASE_URLS,
     build_provider,
     default_registry,
+    resolve_api_key,
     resolve_base_url,
 )
 
@@ -79,6 +80,23 @@ def test_per_provider_api_key_beats_the_generic_one() -> None:
     provider = build_provider(settings)
 
     assert provider._api_key == "specific"  # noqa: SLF001
+
+
+def test_api_key_resolution_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-type key → ``provider.api_key`` → ``None``; ``generic`` has no per-type key."""
+    for var in ("PRIVYX_API_KEY", "PRIVYX_OPENAI_API_KEY", "PRIVYX_ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+    def key(**provider: str) -> str | None:
+        return resolve_api_key(load_config(extra={"provider": provider}))
+
+    assert key(type="openai", api_key="generic", openai_api_key="specific") == "specific"
+    assert key(type="openai", api_key="generic") == "generic"
+    assert key(type="generic", openai_api_key="specific") is None
+    assert key(type="generic") is None
+
+    monkeypatch.setenv("PRIVYX_API_KEY", "from-env")
+    assert key(type="generic") == "from-env"
 
 
 def test_anthropic_provider_sets_the_version_header() -> None:

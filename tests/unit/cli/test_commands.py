@@ -552,7 +552,7 @@ def test_proxy_ssl_requires_both_cert_and_key(runner: CliRunner) -> None:
     assert "Both --ssl-certfile and --ssl-keyfile are required" in result.output
 
 
-async def test_serve_transparent_wires_passthrough_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_serve_transparent_wires_proxy_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("uvicorn")
     from privyx.cli.commands.proxy import _serve_transparent
     from privyx.config.loader import load_config
@@ -567,9 +567,15 @@ async def test_serve_transparent_wires_passthrough_unknown(monkeypatch: pytest.M
         raise Built  # stop before uvicorn starts
 
     monkeypatch.setattr("privyx.proxy.transparent.TransparentProxy", fake_proxy)
-    settings = load_config(extra={"proxy": {"passthrough_unknown": False}})
+    settings = load_config(
+        extra={
+            "proxy": {"passthrough_unknown": False},
+            "provider": {"type": "openai", "openai_api_key": "sk-per-type"},
+        }
+    )
 
     with pytest.raises(Built):
         await _serve_transparent(settings, engine=None, audit=None)
 
     assert captured["passthrough_unknown"] is False
+    assert captured["api_key"] == "sk-per-type"  # same resolution as the gateway
