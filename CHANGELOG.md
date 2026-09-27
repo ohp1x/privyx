@@ -6,14 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Added
+## [0.1.4] - 2026-09-27
 
-- **Detector:** the LLM detector takes `llm_timeout` (seconds for the whole scan, default 30) and fails the request with a `DetectorError` when it runs out, instead of waiting on the SDK's own minutes-long timeout. `llm_fallback_on_error: true` scans with the built-in regex patterns instead of failing; it is off by default because the fallback misses what only the LLM catches. A fallback result is never cached, so the next turn tries the LLM again
-- **Detector:** text longer than `llm_max_chars` (default 4000) is sent to the LLM in overlapping chunks, scanned concurrently, so long prompts no longer rely on one call returning every offset
-- **Audit:** `session.transform` carries `detector_counts` with `llm_calls`, estimated `llm_input_tokens` / `llm_output_tokens`, and `llm_fallbacks`, and is recorded even when the LLM found nothing to mask. `/metrics` serves them as `privyx_detector_counts_total` and `privyx audit stats` prints them. Plugin detectors can report their own counts through `Context.counters`
+### Added
 
 - **CLI:** `privyx audit stats [FILE] [--since 24h]` summarizes the audit log: requests, responses with average duration, errors by phase, sessions created and deleted, entities masked by type, and pseudonyms restored. `privyx audit tail [FILE] [-n N] [--no-follow]` prints recent events one readable line each and follows new ones, surviving a `copytruncate` rotation. `FILE` defaults to `audit.path`
 - **Proxy:** `GET /metrics` in both proxy modes serves Prometheus-format counters of audit events, masked entities by type, errors by phase, restored pseudonyms, and response duration. They are counted in memory from startup, so they also work with `audit.enabled: false`. The endpoint needs no key, like `/health`
+- **Detector:** `llm_fallback_on_error: true` lets requests through when the LLM detector fails or times out, scanned with the built-in regex patterns instead. It is off by default because the fallback misses what only the LLM catches (names, organizations). Each fallback is logged, and the result is never cached, so the next turn tries the LLM again
+- **Audit:** `session.transform` carries `detector_counts` with `llm_calls`, estimated `llm_input_tokens` / `llm_output_tokens`, and `llm_fallbacks`, and is recorded even when the LLM found nothing to mask. `/metrics` serves them as `privyx_detector_counts_total` and `privyx audit stats` prints them. Plugin detectors can report their own counts through `Context.counters`
+
+### Changed
+
+- **Detector:** an LLM scan now fails the request with a `DetectorError` after `llm_timeout` seconds (default 30, covering every chunk), instead of waiting on the SDK's own minutes-long timeout. Raise `llm_timeout` if your scans legitimately take longer
+- **Detector:** text longer than `llm_max_chars` (default 4000) is sent to the LLM in overlapping chunks, scanned concurrently, so long prompts no longer rely on one call returning every offset. Each chunk is its own LLM call
 
 ## [0.1.3] - 2026-09-27
 
@@ -153,7 +158,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/ohp1x/privyx/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/ohp1x/privyx/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/ohp1x/privyx/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ohp1x/privyx/compare/v0.1.0...v0.1.1
