@@ -203,7 +203,9 @@ class TransparentProxy:
             self._audit.set_session(sid)
 
             out_body = body
+            transform_ms: float | None = None
             if isinstance(payload, dict):
+                transform_start = time.perf_counter()
                 try:
                     transformed = await transform_request(payload, self._engine, sid)
                 except Exception as exc:
@@ -220,6 +222,7 @@ class TransparentProxy:
                         media_type=_JSON,
                         body=json.dumps(SCAN_FAILED_BODY).encode(),
                     )
+                transform_ms = _elapsed_ms(transform_start)
                 out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
             self._audit.flush_transform()
 
@@ -264,6 +267,7 @@ class TransparentProxy:
                 duration_ms=_elapsed_ms(start),
                 upstream=self._upstream_host,
                 request_id=req_id,
+                transform_ms=transform_ms,
             )
 
             if is_stream:

@@ -72,6 +72,7 @@ The upstream returned response headers (time to first byte).
 | `status` | int | Upstream HTTP status. |
 | `stream` | bool | Whether the response is an SSE stream. |
 | `duration_ms` | float | Time to the upstream response **headers** (not the whole stream). |
+| `transform_ms` | float | The part of `duration_ms` spent masking the request (detection, pseudonymization, and the session's vault read and write); the rest is mostly the upstream. Absent when no body was masked (a path outside `proxy.routes`, a body that is not JSON). |
 | `upstream` | string | Upstream host. |
 
 ### `proxy.response`

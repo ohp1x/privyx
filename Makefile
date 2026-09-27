@@ -1,4 +1,4 @@
-.PHONY: install dev test coverage e2e lint format check vulns docs run proxy clean
+.PHONY: install dev test coverage e2e bench lint format check vulns docs run proxy clean
 
 install:
 	uv sync --all-extras
@@ -15,6 +15,10 @@ coverage:
 e2e:
 	uv run python scripts/e2e_claude.py
 	uv run python scripts/e2e_claude.py --transparent
+
+# Timing of the request path; numbers vary by machine, so not run in CI.
+bench:
+	uv run python scripts/benchmark.py
 
 lint:
 	uv run ruff check src tests

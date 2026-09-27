@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Audit:** `proxy.request` records `transform_ms`, the part of the time to the upstream's headers spent masking the request, so the trail shows how much of a slow request is Privyx and how much the upstream
+
 ### Fixed
 
 - **Proxy:** a request's session is read and written once instead of once per text leaf, so long conversations no longer slow down with the sqlite or redis vault (~1.5 s → ~0.03 s per request at 300 turns). Concurrent requests on one session no longer overwrite each other's pseudonyms
