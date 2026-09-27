@@ -35,6 +35,11 @@ markdown_extensions:
       permalink: true
   - pymdownx.highlight
   - pymdownx.superfences
+  # `--8<-- "examples/basic.py"` embeds a repository file, so the docs show the
+  # file as it is; a missing file fails the build.
+  - pymdownx.snippets:
+      base_path: [.]
+      check_paths: true
 
 # `mkdocs build --strict` fails on these, so a broken #anchor or a page left
 # out of the nav is caught in CI.
@@ -44,7 +49,15 @@ validation:
 
 nav:
   - Home: index.md
-  - Docker: docker.md
+  - Guide:
+      - Getting started: guide/getting-started.md
+      - Examples: guide/examples.md
+      - Configuration: guide/configuration.md
+      - Detection: guide/detection.md
+      - Masking: guide/masking.md
+      - Sessions and vault: guide/sessions.md
+      - CLI reference: guide/cli.md
+      - Docker: docker.md
   - Architecture:
       - Overview: architecture/overview.md
       - Privacy engine: architecture/privacy-engine.md
