@@ -72,7 +72,9 @@ URL_CREDENTIAL_PATTERN = (
 #: Built-in entity patterns.  A ``regex`` detector built from config layers its
 #: own patterns over these (:func:`privyx.privacy.detector.yaml.build_detector`).
 DEFAULT_PATTERNS: dict[str, str] = {
-    "EMAIL": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+    # Capped at the RFC 5321 lengths to stay linear: with `+`, every start in a
+    # long run without `@` (hex, base64) rescanned the rest of the run.
+    "EMAIL": r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,63}",
     "PHONE": PHONE_PATTERN,
     "CREDIT_CARD": r"\b(?:\d[ -]*?){13,16}\b",
     "IP_ADDRESS": r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
