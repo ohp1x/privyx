@@ -23,8 +23,16 @@ from privyx.core.errors import ConfigError
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = dict(base)
     for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
+        current = result.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            result[key] = _deep_merge(current, value)
+        elif isinstance(current, list) and isinstance(value, dict):
+            # A section given as a list (`detector: [...]`) takes a mapping
+            # override such as PRIVYX_DETECTOR_CACHE into each item.  Replacing
+            # the list would silently drop the detectors it names.
+            result[key] = [
+                _deep_merge(item, value) if isinstance(item, dict) else item for item in current
+            ]
         else:
             result[key] = value
     return result

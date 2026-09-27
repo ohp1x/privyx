@@ -1,13 +1,6 @@
-"""Default configuration values.
-
-Entity patterns are imported from :mod:`privyx.privacy.detector.builtin` rather
-than duplicated, so the code-level defaults and the config-level defaults
-cannot drift apart.
-"""
+"""Default configuration values."""
 
 from __future__ import annotations
-
-from privyx.privacy.detector.builtin import DEFAULT_PATTERNS
 
 DEFAULTS: dict[str, object] = {
     "host": "127.0.0.1",
@@ -26,7 +19,10 @@ DEFAULTS: dict[str, object] = {
     },
     "detector": {
         "type": "regex",
-        "patterns": dict(DEFAULT_PATTERNS),
+        # Empty: the `regex` detector adds the built-in patterns itself.  A copy
+        # here would be merged into a `yaml` detector, which must see only the
+        # patterns it is given.
+        "patterns": {},
         # Literal term lists (entity -> list of strings); empty by default.
         "terms": {},
     },
