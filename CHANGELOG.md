@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Detector:** an LLM reply with no JSON array in it (prose, an empty reply, or an array cut off at the token limit) used to count as "no PII found", so the text went upstream with only the other detectors' masking and no sign of it in the audit trail. It now fails the scan like a timeout: the request fails, or falls back to regex under `llm_fallback_on_error` and is counted as `llm_fallbacks`. An array wrapped in a code fence or prose is still read
+- **Detector:** LLM spans are located by the text the model reports, not its character offsets. Models miscount characters, and an offset that still landed inside the text masked the wrong words and let the real value through. Every whole-word, case-insensitive occurrence of the reported text is now masked; reported text that does not occur is dropped. Offsets are used only for a span given without text
+
+### Changed
+
+- **Detector:** the Anthropic LLM detector allows 4096 output tokens per call (was 1024), so the span list for a dense 4000-character chunk is not cut off, which would now fail the scan
+
 ## [0.1.4] - 2026-09-27
 
 ### Added

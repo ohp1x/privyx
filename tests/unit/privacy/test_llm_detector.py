@@ -4,8 +4,8 @@ The LLM SDKs themselves are optional extras, so these tests inject a
 stand-in client that implements the ``LLMClient`` protocol directly. What is
 actually at risk here is not the model's judgment (that is the model's
 problem) but the seam around it: whether a config can select it, how a
-response is parsed into spans, and that a malformed/empty response never
-raises instead of yielding no spans.
+response is parsed into spans, and that a reply the model botched fails the
+scan instead of passing for "no PII found".
 """
 
 from __future__ import annotations
@@ -99,12 +99,31 @@ async def test_custom_instructions_replace_the_default_prompt() -> None:
         "not json at all",
         "{}",
         "null",
-        "[1, 2]",
-        '[["not", "an", "int"]]',
         "",
+        '[[0, 3, "PERSON", "Ana"]',  # cut off mid-array (out of tokens)
     ],
 )
-async def test_malformed_or_empty_responses_yield_no_spans_without_raising(response: str) -> None:
+async def test_a_reply_without_a_json_array_fails_the_scan(response: str) -> None:
+    detector = LLMDetector(client=_FakeLLMClient(response))
+
+    with pytest.raises(DetectorError) as info:
+        await detector.detect("some text", Context())
+    # Exactly this: the reply, which may repeat the scanned text, is never quoted.
+    assert str(info.value) == "LLM detector failed: reply is not a JSON array of spans"
+
+
+async def test_a_botched_reply_falls_back_when_allowed() -> None:
+    context = Context()
+    detector = LLMDetector(client=_FakeLLMClient("Sure! Here you go."), fallback_on_error=True)
+
+    detection = await detector.detect("mail ann@example.com", context)
+
+    assert [s.entity_type for s in detection.spans] == ["EMAIL"]
+    assert context.counters["llm_fallbacks"] == 1
+
+
+@pytest.mark.parametrize("response", ["[1, 2]", '[["not", "an", "int"]]', "[]"])
+async def test_malformed_spans_are_dropped_without_failing_the_reply(response: str) -> None:
     detector = LLMDetector(client=_FakeLLMClient(response))
 
     detection = await detector.detect("some text", Context())
@@ -112,14 +131,46 @@ async def test_malformed_or_empty_responses_yield_no_spans_without_raising(respo
     assert detection.spans == []
 
 
-async def test_an_out_of_range_offset_is_dropped_rather_than_raising() -> None:
-    """A span whose offsets do not land on real text contributes nothing."""
-    client = _FakeLLMClient('[[0, 999, "PERSON", "whatever"]]')
-    detector = LLMDetector(client=client)
+@pytest.mark.parametrize(
+    "response",
+    [
+        '```json\n[[0, 3, "PERSON", "Ana"]]\n```',
+        'Here are the spans: [[0, 3, "PERSON", "Ana"]] Let me know!',
+    ],
+)
+async def test_an_array_wrapped_in_a_fence_or_prose_is_still_read(response: str) -> None:
+    detector = LLMDetector(client=_FakeLLMClient(response))
 
-    detection = await detector.detect("hi", Context())
+    detection = await detector.detect("Ana called", Context())
+
+    assert [(s.start, s.text) for s in detection.spans] == [(0, "Ana")]
+
+
+async def test_spans_follow_the_reported_text_not_the_offsets() -> None:
+    """A miscounted offset must not mask the wrong words and leak the name."""
+    text = "Call Ana, then ana again; bananas are fine."
+    detector = LLMDetector(client=_FakeLLMClient('[[1, 4, "PERSON", "Ana"]]'))
+
+    detection = await detector.detect(text, Context())
+
+    # Every whole-word occurrence, case-insensitively; never inside "bananas".
+    assert [(s.start, s.text) for s in detection.spans] == [(5, "Ana"), (15, "ana")]
+
+
+async def test_reported_text_that_does_not_occur_is_dropped() -> None:
+    detector = LLMDetector(client=_FakeLLMClient('[[0, 2, "PERSON", "Zed"]]'))
+
+    detection = await detector.detect("hi there", Context())
 
     assert detection.spans == []
+
+
+async def test_offsets_are_used_for_a_span_without_text() -> None:
+    detector = LLMDetector(client=_FakeLLMClient('[[5, 8, "PERSON"], [0, 999, "PERSON"]]'))
+
+    detection = await detector.detect("Call Ana", Context())
+
+    assert [(s.start, s.text) for s in detection.spans] == [(5, "Ana")]  # out of range dropped
 
 
 async def test_client_failure_is_wrapped_in_a_detector_error() -> None:

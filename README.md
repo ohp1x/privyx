@@ -171,7 +171,8 @@ detector:
     llm_fallback_on_error: false
 ```
 
-If the LLM detector fails or times out, the request fails rather than reach the
+If the LLM detector fails, times out, or replies without a JSON array of spans
+(it chatted, or ran out of tokens), the request fails rather than reach the
 upstream with a weaker scan. `llm_fallback_on_error: true` keeps traffic flowing
 by scanning with the built-in regex patterns instead, which lets through
 whatever only the LLM would have caught (names, organizations). Each fallback is
