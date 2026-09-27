@@ -8,6 +8,7 @@ direct ``TransparentProxy.handle`` tests skip.  The upstream is still a mock.
 
 from __future__ import annotations
 
+import io
 import json
 from typing import Any
 
@@ -18,7 +19,9 @@ pytest.importorskip("fastapi")
 import httpx  # noqa: E402
 
 from privyx.core.engine import PrivacyEngine  # noqa: E402
+from privyx.core.errors import DetectorError  # noqa: E402
 from privyx.gateway.transparent import create_transparent_app  # noqa: E402
+from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
 from privyx.privacy.operator.pseudonym import PseudonymOperator  # noqa: E402
 from privyx.privacy.policy.default import DefaultPolicy  # noqa: E402
@@ -122,6 +125,43 @@ async def test_metrics_count_proxied_exchanges() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/plain")
     assert 'privyx_audit_events_total{event="proxy.response"} 1' in response.text
+
+
+class _BrokenDetector:
+    name = "broken"
+
+    async def detect(self, text: str, context: Any) -> Any:
+        raise DetectorError(f"boom while reading {text}")
+
+
+async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
+    seen: list[bytes] = []
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    vault = MemoryVault()
+    engine = PrivacyEngine(
+        detector=_BrokenDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=vault,
+        audit=audit,
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+        metrics = (await client.get("/metrics")).text
+
+    assert response.status_code == 503
+    assert response.json()["error"]["type"] == "privyx_scan_failed"
+    assert EMAIL not in response.text  # the exception message is not echoed
+    assert seen == []  # fail-closed: nothing reached the upstream
+    errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
+    assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "DetectorError")]
+    assert 'privyx_proxy_errors_total{phase="transform"} 1' in metrics
+    assert await vault.list_sessions() == []  # the ephemeral session was cleaned up
 
 
 async def test_chat_batch_round_trip_through_app() -> None:

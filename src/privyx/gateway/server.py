@@ -29,6 +29,7 @@ from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.streaming import AuditedStream
+from privyx.proxy.transparent import SCAN_FAILED_BODY, log_scan_failure
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.utils.ids import request_id as new_request_id
 
@@ -121,7 +122,6 @@ class Gateway:
         proxy = self._proxies[schema]
 
         async def handler(request: Request) -> Any:
-            from fastapi import HTTPException
             from fastapi.responses import JSONResponse, StreamingResponse
 
             start = time.perf_counter()
@@ -142,12 +142,25 @@ class Gateway:
                 ephemeral = source == "ephemeral"
                 is_stream = bool(payload.get("stream", False))
 
-                transformed, session_id = await proxy.process_request(
-                    payload, session_id=session_id, source=source
-                )
-
-                if session_id is None:
-                    raise HTTPException(status_code=500, detail="session creation failed")
+                # Created here rather than inside process_request so that the
+                # finally below knows the id and cleans up an ephemeral session
+                # even when masking fails part-way.
+                session = await self._engine.get_or_create_session(session_id, source=source)
+                session_id = session.session_id
+                try:
+                    transformed, _ = await proxy.process_request(
+                        payload, session_id=session_id, source=source
+                    )
+                except Exception as exc:
+                    self._audit.error(
+                        phase="transform",
+                        error_type=type(exc).__name__,
+                        session_id=session_id,
+                        request_id=req_id,
+                        duration_ms=_elapsed_ms(start),
+                    )
+                    log_scan_failure(exc)
+                    return JSONResponse(SCAN_FAILED_BODY, status_code=503)
 
                 self._audit.set_session(session_id)
                 self._audit.flush_transform()

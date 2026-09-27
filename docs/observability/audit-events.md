@@ -91,7 +91,7 @@ An exchange failed.
 
 | field | type | notes |
 |---|---|---|
-| `phase` | string | Where it broke: `upstream`, `stream`, `response`, or `cleanup`. |
+| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `upstream`, `stream`, `response`, or `cleanup`. |
 | `error_type` | string | The exception's **class name** — never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |
@@ -140,6 +140,11 @@ from startup, so they work with `audit.enabled: false` and reset on restart:
 
 `/metrics` needs no key, like `/health`; it exposes counts only, but keep it off
 networks where traffic volume should stay private.
+
+**Rotation.** Privyx opens `audit.path` once and keeps appending to that open
+file, so rotate it with logrotate's `copytruncate`: a rotation that moves the
+file away leaves Privyx writing to the moved file until it restarts.
+`privyx audit tail` follows a truncated file from the top.
 
 The file is append-only JSON Lines: tail it, `jq` it, or bulk-load it. Because
 each line is self-describing (versioned envelope, flat fields) it maps directly to

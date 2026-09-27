@@ -172,8 +172,8 @@ detector:
 ```
 
 If the LLM detector fails, times out, or replies without a JSON array of spans
-(it chatted, or ran out of tokens), the request fails rather than reach the
-upstream with a weaker scan. `llm_fallback_on_error: true` keeps traffic flowing
+(it chatted, or ran out of tokens), the request fails with `503`
+(`privyx_scan_failed`) rather than reach the upstream with a weaker scan. `llm_fallback_on_error: true` keeps traffic flowing
 by scanning with the built-in regex patterns instead, which lets through
 whatever only the LLM would have caught (names, organizations). Each fallback is
 logged and counted in the audit trail as `detector_counts.llm_fallbacks`,

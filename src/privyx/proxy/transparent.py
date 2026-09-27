@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
@@ -50,6 +51,18 @@ from privyx.utils.ids import request_id as new_request_id
 
 _JSON = "application/json"
 _SSE = "text/event-stream"
+_log = logging.getLogger(__name__)
+
+#: Body of the 503 returned when a request cannot be masked (a detector failed
+#: or timed out).  Fail-closed: the request is not forwarded.  No exception text:
+#: it could quote the request, or an SDK error could.
+SCAN_FAILED_BODY = {
+    "error": {
+        "type": "privyx_scan_failed",
+        "message": "privyx could not scan this request for sensitive data, "
+        "so it was not forwarded; see the privyx logs",
+    }
+}
 
 
 def _elapsed_ms(start: float) -> float:
@@ -190,7 +203,22 @@ class TransparentProxy:
 
             out_body = body
             if isinstance(payload, dict):
-                transformed = await transform_request(payload, self._engine, sid)
+                try:
+                    transformed = await transform_request(payload, self._engine, sid)
+                except Exception as exc:
+                    self._audit.error(
+                        phase="transform",
+                        error_type=type(exc).__name__,
+                        session_id=sid,
+                        request_id=req_id,
+                        duration_ms=_elapsed_ms(start),
+                    )
+                    log_scan_failure(exc)
+                    return ProxyResponse(
+                        status_code=503,
+                        media_type=_JSON,
+                        body=json.dumps(SCAN_FAILED_BODY).encode(),
+                    )
                 out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
             self._audit.flush_transform()
 
@@ -407,6 +435,16 @@ class TransparentProxy:
             media_type=content_type or None,
             body=data,
         )
+
+
+def log_scan_failure(exc: Exception) -> None:
+    """Log a masking failure: the class at WARNING, the traceback only at DEBUG.
+
+    The message stays out of the console because it may quote request text;
+    ``log_file`` at DEBUG, which is owner-only, keeps the full traceback.
+    """
+    _log.warning("request not forwarded: %s while masking it", type(exc).__name__)
+    _log.debug("masking failed", exc_info=exc)
 
 
 def _ci_get(headers: Mapping[str, str], name: str) -> str:
