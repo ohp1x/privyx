@@ -11,8 +11,6 @@ changing your application code.
 
 ```bash
 pip install privyx
-# or
-uv add privyx
 ```
 
 Or run the published image: see [Docker](docker.md).
@@ -33,12 +31,12 @@ export ANTHROPIC_BASE_URL=http://localhost:8000      # Anthropic clients
 
 ## Where to go next
 
-- [Proxy](architecture/proxy.md) — transparent and gateway modes, routes, sessions
-- [Privacy engine](architecture/privacy-engine.md) — detectors, policies, operators, anchors
-- [Providers](providers/openai.md) — OpenAI, Anthropic, Google Gemini, and any OpenAI-compatible API
+- [Getting started](guide/getting-started.md) — install, first proxy, `privyx run`
+- [Examples](guide/examples.md) — OpenAI and Anthropic SDKs, curl, coding tools, config recipes
+- [Configuration](guide/configuration.md) — the config file, environment variables, and every setting
+- [Detection](guide/detection.md) — built-in patterns, secrets, word lists, Presidio, the LLM detector
+- [Masking](guide/masking.md) — operators, token format, anchors
+- [Sessions and vault](guide/sessions.md) — session strategies, vault backends, expiry
+- [CLI reference](guide/cli.md) — every command and option
+- [Proxy architecture](architecture/proxy.md) — transparent and gateway modes, routes, streaming
 - [Threat model](security/threat-model.md) — what Privyx protects against, and what it does not
-- [Audit events](observability/audit-events.md) — the PII-safe audit trail and `/metrics`
-- [Plugins](development/plugins.md) — custom detectors, operators, and providers
-
-The [README](https://github.com/ohp1x/privyx#readme) covers the CLI and
-configuration in more detail.

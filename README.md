@@ -211,6 +211,9 @@ pip install privyx
 uv add privyx
 ```
 
+Optional extras: `sqlite`, `redis`, `providers` (LLM detector), `presidio`, `faker`, `crypto`.
+See [Getting started](https://ohp1x.github.io/privyx/guide/getting-started/).
+
 ## Documentation
 
 The documentation site at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/)

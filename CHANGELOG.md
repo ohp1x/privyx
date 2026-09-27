@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Docs:** the documentation is published at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/), built from `docs/` with MkDocs Material on every push to `main`. Pull requests that touch the docs build them with `--strict`, so a broken link or a page missing from the navigation fails the check. `make docs` serves the site locally
+- **Docs:** a user guide: getting started, a configuration reference covering every setting and environment variable, detection (built-in patterns, secrets, word lists, Presidio, the LLM detector, policies), masking (operators, token format, anchors), sessions and vaults, a CLI reference, and examples for the OpenAI and Anthropic SDKs, curl, and coding tools. The example scripts and config files are embedded from `examples/` and `configs/`, so the pages show them as they are. Tests fail when a setting, environment variable, or CLI option is missing from its reference page, or when a script in `examples/` stops running
 
 ### Changed
 

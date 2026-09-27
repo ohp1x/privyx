@@ -1,0 +1,173 @@
+# CLI reference
+
+Every command that reads configuration takes `-c` / `--config FILE`, which
+defaults to `PRIVYX_CONFIG` and then to the built-in defaults. See
+[Configuration](configuration.md). `privyx --version` prints the version.
+
+## `privyx proxy`
+
+Start the privacy proxy.
+
+```bash
+privyx proxy [-c FILE] [--host HOST] [--port PORT] [-u URL] [--transparent | --gateway] [--reload]
+```
+
+| Option | Description |
+|---|---|
+| `--host` | Bind address. Default `127.0.0.1`. |
+| `--port` | Bind port. Default `8000`. |
+| `-u`, `--upstream` | Upstream provider URL. Wins over the config file. |
+| `--transparent` / `--gateway` | Forward every path to the upstream origin, or serve the chat-only gateway. Default: `proxy.mode`, which is `transparent`. |
+| `--reload` | Restart the server when the config file changes. For development; an in-memory vault starts empty after each restart. |
+| `--ssl-certfile`, `--ssl-keyfile` | Serve HTTPS with this certificate and key (PEM). Both are required. |
+| `--ssl-keyfile-password` | Password for an encrypted key. |
+| `--ssl-ca-certs` | CA bundle (PEM). |
+
+Besides the proxied paths, the server answers `GET /health` and `GET /metrics` (Prometheus text), neither of which needs a
+key.
+
+## `privyx run`
+
+Start a proxy on a local port, run a tool against it, and stop the proxy when
+the tool exits. The exit code is the tool's.
+
+```bash
+privyx run [OPTIONS] TARGET [ARGS]...
+privyx run claude
+privyx run claude -- --continue      # arguments after -- go to the tool
+privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --flag
+```
+
+| Option | Description |
+|---|---|
+| `-p`, `--provider` | Provider type upstream (`openai`, `anthropic`, `generic`). Known targets set it for you. |
+| `-u`, `--upstream` | Upstream URL. Default: the provider type's default. |
+| `--port` | Proxy port. `0` (default) picks a free one. |
+| `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
+| `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
+| `--no-anchor` | Do not create an anchor secret in `~/.config/privyx/anchor.key`. |
+| `--list` | List the known targets and exit. |
+
+Known targets:
+
+| Target | Provider | Variables set |
+|---|---|---|
+| `claude` | `anthropic` | `ANTHROPIC_BASE_URL` |
+| `codex` | `openai` | `OPENAI_BASE_URL` |
+| `openai` | `openai` | `OPENAI_BASE_URL` |
+| `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL` |
+
+Any other command runs too, given `--env-var` so Privyx knows how to point it
+at the proxy.
+
+## `privyx detect`
+
+Show what the configured detector and policy find in a text.
+
+```bash
+privyx detect [-c FILE] [--transform] [--no-policy] TEXT...
+echo "mail alice@example.com" | privyx detect --stdin
+```
+
+| Option | Description |
+|---|---|
+| `--transform` | Also print the masked text. |
+| `--policy` / `--no-policy` | Apply the configured policy (default) or show every detection. |
+| `--stdin` | Read the text from standard input. |
+
+## `privyx mask`
+
+Replace sensitive values with tokens, reversibly. The output is what the proxy
+would send upstream.
+
+```bash
+privyx mask --map map.json "mail alice@example.com"
+privyx mask --map map.json -i request.json --path '$.messages'
+cat events.jsonl | privyx mask --map map.json -f jsonl -i - -o masked.jsonl
+```
+
+| Option | Description |
+|---|---|
+| `--map FILE` | Read and write the mapping in this file. An existing file is extended, so tokens stay the same across documents. |
+| `--session ID` | Keep the mapping in this vault session instead. Needs a persistent vault. |
+| `-i`, `--input FILE` | Input file; `-` for standard input. |
+| `--stdin` | Read from standard input. |
+| `-o`, `--output FILE` | Output file. Default: standard output. |
+| `-f`, `--format` | `auto` (default, from the file extension), `text`, `json`, or `jsonl`. |
+| `--path` | Only mask under this JSON path, e.g. `$.messages`. Repeatable. |
+
+## `privyx unmask`
+
+Put the original values back, from a `--map` file or a `--session`. Tokens the
+mapping does not know are left as they are. Takes the same options as
+`privyx mask`.
+
+```bash
+privyx unmask --map map.json -i masked.txt
+```
+
+## `privyx session`
+
+List, show, and delete vault sessions. These need a `sqlite` or `redis` vault;
+see [Sessions and vault](sessions.md).
+
+```bash
+privyx session list
+privyx session show SESSION_ID [--reveal]
+privyx session prune --older-than 7d [--dry-run]
+```
+
+| Command | Option | Description |
+|---|---|---|
+| `list` | | Sessions, most recently active first, with mapping counts. Never shows values. |
+| `show` | `--reveal` | Print original values in full. Without it they are masked. |
+| `prune` | `--older-than` | Required. Delete sessions idle at least this long: `30m`, `12h`, `7d`, `2w`. |
+| `prune` | `--dry-run` | List what would be deleted and delete nothing. |
+
+`privyx inspect session SESSION_ID` is an older name for `privyx session show`.
+
+## `privyx audit`
+
+Read the audit trail. `FILE` defaults to `audit.path`.
+
+```bash
+privyx audit stats [FILE] [--since 24h]
+privyx audit tail [FILE] [-n 20] [--no-follow]
+```
+
+| Command | Option | Description |
+|---|---|---|
+| `stats` | `--since` | Only count events from the last `30m`, `12h`, `7d`, `2w`. |
+| `tail` | `-n`, `--lines` | Recent events to show first. Default `10`. |
+| `tail` | `--follow` / `--no-follow` | Keep printing new events (default) or stop. |
+
+See [Audit events](../observability/audit-events.md) for what each event holds.
+
+## `privyx config`
+
+Show the configuration.
+
+```bash
+privyx config            # a summary
+privyx config --show     # every setting as JSON, credentials masked
+privyx config --path     # the config file in use, or "defaults"
+```
+
+## `privyx doctor`
+
+Build every configured component and push a request through it: plugins,
+detector, vault (a real write and read), provider, proxy, and streaming
+restore. Exits with a non-zero status if any check fails.
+
+```console
+$ privyx doctor
+Privyx Doctor
+=============
+  ✓ plugins: no plugin paths configured
+  ✓ detector: regex: 1 span(s) ['EMAIL']
+  ✓ vault: memory: round-trip ok
+  ✓ provider: generic → http://localhost:20128
+  ✓ proxy: request transformed, 1 mapping(s) vaulted
+  ✓ streaming: pseudonym restored across a split chunk
+  ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=off
+```
