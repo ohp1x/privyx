@@ -7,6 +7,16 @@ cost to every request, it is never the default and should only be enabled
 explicitly in configuration — typically layered alongside ``regex`` via a
 detector list rather than used alone.
 
+Failure is closed by default: an error or a timeout (``timeout``) fails the
+request with :class:`~privyx.core.errors.DetectorError`, so no text reaches the
+upstream having skipped the scan it was configured for.  ``fallback_on_error``
+opts into scanning with the built-in regex patterns instead, which lets through
+whatever only the LLM would have caught; every fallback is logged and counted as
+``llm_fallbacks`` on the ``session.transform`` audit event.
+
+Text longer than ``max_chars`` is scanned in overlapping chunks, all at once,
+rather than truncated: a truncated tail would never be scanned at all.
+
 ``llm`` is an optional extra: selecting it without ``openai`` or
 ``anthropic`` installed (``pip install privyx[providers]``, or
 ``uv sync --all-extras``) fails at startup with a
@@ -16,12 +26,17 @@ contract ``faker``, ``encrypt``, and ``presidio`` follow.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any, Protocol
 
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError, DetectorError
-from privyx.core.result import Detection
+from privyx.core.result import Detection, Span
+from privyx.privacy.detector.builtin import RegexDetector
+
+_log = logging.getLogger(__name__)
 
 #: Default instructions appended before the text to scan. Kept strict about
 #: the output shape (JSON array only) since the response is parsed, not read.
@@ -142,6 +157,10 @@ class LLMDetector:
             (a custom endpoint, a different provider, request-level options).
             When given, ``provider``/``model``/``api_key`` are ignored and no
             SDK is imported.
+        timeout: Seconds the whole scan (every chunk) may take before it fails.
+        max_chars: Longest text sent in one call; longer text is chunked.
+        fallback_on_error: On failure, scan with the built-in regex patterns
+            instead of raising :class:`~privyx.core.errors.DetectorError`.
 
     Raises:
         ConfigError: If ``client`` is omitted and ``provider``'s SDK is not
@@ -157,19 +176,70 @@ class LLMDetector:
         api_key: str = "",
         instructions: str | None = None,
         client: LLMClient | None = None,
+        timeout: float = 30.0,
+        max_chars: int = 4000,
+        fallback_on_error: bool = False,
     ) -> None:
         self._client = client if client is not None else _load_client(provider, model, api_key)
         self._instructions = instructions or _DEFAULT_INSTRUCTIONS
+        self._timeout = timeout
+        self._max_chars = max_chars
+        self._fallback = RegexDetector() if fallback_on_error else None
 
     async def detect(self, text: str, context: Context) -> Detection:
         try:
-            response = await self._client.complete(f"{self._instructions}\n\nTEXT:\n{text}")
-        except Exception as exc:  # pragma: no cover - external dependency
-            raise DetectorError(f"LLM detector failed: {exc}") from exc
-        return _parse_spans(response, text)
+            # ponytail: every chunk is sent at once; bound it with a semaphore
+            # if a provider starts rate-limiting long prompts.
+            async with asyncio.timeout(self._timeout), asyncio.TaskGroup() as group:
+                tasks = [
+                    group.create_task(self._scan(offset, chunk, context))
+                    for offset, chunk in _chunks(text, self._max_chars)
+                ]
+        except Exception as exc:
+            if isinstance(exc, ExceptionGroup):  # a chunk failed; the rest were cancelled
+                exc = exc.exceptions[0]
+            if self._fallback is None:
+                reason = (
+                    f"timed out after {self._timeout}s" if isinstance(exc, TimeoutError) else exc
+                )
+                raise DetectorError(f"LLM detector failed: {reason}") from exc
+            # The class name only: an SDK error message may quote the request.
+            _log.warning("LLM detector failed (%s); scanning with regex only", type(exc).__name__)
+            context.counters["llm_fallbacks"] += 1
+            detection = await self._fallback.detect(text, context)
+            detection.cacheable = False  # scan it properly next time
+            return detection
+        # Chunks overlap, so an entity in the overlap is found twice.
+        unique: dict[tuple[int, int, str], Span] = {}
+        for task in tasks:
+            for span in task.result().spans:
+                unique.setdefault((span.start, span.end, span.entity_type), span)
+        return Detection(spans=list(unique.values()))
+
+    async def _scan(self, offset: int, chunk: str, context: Context) -> Detection:
+        prompt = f"{self._instructions}\n\nTEXT:\n{chunk}"
+        response = await self._client.complete(prompt)
+        # ponytail: ~4 characters per token, the same for every client; read
+        # the SDK's usage fields instead if billing needs exact numbers.
+        context.counters["llm_calls"] += 1
+        context.counters["llm_input_tokens"] += len(prompt) // 4
+        context.counters["llm_output_tokens"] += len(response) // 4
+        return _parse_spans(response, chunk, offset)
 
 
-def _parse_spans(response: str, text: str) -> Detection:
+def _chunks(text: str, size: int) -> list[tuple[int, str]]:
+    """Split ``text`` into ``(offset, piece)`` pairs of at most ``size`` characters.
+
+    Pieces overlap by a tenth of ``size``, so an entity cut by one boundary is
+    whole in the next piece.
+    """
+    if len(text) <= size:
+        return [(0, text)]
+    overlap = size // 10
+    return [(i, text[i : i + size]) for i in range(0, len(text) - overlap, size - overlap)]
+
+
+def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
     """Best-effort parse of an LLM JSON response into a Detection.
 
     An LLM can hallucinate offsets that do not exist in ``text`` (negative,
@@ -177,6 +247,7 @@ def _parse_spans(response: str, text: str) -> Detection:
     silently clamps — so bounds are checked explicitly rather than trusting
     the slice to fail. A span that fails the check is dropped rather than
     raising: one bad tuple in the response should not fail the whole request.
+    ``offset`` shifts the spans of a chunk back to positions in the full text.
     """
     import json
 
@@ -196,5 +267,5 @@ def _parse_spans(response: str, text: str) -> Detection:
             continue
         if not (0 <= start < end <= len(text)):
             continue
-        detection.add(start, end, entity, text[start:end])
+        detection.add(start + offset, end + offset, entity, text[start:end])
     return detection

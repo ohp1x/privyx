@@ -44,6 +44,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Mapping
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -93,6 +94,7 @@ class _RequestScope:
     request_id: str
     session_id: str | None = None
     transform_counts: dict[str, int] = field(default_factory=dict)
+    detector_counts: dict[str, int] = field(default_factory=dict)
     transform_n: int = 0
     restore_n: int = 0
 
@@ -218,16 +220,21 @@ class AuditLogger:
     def flush_transform(self) -> int:
         """Emit the scope's aggregated ``session.transform`` and return its count."""
         scope = _scope.get()
-        if scope is None or scope.transform_n == 0:
+        if scope is None or (scope.transform_n == 0 and not scope.detector_counts):
             return 0
         total = scope.transform_n
+        extra: dict[str, Any] = (
+            {"detector_counts": scope.detector_counts} if scope.detector_counts else {}
+        )
         self.emit(
             AuditEventType.SESSION_TRANSFORM,
             session_id=scope.session_id,
             entity_counts=dict(scope.transform_counts),
             transformations=total,
+            **extra,
         )
         scope.transform_counts = {}
+        scope.detector_counts = {}
         scope.transform_n = 0
         return total
 
@@ -280,7 +287,12 @@ class AuditLogger:
         )
 
     def transform(
-        self, session_id: str, *, entity_counts: dict[str, int], transformations: int
+        self,
+        session_id: str,
+        *,
+        entity_counts: dict[str, int],
+        transformations: int,
+        detector_counts: Mapping[str, int] | None = None,
     ) -> None:
         """Text was pseudonymized.
 
@@ -288,14 +300,20 @@ class AuditLogger:
             entity_counts: ``{entity_type: count}`` histogram — types and counts
                 only, never the matched text.
             transformations: Number of replacements applied.
+            detector_counts: What the detectors reported doing (``llm_calls``,
+                ``llm_input_tokens``, ``llm_fallbacks``, ...); see
+                :attr:`privyx.core.context.Context.counters`.
 
         Within a request scope the counts accumulate into one ``session.transform``
         per exchange (flushed by :meth:`flush_transform`); outside a scope the event
         is written immediately.  A no-op transform (``transformations == 0``) is
-        never recorded — the bulk of a request is untouched text, and one line per
-        skipped field buries the events that matter.
+        not recorded — the bulk of a request is untouched text, and one line per
+        skipped field buries the events that matter — unless a detector reported
+        counts: an LLM call costs tokens and a fallback must be seen even when
+        nothing was masked.
         """
-        if not transformations:
+        counters = {k: v for k, v in (detector_counts or {}).items() if v}
+        if not transformations and not counters:
             return
         scope = _scope.get()
         if scope is not None:
@@ -303,15 +321,19 @@ class AuditLogger:
                 scope.transform_counts[entity_type] = (
                     scope.transform_counts.get(entity_type, 0) + count
                 )
+            for name, count in counters.items():
+                scope.detector_counts[name] = scope.detector_counts.get(name, 0) + count
             scope.transform_n += transformations
             if scope.session_id is None:
                 scope.session_id = session_id
             return
+        extra: dict[str, Any] = {"detector_counts": counters} if counters else {}
         self.emit(
             AuditEventType.SESSION_TRANSFORM,
             session_id=session_id,
             entity_counts=entity_counts,
             transformations=transformations,
+            **extra,
         )
 
     def restore(

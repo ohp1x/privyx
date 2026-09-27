@@ -210,3 +210,28 @@ async def test_delete_session_failure_does_not_audit_deleted() -> None:
 
     assert await vault.get(session.session_id) is not None
     assert "session.deleted" not in buf.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_llm_fallback_reaches_the_transform_audit_event() -> None:
+    from privyx.privacy.detector.llm import LLMDetector
+
+    class _Down:
+        async def complete(self, prompt: str) -> str:
+            raise RuntimeError("down")
+
+    buf = io.StringIO()
+    engine = PrivacyEngine(
+        detector=LLMDetector(client=_Down(), fallback_on_error=True),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=AuditLogger(buf),
+    )
+
+    result = await engine.transform("mail ann@example.com")
+
+    assert "ann@example.com" not in result.text  # the regex fallback still masked it
+    transform = [json.loads(line) for line in buf.getvalue().splitlines()][-1]
+    assert transform["event"] == "session.transform"
+    assert transform["detector_counts"] == {"llm_fallbacks": 1}

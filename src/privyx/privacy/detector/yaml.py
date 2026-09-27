@@ -84,6 +84,9 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
             model=config.get("llm_model", ""),
             api_key=config.get("llm_api_key", ""),
             instructions=config.get("llm_instructions") or None,
+            timeout=float(config.get("llm_timeout", 30.0)),
+            max_chars=int(config.get("llm_max_chars", 4000)),
+            fallback_on_error=bool(config.get("llm_fallback_on_error", False)),
         )
     elif dtype in PLUGINS.detectors:
         detector = PLUGINS.detectors.build(config)

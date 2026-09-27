@@ -39,6 +39,10 @@ leaves, but the trail records **one** `session.transform` per exchange.
 |---|---|---|
 | `entity_counts` | object | `{entity_type: count}` histogram — types and counts only, never the matched text. |
 | `transformations` | int | Total replacements applied across the request. |
+| `detector_counts` | object | Present when a detector reported work: `llm_calls`, `llm_input_tokens` / `llm_output_tokens` (estimated at ~4 characters per token), `llm_fallbacks` (scans that fell back to regex under `llm_fallback_on_error`). Counts only. |
+
+A request whose only activity is detector work (an LLM scan that found nothing,
+or a fallback) still records `session.transform`, with `transformations: 0`.
 
 ### `session.restore`
 Pseudonyms were reversed in the response. One per exchange, on **both** the batch
@@ -129,6 +133,7 @@ from startup, so they work with `audit.enabled: false` and reset on restart:
 |---|---|---|
 | `privyx_audit_events_total` | `event` | Events emitted, by event type. |
 | `privyx_entities_masked_total` | `entity_type` | Sum of `session.transform` `entity_counts`. |
+| `privyx_detector_counts_total` | `counter` | Sum of `session.transform` `detector_counts`. |
 | `privyx_proxy_errors_total` | `phase` | `proxy.error` events by `phase`. |
 | `privyx_pseudonyms_restored_total` | | Sum of `session.restore` `transformations`. |
 | `privyx_response_duration_seconds` | | Summary (`_sum`, `_count`) of `proxy.response` `duration_ms`. |

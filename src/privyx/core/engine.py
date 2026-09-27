@@ -156,6 +156,7 @@ class PrivacyEngine:
             session.session_id,
             entity_counts=_entity_counts(detection),
             transformations=len(result.transformations),
+            detector_counts=context.counters,
         )
         return result
 

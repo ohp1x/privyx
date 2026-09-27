@@ -1,5 +1,10 @@
 # Privyx
 
+[![PyPI](https://img.shields.io/pypi/v/privyx)](https://pypi.org/project/privyx/)
+[![Python](https://img.shields.io/pypi/pyversions/privyx)](https://pypi.org/project/privyx/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/ohp1x/privyx)](https://hub.docker.com/r/ohp1x/privyx)
+[![License](https://img.shields.io/pypi/l/privyx)](https://pypi.org/project/privyx/)
+
 > AI data privacy gateway — a privacy engine + proxy for LLM providers.
 
 Privyx is a modular, extensible privacy gateway that intercepts traffic to/from AI
@@ -161,7 +166,17 @@ detector:
     language: en
   - type: llm                 # context-dependent PII an LLM can spot (needs privyx[providers])
     llm_provider: openai      # or anthropic; api key defaults to the SDK's own env var
+    llm_timeout: 30           # seconds per scan; a failure fails the request (fail-closed)
+    llm_max_chars: 4000       # longer text is scanned in overlapping chunks, never truncated
+    llm_fallback_on_error: false
 ```
+
+If the LLM detector fails or times out, the request fails rather than reach the
+upstream with a weaker scan. `llm_fallback_on_error: true` keeps traffic flowing
+by scanning with the built-in regex patterns instead, which lets through
+whatever only the LLM would have caught (names, organizations). Each fallback is
+logged and counted in the audit trail as `detector_counts.llm_fallbacks`,
+alongside `llm_calls` and estimated `llm_input_tokens` / `llm_output_tokens`.
 
 Detection results are cached in an LRU cache (`detector.cache: true`, default) so that
 in multi-turn conversations, unchanged previous turns do not need to be scanned again.

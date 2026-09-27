@@ -113,4 +113,4 @@ class CompositeDetector:
         for result in results:
             for span in result.spans:
                 unique.setdefault((span.start, span.end, span.entity_type), span)
-        return Detection(spans=list(unique.values()))
+        return Detection(spans=list(unique.values()), cacheable=all(r.cacheable for r in results))

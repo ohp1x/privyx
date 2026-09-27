@@ -66,6 +66,9 @@ def stats(file: Path | None, config_path: str | None, since: int | None) -> None
         )
         click.echo(f"Masked:     {totals.entities.total()} entities")
         click.echo(f"Restored:   {totals.restored} pseudonyms")
+        if totals.detector:
+            counts = ", ".join(f"{k} {v}" for k, v in sorted(totals.detector.items()))
+            click.echo(f"Detector:   {counts}")
         if totals.entities:
             width = max(len(name) for name in totals.entities)
             click.echo("\nMasked by entity type:")

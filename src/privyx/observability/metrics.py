@@ -20,6 +20,7 @@ class AuditStats:
 
     events: Counter[str] = field(default_factory=Counter)
     entities: Counter[str] = field(default_factory=Counter)
+    detector: Counter[str] = field(default_factory=Counter)
     errors: Counter[str] = field(default_factory=Counter)
     restored: int = 0
     response_ms: float = 0.0
@@ -35,6 +36,7 @@ class AuditStats:
             self.last_ts = ts if self.last_ts is None else max(self.last_ts, ts)
         if event == "session.transform":
             self.entities.update(record.get("entity_counts") or {})
+            self.detector.update(record.get("detector_counts") or {})
         elif event == "session.restore":
             self.restored += record.get("transformations") or 0
         elif event == "proxy.response":
@@ -59,6 +61,14 @@ class AuditStats:
                 "Entities pseudonymized in requests, by entity type.",
                 "entity_type",
                 self.entities,
+            ),
+            *_family(
+                "privyx_detector_counts_total",
+                "counter",
+                "What detectors reported: llm_calls, llm_input_tokens and "
+                "llm_output_tokens (estimated), llm_fallbacks.",
+                "counter",
+                self.detector,
             ),
             *_family(
                 "privyx_proxy_errors_total",
