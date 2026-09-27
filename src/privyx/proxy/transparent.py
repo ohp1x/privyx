@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
+import anyio
 import httpx
 
 from privyx.config.schema import ProxyConfig
@@ -321,7 +322,7 @@ class TransparentProxy:
         frames = 0
         status = response.status_code
         restored = 0
-        completed = False
+        completed = aborted = False
         try:
             session = await self._engine.vault.get(session_id)
             mapping = session.mapping if session is not None else {}
@@ -364,11 +365,15 @@ class TransparentProxy:
                 duration_ms=_elapsed_ms(start),
             )
             raise
+        except BaseException:
+            # The client went away: the task was cancelled, or the stream closed.
+            aborted = True
+            raise
         finally:
             try:
                 await response.aclose()
             finally:
-                if completed:
+                if completed or aborted:
                     self._audit.restore(session_id, transformations=restored, request_id=request_id)
                     self._audit.response(
                         status=status,
@@ -378,6 +383,7 @@ class TransparentProxy:
                         session_id=session_id,
                         request_id=request_id,
                         duration_ms=_elapsed_ms(start),
+                        aborted=aborted,
                     )
                 if ephemeral:
                     await self._cleanup_session(session_id, request_id, start)
@@ -385,11 +391,15 @@ class TransparentProxy:
     async def _cleanup_session(self, session_id: str, request_id: str, start: float) -> None:
         """Best-effort deletion for a request-scoped ephemeral session."""
         try:
-            await self._engine.delete_session(
-                session_id,
-                reason="ephemeral_request_complete",
-                request_id=request_id,
-            )
+            # Shielded: when the client disconnects, Starlette cancels the stream
+            # task, and anyio raises that cancellation again at every await in
+            # the cancelled scope, so the deletion would never run.
+            with anyio.CancelScope(shield=True):
+                await self._engine.delete_session(
+                    session_id,
+                    reason="ephemeral_request_complete",
+                    request_id=request_id,
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:

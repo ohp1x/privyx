@@ -75,7 +75,8 @@ The upstream returned response headers (time to first byte).
 | `upstream` | string | Upstream host. |
 
 ### `proxy.response`
-The response was fully delivered to the client.
+The response was fully delivered to the client, or the client disconnected
+before a stream ended (`aborted`).
 
 | field | type | notes |
 |---|---|---|
@@ -85,6 +86,7 @@ The response was fully delivered to the client.
 | `frames` | int | Streamed responses only: SSE frames forwarded. |
 | `restored` | int | Pseudonyms reversed on the way back. |
 | `duration_ms` | float | **Total** exchange time. |
+| `aborted` | bool | Present (`true`) when the client disconnected mid-stream, e.g. a coding tool's request cancelled with Esc; `frames` and `restored` then count what was sent. Not an error, so `privyx_proxy_errors_total` does not count it. |
 
 ### `proxy.error`
 An exchange failed.
