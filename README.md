@@ -72,12 +72,14 @@ docker compose up -d
 This starts Privyx alongside a Redis-backed session vault (see
 `docker-compose.yml`). Configs and plugins are mounted read-only from
 `./configs` and `./plugins`; persistent data (vault DB, audit log) lives in the
-`privyx_data` volume. Build and run the image standalone with:
+`privyx_data` volume. Run the published image standalone with:
 
 ```bash
-docker build -t privyx .
-docker run -p 8000:8000 --env-file .env privyx
+docker run -p 8000:8000 --env-file .env ghcr.io/ohp1x/privyx:latest
 ```
+
+Images are pushed to GHCR on every release tag (`X.Y.Z`, `X.Y`, and `latest`
+for stable releases). To build locally instead: `docker build -t privyx .`
 
 ### Sessions
 
