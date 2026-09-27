@@ -48,9 +48,15 @@ class Span:
 
 @dataclass(slots=True)
 class Detection:
-    """A detection produced by a detector."""
+    """A detection produced by a detector.
+
+    ``cacheable`` is false for a stand-in result, such as the LLM detector's
+    regex-only fallback, so a detection cache never keeps it in place of a
+    real scan.
+    """
 
     spans: list[Span] = field(default_factory=list)
+    cacheable: bool = True
 
     def add(self, start: int, end: int, entity_type: str, text: str) -> None:
         self.spans.append(Span(start, end, entity_type, text))

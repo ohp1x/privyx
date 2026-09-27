@@ -72,6 +72,12 @@ class LicensePlateDetector(BaseDetector):
 
 A ready-to-run copy lives in `plugins/detectors/license_plate.py`.
 
+A detector that calls a paid or remote service can report what it did with
+`context.counters["my_calls"] += 1`. The counts land in the audit trail as
+`session.transform` `detector_counts` and on `/metrics`, so they must be counts,
+never text. Set `detection.cacheable = False` on a degraded result (a fallback)
+so the detection cache does not keep it in place of a real scan.
+
 ## Writing an Operator
 
 ```python

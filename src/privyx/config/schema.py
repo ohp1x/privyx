@@ -57,6 +57,9 @@ class DetectorConfig(BaseModel):
     llm_model: str = ""  # llm detector: model name (empty → a small default per provider)
     llm_api_key: str = ""  # llm detector: empty defers to the SDK's own env lookup
     llm_instructions: str = ""  # llm detector: prompt instructions (empty → built-in default)
+    llm_timeout: float = Field(default=30.0, gt=0)  # llm detector: seconds before a scan fails
+    llm_max_chars: int = Field(default=4000, gt=0)  # llm detector: longer text is chunked
+    llm_fallback_on_error: bool = False  # llm detector: regex-only scan instead of failing
 
     @field_validator("cache", mode="before")
     @classmethod

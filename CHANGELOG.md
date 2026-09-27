@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Detector:** the LLM detector takes `llm_timeout` (seconds for the whole scan, default 30) and fails the request with a `DetectorError` when it runs out, instead of waiting on the SDK's own minutes-long timeout. `llm_fallback_on_error: true` scans with the built-in regex patterns instead of failing; it is off by default because the fallback misses what only the LLM catches. A fallback result is never cached, so the next turn tries the LLM again
+- **Detector:** text longer than `llm_max_chars` (default 4000) is sent to the LLM in overlapping chunks, scanned concurrently, so long prompts no longer rely on one call returning every offset
+- **Audit:** `session.transform` carries `detector_counts` with `llm_calls`, estimated `llm_input_tokens` / `llm_output_tokens`, and `llm_fallbacks`, and is recorded even when the LLM found nothing to mask. `/metrics` serves them as `privyx_detector_counts_total` and `privyx audit stats` prints them. Plugin detectors can report their own counts through `Context.counters`
+
 - **CLI:** `privyx audit stats [FILE] [--since 24h]` summarizes the audit log: requests, responses with average duration, errors by phase, sessions created and deleted, entities masked by type, and pseudonyms restored. `privyx audit tail [FILE] [-n N] [--no-follow]` prints recent events one readable line each and follows new ones, surviving a `copytruncate` rotation. `FILE` defaults to `audit.path`
 - **Proxy:** `GET /metrics` in both proxy modes serves Prometheus-format counters of audit events, masked entities by type, errors by phase, restored pseudonyms, and response duration. They are counted in memory from startup, so they also work with `audit.enabled: false`. The endpoint needs no key, like `/health`
 

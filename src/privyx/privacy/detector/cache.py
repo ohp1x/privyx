@@ -87,7 +87,8 @@ class CachedDetector(BaseDetector):
         else:
             detection = asyncio.run(self._inner.detect(text, context))
 
-        self._store(text, detection)
+        if detection.cacheable:
+            self._store(text, detection)
         return Detection(spans=list(detection.spans))
 
     async def detect(self, text: str, context: Context) -> Detection:
@@ -100,7 +101,8 @@ class CachedDetector(BaseDetector):
 
         self._misses += 1
         detection = await self._inner.detect(text, context)
-        self._store(text, detection)
+        if detection.cacheable:
+            self._store(text, detection)
         return Detection(spans=list(detection.spans))
 
     def _store(self, text: str, detection: Detection) -> None:

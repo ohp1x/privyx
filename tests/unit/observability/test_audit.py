@@ -297,3 +297,24 @@ def test_prometheus_escapes_label_values() -> None:
     audit.transform("ses_1", entity_counts={'A"B\\C\nD': 1}, transformations=1)
 
     assert 'entity_type="A\\"B\\\\C\\nD"} 1' in audit.stats.prometheus()
+
+
+def test_detector_counts_are_recorded_even_without_a_transformation() -> None:
+    """An LLM call costs tokens and a fallback must be visible, masked or not."""
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+
+    token = audit.begin_request("req_1")
+    audit.transform("ses_1", entity_counts={}, transformations=0, detector_counts={"llm_calls": 1})
+    audit.transform(
+        "ses_1",
+        entity_counts={"EMAIL": 1},
+        transformations=1,
+        detector_counts={"llm_calls": 1, "llm_fallbacks": 1, "llm_output_tokens": 0},
+    )
+    audit.end_request(token)
+
+    (record,) = _lines(buf)
+    assert record["detector_counts"] == {"llm_calls": 2, "llm_fallbacks": 1}
+    assert audit.stats.detector == {"llm_calls": 2, "llm_fallbacks": 1}
+    assert 'privyx_detector_counts_total{counter="llm_fallbacks"} 1' in audit.stats.prometheus()

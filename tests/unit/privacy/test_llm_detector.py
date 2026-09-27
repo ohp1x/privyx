@@ -10,6 +10,10 @@ raises instead of yielding no spans.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import re
+
 import pytest
 
 from privyx.core.context import Context
@@ -31,8 +35,31 @@ class _FakeLLMClient:
 
 
 class _FailingLLMClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def complete(self, prompt: str) -> str:
+        self.calls += 1
         raise RuntimeError("upstream is down")
+
+
+class _SlowLLMClient:
+    async def complete(self, prompt: str) -> str:
+        await asyncio.sleep(5)
+        return "[]"
+
+
+class _NameFindingClient:
+    """Answers like a well-behaved model: every "Ana" in the scanned text."""
+
+    def __init__(self) -> None:
+        self.chunks: list[str] = []
+
+    async def complete(self, prompt: str) -> str:
+        chunk = prompt.split("TEXT:\n", 1)[1]
+        self.chunks.append(chunk)
+        found = [[m.start(), m.end(), "PERSON", "Ana"] for m in re.finditer("Ana", chunk)]
+        return json.dumps(found)
 
 
 async def test_parses_a_well_formed_response_into_spans() -> None:
@@ -126,3 +153,58 @@ def test_config_selects_llm_and_fails_fast_without_the_providers_extra() -> None
         pytest.skip(f"providers extra not installed: {exc}")
     else:
         assert detector.name == "llm"
+
+
+async def test_a_slow_client_times_out_as_a_detector_error() -> None:
+    detector = LLMDetector(client=_SlowLLMClient(), timeout=0.05)
+
+    with pytest.raises(DetectorError, match="timed out after 0.05s"):
+        await detector.detect("hello", Context())
+
+
+async def test_fallback_scans_with_regex_and_is_counted() -> None:
+    context = Context()
+    detector = LLMDetector(client=_FailingLLMClient(), fallback_on_error=True)
+
+    detection = await detector.detect("mail ann@example.com", context)
+
+    assert [(s.entity_type, s.text) for s in detection.spans] == [("EMAIL", "ann@example.com")]
+    assert detection.cacheable is False
+    assert context.counters["llm_fallbacks"] == 1
+
+
+def test_a_fallback_result_is_never_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Built from config with the default cache, a fallback is retried next turn."""
+    client = _FailingLLMClient()
+    monkeypatch.setattr("privyx.privacy.detector.llm._load_client", lambda *_: client)
+    detector = build_detector({"type": "llm", "llm_fallback_on_error": True, "cache": True})
+
+    for _ in range(2):
+        asyncio.run(detector.detect("mail ann@example.com", Context()))
+
+    assert client.calls == 2
+
+
+async def test_long_text_is_scanned_in_overlapping_chunks() -> None:
+    """Nothing past ``max_chars`` goes unscanned, and spans map back to the full text."""
+    text = "Ana " + "x" * 300 + " Ana " + "y" * 300 + " Ana"
+    client = _NameFindingClient()
+    context = Context()
+    detector = LLMDetector(client=client, max_chars=200)
+
+    detection = await detector.detect(text, context)
+
+    assert len(client.chunks) > 1
+    assert all(len(chunk) <= 200 for chunk in client.chunks)
+    starts = sorted(s.start for s in detection.spans)
+    assert starts == [m.start() for m in re.finditer("Ana", text)]  # once each, overlap deduped
+    assert all(text[s.start : s.end] == "Ana" for s in detection.spans)
+    assert context.counters["llm_calls"] == len(client.chunks)
+    assert context.counters["llm_input_tokens"] > 0
+
+
+async def test_one_failing_chunk_fails_the_whole_scan() -> None:
+    detector = LLMDetector(client=_FailingLLMClient(), max_chars=10)
+
+    with pytest.raises(DetectorError, match="upstream is down"):
+        await detector.detect("a" * 50, Context())
