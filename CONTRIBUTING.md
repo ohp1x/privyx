@@ -13,6 +13,7 @@ uv sync --all-extras
 ```bash
 make check   # lint + typecheck
 make test    # unit + property tests
+make coverage  # tests + coverage report (terminal + htmlcov/)
 ```
 
 ## Design Principles
@@ -36,4 +37,5 @@ Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore
 
 ## Code of Conduct
 
-Be respectful. This project is for everyone.
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Report
+unacceptable behavior to security@privyx.io.

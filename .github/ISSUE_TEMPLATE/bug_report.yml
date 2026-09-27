@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in Privyx does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Redact before you paste.** Privyx sits in front of sensitive data: replace real
+        names, emails, API keys, vault contents, and audit log values with placeholders
+        (`alice@example.com`, `sk-...`). Security issues go to the
+        [security policy](https://github.com/ohp1x/privyx/security/policy), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Privyx version
+      description: Output of `privyx --version`.
+      placeholder: privyx, version 0.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Where does it happen?
+      options:
+        - Transparent proxy
+        - Gateway proxy
+        - privyx run
+        - CLI (mask / unmask / inspect)
+        - Python library
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: upstream
+    attributes:
+      label: Provider / upstream
+      placeholder: openai, anthropic, generic (https://...)
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. privyx proxy --transparent --upstream https://api.openai.com
+        2. curl ...
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Config (redacted)
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (redacted)
+      render: text
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Ubuntu 24.04, Python 3.12

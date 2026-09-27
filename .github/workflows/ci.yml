@@ -16,4 +16,4 @@ jobs:
       - run: uv sync --all-extras --locked
       - run: uv run ruff check src tests
       - run: uv run mypy src
-      - run: uv run pytest
+      - run: uv run pytest --cov=privyx --cov-report=term
