@@ -15,6 +15,7 @@ make check   # lint + typecheck
 make test    # unit + property tests
 make coverage  # tests + coverage report (terminal + htmlcov/)
 make vulns     # known vulnerabilities in the locked dependencies (pip-audit)
+make bench     # timing of the request path (machine-dependent, not run in CI)
 make docs      # serve the documentation site locally
 ```
 

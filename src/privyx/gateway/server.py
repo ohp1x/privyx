@@ -139,6 +139,7 @@ class Gateway:
                 # even when masking fails part-way.
                 session = await self._engine.get_or_create_session(session_id, source=source)
                 session_id = session.session_id
+                transform_start = time.perf_counter()
                 try:
                     transformed, _ = await proxy.process_request(
                         payload, session_id=session_id, source=source
@@ -154,6 +155,7 @@ class Gateway:
                     log_scan_failure(exc)
                     return JSONResponse(SCAN_FAILED_BODY, status_code=503)
 
+                transform_ms = _elapsed_ms(transform_start)
                 self._audit.set_session(session_id)
                 self._audit.flush_transform()
                 self._audit.request(
@@ -166,6 +168,7 @@ class Gateway:
                     duration_ms=_elapsed_ms(start),
                     upstream=self._upstream_host,
                     request_id=req_id,
+                    transform_ms=transform_ms,
                 )
 
                 if is_stream:

@@ -258,6 +258,7 @@ async def test_audit_trail_records_request_without_pii() -> None:
     assert request["stream"] is False
     assert request["upstream"] == "up.test"
     assert isinstance(request["duration_ms"], int | float)
+    assert 0 <= request["transform_ms"] <= request["duration_ms"]
 
     response = next(r for r in records if r["event"] == "proxy.response")
     assert response["stream"] is False
@@ -268,6 +269,17 @@ async def test_audit_trail_records_request_without_pii() -> None:
     request_ids = {r["request_id"] for r in records}
     assert request_ids == {request["request_id"]}
     assert request["request_id"] is not None
+
+
+async def test_transform_ms_is_left_out_when_nothing_was_masked() -> None:
+    buf = io.StringIO()
+    proxy = _audited_proxy(buf, _mock_client())
+
+    await proxy.handle(method="GET", path="v1/models", headers={}, body=b"")
+
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    request = next(r for r in records if r["event"] == "proxy.request")
+    assert "transform_ms" not in request
 
 
 async def test_streaming_audit_records_restore_and_response() -> None:

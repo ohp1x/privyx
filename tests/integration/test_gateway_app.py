@@ -228,6 +228,21 @@ async def test_routes_come_from_config() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_records_the_time_spent_masking() -> None:
+    buf = io.StringIO()
+    engine, audit = _audited_engine(buf)
+    client, _ = _client(engine, audit)
+
+    async with client:
+        await client.post(
+            "/v1/messages", json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        )
+
+    request = next(r for r in _records(buf) if r["event"] == "proxy.request")
+    assert 0 <= request["transform_ms"] <= request["duration_ms"]
+
+
+@pytest.mark.asyncio
 async def test_gateway_ephemeral_batch_session_is_deleted() -> None:
     buf = io.StringIO()
     engine, audit = _audited_engine(buf)

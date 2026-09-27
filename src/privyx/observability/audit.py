@@ -373,12 +373,18 @@ class AuditLogger:
         duration_ms: float,
         upstream: str,
         request_id: str | None = None,
+        transform_ms: float | None = None,
     ) -> None:
         """The upstream responded with headers.
 
         ``duration_ms`` is time to the upstream *response headers* (time to first
         byte), not the whole stream — :meth:`response` records the total.
+        ``transform_ms`` is the part of it spent masking the request, when a
+        body was masked.
         """
+        fields: dict[str, Any] = {}
+        if transform_ms is not None:
+            fields["transform_ms"] = transform_ms
         self.emit(
             AuditEventType.PROXY_REQUEST,
             session_id=session_id,
@@ -390,6 +396,7 @@ class AuditLogger:
             stream=stream,
             duration_ms=duration_ms,
             upstream=upstream,
+            **fields,
         )
 
     def response(
