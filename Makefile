@@ -1,4 +1,4 @@
-.PHONY: install dev test e2e lint format check run proxy clean
+.PHONY: install dev test coverage e2e lint format check run proxy clean
 
 install:
 	uv sync --all-extras
@@ -8,6 +8,9 @@ dev:
 
 test:
 	uv run pytest
+
+coverage:
+	uv run pytest --cov=privyx --cov-report=term --cov-report=html
 
 e2e:
 	uv run python scripts/e2e_claude.py
@@ -30,5 +33,5 @@ proxy:
 	uv run privyx proxy
 
 clean:
-	rm -rf .pytest_cache .mypy_cache .ruff_cache build dist *.egg-info
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov build dist *.egg-info
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
