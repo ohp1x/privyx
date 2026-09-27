@@ -270,3 +270,30 @@ def test_no_op_transform_and_restore_are_not_recorded() -> None:
     audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
 
     assert [r["event"] for r in _lines(buf)] == ["session.transform"]
+
+
+def test_stats_count_every_event_even_when_the_trail_is_disabled() -> None:
+    audit = AuditLogger(None)
+
+    audit.transform("ses_1", entity_counts={"EMAIL": 2, "PERSON": 1}, transformations=3)
+    audit.restore("ses_1", transformations=2)
+    audit.response(status=200, stream=False, duration_ms=1500.0)
+    audit.error(phase="upstream", error_type="ConnectError")
+
+    stats = audit.stats
+    assert stats.events["session.transform"] == 1
+    assert stats.entities == {"EMAIL": 2, "PERSON": 1}
+    assert stats.restored == 2
+    assert stats.errors == {"upstream": 1}
+    text = stats.prometheus()
+    assert 'privyx_entities_masked_total{entity_type="EMAIL"} 2' in text
+    assert 'privyx_proxy_errors_total{phase="upstream"} 1' in text
+    assert "privyx_response_duration_seconds_sum 1.5" in text
+    assert "privyx_response_duration_seconds_count 1" in text
+
+
+def test_prometheus_escapes_label_values() -> None:
+    audit = AuditLogger(None)
+    audit.transform("ses_1", entity_counts={'A"B\\C\nD': 1}, transformations=1)
+
+    assert 'entity_type="A\\"B\\\\C\\nD"} 1' in audit.stats.prometheus()

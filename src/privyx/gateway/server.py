@@ -104,9 +104,15 @@ class Gateway:
     def _register_routes(self) -> None:
         # FastAPI is guaranteed non-None here: __init__ raises ImportError if missing.
 
+        from fastapi.responses import PlainTextResponse
+
         @self._app.get("/health")
         async def health() -> dict[str, str]:
             return {"status": "ok"}
+
+        @self._app.get("/metrics", response_class=PlainTextResponse)
+        async def metrics() -> str:
+            return self._audit.stats.prometheus()
 
         for path, schema in self._routes.items():
             self._app.post(path)(self._make_handler(path, schema))

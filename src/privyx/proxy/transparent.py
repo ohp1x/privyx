@@ -39,6 +39,7 @@ import httpx
 from privyx.config.schema import ProxyConfig
 from privyx.core.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
+from privyx.observability.metrics import AuditStats
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
 from privyx.proxy.session import resolve_session_id
@@ -124,6 +125,11 @@ class TransparentProxy:
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=timeout, write=timeout, pool=10.0)
         )
+
+    @property
+    def stats(self) -> AuditStats:
+        """Totals of the audit events emitted so far, served at ``GET /metrics``."""
+        return self._audit.stats
 
     async def close(self) -> None:
         """Release the httpx client if this proxy created it."""

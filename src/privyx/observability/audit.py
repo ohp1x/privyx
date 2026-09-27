@@ -50,6 +50,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, TextIO
 
+from privyx.observability.metrics import AuditStats
+
 _log = logging.getLogger("privyx")
 
 #: On-disk record schema version.  Bump on any backward-incompatible change to the
@@ -141,6 +143,8 @@ class AuditLogger:
     def __init__(self, writer: TextIO | None = None) -> None:
         self._writer = writer
         self._lock = threading.Lock()
+        #: In-memory totals of every event emitted, served at ``GET /metrics``.
+        self.stats = AuditStats()
 
     @property
     def enabled(self) -> bool:
@@ -158,27 +162,29 @@ class AuditLogger:
 
         ``request_id`` / ``session_id`` fall back to the active request scope when
         not given, so an event emitted deep in the engine still correlates.
+        Every event also updates :attr:`stats`, even when the trail is disabled,
+        so ``GET /metrics`` does not depend on an audit file.
         """
-        writer = self._writer
-        if writer is None:
-            return
         scope = _scope.get()
         if scope is not None:
             if request_id is None:
                 request_id = scope.request_id
             if session_id is None:
                 session_id = scope.session_id
-        line = AuditEvent(
+        record = AuditEvent(
             event=event,
             timestamp=time.time(),
             session_id=session_id,
             request_id=request_id,
             fields=fields,
-        ).to_json()
+        )
         try:
             with self._lock:
-                writer.write(line + "\n")
-                writer.flush()
+                self.stats.add(record.to_dict())
+                writer = self._writer
+                if writer is not None:
+                    writer.write(record.to_json() + "\n")
+                    writer.flush()
         except Exception:  # audit must never break the request path
             _log.exception("audit write failed")
 

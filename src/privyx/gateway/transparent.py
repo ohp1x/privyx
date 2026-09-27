@@ -1,7 +1,8 @@
 """Transparent gateway — the FastAPI catch-all app for the drop-in proxy.
 
 Wraps a :class:`~privyx.proxy.transparent.TransparentProxy` in an ASGI app whose
-single ``/{path:path}`` route forwards every method and path (``/health`` aside)
+single ``/{path:path}`` route forwards every method and path (``GET /health`` and
+``GET /metrics`` aside)
 to the upstream origin.  This is the HTTP-framework seam; all privacy and
 forwarding logic lives in the proxy, so it stays testable without a server.
 """
@@ -16,10 +17,11 @@ from privyx.proxy.transparent import TransparentProxy
 
 try:
     from fastapi import FastAPI, Request
-    from fastapi.responses import Response, StreamingResponse
+    from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 except ImportError:  # pragma: no cover - optional extra
     FastAPI = None  # type: ignore[assignment,misc]
     Request = None  # type: ignore[assignment,misc]
+    PlainTextResponse = None  # type: ignore[assignment,misc]
     Response = None  # type: ignore[assignment,misc]
     StreamingResponse = None  # type: ignore[assignment,misc]
 
@@ -48,10 +50,14 @@ def create_transparent_app(
 
     app = FastAPI(title="Privyx (transparent)", version="0.1.0")
 
-    # Registered before the catch-all so a GET /health is answered here.
+    # Registered before the catch-all so GET /health and /metrics are answered here.
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics() -> str:
+        return proxy.stats.prometheus()
 
     @app.api_route("/{path:path}", methods=_CATCH_ALL_METHODS)
     async def proxy_all(request: Request, path: str) -> Any:

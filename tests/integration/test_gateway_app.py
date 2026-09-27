@@ -153,6 +153,29 @@ async def test_messages_route_masks_and_restores() -> None:
 
 
 @pytest.mark.asyncio
+async def test_metrics_count_masked_entities() -> None:
+    """``GET /metrics`` serves the totals of the engine's and gateway's shared audit logger."""
+    audit = AuditLogger(None)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=audit,  # `privyx proxy` builds the engine and gateway around one logger
+    )
+    client, _ = _client(engine, audit)
+    async with client:
+        await client.post(
+            "/v1/messages", json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        )
+        text = (await client.get("/metrics")).text
+
+    assert 'privyx_entities_masked_total{entity_type="EMAIL"} 1' in text
+    assert 'privyx_audit_events_total{event="proxy.response"} 1' in text
+    assert EMAIL not in text
+
+
+@pytest.mark.asyncio
 async def test_routes_come_from_config() -> None:
     """Configured chat paths are registered; auxiliary and unknown ones 404."""
     client, gateway = _client(_engine())
