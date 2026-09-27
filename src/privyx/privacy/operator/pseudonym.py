@@ -16,6 +16,7 @@ from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.anchor.base import Anchor
 from privyx.privacy.operator.base import BaseOperator, restore
+from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
 
@@ -60,27 +61,19 @@ class PseudonymOperator(BaseOperator):
     ) -> TransformResult:
         detection = detection.merged(text)
 
-        # Assign pseudonyms in document order so counters read left to right,
-        # then apply the replacements right to left so earlier offsets stay
-        # valid as the text grows or shrinks.
-        replacements: list[tuple[int, int, str, str]] = []
+        # Assign pseudonyms in document order so counters read left to right.
+        transforms: list[Transformation] = []
         for span in detection.spans:
             original = span.text
             pseudo = session.pseudonym_for(original) or await self._issue(
                 span.entity_type, original, session, context
             )
             session.put(pseudo, original)
-            replacements.append((span.start, span.end, original, pseudo))
+            transforms.append(Transformation(span.start, span.end, original, pseudo))
 
-        result_text = text
-        for start, end, _, pseudo in reversed(replacements):
-            result_text = result_text[:start] + pseudo + result_text[end:]
-
-        transforms = [
-            Transformation(start, end, original, pseudo)
-            for start, end, original, pseudo in replacements
-        ]
-        return TransformResult(text=result_text, transformations=transforms)
+        return TransformResult(
+            text=apply_replacements(text, transforms), transformations=transforms
+        )
 
     async def _issue(
         self, entity_type: str, original: str, session: Session, context: Context

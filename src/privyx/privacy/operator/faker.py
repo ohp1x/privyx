@@ -33,6 +33,7 @@ from privyx.core.errors import ConfigError
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.operator.base import BaseOperator
+from privyx.privacy.transform.text import apply_replacements
 from privyx.streaming.trie import PseudonymTrie
 
 #: How many times to re-roll a fake before falling back to a numeric suffix, when
@@ -113,26 +114,19 @@ class FakerOperator(BaseOperator):
     ) -> TransformResult:
         detection = detection.merged(text)
 
-        # Assign fakes in document order (so reuse within the text is stable),
-        # then apply replacements right to left so earlier offsets stay valid.
-        replacements: list[tuple[int, int, str, str]] = []
+        # Assign fakes in document order (so reuse within the text is stable).
+        transforms: list[Transformation] = []
         for span in detection.spans:
             original = span.text
             fake = session.pseudonym_for(original) or self._issue(
                 span.entity_type, original, session
             )
             session.put(fake, original)
-            replacements.append((span.start, span.end, original, fake))
+            transforms.append(Transformation(span.start, span.end, original, fake))
 
-        result_text = text
-        for start, end, _, fake in reversed(replacements):
-            result_text = result_text[:start] + fake + result_text[end:]
-
-        transforms = [
-            Transformation(start, end, original, fake)
-            for start, end, original, fake in replacements
-        ]
-        return TransformResult(text=result_text, transformations=transforms)
+        return TransformResult(
+            text=apply_replacements(text, transforms), transformations=transforms
+        )
 
     async def deanonymize(
         self,

@@ -12,6 +12,7 @@ from privyx.core.context import Context
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.operator.base import BaseOperator, restore
+from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
 
@@ -46,9 +47,8 @@ class HashOperator(BaseOperator):
         context: Context,
     ) -> TransformResult:
         detection = detection.merged(text)
-        result_text = text
         transforms: list[Transformation] = []
-        for span in reversed(detection.spans):
+        for span in detection.spans:
             digest = hashlib.sha256(span.text.encode()).hexdigest()[: self._length]
             pseudo = self._codec.encode(
                 LogicalToken(
@@ -58,10 +58,10 @@ class HashOperator(BaseOperator):
                 )
             )
             session.put(pseudo, span.text)
-            result_text = result_text[: span.start] + pseudo + result_text[span.end :]
             transforms.append(Transformation(span.start, span.end, span.text, pseudo))
-        transforms.reverse()
-        return TransformResult(text=result_text, transformations=transforms)
+        return TransformResult(
+            text=apply_replacements(text, transforms), transformations=transforms
+        )
 
     async def deanonymize(
         self,
