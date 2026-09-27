@@ -75,11 +75,13 @@ This starts Privyx alongside a Redis-backed session vault (see
 `privyx_data` volume. Run the published image standalone with:
 
 ```bash
-docker run -p 8000:8000 --env-file .env ghcr.io/ohp1x/privyx:latest
+docker run -p 127.0.0.1:8000:8000 --env-file .env ohp1x/privyx:latest
 ```
 
-Images are pushed to GHCR on every release tag (`X.Y.Z`, `X.Y`, and `latest`
-for stable releases). To build locally instead: `docker build -t privyx .`
+Images are pushed to Docker Hub (`ohp1x/privyx`) and GHCR on every release tag
+(`X.Y.Z`, `X.Y`, and `latest` for stable releases); see
+[docs/docker.md](docs/docker.md) for the variables and volumes the image uses.
+To build locally instead: `docker build -t privyx .`
 
 ### Sessions
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Docker:** Docker Hub shows `docs/docker.md` as the image overview (quick start, environment variables, volumes, tags), synced by a workflow whenever the page changes. The README's `docker run` example now uses the public Docker Hub image
+
 ## [0.1.2] - 2026-09-27
 
 ### Added
