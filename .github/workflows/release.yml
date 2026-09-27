@@ -164,6 +164,8 @@ jobs:
 
       # Docker Hub is optional: skipped until the DOCKERHUB_USERNAME repo
       # variable is set, so forks and unconfigured repos still publish to GHCR.
+      # DOCKERHUB_NAMESPACE (an organization) defaults to that username; set it
+      # when a member's personal token pushes to an organization's repository.
       - if: vars.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
@@ -177,7 +179,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}
-            name=docker.io/${{ vars.DOCKERHUB_USERNAME }}/privyx,enable=${{ vars.DOCKERHUB_USERNAME != '' }}
+            name=docker.io/${{ vars.DOCKERHUB_NAMESPACE || vars.DOCKERHUB_USERNAME }}/privyx,enable=${{ vars.DOCKERHUB_USERNAME != '' }}
           flavor: latest=false
           tags: |
             type=pep440,pattern={{version}}
