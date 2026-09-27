@@ -1,0 +1,31 @@
+name: Docker Hub description
+
+# Docker Hub does not read the repository README; this pushes docs/docker.md
+# as the image's overview. Runs when that page changes, or by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/docker.md
+      - .github/workflows/dockerhub-description.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    # Same opt-in as the release's Docker Hub push. The token needs the
+    # "Read, Write, Delete" scope: Docker Hub's API requires it for descriptions.
+    if: vars.DOCKERHUB_USERNAME != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ vars.DOCKERHUB_NAMESPACE || vars.DOCKERHUB_USERNAME }}/privyx
+          short-description: "AI data privacy gateway: privacy engine + proxy for LLM providers"
+          readme-filepath: docs/docker.md
