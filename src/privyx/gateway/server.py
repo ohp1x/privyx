@@ -21,6 +21,8 @@ import time
 from typing import Any
 from urllib.parse import urlsplit
 
+from fastapi import FastAPI, Request
+
 from privyx.config.schema import ProxyConfig, Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ProviderError
@@ -32,13 +34,6 @@ from privyx.proxy.streaming import AuditedStream
 from privyx.proxy.transparent import SCAN_FAILED_BODY, log_scan_failure
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.utils.ids import request_id as new_request_id
-
-try:
-    from fastapi import FastAPI, Request
-except ImportError:  # pragma: no cover - optional extra
-    FastAPI = None  # type: ignore[assignment,misc]
-    Request = None  # type: ignore[assignment,misc]
-
 
 #: Token-counting and compaction endpoints.  The gateway posts every path to
 #: one chat endpoint, which would turn a token count into a billed completion,
@@ -70,10 +65,6 @@ class Gateway:
         settings: Settings | None = None,
         audit: AuditLogger | None = None,
     ) -> None:
-        if FastAPI is None:
-            raise ImportError(
-                "Gateway requires FastAPI. Install with `pip install privyx[server]`."
-            )
         self._engine = engine
         self._settings = settings
         self._audit = audit or AuditLogger(None)

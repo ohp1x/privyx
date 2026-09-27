@@ -11,19 +11,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
+
 from privyx.config.schema import Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.proxy.transparent import TransparentProxy
-
-try:
-    from fastapi import FastAPI, Request
-    from fastapi.responses import PlainTextResponse, Response, StreamingResponse
-except ImportError:  # pragma: no cover - optional extra
-    FastAPI = None  # type: ignore[assignment,misc]
-    Request = None  # type: ignore[assignment,misc]
-    PlainTextResponse = None  # type: ignore[assignment,misc]
-    Response = None  # type: ignore[assignment,misc]
-    StreamingResponse = None  # type: ignore[assignment,misc]
 
 _CATCH_ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
@@ -39,15 +32,7 @@ def create_transparent_app(
         engine: Configured privacy engine (kept for symmetry / future use).
         proxy: The transparent proxy that runs the per-request pipeline.
         settings: Validated settings (metadata only).
-
-    Raises:
-        ImportError: If FastAPI is not installed (``pip install privyx[server]``).
     """
-    if FastAPI is None:
-        raise ImportError(
-            "The transparent proxy requires FastAPI. Install with `pip install privyx[server]`."
-        )
-
     app = FastAPI(title="Privyx (transparent)", version="0.1.0")
 
     # Registered before the catch-all so GET /health and /metrics are answered here.

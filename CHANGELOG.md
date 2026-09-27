@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Docs:** the documentation is published at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/), built from `docs/` with MkDocs Material on every push to `main`. Pull requests that touch the docs build them with `--strict`, so a broken link or a page missing from the navigation fails the check. `make docs` serves the site locally
 
+### Changed
+
+- **Packaging:** `pip install privyx` now includes the proxy. FastAPI and uvicorn moved from the `server` extra into the base dependencies, so `privyx proxy` and `privyx run` work without an extra; before, they stopped with "requires privyx[server]", which the README's install line did not mention. The `server` extra is gone; `pip install privyx[server]` still installs everything, with a warning that the extra does not exist. The unused `sse-starlette` dependency is dropped
+
 ### Fixed
 
 - **Config:** `PRIVYX_DETECTOR_CACHE` replaced a `detector` list with one default regex detector, so the listed detectors (an `llm` or `presidio` detector, `terms`) silently stopped scanning and what only they caught went upstream unmasked. The variable now applies to each listed detector

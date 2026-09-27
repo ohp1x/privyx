@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import asyncio
 
+import uvicorn
+
+from privyx.config.schema import Settings
 from privyx.core.engine import PrivacyEngine
+from privyx.gateway.server import Gateway
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy
+from privyx.providers.registry import build_provider
 from privyx.vault.memory import MemoryVault
 
 
@@ -18,16 +23,6 @@ async def main() -> None:
         operator=PseudonymOperator(),
         vault=MemoryVault(),
     )
-
-    try:
-        import uvicorn
-
-        from privyx.config.schema import Settings
-        from privyx.gateway.server import Gateway
-        from privyx.providers.registry import build_provider
-    except ImportError:
-        print("This example requires privyx[server]. Install with: pip install privyx[server]")
-        return
 
     settings = Settings()
     provider = build_provider(settings)
