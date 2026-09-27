@@ -403,12 +403,15 @@ class AuditLogger:
         size: int | None = None,
         frames: int | None = None,
         restored: int = 0,
+        aborted: bool = False,
     ) -> None:
-        """A proxied response was fully delivered to the client.
+        """A proxied response was fully delivered, or its stream aborted.
 
         ``duration_ms`` is the *total* exchange time.  ``size`` (batch bytes) or
         ``frames`` (streamed SSE frames) describes the response volume, and
         ``restored`` counts the pseudonyms reversed on the way back.
+        ``aborted`` marks a stream the client left before its end; the counts
+        then cover what was sent until then.
         """
         fields: dict[str, Any] = {
             "status": status,
@@ -420,6 +423,8 @@ class AuditLogger:
             fields["bytes"] = size
         if frames is not None:
             fields["frames"] = frames
+        if aborted:
+            fields["aborted"] = True
         self.emit(
             AuditEventType.PROXY_RESPONSE,
             session_id=session_id,
