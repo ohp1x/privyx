@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Docker:** Release tags now publish a Docker image to GHCR (`ghcr.io/ohp1x/privyx`), and to Docker Hub when the `DOCKERHUB_USERNAME` repo variable and `DOCKERHUB_TOKEN` secret are set. Images are tagged `X.Y.Z` and `X.Y`; `latest` moves only on stable releases, never on rc/alpha/beta/dev tags
+
 ### Fixed
 
 - **Proxy:** `proxy.passthrough_unknown: false` now takes effect. The option was never read, so the transparent proxy forwarded unrouted paths (embeddings, Gemini-native `generateContent`, …) unmasked whatever it was set to. With `false`, it answers them with a 403 and forwards nothing
