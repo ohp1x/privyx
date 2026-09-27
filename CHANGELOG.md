@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Security:** `make vulns` checks every locked dependency against known advisories with `pip-audit`. CI runs it on every push and pull request and weekly, so a newly published advisory fails CI without a code change. Dependabot opens weekly update PRs for `uv.lock` (minor and patch grouped into one) and for GitHub Actions
+
 ### Fixed
 
 - **Proxy:** when masking a request fails (a detector error or timeout, including the LLM detector's fail-closed default), both proxy modes now answer `503` with a `privyx_scan_failed` JSON error and record `proxy.error` with `phase: "transform"`. The request was already never forwarded, but the client got a bare `500`, and neither the audit trail nor `/metrics` showed the failure. The console log gets the exception class only; the traceback goes to `log_file` at `DEBUG`

@@ -1,4 +1,4 @@
-.PHONY: install dev test coverage e2e lint format check run proxy clean
+.PHONY: install dev test coverage e2e lint format check vulns run proxy clean
 
 install:
 	uv sync --all-extras
@@ -25,6 +25,10 @@ format:
 check:
 	uv run ruff check src tests
 	uv run mypy src
+
+# Known vulnerabilities in every locked dependency (all extras, dev included).
+vulns:
+	uv export --frozen --all-extras --no-emit-project -q | uvx pip-audit --disable-pip -r /dev/stdin
 
 run:
 	uv run privyx
