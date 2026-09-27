@@ -7,6 +7,9 @@ reaches the operator through the builder, and without a test that goes through
 
 from __future__ import annotations
 
+import re
+import time
+
 import pytest
 
 from privyx.config.schema import Settings
@@ -16,6 +19,7 @@ from privyx.core.errors import ConfigError
 from privyx.core.result import Detection, Span
 from privyx.core.session import Session
 from privyx.privacy.anchor.hmac import HMACAnchor
+from privyx.privacy.operator.base import BaseOperator
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.pseudonym import ANCHOR_TOKEN_LENGTH, PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
@@ -221,3 +225,26 @@ async def test_redaction_is_irreversible() -> None:
     assert "alice@example.com" not in result.text
     restored = await operator.deanonymize(result.text, session, Context())
     assert restored.text == result.text
+
+
+# --- cost -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("operator_class", [PseudonymOperator, HashOperator, RedactOperator])
+async def test_many_spans_take_linear_time(operator_class: type[BaseOperator]) -> None:
+    # 4,000 spans in 8 MB.  Rebuilding the whole text once per span took ~2.4 s
+    # per call here; joining the pieces once takes ~20 ms.
+    text = "".join(f"{'x' * 2000} user{i}@example.com" for i in range(4000))
+    matches = re.finditer(r"user\d+@example\.com", text)
+    detection = Detection(spans=[Span(m.start(), m.end(), "EMAIL", m[0]) for m in matches])
+    operator, session = operator_class(), Session()
+
+    start = time.perf_counter()
+    masked = await operator.pseudonymize(text, detection, session, Context())
+    middle = time.perf_counter()
+    await operator.deanonymize(masked.text, session, Context())
+    end = time.perf_counter()
+
+    assert len(masked.transformations) == 4000
+    assert middle - start < 0.5
+    assert end - middle < 0.5

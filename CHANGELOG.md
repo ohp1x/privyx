@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Proxy:** a request's session is read and written once instead of once per text leaf, so long conversations no longer slow down with the sqlite or redis vault (~1.5 s → ~0.03 s per request at 300 turns). Concurrent requests on one session no longer overwrite each other's pseudonyms
 - **Detector:** the built-in `EMAIL` pattern took quadratic time on a long run of letters, digits, or dots without an `@`, so 80 KB of hex or base64 in a request froze the proxy, and every other request and stream, for ~5 s. It now stops at the RFC 5321 lengths and scans the same input in ~10 ms; valid addresses match as before
+- **Operators:** masking or restoring a text with thousands of values took quadratic time, because the whole text was rebuilt once per value: 16,000 values in 0.9 MB took ~1 s each way, stalling every other request. The text is now built once (~50 ms each way)
 
 ### Security
 

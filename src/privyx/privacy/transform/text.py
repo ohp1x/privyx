@@ -9,11 +9,19 @@ from privyx.core.session import Session
 
 
 def apply_replacements(text: str, transformations: list[Transformation]) -> str:
-    """Apply a list of transformations to ``text`` in order (must be sorted)."""
-    result = text
+    """Return ``text`` with each transformation's ``[start, end)`` replaced.
+
+    ``transformations`` hold offsets into ``text``, sorted by ``start`` and not
+    overlapping.  The pieces are joined once, so the cost is linear: rebuilding
+    the whole string per span made thousands of spans quadratic.
+    """
+    parts: list[str] = []
+    last = 0
     for t in transformations:
-        result = result[: t.start] + t.replacement + result[t.end :]
-    return result
+        parts += (text[last : t.start], t.replacement)
+        last = t.end
+    parts.append(text[last:])
+    return "".join(parts)
 
 
 def replace_spans(
@@ -22,16 +30,10 @@ def replace_spans(
     replacement_for: Callable[[str, str], str],
     session: Session,
 ) -> TransformResult:
-    """Replace each span using ``replacement_for(entity_type, original)``.
-
-    Applies replacements right-to-left so earlier offsets stay valid.
-    """
+    """Replace each span using ``replacement_for(entity_type, original)``."""
     detection = detection.merged()
     transforms: list[Transformation] = []
-    result = text
-    for span in reversed(detection.spans):
+    for span in detection.spans:
         replacement = replacement_for(span.entity_type, span.text)
-        result = result[: span.start] + replacement + result[span.end :]
         transforms.append(Transformation(span.start, span.end, span.text, replacement))
-    transforms.reverse()
-    return TransformResult(text=result, transformations=transforms)
+    return TransformResult(text=apply_replacements(text, transforms), transformations=transforms)

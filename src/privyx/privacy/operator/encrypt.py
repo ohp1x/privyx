@@ -33,6 +33,7 @@ from privyx.core.errors import ConfigError
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.operator.base import BaseOperator, restore
+from privyx.privacy.transform.text import apply_replacements
 from privyx.security.keys import derive
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
@@ -77,15 +78,14 @@ class EncryptOperator(BaseOperator):
         context: Context,
     ) -> TransformResult:
         detection = detection.merged(text)
-        result_text = text
         transforms: list[Transformation] = []
-        for span in reversed(detection.spans):
+        for span in detection.spans:
             token = self._encode(span.entity_type, span.text)
             session.put(token, self._cipher.encrypt(span.text))
-            result_text = result_text[: span.start] + token + result_text[span.end :]
             transforms.append(Transformation(span.start, span.end, span.text, token))
-        transforms.reverse()
-        return TransformResult(text=result_text, transformations=transforms)
+        return TransformResult(
+            text=apply_replacements(text, transforms), transformations=transforms
+        )
 
     async def deanonymize(
         self,

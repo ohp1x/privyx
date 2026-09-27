@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 from privyx.core.context import Context
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
+from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import TokenCodec
 
 
@@ -41,9 +42,9 @@ def restore(
     """Replace every token in ``text`` that ``session`` knows about.
 
     Shared by the reversible operators: the *codec* decides what a token looks
-    like, while the right-to-left replacement that keeps earlier offsets valid
-    and the "leave unknown tokens alone" rule live here rather than being
-    reimplemented per operator.  No operator hard-codes token syntax.
+    like, while the replacement and the "leave unknown tokens alone" rule live
+    here rather than being reimplemented per operator.  No operator hard-codes
+    token syntax.
 
     Unknown tokens are passed through untouched: a stream may legitimately
     contain text that fits the token syntax but was never issued by us, and
@@ -59,18 +60,15 @@ def restore(
             ciphertext rather than plaintext.
     """
     resolve = resolve if resolve is not None else session.get
-    result_text = text
     transforms: list[Transformation] = []
 
-    for match in sorted(codec.finditer(text), key=lambda m: m.start, reverse=True):
+    for match in sorted(codec.finditer(text), key=lambda m: m.start):
         original = resolve(match.text)
         if original is None:
             continue
-        result_text = result_text[: match.start] + original + result_text[match.end :]
         transforms.append(Transformation(match.start, match.end, match.text, original))
 
-    transforms.reverse()
-    return TransformResult(text=result_text, transformations=transforms)
+    return TransformResult(text=apply_replacements(text, transforms), transformations=transforms)
 
 
 class BaseOperator(ABC):
