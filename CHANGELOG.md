@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Packaging:** `pip install privyx` now includes the proxy. FastAPI and uvicorn moved from the `server` extra into the base dependencies, so `privyx proxy` and `privyx run` work without an extra; before, they stopped with "requires privyx[server]", which the README's install line did not mention. The `server` extra is gone; `pip install privyx[server]` still installs everything, with a warning that the extra does not exist. The unused `sse-starlette` dependency is dropped
 
+### Removed
+
+- **Examples:** `examples/transparent_proxy.py`, a stub that proxied nothing and described a TLS-interception design Privyx does not use. `privyx proxy` is the transparent proxy
+
 ### Fixed
 
 - **Config:** an unknown setting was ignored without a word, so a typo such as `term:` for `terms:` or `detectors:` for `detector:` left the values it listed unmasked while `privyx doctor` reported the configuration as valid. Unknown settings now stop Privyx at startup with their path and the closest valid name, never their value: `unknown setting 'detector.term' (did you mean 'terms'?)`. A config that carried keys Privyx ignored needs them removed
