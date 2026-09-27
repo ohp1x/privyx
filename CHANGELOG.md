@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-27
+
 ### Added
 
 - **Docs:** the documentation is published at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/), built from `docs/` with MkDocs Material on every push to `main`. Pull requests that touch the docs build them with `--strict`, so a broken link or a page missing from the navigation fails the check. `make docs` serves the site locally
@@ -200,7 +202,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/ohp1x/privyx/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/ohp1x/privyx/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/ohp1x/privyx/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/ohp1x/privyx/compare/v0.1.2...v0.1.3
