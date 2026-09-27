@@ -149,15 +149,6 @@ def run(
         click.echo(f"Error: {spec.command!r} not found on PATH", err=True)
         sys.exit(127)
 
-    import importlib.util
-
-    if importlib.util.find_spec("uvicorn") is None:  # pragma: no cover
-        click.echo(
-            "`privyx run` requires privyx[server]. Install with: pip install privyx[server]",
-            err=True,
-        )
-        sys.exit(1)
-
     try:
         code = asyncio.run(
             _run_target(

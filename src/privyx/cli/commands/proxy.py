@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import os
 import sys
 import time
@@ -72,13 +71,6 @@ def proxy(
         tls_extra["ca_certs"] = ssl_ca_certs
     if tls_extra:
         extra["tls"] = tls_extra
-
-    if importlib.util.find_spec("uvicorn") is None:  # pragma: no cover
-        click.echo(
-            "The proxy server requires privyx[server]. Install with: pip install privyx[server]",
-            err=True,
-        )
-        sys.exit(1)
 
     watch_path: Path | None = None
     if reload_on_change:
