@@ -188,7 +188,7 @@ Which detections are masked. See [Policy](detection.md#policy).
 | Key | Default | Description |
 |---|---|---|
 | `type` | `default` | `default` masks everything detected; `strict` masks only the `allowed` entities; or a plugin policy. |
-| `allowed` | `[]` | `strict`: entity types to mask. Empty means the five built-in entities. |
+| `allowed` | `[]` | `strict`: entity types to mask. Empty means every built-in entity. |
 
 ### `operator`
 

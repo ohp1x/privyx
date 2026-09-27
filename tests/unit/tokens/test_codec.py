@@ -15,7 +15,19 @@ from privyx.token.model import LogicalToken
 
 # Every built-in entity type, incl. the two whose names contain the default
 # field separator, so ``{type}_{id}`` disambiguation is actually exercised.
-ENTITY_TYPES = ["EMAIL", "PHONE", "SSN", "ZIPCODE", "CREDIT_CARD", "IP_ADDRESS"]
+ENTITY_TYPES = [
+    "EMAIL",
+    "PHONE",
+    "SSN",
+    "ZIPCODE",
+    "CREDIT_CARD",
+    "IP_ADDRESS",
+    "API_KEY",
+    "JWT",
+    "PRIVATE_KEY",
+    "AUTH_TOKEN",
+    "URL_CREDENTIAL",
+]
 
 # The three identifier shapes the operators produce.
 IDENTIFIERS = ["1", "42", "9F3A1C2B7D4E5F60", "fb98d44a"]

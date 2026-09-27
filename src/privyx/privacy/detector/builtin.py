@@ -22,6 +22,53 @@ PHONE_PATTERN = (
     r"(?![\w\d])(?![-.]\d)"
 )
 
+#: Vendor-prefixed keys and webhook URLs, one vendor per line.  ``(?<![\w-])``
+#: keeps ``task-...`` from reading as ``sk-...``; ``(?<=\\[nrt])`` still allows
+#: one right after an escaped ``\n``.
+API_KEY_PATTERN = r"""(?x)
+(?:(?<=\\[nrt])|(?<![\w-]))
+(?:
+    sk-[\w-]{16,}                           # OpenAI, Anthropic, DeepSeek, OpenRouter, gateways
+  | (?:sk|rk)_(?:live|test)_\w{16,}         # Stripe secret / restricted
+  | whsec_\w{24,}                           # Stripe webhook
+  | gh[pousr]_\w{36,} | github_pat_\w{22,}  # GitHub
+  | gl(?:pat|dt|ptt|rt|oas|soat|cbt|ffct)-[\w-]{20,}   # GitLab
+  | (?:AKIA|ASIA)[0-9A-Z]{16}               # AWS access key id
+  | AIza[\w-]{35} | GOCSPX-[\w-]{24,} | ya29\.[\w-]{20,}   # Google
+  | xox[abposre]-[\w-]{10,} | xapp-\d-[\w-]{10,}           # Slack
+  | hf_\w{30,}                              # Hugging Face
+  | gsk_\w{40,} | xai-\w{40,} | r8_\w{30,} | pplx-\w{40,} | nvapi-[\w-]{40,}
+  | npm_\w{36,} | pypi-AgEIcHlwaS5vcmc[\w-]{50,}
+  | SG\.[\w-]{20,}\.[\w-]{20,}              # SendGrid
+  | do[opr]_v1_[0-9a-f]{64}                 # DigitalOcean
+  | shp(?:at|ca|pa|ss)_[0-9a-fA-F]{32}      # Shopify
+  | ATATT3[\w=-]{100,}                      # Atlassian
+  | lin_api_\w{40}                          # Linear
+  | sbp_[0-9a-f]{40}                        # Supabase
+  | sntry[su]_[\w+/=]{40,}                  # Sentry
+  | AGE-SECRET-KEY-1[0-9A-Z]{58}            # age
+  | PMAK-[0-9a-f]{24}-[0-9a-f]{34}          # Postman
+)
+| (?<!\d)\d{8,10}:AA[\w-]{33}               # Telegram bot, also inside /bot<token>/
+| hooks\.slack\.com/(?:services|workflows|triggers)/[\w/]+
+| discord(?:app)?\.com/api/webhooks/\d+/[\w-]+
+"""
+
+#: PEM / PGP private key blocks.
+PRIVATE_KEY_PATTERN = r"""(?x)
+-----BEGIN[A-Z0-9 ]*PRIVATE\ KEY(?:\ BLOCK)?-----
+(?:
+    (?:(?!-----BEGIN)[\s\S])*?-----END[A-Z0-9 ]*PRIVATE\ KEY(?:\ BLOCK)?-----
+  | (?:(?:\s|\\[rn])+[\w+/=-]{16,})+        # cut off before END: still mask the body
+)
+"""
+
+#: ``scheme://user:PASSWORD@host``: DB URLs, git remotes, ``redis://:pw@``.
+#: Bounded lengths keep it linear on long runs without ``://``.
+URL_CREDENTIAL_PATTERN = (
+    r"""(?ix) [a-z][a-z0-9+.-]{0,20}:// [^\s:/@"'<>]{0,256} : (?P<value>[^\s/@"'<>]{1,256}) @"""
+)
+
 #: Built-in entity patterns.  A ``regex`` detector built from config layers its
 #: own patterns over these (:func:`privyx.privacy.detector.yaml.build_detector`).
 DEFAULT_PATTERNS: dict[str, str] = {
@@ -30,6 +77,12 @@ DEFAULT_PATTERNS: dict[str, str] = {
     "CREDIT_CARD": r"\b(?:\d[ -]*?){13,16}\b",
     "IP_ADDRESS": r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
     "SSN": r"\b\d{3}-\d{2}-\d{4}\b",
+    "API_KEY": API_KEY_PATTERN,
+    "JWT": r"(?:(?<=\\[nrt])|(?<![\w-]))eyJ[\w-]{8,}\.eyJ[\w-]{8,}\.[\w-]*",
+    "PRIVATE_KEY": PRIVATE_KEY_PATTERN,
+    # `Authorization: Bearer …` / `Basic …`
+    "AUTH_TOKEN": r"(?i)(?:bearer|basic)[ \t]+(?P<value>[\w.~+/-]{16,}=*)",
+    "URL_CREDENTIAL": URL_CREDENTIAL_PATTERN,
 }
 
 

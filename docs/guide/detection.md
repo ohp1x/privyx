@@ -23,22 +23,22 @@ With no configuration, the `regex` detector finds:
 | `CREDIT_CARD` | Runs of 13 to 16 digits, optionally split by spaces or dashes |
 | `IP_ADDRESS` | IPv4 addresses |
 | `SSN` | US social security numbers (`123-45-6789`) |
+| `API_KEY` | Vendor-prefixed keys (OpenAI and Anthropic `sk-`, Stripe, GitHub, GitLab, AWS, Google, Slack, Hugging Face, and more) and webhook URLs |
+| `JWT` | JSON Web Tokens |
+| `PRIVATE_KEY` | PEM private key blocks, even when cut off before the end |
+| `AUTH_TOKEN` | The credential in `Authorization: Bearer …` or `Basic …` |
+| `URL_CREDENTIAL` | The password in `scheme://user:password@host` |
 
-That is all. Secrets, names, and anything specific to you need more
-configuration.
+Names and anything specific to you need more configuration.
 
 ## Secrets
 
-The annotated
+The built-in patterns catch secrets with a recognizable shape. A password or
+key without one, such as `DB_PASSWORD=hunter2`, is only found by its name. The
+annotated
 [`configs/default.yaml`](https://github.com/ohp1x/privyx/blob/main/configs/default.yaml)
-adds patterns for:
+adds a pattern for that:
 
-- `API_KEY`: vendor-prefixed keys (OpenAI and Anthropic `sk-`, Stripe, GitHub,
-  GitLab, AWS, Google, Slack, Hugging Face, and more) and webhook URLs.
-- `JWT`: JSON Web Tokens.
-- `PRIVATE_KEY`: PEM private key blocks, even when cut off before the end.
-- `AUTH_TOKEN`: the credential in `Authorization: Bearer …` or `Basic …`.
-- `URL_CREDENTIAL`: the password in `scheme://user:password@host`.
 - `SECRET`: a value assigned to a secret-looking name (`password=…`,
   `api_key: …`, `"token": "…"`), in `.env`, YAML, JSON, shell, and code.
 
@@ -189,7 +189,8 @@ The policy filters what the detector found.
 
 - `default` masks every detection.
 - `strict` masks only the entity types in `allowed`, and leaves the rest in
-  the text. An empty `allowed` means the five built-in entities.
+  the text, built-in secret types included. An empty `allowed` means every
+  built-in entity.
 
 ```yaml
 policy:
