@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Detector:** the built-in `EMAIL` pattern took quadratic time on a long run of letters, digits, or dots without an `@`, so 80 KB of hex or base64 in a request froze the proxy, and every other request and stream, for ~5 s. It now stops at the RFC 5321 lengths and scans the same input in ~10 ms; valid addresses match as before
 - **Operators:** masking or restoring a text with thousands of values took quadratic time, because the whole text was rebuilt once per value: 16,000 values in 0.9 MB took ~1 s each way, stalling every other request. The text is now built once (~50 ms each way)
 - **Proxy:** a stream the client dropped, such as a Claude Code request cancelled with Esc, left its ephemeral session, with the original values, in a sqlite or redis vault: the deletion was cancelled along with the stream (80 of 80 dropped streams). It is now deleted, and the drop is recorded as `proxy.response` with `aborted: true`, where before no event was written
+- **Gateway:** `privyx run` and `privyx proxy --gateway` gave up on the upstream after 60 s and answered 502, so a request whose first byte took longer (a long Claude Code turn, a busy upstream) failed. The gateway now uses the transparent proxy's timeouts: 10 s to connect, 300 s to read or write
 
 ### Security
 

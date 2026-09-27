@@ -38,7 +38,11 @@ class GenericProvider(BaseProvider):
         self._api_key = api_key
         self._headers = dict(headers or {})
         self._owns_client = client is None
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+        # The transparent proxy's timeouts: an upstream can take minutes to send
+        # its first byte, which a flat 60 s cut off.
+        self._client = client or httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=300.0, pool=10.0)
+        )
 
     async def close(self) -> None:
         if self._owns_client:
