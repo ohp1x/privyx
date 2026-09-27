@@ -210,6 +210,7 @@ async def _serve_transparent(
     """Serve the drop-in transparent reverse proxy."""
     import uvicorn
 
+    from privyx.config.redact import redact
     from privyx.gateway.transparent import create_transparent_app
     from privyx.providers.registry import resolve_api_key, resolve_origin
     from privyx.proxy.transparent import TransparentProxy
@@ -230,7 +231,7 @@ async def _serve_transparent(
     scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())
     click.echo(f"Privyx transparent proxy listening on {scheme}://{settings.host}:{settings.port}")
-    click.echo(f"Upstream origin: {origin}")
+    click.echo(f"Upstream origin: {redact(origin, 'url')}")
     click.echo(f"Routes: {routes}")
     click.echo(
         f"Engine: detector={settings.detector_type} policy={settings.policy.type} "
@@ -263,6 +264,7 @@ async def _serve_gateway(
     """Serve the gateway: our own endpoints, one fixed upstream endpoint."""
     import uvicorn
 
+    from privyx.config.redact import redact
     from privyx.gateway.server import Gateway
     from privyx.providers.registry import build_provider, resolve_base_url
 
@@ -272,7 +274,7 @@ async def _serve_gateway(
     scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in gateway.routes.items())
     click.echo(f"Privyx proxy listening on {scheme}://{settings.host}:{settings.port}")
-    click.echo(f"Upstream: {resolve_base_url(settings)}")
+    click.echo(f"Upstream: {redact(resolve_base_url(settings), 'url')}")
     click.echo(f"Routes: {routes}")
     click.echo(
         f"Engine: detector={settings.detector_type} policy={settings.policy.type} "
