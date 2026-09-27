@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 from privyx.core.engine import PrivacyEngine
+from privyx.core.session import Session
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy
@@ -32,6 +34,63 @@ async def _session(engine: PrivacyEngine) -> str:
 
 def _mail_request(email: str = EMAIL) -> dict[str, Any]:
     return {"messages": [{"role": "user", "content": f"mail {email}"}]}
+
+
+class _CopyingVault(MemoryVault):
+    """Hands out copies and yields on every call, like sqlite/redis."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.gets = self.saves = 0
+
+    async def get(self, session_id: str) -> Session | None:
+        self.gets += 1
+        await asyncio.sleep(0)
+        session = await super().get(session_id)
+        return Session.from_dict(session.to_dict()) if session else None
+
+    async def save(self, session: Session) -> None:
+        self.saves += 1
+        await asyncio.sleep(0)
+        await super().save(Session.from_dict(session.to_dict()))
+
+
+async def test_transform_request_one_vault_read_and_write_per_request() -> None:
+    vault = _CopyingVault()
+    engine = PrivacyEngine(
+        detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
+    )
+    sid = await _session(engine)
+    payload = {"messages": [{"role": "user", "content": f"mail u{i}@x.test"} for i in range(50)]}
+    vault.gets = vault.saves = 0
+
+    out = await transform_request(payload, engine, sid)
+
+    assert (vault.gets, vault.saves) == (1, 1)
+    session = await vault.get(sid)
+    assert session is not None and len(session.mapping) == 50
+    assert await restore_response(out, engine, sid) == payload
+
+
+async def test_concurrent_requests_on_one_session_keep_both_mappings() -> None:
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=_CopyingVault(),
+    )
+    sid = await _session(engine)
+
+    a, b = await asyncio.gather(
+        transform_request(_mail_request("a@x.test"), engine, sid),
+        transform_request(_mail_request("b@x.test"), engine, sid),
+    )
+
+    # Without the session lock both mint the same counter token and the
+    # second save drops the first request's mapping.
+    assert a != b
+    assert (await restore_response(a, engine, sid)) == _mail_request("a@x.test")
+    assert (await restore_response(b, engine, sid)) == _mail_request("b@x.test")
 
 
 def test_detect_schema_normalizes_leading_slash() -> None:

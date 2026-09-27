@@ -15,7 +15,11 @@ provider SDK. Gateways and proxies call :meth:`PrivacyEngine.transform` and
 
 from __future__ import annotations
 
+import asyncio
+import weakref
 from collections import Counter
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from privyx.core.context import Context
@@ -75,6 +79,8 @@ class PrivacyEngine:
         self._vault = vault
         self._codec = codec or FormatCodec.default()
         self._audit = audit or AuditLogger(None)
+        # One lock per live session id; an entry disappears once nobody holds it.
+        self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
     @property
     def detector(self) -> Detector:
@@ -123,12 +129,39 @@ class PrivacyEngine:
         self._audit.session_created(session.session_id, source=source)
         return session
 
+    @asynccontextmanager
+    async def session_scope(self, session_id: str) -> AsyncIterator[Session]:
+        """Hold ``session_id`` for a batch of transforms: one vault read, one write.
+
+        A request body has thousands of text leaves; reading and writing the
+        whole session per leaf makes a long conversation cost O(leaves × mapping)
+        against sqlite/redis.  Pass the yielded session to
+        :meth:`transform` with ``persist=False``; it is saved once on a clean
+        exit (not on an error — a request that failed to mask is not forwarded).
+
+        The lock keeps two requests of one session in this process from minting
+        the same counter pseudonym for different values and overwriting each
+        other's mapping on save.
+        """
+        # In-process lock only: replicas sharing a redis vault can still
+        # race — use an anchor (value-derived pseudonyms) or a redis lock there.
+        lock = self._locks.get(session_id)
+        if lock is None:
+            lock = self._locks[session_id] = asyncio.Lock()
+        async with lock:
+            session = await self.get_or_create_session(session_id)
+            yield session
+            session.touch()
+            await self._vault.save(session)
+
     async def transform(
         self,
         text: str,
         session: Session | None = None,
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        *,
+        persist: bool = True,
     ) -> TransformResult:
         """Pseudonymize sensitive spans in ``text``.
 
@@ -137,6 +170,8 @@ class PrivacyEngine:
             session: Optional existing session; created if omitted.
             session_id: Optional session id; implies ``session``.
             metadata: Free-form metadata attached to the context.
+            persist: Save the session afterwards.  False inside
+                :meth:`session_scope`, which saves once for the whole batch.
 
         Returns:
             A :class:`TransformResult` with the pseudonymized text.
@@ -148,10 +183,11 @@ class PrivacyEngine:
         detection = await self._detector.detect(text, context)
         detection = await self._policy.decide(detection, context)
         result = await self._operator.pseudonymize(text, detection, session, context)
-        # Every turn counts as activity, not only turns that add a mapping, so a
-        # vault TTL never expires a conversation that is still in use.
-        session.touch()
-        await self._vault.save(session)
+        if persist:
+            # Every turn counts as activity, not only turns that add a mapping,
+            # so a vault TTL never expires a conversation that is still in use.
+            session.touch()
+            await self._vault.save(session)
         self._audit.transform(
             session.session_id,
             entity_counts=_entity_counts(detection),
@@ -195,15 +231,21 @@ class PrivacyEngine:
         text: str,
         session_id: str,
         metadata: dict[str, Any] | None = None,
+        *,
+        session: Session | None = None,
     ) -> TransformResult:
         """Deanonymize ``text`` using the session's mapping.
+
+        ``session``, when the caller already holds it, skips the vault read — a
+        response restored leaf by leaf would otherwise re-read it per leaf.
 
         Raises:
             SessionNotFoundError: If the session does not exist.
         """
         from privyx.core.errors import SessionNotFoundError
 
-        session = await self._vault.get(session_id)
+        if session is None:
+            session = await self._vault.get(session_id)
         if session is None:
             raise SessionNotFoundError(f"session not found: {session_id}")
         context = Context(session_id=session_id, vault=self._vault, metadata=metadata or {})
