@@ -141,6 +141,11 @@ Not covered — forwarded verbatim, so any PII in them reaches the upstream:
 `generateContent`, and reads of stored objects such as `GET /v1/responses/{id}`.
 Add a route only for a path whose body really has one of the shapes above.
 
+To close that gap, set `proxy.passthrough_unknown: false`: the transparent proxy
+then answers every unrouted path with a 403 instead of forwarding it, including
+harmless ones such as `GET /v1/models`. The gateway already serves only the
+routed paths.
+
 ## What gets transformed and restored
 
 Both directions share one leaf walk (`proxy/schemas.py`) rather than a walker

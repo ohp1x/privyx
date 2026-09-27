@@ -191,6 +191,26 @@ async def test_non_chat_path_is_forwarded_verbatim() -> None:
     assert data["data"][0]["id"] == "gpt-x <PRIVYX_EMAIL_9>"
 
 
+async def test_unrouted_path_refused_without_passthrough() -> None:
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(
+        _engine(),
+        origin="https://up.test",
+        client=_mock_client(capture),
+        passthrough_unknown=False,
+    )
+
+    refused = await _post_json(proxy, "v1/embeddings", {"input": f"mail {EMAIL}"})
+    routed = await _post_json(
+        proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": EMAIL}]}
+    )
+
+    assert refused.status_code == 403
+    assert "passthrough_unknown" in json.loads(refused.body)["error"]["message"]
+    assert routed.status_code == 200
+    assert [r.url.path for r in capture] == ["/v1/chat/completions"]  # nothing leaked
+
+
 def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> TransparentProxy:
     audit = AuditLogger(buf)
     engine = PrivacyEngine(

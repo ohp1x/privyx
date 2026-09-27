@@ -79,6 +79,9 @@ class TransparentProxy:
             appended to it.  See :func:`privyx.providers.registry.resolve_origin`.
         routes: Path → wire-schema map (defaults to ``proxy.routes``' default:
             OpenAI Chat and Responses, Anthropic Messages and token counting).
+        passthrough_unknown: Forward paths missing from ``routes`` verbatim.  When
+            false they are refused with 403, so nothing reaches the upstream
+            unmasked.
         forward_client_auth: Forward the client's ``Authorization`` / ``x-api-key``.
         api_key: When set, overrides the upstream credential with this key.
         extra_headers: Static headers merged into every upstream request.
@@ -98,6 +101,7 @@ class TransparentProxy:
         *,
         origin: str,
         routes: dict[str, str] | None = None,
+        passthrough_unknown: bool = True,
         forward_client_auth: bool = True,
         api_key: str | None = None,
         extra_headers: Mapping[str, str] | None = None,
@@ -112,6 +116,7 @@ class TransparentProxy:
         self._session_strategy = session_strategy
         self._upstream_host = urlsplit(self._origin).netloc or self._origin
         self._routes = routes if routes is not None else ProxyConfig().routes
+        self._passthrough_unknown = passthrough_unknown
         self._forward_client_auth = forward_client_auth
         self._api_key = api_key
         self._extra_headers = dict(extra_headers or {})
@@ -147,6 +152,16 @@ class TransparentProxy:
         defer_cleanup = False
         try:
             schema = detect_schema(path, self._routes)
+            if schema is None and not self._passthrough_unknown:
+                message = (
+                    f"privyx: /{path.lstrip('/')} is not in proxy.routes "
+                    "and proxy.passthrough_unknown is false"
+                )
+                return ProxyResponse(
+                    status_code=403,
+                    media_type=_JSON,
+                    body=json.dumps({"error": {"message": message}}).encode(),
+                )
             content_type = _ci_get(headers, "content-type")
 
             if session_id is None:

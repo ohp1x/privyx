@@ -163,7 +163,9 @@ class ProxyConfig(BaseModel):
       out and restored on the way back, all without client-side changes.
 
     ``routes`` maps a request path to the wire schema used to transform it.
-    Paths not listed are forwarded verbatim when ``passthrough_unknown`` is set.
+    In transparent mode, paths not listed are forwarded verbatim when
+    ``passthrough_unknown`` is set (the default) and refused with 403 when it is
+    not.  The gateway serves only the listed paths either way.
     """
 
     mode: Literal["gateway", "transparent"] = "transparent"

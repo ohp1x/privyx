@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Proxy:** `proxy.passthrough_unknown: false` now takes effect. The option was never read, so the transparent proxy forwarded unrouted paths (embeddings, Gemini-native `generateContent`, …) unmasked whatever it was set to. With `false`, it answers them with a 403 and forwards nothing
+
 ## [0.1.1] - 2026-09-27
 
 ### Added
