@@ -16,7 +16,7 @@ jobs:
     outputs:
       is_prerelease: ${{ steps.check_prerelease.outputs.is_prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@v6
         with:
@@ -152,7 +152,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # QEMU lets the amd64 runner build the arm64 image (Apple Silicon, ARM
       # servers) alongside the native one.
