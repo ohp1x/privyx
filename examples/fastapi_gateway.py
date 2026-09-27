@@ -25,15 +25,13 @@ async def main() -> None:
         from privyx.config.schema import Settings
         from privyx.gateway.server import Gateway
         from privyx.providers.registry import build_provider
-        from privyx.proxy.http import HTTPProxy
     except ImportError:
         print("This example requires privyx[server]. Install with: pip install privyx[server]")
         return
 
     settings = Settings()
     provider = build_provider(settings)
-    proxy = HTTPProxy(engine=engine, provider=provider)
-    gateway = Gateway(engine=engine, proxy=proxy, settings=settings)
+    gateway = Gateway(engine=engine, provider=provider, settings=settings)
 
     config = uvicorn.Config(gateway.app, host="127.0.0.1", port=8000, log_level="info")
     server = uvicorn.Server(config)

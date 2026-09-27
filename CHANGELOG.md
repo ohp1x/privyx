@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Config:** `PRIVYX_DETECTOR_CACHE` replaced a `detector` list with one default regex detector, so the listed detectors (an `llm` or `presidio` detector, `terms`) silently stopped scanning and what only they caught went upstream unmasked. The variable now applies to each listed detector
+- **Config:** a `yaml` detector written as a single mapping also detected the five built-in entities, although `yaml` is meant to use only the patterns it is given. The list form was not affected. `privyx config --show` no longer lists the built-in patterns under `detector.patterns`; the `regex` detector still adds them
+- **Examples:** `examples/fastapi_gateway.py` passed an `HTTPProxy` to `Gateway`, which takes the provider, and failed with a `TypeError`
 - **Docs:** the architecture overview's link to the testing guide was broken, and the streaming docs and several docstrings pointed to a design note that was never part of the repository
 
 ## [0.1.5] - 2026-09-27
