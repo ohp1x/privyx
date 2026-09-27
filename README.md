@@ -15,7 +15,7 @@ deanonymizes streaming responses — all without changing your application code.
 - **Session Vault** — memory, SQLite, or Redis backends
 - **Docker-ready** — multi-stage `Dockerfile` and `docker-compose.yml` with a Redis vault
 - **CLI** — `privyx proxy`, `privyx run`, `privyx detect`, `privyx mask`/`unmask`,
-  `privyx inspect`, `privyx doctor`
+  `privyx session`, `privyx doctor`
 - **Plugin System** — custom detectors, operators, and providers
 
 ## Quick Start
@@ -99,6 +99,15 @@ Set `session.strategy` (or `PRIVYX_SESSION_STRATEGY`) to make sessions stick:
 (`~/.config/privyx/anchor.key`), so pseudonyms are stable across turns and
 restarts out of the box. See
 [docs/architecture/proxy.md](docs/architecture/proxy.md#sessions).
+
+Sticky sessions stay in the vault until something removes them. Set
+`vault.ttl` (seconds) to expire sessions idle that long, or clean up by hand:
+
+```bash
+privyx session list                        # ids, last activity, mapping counts
+privyx session show ses_1234 [--reveal]    # one session's mappings, masked by default
+privyx session prune --older-than 7d       # add --dry-run to preview
+```
 
 ### Pseudonymizing your own terms
 

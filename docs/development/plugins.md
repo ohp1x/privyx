@@ -14,7 +14,7 @@ subclass of a Privyx component base class, and Privyx registers it under its
 | Policy | `privyx.privacy.policy.base.BasePolicy` | `_decide_sync` | `policy.type` |
 | Operator | `privyx.privacy.operator.base.BaseOperator` | `pseudonymize`, `deanonymize` | `operator.type` |
 | Anchor | `privyx.privacy.anchor.base.BaseAnchor` | `anchor`, `deanchor` | `anchor.type` |
-| Vault | `privyx.vault.base.BaseVault` | `create`, `get`, `save`, `delete` (opt. `connect`/`close`) | `vault.type` |
+| Vault | `privyx.vault.base.BaseVault` | `create`, `get`, `save`, `delete` (opt. `connect`/`close`, and `list_sessions` for `privyx session list`/`prune`) | `vault.type` |
 | Provider | `privyx.providers.base.BaseProvider` | `send`, `stream`, `close` | `provider.type` |
 
 ## The Contract

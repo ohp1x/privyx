@@ -56,7 +56,7 @@ therefore do not emit this event during ordinary request cleanup.
 
 | field | type | notes |
 |---|---|---|
-| `reason` | string | Currently `ephemeral_request_complete`. |
+| `reason` | string | `ephemeral_request_complete` (proxy cleanup) or `prune` (`privyx session prune`). |
 | `mapping_count` | int | Number of mappings destroyed; values and keys are never recorded. |
 
 ### `proxy.request`
@@ -106,7 +106,9 @@ An exchange failed.
   leaves the session available; it never produces a false deletion event.
 - **Source-aware retention.** Default `ephemeral` sessions are removed after the
   exchange. Explicit-header and derived `client` / `conversation` sessions stay
-  in the vault until a future explicit or TTL-based deletion.
+  in the vault until `privyx session prune` deletes them (audited) or
+  `vault.ttl` expires them (not audited: the vault drops them without a caller
+  to report it).
 - **Resilient.** A failed audit write is logged and swallowed; it can never break
   a proxied request.
 

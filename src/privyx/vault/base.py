@@ -10,6 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Protocol, runtime_checkable
 
+from privyx.core.errors import VaultError
 from privyx.core.session import Session
 
 
@@ -24,6 +25,8 @@ class Vault(Protocol):
     async def save(self, session: Session) -> None: ...
 
     async def delete(self, session_id: str) -> None: ...
+
+    async def list_sessions(self) -> list[Session]: ...
 
 
 class BaseVault(ABC):
@@ -42,3 +45,11 @@ class BaseVault(ABC):
 
     @abstractmethod
     async def delete(self, session_id: str) -> None: ...
+
+    async def list_sessions(self) -> list[Session]:
+        """Return every live (unexpired) session, for ``privyx session list/prune``.
+
+        Optional for plugin vaults: the default raises :class:`VaultError`, so a
+        vault written before this method existed keeps working for the proxy.
+        """
+        raise VaultError(f"the {self.name} vault cannot list sessions")

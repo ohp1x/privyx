@@ -1,12 +1,14 @@
 """SQLite-backed vault for single-server persistence.
 
 Requires the optional ``sqlite`` extra (aiosqlite).  Uses a simple
-key/value table for session records.
+key/value table for session records.  ``updated_at`` mirrors the session's
+last activity and drives the optional TTL.
 """
 
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     payload TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions (updated_at);
 """
 
 
@@ -28,13 +31,20 @@ class SQLiteVault(BaseVault):
 
     Args:
         dsn: Path to the SQLite file (``":memory:"`` supported).
+        ttl: Optional idle expiry (seconds).  Expired rows are invisible to
+            reads and deleted whenever a new session is created.
     """
 
     name = "sqlite"
 
-    def __init__(self, dsn: str = "privyx.db") -> None:
+    def __init__(self, dsn: str = "privyx.db", ttl: int | None = None) -> None:
         self._dsn = dsn
+        self._ttl = ttl
         self._db: Any = None
+
+    def _cutoff(self) -> float:
+        """Oldest live ``updated_at``; 0 (every epoch timestamp) without a TTL."""
+        return 0.0 if self._ttl is None else time.time() - self._ttl
 
     async def connect(self) -> None:
         """Open the database (must be called before use)."""
@@ -47,7 +57,7 @@ class SQLiteVault(BaseVault):
         if self._dsn != ":memory:":
             Path(self._dsn).parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._dsn)
-        await self._db.execute(_SCHEMA)
+        await self._db.executescript(_SCHEMA)
         await self._db.commit()
 
     async def close(self) -> None:
@@ -56,6 +66,12 @@ class SQLiteVault(BaseVault):
             self._db = None
 
     async def create(self, session: Session) -> None:
+        assert self._db is not None, "SQLiteVault not connected"
+        if self._ttl is not None:
+            # Without this sweep, sticky sessions nobody asks for again would
+            # sit on disk forever.
+            await self._db.execute("DELETE FROM sessions WHERE updated_at < ?", (self._cutoff(),))
+            await self._db.commit()
         existing = await self.get(session.session_id)
         if existing is not None:
             raise VaultError(f"session already exists: {session.session_id}")
@@ -72,7 +88,8 @@ class SQLiteVault(BaseVault):
     async def get(self, session_id: str) -> Session | None:
         assert self._db is not None, "SQLiteVault not connected"
         cursor = await self._db.execute(
-            "SELECT payload FROM sessions WHERE session_id = ?", (session_id,)
+            "SELECT payload FROM sessions WHERE session_id = ? AND updated_at >= ?",
+            (session_id, self._cutoff()),
         )
         row = await cursor.fetchone()
         await cursor.close()
@@ -90,3 +107,18 @@ class SQLiteVault(BaseVault):
         assert self._db is not None, "SQLiteVault not connected"
         await self._db.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
         await self._db.commit()
+
+    async def list_sessions(self) -> list[Session]:
+        assert self._db is not None, "SQLiteVault not connected"
+        cursor = await self._db.execute(
+            "SELECT session_id, payload FROM sessions WHERE updated_at >= ?", (self._cutoff(),)
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        sessions = []
+        for session_id, payload in rows:
+            try:
+                sessions.append(Session.from_dict(json.loads(payload)))
+            except (json.JSONDecodeError, KeyError) as exc:
+                raise VaultError(f"corrupt session record: {session_id}") from exc
+        return sessions

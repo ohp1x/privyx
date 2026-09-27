@@ -41,7 +41,12 @@
   response completes or after a streaming response is drained/cancelled;
   `session.deleted` is emitted only after the deletion succeeds.
 - Explicit-header and derived `client` / `conversation` sessions are retained for
-  continuity and are not deleted at the end of each request. They require an
-  explicit deletion or future TTL/retention policy.
+  continuity and are not deleted at the end of each request. Bound their
+  lifetime with `vault.ttl` or `privyx session prune`.
+- `vault.ttl` (seconds) expires sessions idle that long on every backend. Redis
+  expires the key itself; the memory and SQLite vaults stop returning an expired
+  session at once and delete it from the store the next time a session is
+  created. TTL expiry writes no audit event.
+- `privyx session prune --older-than 7d` deletes idle sessions on demand and
+  audits each one as `session.deleted` with `reason: prune`.
 - `delete()` on the vault removes a session's mappings.
-- Vault TTL (Redis) expires idle sessions.

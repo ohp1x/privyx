@@ -10,6 +10,9 @@ Session state never lives only in process memory:
 | `SQLiteVault` | Single server, persistence across restarts |
 | `RedisVault` | Multi-instance, horizontal scaling |
 
+`vault.ttl` (seconds) expires sessions idle that long on every backend; a
+session's idle time restarts with each request that uses it.
+
 ## Multi-Instance
 
 ```text

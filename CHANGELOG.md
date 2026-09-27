@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Docker:** Docker Hub shows `docs/docker.md` as the image overview (quick start, environment variables, volumes, tags), synced by a workflow whenever the page changes. The README's `docker run` example now uses the public Docker Hub image
+- **Vault:** `vault.ttl` now applies to the memory and SQLite vaults, not only Redis. A session idle longer than `ttl` seconds is no longer returned, and the SQLite vault deletes expired rows from disk whenever a new session is created, so sticky `client` / `conversation` sessions no longer pile up forever
+- **CLI:** `privyx session list` shows every live session (id, last activity, creation time, mapping count, never values); `privyx session prune --older-than 7d [--dry-run]` deletes idle sessions and audits each one as `session.deleted` with `reason: prune`; `privyx session show <id>` replaces `privyx inspect session <id>`, which stays as an alias
+- **Plugins:** vaults can implement `list_sessions()` to support `privyx session list` / `prune`. It is optional; a plugin vault without it keeps working and those two commands report that it cannot list sessions
+
+### Changed
+
+- **Vault:** a session's `updated_at` now records its last activity: every transform refreshes it, including one that adds no new mapping. It used to change only when a mapping was added, so a TTL could have expired a conversation that was still in use
+- **Config:** `vault.ttl` must be a positive number of seconds. `ttl: 0` is now rejected at load time; Redis already refused it on the first write
 
 ### Fixed
 
