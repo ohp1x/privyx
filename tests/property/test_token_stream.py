@@ -1,7 +1,7 @@
 """The token codec's streaming contract: stream ≡ batch at every boundary.
 
-``.temp/token-system.md`` §7: ``stream_process([c1, ..., cN]) ==
-batch_process(c1 + ... + cN)`` for all chunk boundaries.  The reference is the
+``stream_process([c1, ..., cN]) == batch_process(c1 + ... + cN)`` for all chunk
+boundaries.  The reference is the
 production batch path — :func:`privyx.privacy.operator.base.restore` — so a bug
 shared by both would still surface as a wrong *value*, while these tests pin the
 *equivalence*.

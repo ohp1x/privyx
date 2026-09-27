@@ -1,4 +1,4 @@
-.PHONY: install dev test coverage e2e lint format check vulns run proxy clean
+.PHONY: install dev test coverage e2e lint format check vulns docs run proxy clean
 
 install:
 	uv sync --all-extras
@@ -30,6 +30,10 @@ check:
 vulns:
 	uv export --frozen --all-extras --no-emit-project -q | uvx pip-audit --disable-pip -r /dev/stdin
 
+# Serve the documentation site at http://127.0.0.1:8000 with live reload.
+docs:
+	uv run --only-group docs mkdocs serve
+
 run:
 	uv run privyx
 
@@ -37,5 +41,5 @@ proxy:
 	uv run privyx proxy
 
 clean:
-	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov build dist *.egg-info
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov site build dist *.egg-info
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +

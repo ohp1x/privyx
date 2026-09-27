@@ -33,7 +33,7 @@ Only the "is there a token here?" decision is pluggable
 - **`TrieRecognizer`** matches the exact pseudonym strings a session issued
   (a trie of known values) — syntax-agnostic. Backs `StreamingDeanonymizer`.
 - **`CodecRecognizer`** matches any text that fits the configured token syntax
-  via the [token codec](../../.temp/token-system.md), reconstructs the logical
+  via the token codec, reconstructs the logical
   token, and resolves it against the session mapping. Backs
   `TokenStreamProcessor`, which the proxy uses — so streaming recognizes tokens
   the same way everything else does, and knows no syntax of its own.

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Docs:** the documentation is published at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/), built from `docs/` with MkDocs Material on every push to `main`. Pull requests that touch the docs build them with `--strict`, so a broken link or a page missing from the navigation fails the check. `make docs` serves the site locally
+
+### Fixed
+
+- **Docs:** the architecture overview's link to the testing guide was broken, and the streaming docs and several docstrings pointed to a design note that was never part of the repository
+
 ## [0.1.5] - 2026-09-27
 
 ### Added

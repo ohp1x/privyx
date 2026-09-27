@@ -97,4 +97,4 @@ make test       # or: uv run pytest
 make lint       # or: uv run ruff check src tests
 ```
 
-See [development/testing.md](development/testing.md) for the test strategy.
+See [development/testing.md](../development/testing.md) for the test strategy.

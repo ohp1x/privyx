@@ -43,8 +43,7 @@ def restore(
     Shared by the reversible operators: the *codec* decides what a token looks
     like, while the right-to-left replacement that keeps earlier offsets valid
     and the "leave unknown tokens alone" rule live here rather than being
-    reimplemented per operator.  No operator hard-codes token syntax
-    (``.temp/token-system.md`` §9).
+    reimplemented per operator.  No operator hard-codes token syntax.
 
     Unknown tokens are passed through untouched: a stream may legitimately
     contain text that fits the token syntax but was never issued by us, and

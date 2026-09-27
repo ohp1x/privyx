@@ -2,7 +2,7 @@
 
 The operator works with :class:`~privyx.token.model.LogicalToken` values and
 delegates their textual form to a :class:`~privyx.token.codec.TokenCodec`, so it
-never mentions delimiters or a fixed syntax (``.temp/token-system.md`` §9).  The
+never mentions delimiters or a fixed syntax.  The
 identifier is a per-session counter by default, or — when an
 :class:`~privyx.privacy.anchor.base.Anchor` is supplied — a deterministic token
 derived from the value itself, so the same input yields the same pseudonym in
