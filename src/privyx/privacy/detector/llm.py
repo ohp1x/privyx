@@ -7,11 +7,12 @@ cost to every request, it is never the default and should only be enabled
 explicitly in configuration — typically layered alongside ``regex`` via a
 detector list rather than used alone.
 
-Failure is closed by default: an error or a timeout (``timeout``) fails the
-request with :class:`~privyx.core.errors.DetectorError`, so no text reaches the
-upstream having skipped the scan it was configured for.  ``fallback_on_error``
-opts into scanning with the built-in regex patterns instead, which lets through
-whatever only the LLM would have caught; every fallback is logged and counted as
+Failure is closed by default: an error, a timeout (``timeout``), or a reply
+with no JSON array of spans fails the request with
+:class:`~privyx.core.errors.DetectorError`, so no text reaches the upstream
+having skipped the scan it was configured for.  ``fallback_on_error`` opts into
+scanning with the built-in regex patterns instead, which lets through whatever
+only the LLM would have caught; every fallback is logged and counted as
 ``llm_fallbacks`` on the ``session.transform`` audit event.
 
 Text longer than ``max_chars`` is scanned in overlapping chunks, all at once,
@@ -27,7 +28,9 @@ contract ``faker``, ``encrypt``, and ``presidio`` follow.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -35,6 +38,7 @@ from privyx.core.context import Context
 from privyx.core.errors import ConfigError, DetectorError
 from privyx.core.result import Detection, Span
 from privyx.privacy.detector.builtin import RegexDetector
+from privyx.privacy.detector.yaml import _bounded
 
 _log = logging.getLogger(__name__)
 
@@ -79,7 +83,7 @@ class _AnthropicClient:
     async def complete(self, prompt: str) -> str:
         response = await self._client.messages.create(
             model=self._model,
-            max_tokens=1024,
+            max_tokens=4096,  # room for a dense chunk's spans; a cut-off reply fails
             messages=[{"role": "user", "content": prompt}],
         )
         return "".join(block.text for block in response.content if block.type == "text")
@@ -240,32 +244,48 @@ def _chunks(text: str, size: int) -> list[tuple[int, str]]:
 
 
 def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
-    """Best-effort parse of an LLM JSON response into a Detection.
+    """Parse an LLM reply into a Detection over ``text``.
 
-    An LLM can hallucinate offsets that do not exist in ``text`` (negative,
-    reversed, or past the end). Python slicing does not raise for those — it
-    silently clamps — so bounds are checked explicitly rather than trusting
-    the slice to fail. A span that fails the check is dropped rather than
-    raising: one bad tuple in the response should not fail the whole request.
-    ``offset`` shifts the spans of a chunk back to positions in the full text.
+    A reply with no JSON array in it means the model did not do the scan (it
+    chatted, or ran out of tokens mid-array), so it raises rather than report
+    "no PII": the caller then fails closed or falls back like any other error.
+    A code fence or prose around the array is tolerated.
+
+    Each span is located by the text the model reports, not by its offsets:
+    models miscount characters, and a wrong offset inside ``text`` would mask
+    the wrong words and let the real value through.  Every whole-word,
+    case-insensitive occurrence is masked, and reported text that does not
+    occur at all is a hallucination and is dropped.  Offsets are used only for a
+    ``[start, end, type]`` span without text, and only when they are in range.
+    A malformed span is dropped; it does not fail the reply.  ``offset`` shifts
+    the spans of a chunk back to positions in the full text.
+
+    Raises:
+        DetectorError: If the reply holds no JSON array.
     """
-    import json
+    start, end = response.find("["), response.rfind("]")
+    try:
+        payload = json.loads(response[start : end + 1]) if 0 <= start < end else None
+    except json.JSONDecodeError:
+        payload = None
+    if not isinstance(payload, list):
+        # Never quote the reply: it may repeat the scanned text.
+        raise DetectorError("reply is not a JSON array of spans")
 
     detection = Detection()
-    try:
-        payload = json.loads(response)
-    except json.JSONDecodeError:
-        return detection
-    if not isinstance(payload, list):
-        return detection
     for item in payload:
         if not isinstance(item, (list, tuple)) or len(item) < 3:
             continue
+        entity = str(item[2])
+        reported = item[3].strip() if len(item) > 3 and isinstance(item[3], str) else ""
+        if reported:
+            for match in re.finditer(_bounded(reported), text, re.IGNORECASE):
+                detection.add(match.start() + offset, match.end() + offset, entity, match[0])
+            continue
         try:
-            start, end, entity = int(item[0]), int(item[1]), str(item[2])
+            first, last = int(item[0]), int(item[1])
         except (TypeError, ValueError):
             continue
-        if not (0 <= start < end <= len(text)):
-            continue
-        detection.add(start + offset, end + offset, entity, text[start:end])
+        if 0 <= first < last <= len(text):
+            detection.add(first + offset, last + offset, entity, text[first:last])
     return detection
