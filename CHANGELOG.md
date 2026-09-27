@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Security
 
 - **Detector:** API keys, JWTs, private keys, `Bearer`/`Basic` credentials, and passwords in URLs are now masked without a config file. Their patterns lived only in `configs/default.yaml`, which neither `pip install privyx` nor the Docker image loads, so `privyx run` and `docker compose up` sent them upstream as-is. With `policy.type: strict` and your own `allowed` list, add `API_KEY`, `JWT`, `PRIVATE_KEY`, `AUTH_TOKEN`, and `URL_CREDENTIAL` to it, or they stay unmasked
+- **Docker:** `docker-compose.yml` publishes the proxy on `127.0.0.1` only. It listened on every interface, so anyone on the network could send requests through it, with the upstream key if one was configured. To reach it from other hosts, put an authenticating reverse proxy in front
 
 ## [0.1.6] - 2026-09-27
 

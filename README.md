@@ -74,8 +74,8 @@ cp .env.example .env   # fill in upstream keys and secrets
 docker compose up -d
 ```
 
-This starts Privyx alongside a Redis-backed session vault (see
-`docker-compose.yml`). Configs and plugins are mounted read-only from
+This starts Privyx on `127.0.0.1:8000` alongside a Redis-backed session vault
+(see `docker-compose.yml`). Configs and plugins are mounted read-only from
 `./configs` and `./plugins`; persistent data (vault DB, audit log) lives in the
 `privyx_data` volume. Run the published image standalone with:
 
