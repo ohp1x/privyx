@@ -160,5 +160,7 @@ def build_provider(settings: Any) -> Any:
     if ptype in registry.names():
         return registry.build(ptype, config)
     if ptype in PLUGINS.providers:
-        return PLUGINS.providers.build({**config, "type": ptype})
+        # Keys the schema does not define are the plugin's own options.
+        options = provider_config.model_extra or {}
+        return PLUGINS.providers.build({**options, **config, "type": ptype})
     raise ConfigError(f"unknown provider: {ptype}")

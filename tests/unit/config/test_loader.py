@@ -7,6 +7,7 @@ override (e.g. a per-conversation session).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ import pytest
 from privyx.config.loader import load_config
 from privyx.core.builder import build_detector_from
 from privyx.core.context import Context
+from privyx.core.errors import ConfigError
 
 _CONVO = {"session": {"strategy": "conversation"}}
 
@@ -100,3 +102,30 @@ def test_env_detector_cache_applies_to_each_listed_detector(
     assert settings.detector_type == "regex+yaml"
     assert settings.detector[0].terms == {"PROJECT": ["bluebird"]}
     assert [d.cache.enabled for d in settings.detector] == [False, False]
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("detector:\n  term: {PERSON: [Zed Quill]}\n", "'detector.term' (did you mean 'terms'?)"),
+        ("detectors:\n  - type: regex\n", "'detectors' (did you mean 'detector'?)"),
+        (
+            "detector:\n  - type: regex\n  - type: yaml\n    patern: {CODE: X}\n",
+            "'detector[1].patern' (did you mean 'patterns'?)",
+        ),
+        (
+            "detector:\n  cache: {max_sise: 5}\n",
+            "'detector.cache.max_sise' (did you mean 'max_size'?)",
+        ),
+        ("vault:\n  type: sqlite\n  path: x.db\n", "unknown setting 'vault.path'"),
+    ],
+    ids=["terms", "detector", "list-item", "cache", "vault"],
+)
+def test_an_unknown_setting_fails_to_load(tmp_path: Path, text: str, message: str) -> None:
+    # Each used to load with the key dropped, so the first masked no PERSON
+    # while `privyx doctor` called it valid.
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(text, encoding="utf-8")
+    with pytest.raises(ConfigError, match=re.escape(message)) as caught:
+        load_config(cfg)
+    assert "Zed" not in str(caught.value)  # key paths only, never values
