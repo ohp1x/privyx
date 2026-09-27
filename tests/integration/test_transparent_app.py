@@ -112,6 +112,18 @@ async def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
+async def test_metrics_count_proxied_exchanges() -> None:
+    async with _client(_app()) as client:
+        await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+        response = await client.get("/metrics")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert 'privyx_audit_events_total{event="proxy.response"} 1' in response.text
+
+
 async def test_chat_batch_round_trip_through_app() -> None:
     async with _client(_app()) as client:
         response = await client.post(

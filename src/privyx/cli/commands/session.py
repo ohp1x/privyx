@@ -26,7 +26,9 @@ _CONFIG = click.option("--config", "-c", "config_path", default=None, help="Conf
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
-def _duration(_ctx: click.Context, _param: click.Parameter, value: str) -> int:
+def _duration(_ctx: click.Context, _param: click.Parameter, value: str | None) -> int | None:
+    if value is None:
+        return None
     match = re.fullmatch(r"(\d+)([smhdw])", value.strip())
     if match is None:
         raise click.BadParameter("use a number and a unit (s, m, h, d, w), e.g. 7d")

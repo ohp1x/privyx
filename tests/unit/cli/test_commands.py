@@ -8,6 +8,7 @@ that quietly hardcodes its own detector or vault and ignores ``--config``.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -171,6 +172,82 @@ def test_session_prune_deletes_idle_sessions_and_audits(
     assert [(e["event"], e["session_id"], e["reason"], e["mapping_count"]) for e in events] == [
         ("session.deleted", idle, "prune", 1)
     ]
+
+
+def _write_audit_log(path: Path) -> None:
+    now = time.time()
+    records = [
+        {"ts": now - 10 * 86400, "event": "session.created", "session_id": "ses_old"},
+        {"ts": now, "event": "session.created", "request_id": "req_1", "session_id": "ses_1"},
+        {
+            "ts": now,
+            "event": "session.transform",
+            "request_id": "req_1",
+            "session_id": "ses_1",
+            "entity_counts": {"EMAIL": 2, "PERSON": 1},
+            "transformations": 3,
+        },
+        {"ts": now, "event": "proxy.request", "request_id": "req_1", "status": 200},
+        {"ts": now, "event": "session.restore", "request_id": "req_1", "transformations": 2},
+        {"ts": now, "event": "proxy.response", "request_id": "req_1", "duration_ms": 1500.0},
+        {
+            "ts": now,
+            "event": "proxy.error",
+            "request_id": "req_2",
+            "phase": "upstream",
+            "error_type": "ConnectError",
+        },
+    ]
+    lines = [json.dumps(r) for r in records]
+    path.write_text("\n".join([*lines, "not json"]) + "\n", encoding="utf-8")
+
+
+def test_audit_stats_summarizes_the_log(runner: CliRunner, tmp_path: Path) -> None:
+    log = tmp_path / "audit.log"
+    _write_audit_log(log)
+
+    result = runner.invoke(cli, ["audit", "stats", str(log)])
+
+    assert result.exit_code == 0
+    assert "Requests:   1" in result.output
+    assert "Responses:  1 (avg 1.50s)" in result.output
+    assert "Errors:     1 (upstream 1)" in result.output
+    assert "Sessions:   2 created, 0 deleted" in result.output
+    assert "Masked:     3 entities" in result.output
+    assert "Restored:   2 pseudonyms" in result.output
+    assert "EMAIL   2" in result.output
+    assert "Skipped 1 unreadable line(s)" in result.output
+
+    recent = runner.invoke(cli, ["audit", "stats", str(log), "--since", "7d"])
+    assert "Sessions:   1 created" in recent.output
+
+
+def test_audit_stats_reads_the_configured_path(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "audit.log"
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(log))
+
+    missing = runner.invoke(cli, ["audit", "stats"])
+    assert missing.exit_code == 1
+    assert "No such file" in missing.output
+
+    _write_audit_log(log)
+    assert "Requests:   1" in runner.invoke(cli, ["audit", "stats"]).output
+
+
+def test_audit_tail_prints_the_last_events_readably(runner: CliRunner, tmp_path: Path) -> None:
+    log = tmp_path / "audit.log"
+    _write_audit_log(log)
+
+    result = runner.invoke(cli, ["audit", "tail", str(log), "-n", "3", "--no-follow"])
+
+    assert result.exit_code == 0
+    lines = result.output.splitlines()
+    assert len(lines) == 3
+    assert "proxy.response" in lines[0] and "req_1" in lines[0] and "duration_ms=1500.0" in lines[0]
+    assert "phase=upstream error_type=ConnectError" in lines[1]
+    assert lines[2] == "not json"
 
 
 def test_session_prune_rejects_a_bare_number(runner: CliRunner, sqlite_config: Path) -> None:
@@ -429,7 +506,7 @@ def test_config_show_masks_secrets(
 
 
 def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
-    """The CLI tree: proxy, run, detect, mask, unmask, inspect, session, config, doctor."""
+    """The CLI tree: proxy, run, detect, mask, unmask, inspect, session, audit, config, doctor."""
     result = runner.invoke(cli, ["--help"])
 
     for command in (
@@ -440,6 +517,7 @@ def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
         "unmask",
         "inspect",
         "session",
+        "audit",
         "config",
         "doctor",
     ):
@@ -449,6 +527,9 @@ def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
     assert "session" in sub.output
     sub = runner.invoke(cli, ["session", "--help"])
     for command in ("list", "show", "prune"):
+        assert command in sub.output
+    sub = runner.invoke(cli, ["audit", "--help"])
+    for command in ("stats", "tail"):
         assert command in sub.output
 
 

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** `privyx audit stats [FILE] [--since 24h]` summarizes the audit log: requests, responses with average duration, errors by phase, sessions created and deleted, entities masked by type, and pseudonyms restored. `privyx audit tail [FILE] [-n N] [--no-follow]` prints recent events one readable line each and follows new ones, surviving a `copytruncate` rotation. `FILE` defaults to `audit.path`
+- **Proxy:** `GET /metrics` in both proxy modes serves Prometheus-format counters of audit events, masked entities by type, errors by phase, restored pseudonyms, and response duration. They are counted in memory from startup, so they also work with `audit.enabled: false`. The endpoint needs no key, like `/health`
+
 ## [0.1.3] - 2026-09-27
 
 ### Added

@@ -114,6 +114,28 @@ An exchange failed.
 
 ## Consuming the trail
 
+For the common questions, no `jq` is needed:
+
+```bash
+privyx audit stats [FILE] [--since 24h]   # totals: requests, errors by phase, sessions, entity types
+privyx audit tail [FILE] [-n 20]          # one readable line per event, then follow (--no-follow)
+```
+
+`FILE` defaults to the configured `audit.path`. A running proxy also serves the
+same totals at `GET /metrics` in the Prometheus text format, counted in memory
+from startup, so they work with `audit.enabled: false` and reset on restart:
+
+| metric | labels | notes |
+|---|---|---|
+| `privyx_audit_events_total` | `event` | Events emitted, by event type. |
+| `privyx_entities_masked_total` | `entity_type` | Sum of `session.transform` `entity_counts`. |
+| `privyx_proxy_errors_total` | `phase` | `proxy.error` events by `phase`. |
+| `privyx_pseudonyms_restored_total` | | Sum of `session.restore` `transformations`. |
+| `privyx_response_duration_seconds` | | Summary (`_sum`, `_count`) of `proxy.response` `duration_ms`. |
+
+`/metrics` needs no key, like `/health`; it exposes counts only, but keep it off
+networks where traffic volume should stay private.
+
 The file is append-only JSON Lines: tail it, `jq` it, or bulk-load it. Because
 each line is self-describing (versioned envelope, flat fields) it maps directly to
 a row in a future audit store / dashboard without reshaping. When

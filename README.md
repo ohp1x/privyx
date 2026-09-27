@@ -15,7 +15,7 @@ deanonymizes streaming responses — all without changing your application code.
 - **Session Vault** — memory, SQLite, or Redis backends
 - **Docker-ready** — multi-stage `Dockerfile` and `docker-compose.yml` with a Redis vault
 - **CLI** — `privyx proxy`, `privyx run`, `privyx detect`, `privyx mask`/`unmask`,
-  `privyx session`, `privyx doctor`
+  `privyx session`, `privyx audit`, `privyx doctor`
 - **Plugin System** — custom detectors, operators, and providers
 
 ## Quick Start
@@ -107,6 +107,18 @@ Sticky sessions stay in the vault until something removes them. Set
 privyx session list                        # ids, last activity, mapping counts
 privyx session show ses_1234 [--reveal]    # one session's mappings, masked by default
 privyx session prune --older-than 7d       # add --dry-run to preview
+```
+
+### Audit trail and metrics
+
+Every exchange is recorded in `audit.path` (default `privyx-audit.log`) as
+PII-safe JSON lines: event names, entity types, and counts, never content
+([docs/observability/audit-events.md](docs/observability/audit-events.md)).
+
+```bash
+privyx audit stats [--since 24h]           # requests, errors, sessions, masked entity types
+privyx audit tail                          # last events, then follow new ones (--no-follow)
+curl localhost:8000/metrics                # the same counters, Prometheus text format
 ```
 
 ### Pseudonymizing your own terms

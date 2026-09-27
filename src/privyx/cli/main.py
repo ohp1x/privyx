@@ -12,6 +12,7 @@ Usage::
     privyx unmask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
     privyx session list|show|prune
     privyx inspect session <session_id>   (alias of `session show`)
+    privyx audit stats|tail [FILE]
     privyx doctor [--config FILE]
     privyx config [--show] [--path]
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 import click
 
 from privyx import __version__
+from privyx.cli.commands.audit import audit
 from privyx.cli.commands.config import config_cmd
 from privyx.cli.commands.detect import detect
 from privyx.cli.commands.doctor import doctor
@@ -44,6 +46,7 @@ cli.add_command(mask)
 cli.add_command(unmask)
 cli.add_command(inspect)
 cli.add_command(session)
+cli.add_command(audit)
 cli.add_command(doctor)
 cli.add_command(config_cmd, name="config")
 
