@@ -219,6 +219,7 @@ async def _serve_transparent(
         engine,
         origin=origin,
         routes=dict(settings.proxy.routes),
+        passthrough_unknown=settings.proxy.passthrough_unknown,
         forward_client_auth=settings.proxy.forward_client_auth,
         api_key=settings.provider.api_key or None,
         extra_headers=dict(settings.provider.headers),
