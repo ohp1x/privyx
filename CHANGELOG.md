@@ -16,6 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** the transparent proxy resolves its upstream key like the gateway: `PRIVYX_<TYPE>_API_KEY` (`provider.<type>_api_key`) first, then `provider.api_key`. It used to read only `provider.api_key`, so `PRIVYX_OPENAI_API_KEY` / `PRIVYX_ANTHROPIC_API_KEY`, which `configs/default.yaml` pointed at, were ignored and the client's key was relayed instead. If you run the transparent proxy with `provider.type` set and one of those variables exported, that key now replaces the client's
 - **Proxy:** `proxy.passthrough_unknown: false` now takes effect. The option was never read, so the transparent proxy forwarded unrouted paths (embeddings, Gemini-native `generateContent`, …) unmasked whatever it was set to. With `false`, it answers them with a 403 and forwards nothing
 
+### Security
+
+- **CLI:** `privyx config --show` no longer prints credentials. API keys, `operator.key`, `anchor.secret`, `tls.keyfile_password`, every `provider.headers` value, the values of `detector.patterns`, `detector.terms`, and `detector.llm_instructions` (which spell out what the detector hides; pattern and entity names stay visible), and the password in a URL field (`vault.dsn`, `vault.redis_url`, `provider.base_url`, `upstream_url`) are shown as `***`; unset values stay empty so a missing key is still visible. The upstream URL printed by `privyx config`, `privyx proxy`, and `privyx run` masks its password the same way
+
 ## [0.1.1] - 2026-09-27
 
 ### Added

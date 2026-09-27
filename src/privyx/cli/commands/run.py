@@ -199,6 +199,7 @@ async def _run_target(
         The tool's exit code.
     """
     from privyx.config.loader import load_config
+    from privyx.config.redact import redact
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider, resolve_base_url
@@ -233,7 +234,7 @@ async def _run_target(
         await _wait_until_started(server, serve_task)
         base_url = f"http://{settings.host}:{bound_port}"
 
-        click.echo(f"Privyx proxy → {resolve_base_url(settings)}")
+        click.echo(f"Privyx proxy → {redact(resolve_base_url(settings), 'url')}")
         click.echo(f"Running: {spec.command} {' '.join(argv)}".rstrip())
         click.echo(f"  {', '.join(env_vars)} = {base_url}")
 

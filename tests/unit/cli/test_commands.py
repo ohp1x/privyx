@@ -325,6 +325,42 @@ def test_config_show_outputs_settings(runner: CliRunner) -> None:
     assert "detector" in result.output or "vault" in result.output
 
 
+def test_config_show_masks_secrets(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The last two come from detector config, which spells out what it hides.
+    secrets = ["sk-env-key", "hunter2", "anchor-secret", "Bearer hdr-token", "llm-key"]
+    secrets += ["Ann Acme", "Falcon"]
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "vault:\n"
+        "  redis_url: redis://:hunter2@cache:6379/0\n"
+        "anchor:\n  secret: anchor-secret\n"
+        "provider:\n  headers:\n    Authorization: Bearer hdr-token\n"
+        "detector:\n"
+        "  - type: regex\n"
+        "    patterns: {CODENAME: 'Project\\s+Falcon'}\n"
+        "    terms: {PERSON: [Ann Acme]}\n"
+        "  - type: llm\n"
+        "    llm_api_key: llm-key\n"
+        "    llm_instructions: Also mask Project Falcon\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PRIVYX_OPENAI_API_KEY", "sk-env-key")
+    monkeypatch.delenv("PRIVYX_API_KEY", raising=False)
+
+    result = runner.invoke(cli, ["config", "--show", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert not [s for s in secrets if s in result.output]
+    shown = json.loads(result.output)
+    assert shown["vault"]["redis_url"] == "redis://:***@cache:6379/0"
+    assert shown["provider"]["openai_api_key"] == "***"
+    assert shown["provider"]["api_key"] == ""  # unset stays visible as unset
+    assert shown["detector"][0]["patterns"] == {"CODENAME": "***"}  # names stay
+    assert shown["detector"][0]["terms"] == {"PERSON": ["***"]}
+
+
 def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
     """The CLI tree: proxy, run, detect, mask, unmask, inspect (session), config, doctor."""
     result = runner.invoke(cli, ["--help"])
