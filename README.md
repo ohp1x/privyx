@@ -213,7 +213,8 @@ uv add privyx
 
 ## Documentation
 
-See [docs/](docs/) for architecture, provider guides, and security documentation.
+The documentation site at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/)
+covers architecture, provider guides, and security. Its source is in [docs/](docs/).
 
 ## License
 

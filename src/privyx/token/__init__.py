@@ -2,8 +2,7 @@
 
 The single source of truth for how a token looks in text.  Everything else in
 Privyx works with :class:`LogicalToken` — a namespace/type/identifier triple —
-and delegates serialization to a :class:`TokenCodec`.  See
-``.temp/token-system.md`` for the design contract.
+and delegates serialization to a :class:`TokenCodec`.
 """
 
 from __future__ import annotations

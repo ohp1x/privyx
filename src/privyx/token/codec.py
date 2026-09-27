@@ -8,8 +8,7 @@ by a configurable format string such as::
     [[{namespace}:{type}:{id}]]
     <{namespace}:{type}:{id}>
 
-so switching token syntax is a config change, not a code change (see
-``.temp/token-system.md`` §4, §10).
+so switching token syntax is a config change, not a code change.
 
 The codec compiles the format into two regexes:
 
@@ -24,7 +23,7 @@ The codec compiles the format into two regexes:
   grow into a token and must be held back.
 
 Field grammars are capped in length so neither regex can be forced to buffer or
-backtrack over an unbounded run (``.temp/token-system.md`` §11).
+backtrack over an unbounded run.
 """
 
 from __future__ import annotations
@@ -145,8 +144,7 @@ class FormatCodec:
         """Render ``token`` as text, validating each field against its grammar.
 
         Validation is what stops a field value from smuggling delimiters into the
-        output and producing an ambiguous or unparseable token
-        (``.temp/token-system.md`` §11).
+        output and producing an ambiguous or unparseable token.
         """
         values = {
             "namespace": token.namespace,

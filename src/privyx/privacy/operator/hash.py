@@ -29,7 +29,7 @@ class HashOperator(BaseOperator):
         codec: Token codec deciding how tokens are serialized.  Defaults to the
             built-in :meth:`~privyx.token.codec.FormatCodec.default` syntax, so
             hash tokens share the one configured syntax rather than inventing
-            their own (``.temp/token-system.md`` §9).
+            their own.
     """
 
     name = "hash"

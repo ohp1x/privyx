@@ -3,7 +3,7 @@
 Guarantee: the concatenation of all output deltas equals the deanonymization of
 the concatenation of all input deltas, regardless of how tokens are split across
 chunk boundaries — ``stream_process([c1, ..., cN]) == batch_process(c1 + ... +
-cN)`` (``.temp/token-system.md`` §7).
+cN)``.
 
 Algorithm (shared by every recognizer)
 --------------------------------------

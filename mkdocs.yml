@@ -1,0 +1,67 @@
+site_name: Privyx
+site_description: AI data privacy gateway — a privacy engine + proxy for LLM providers
+site_url: https://ohp1x.github.io/privyx/
+repo_url: https://github.com/ohp1x/privyx
+repo_name: ohp1x/privyx
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+# `mkdocs build --strict` fails on these, so a broken #anchor or a page left
+# out of the nav is caught in CI.
+validation:
+  omitted_files: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Docker: docker.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Privacy engine: architecture/privacy-engine.md
+      - Proxy: architecture/proxy.md
+      - Streaming: architecture/streaming.md
+      - Scaling: architecture/scaling.md
+  - Providers:
+      - OpenAI: providers/openai.md
+      - Anthropic: providers/anthropic.md
+      - Google Gemini: providers/google.md
+      - Generic: providers/generic.md
+  - Security:
+      - Threat model: security/threat-model.md
+      - Data handling: security/data-handling.md
+      - Cryptography: security/cryptography.md
+  - Observability:
+      - Audit events: observability/audit-events.md
+  - Development:
+      - Plugins: development/plugins.md
+      - Testing: development/testing.md

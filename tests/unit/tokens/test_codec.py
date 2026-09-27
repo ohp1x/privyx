@@ -1,7 +1,7 @@
 """Tests for the token codec and logical token.
 
-These pin the contract in ``.temp/token-system.md``: encode/parse are inverses,
-parsing is deterministic and rejects malformed input, the streaming primitives
+These pin the codec contract: encode/parse are inverses, parsing is
+deterministic and rejects malformed input, the streaming primitives
 behave, and the whole thing is driven by a configurable format string.
 """
 

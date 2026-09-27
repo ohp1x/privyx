@@ -16,7 +16,7 @@ Two recognizers implement that contract:
 * :class:`CodecRecognizer` matches *any* text that fits the configured token
   syntax, reconstructs the :class:`~privyx.token.model.LogicalToken`, and
   resolves it — so streaming recognizes tokens the same way the codec does
-  everywhere else (``.temp/token-system.md`` §7).
+  everywhere else.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ class CodecRecognizer:
             token is unknown to this session.  An unknown but syntactically valid
             token is passed through verbatim — a stream may legitimately contain
             token-shaped text we never issued, and mangling it would corrupt the
-            response (``.temp/token-system.md`` §6).
+            response.
     """
 
     def __init__(self, codec: TokenCodec, resolve: Callable[[str], str | None]) -> None:
