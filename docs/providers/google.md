@@ -78,7 +78,9 @@ client = OpenAI(
 
 ## Not covered
 
-Forwarded verbatim in transparent mode — keep PII out of them:
+Forwarded verbatim in transparent mode — keep PII out of them, or set
+`proxy.passthrough_unknown: false` to answer them (and every other unrouted
+path, including `/v1beta/openai/models`) with a 403 instead:
 
 - `/v1beta/openai/embeddings`
 - native `/v1beta/models/{model}:generateContent` and `:streamGenerateContent`
