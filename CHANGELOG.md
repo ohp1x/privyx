@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Proxy:** with more than 100 requests in flight, the rest no longer wait for a free upstream connection and fail with a 500 after 10 s (a 502 in gateway mode): the pool is now unlimited. New settings `proxy.timeout`, `proxy.connect_timeout`, and `proxy.max_connections` set the upstream timeouts and pool size in both modes
+
 ## [0.1.8] - 2026-09-28
 
 ### Fixed

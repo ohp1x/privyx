@@ -216,6 +216,9 @@ async def _serve_transparent(
         forward_client_auth=settings.proxy.forward_client_auth,
         api_key=resolve_api_key(settings),
         extra_headers=dict(settings.provider.headers),
+        timeout=settings.proxy.timeout,
+        connect_timeout=settings.proxy.connect_timeout,
+        max_connections=settings.proxy.max_connections,
         audit=audit,
         session_strategy=settings.session.strategy,
     )

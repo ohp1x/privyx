@@ -766,7 +766,7 @@ async def test_serve_transparent_wires_proxy_settings(monkeypatch: pytest.Monkey
     monkeypatch.setattr("privyx.proxy.transparent.TransparentProxy", fake_proxy)
     settings = load_config(
         extra={
-            "proxy": {"passthrough_unknown": False},
+            "proxy": {"passthrough_unknown": False, "timeout": 42, "max_connections": 7},
             "provider": {"type": "openai", "openai_api_key": "sk-per-type"},
         }
     )
@@ -776,3 +776,6 @@ async def test_serve_transparent_wires_proxy_settings(monkeypatch: pytest.Monkey
 
     assert captured["passthrough_unknown"] is False
     assert captured["api_key"] == "sk-per-type"  # same resolution as the gateway
+    assert captured["timeout"] == 42
+    assert captured["connect_timeout"] == 10
+    assert captured["max_connections"] == 7

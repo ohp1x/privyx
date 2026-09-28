@@ -33,6 +33,15 @@ def test_gateway_waits_for_the_upstream_as_long_as_the_transparent_proxy() -> No
     )
 
 
+@pytest.mark.parametrize("ptype", ["generic", "openai", "anthropic"])
+def test_provider_client_follows_the_proxy_settings(ptype: str) -> None:
+    proxy = {"timeout": 42, "connect_timeout": 3, "max_connections": 7}
+    provider = build_provider(load_config(extra={"provider": {"type": ptype}, "proxy": proxy}))
+    client = provider._client  # noqa: SLF001
+    assert client.timeout == httpx.Timeout(connect=3.0, read=42.0, write=42.0, pool=10.0)
+    assert client._transport._pool._max_connections == 7  # noqa: SLF001
+
+
 def test_registry_unknown_provider_raises() -> None:
     registry = default_registry()
     with pytest.raises(ConfigError):
