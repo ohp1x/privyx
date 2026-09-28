@@ -94,7 +94,7 @@ An exchange failed.
 
 | field | type | notes |
 |---|---|---|
-| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `upstream`, `stream`, `response`, or `cleanup`. |
+| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `upstream` (no response from the upstream; the client got `502`, `503`, or `504`, see [Errors](../architecture/proxy.md#errors)), `stream`, `response`, or `cleanup`. |
 | `error_type` | string | The exception's **class name** — never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |

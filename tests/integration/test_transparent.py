@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -445,13 +446,14 @@ async def test_upstream_failure_records_proxy_error() -> None:
     client = httpx.AsyncClient(transport=httpx.MockTransport(boom))
     proxy = _audited_proxy(buf, client)
 
-    with pytest.raises(httpx.ConnectError):
-        await _post_json(
-            proxy,
-            "v1/chat/completions",
-            {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
-        )
+    result = await _post_json(
+        proxy,
+        "v1/chat/completions",
+        {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+    )
 
+    assert result.status_code == 502
+    assert EMAIL not in result.body.decode()  # the class is named, never the message
     written = buf.getvalue()
     assert EMAIL not in written  # the exception message must not leak into the trail
 
@@ -460,6 +462,39 @@ async def test_upstream_failure_records_proxy_error() -> None:
     assert error["phase"] == "upstream"
     assert error["error_type"] == "ConnectError"
     assert error["request_id"] is not None
+
+
+@pytest.mark.parametrize(
+    ("failure", "status", "kind"),
+    [
+        (httpx.ConnectError, 502, "unreachable"),
+        (httpx.RemoteProtocolError, 502, "unreachable"),
+        (httpx.ConnectTimeout, 504, "timeout"),
+        (httpx.ReadTimeout, 504, "timeout"),
+        (httpx.PoolTimeout, 503, "busy"),
+    ],
+)
+async def test_no_upstream_response_is_named_by_status_and_type(
+    failure: type[Exception], status: int, kind: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise failure("")  # a timeout's message is empty
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(fail))
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=client)
+
+    result = await _post_json(
+        proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": EMAIL}]}
+    )
+
+    error = json.loads(result.body)["error"]
+    assert result.status_code == status
+    assert result.media_type == "application/json"
+    assert error["type"] == f"privyx_upstream_{kind}"
+    assert error["message"].endswith(f"({failure.__name__})")
+    assert result.headers.get("retry-after") == ("10" if status == 503 else None)
+    # Expected conditions: one WARNING line, the traceback only at DEBUG.
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING and r.exc_info]
 
 
 async def test_session_header_reused_across_requests() -> None:
