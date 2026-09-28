@@ -7,7 +7,7 @@ import pytest
 
 from privyx.config.loader import load_config
 from privyx.core.errors import ConfigError
-from privyx.providers.generic import GenericProvider
+from privyx.providers.generic import GenericProvider, upstream_client
 from privyx.providers.registry import (
     DEFAULT_BASE_URLS,
     build_provider,
@@ -40,6 +40,49 @@ def test_provider_client_follows_the_proxy_settings(ptype: str) -> None:
     client = provider._client  # noqa: SLF001
     assert client.timeout == httpx.Timeout(connect=3.0, read=42.0, write=42.0, pool=10.0)
     assert client._transport._pool._max_connections == 7  # noqa: SLF001
+
+
+@pytest.mark.parametrize(
+    ("failures", "attempts", "outcome"),
+    [
+        ([httpx.ConnectError] * 2, 3, 200),
+        ([httpx.ConnectError] * 3, 3, httpx.ConnectError),
+        ([httpx.ConnectTimeout], 1, httpx.ConnectTimeout),  # would wait connect_timeout again
+        ([httpx.ReadTimeout], 1, httpx.ReadTimeout),  # the request may have been sent
+        ([httpx.RemoteProtocolError], 1, httpx.RemoteProtocolError),
+    ],
+)
+async def test_upstream_client_retries_only_a_connection_that_did_not_open(
+    failures: list[type[Exception]],
+    attempts: int,
+    outcome: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("privyx.providers.generic._CONNECT_RETRY_DELAYS", (0.0, 0.0))
+    sent: list[httpx.Request] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        if len(sent) <= len(failures):
+            raise failures[len(sent) - 1]("")
+        return httpx.Response(200)
+
+    client = upstream_client()
+    client._transport = httpx.MockTransport(upstream)  # noqa: SLF001
+    async with client:
+        try:
+            result: object = (await client.post("https://up.test/v1/messages", json={})).status_code
+        except httpx.HTTPError as exc:
+            result = type(exc)
+
+    assert result == outcome
+    assert len(sent) == attempts
+
+
+def test_upstream_client_keeps_the_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A client given its own transport (the usual way to set retries) drops it.
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.test:3128")
+    assert upstream_client()._mounts  # noqa: SLF001
 
 
 def test_registry_unknown_provider_raises() -> None:
