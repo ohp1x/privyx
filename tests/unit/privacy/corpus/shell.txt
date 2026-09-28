@@ -1,0 +1,50 @@
+$ kubectl -n billing get secret billing-env -o yaml
+apiVersion: v1
+data:
+  DB_PASSWORD: ⟦SECRET:aHVudGVyMnJvY2tz⟧
+kind: Secret
+metadata:
+  name: billing-env
+  namespace: billing
+type: Opaque
+
+$ cat deploy/id_ed25519
+⟦PRIVATE_KEY:-----BEGIN OPENSSH PRIVATE KEY·-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACCq8Rz2LmXv4Tn7Kp1Wd9Hs3Jc6Fb0Ga5Ye8Nu2QiZqAAAAJgZq7Xw2Lp9Rt
+-----END OPENSSH PRIVATE KEY-----⟧
+
+$ ssh -i deploy/id_ed25519 deploy@⟦IP_ADDRESS:10.0.8.21⟧ uptime
+Warning: Permanently added '⟦IP_ADDRESS:10.0.8.21⟧' (ED25519) to the list of known hosts.
+ 14:05:02 up 12 days,  3:41,  1 user,  load average: 0.08, 0.03, 0.01
+
+$ psql "postgresql://billing:⟦URL_CREDENTIAL:Ps9-Ql8-Kx7⟧@localhost:5432/billing" -c 'select count(*) from invoices'
+ count
+-------
+  1024
+(1 row)
+
+$ mysql -u root --password=⟦SECRET:cliPass123⟧ -h 127.0.0.1 billing -e 'select 1'
+
+$ cat ~/.config/acme/credentials.json
+{"api_key": "⟦SECRET:acme-9f8e7d6c5b4a3928⟧", "region": "eu-west-1"}
+
+$ env | grep -i token
+HF_TOKEN=⟦API_KEY:hf_·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay⟧
+NPM_TOKEN=⟦API_KEY:npm_·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0AyABCD⟧
+CI_JOB_TOKEN=[MASKED]
+
+$ curl -s https://api.github.com/user -H "Authorization: token ⟦API_KEY:ghp_·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0AyABCD⟧"
+{"login": "ann", "id": 1234567, "email": "⟦EMAIL:ann@example.com⟧", "created_at": "2026-01-15T09:30:00Z"}
+
+$ curl -sv --netrc https://billing.acme.example/v1/me 2>&1 | grep -i '^> authorization'
+> Authorization: Basic ⟦AUTH_TOKEN:YW5uOmh1bnRlcjJyb2Nrcw==⟧
+
+$ curl -s -X POST https://billing.acme.example/v1/token -d grant_type=client_credentials
+{"access_token": "⟦JWT:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzQyIiwiZXhwIjoxNzkwNTE3MjI5fQ.Qe2Wr5Ty8UZq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay⟧", "token_type": "Bearer", "expires_in": 3600}
+
+$ head -4 exports/customers.csv
+id,name,email,phone,ssn,card
+1001,Ann Example,⟦EMAIL:ann@example.com⟧,⟦PHONE:+1 555 010 4477⟧,⟦SSN:123-45-6789⟧,⟦CREDIT_CARD:4111111111111111⟧
+1002,Bob Example,⟦EMAIL:bob@acme.example⟧,⟦PHONE:(555) 010-9981⟧,⟦SSN:219-09-9999⟧,⟦CREDIT_CARD:5555555555554444⟧
+1003,Cy Example,⟦EMAIL:cy+billing@acme.example⟧,⟦PHONE:081234567890⟧,,

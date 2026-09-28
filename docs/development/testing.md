@@ -20,6 +20,22 @@ All streaming algorithms are property-tested against random chunk boundaries:
 This is the guarantee that prevents regressions in the streaming hold-back
 scan — the same class of bug we hit with `reasoning_content` in the prototype.
 
+## Detection corpus
+
+`tests/unit/privacy/corpus/` holds text an agent typically reads: a `.env`, a
+compose file, Python and TSX code, `git log`, server logs, a README, and a shell
+session. Every value that should be masked is labeled in place as
+`⟦TYPE:value⟧`, and every value is fake. `test_detection_eval.py` scans the
+files with the detector from `configs/default.yaml` and scores each entity
+type: a detection counts only if it masks exactly a labeled value with the
+labeled type. The scores are printed at the end of the test run, and the test
+fails when a type's precision or recall drops below its floor in `FLOORS`.
+
+When a change improves a type, raise its floor to the new score. Put a new case
+in the file where such text really appears, and split a key-shaped fake with
+`·` (`ghp_·…`): it is dropped when the corpus is read, so secret scanners leave
+the repository alone.
+
 ## Running
 
 ```bash

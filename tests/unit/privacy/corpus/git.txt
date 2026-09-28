@@ -1,0 +1,29 @@
+$ git remote -v
+origin  git@github.com:acme/billing.git (fetch)
+origin  git@github.com:acme/billing.git (push)
+
+$ git config --get remote.mirror.url
+https://oauth2:⟦API_KEY:glpat-·Zq7Xw2Lp9Rt4Vb6Nm1Kc8H⟧@gitlab.acme.example/acme/billing.git
+
+$ git log -2
+commit 9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c
+Author: Ann Example <⟦EMAIL:ann@example.com⟧>
+Date:   Sun Sep 27 14:02:11 2026 +0700
+
+    fix(billing): retry on 503 from the payment gateway
+
+    The gateway at ⟦IP_ADDRESS:10.0.4.2⟧ drops connections while it deploys.
+
+    Reported-by: Bob Example <⟦EMAIL:bob@acme.example⟧>
+
+commit 6090867c1f2e3d4c5b6a79881706f5e4d3c2b1a0
+Author: Bob Example <⟦EMAIL:bob@acme.example⟧>
+Date:   Sun Sep 27 09:41:37 2026 +0700
+
+    chore(release): prepare v0.1.6
+
+$ git log --format='%h %ad %s' --date=short -4
+9f8e7d6 2026-09-27 fix(billing): retry on 503 from the payment gateway
+6090867 2026-09-27 chore(release): prepare v0.1.6
+1a2b3c4 2026-09-25 feat(api): accept card numbers with dashes
+5d6e7f8 2026-09-24 docs: explain the webhook secret rotation

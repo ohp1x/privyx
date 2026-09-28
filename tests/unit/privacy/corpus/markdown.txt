@@ -1,0 +1,33 @@
+# acme-billing
+
+Invoices, payments, and receipts for the Acme store.
+
+## Quick start
+
+```bash
+cp .env.example .env
+export OPENAI_API_KEY=sk-...   # your own key
+docker compose up -d
+curl -H "Authorization: Bearer ⟦AUTH_TOKEN:acme_live_Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd⟧" http://127.0.0.1:8000/v1/invoices
+```
+
+The API listens on `0.0.0.0:8000` inside the container. The examples below use
+`192.0.2.10` for the payment gateway.
+
+## Configuration
+
+| Variable | Meaning |
+|---|---|
+| `BILLING_API_KEY` | **Token:** the key from *Settings → API* |
+| `DATABASE_URL` | Postgres connection string |
+| `WEBHOOK_SECRET` | Verifies calls from the payment gateway |
+
+## Test cards
+
+Pay with `⟦CREDIT_CARD:4111 1111 1111 1111⟧` or `⟦CREDIT_CARD:5555-5555-5555-4444⟧` and any future
+expiry date. `⟦CREDIT_CARD:4000 0000 0000 0002⟧` is always declined.
+
+## Support
+
+Write to ⟦EMAIL:support@acme.example⟧ or call ⟦PHONE:+1 (555) 010-4477⟧, 09:00–17:00.
+From Indonesia: ⟦PHONE:081234567890⟧ (WhatsApp).
