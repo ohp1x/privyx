@@ -20,7 +20,7 @@ With no configuration, the `regex` detector finds:
 |---|---|
 | `EMAIL` | Email addresses |
 | `PHONE` | Phone numbers of two or three digit groups, with an optional `+<country>` prefix |
-| `CREDIT_CARD` | Runs of 13 to 16 digits, optionally split by spaces or dashes |
+| `CREDIT_CARD` | Runs of 13 to 16 digits, optionally split by spaces or dashes, that pass the Luhn checksum like every card number |
 | `IP_ADDRESS` | IPv4 addresses |
 | `SSN` | US social security numbers (`123-45-6789`) |
 | `API_KEY` | Vendor-prefixed keys (OpenAI and Anthropic `sk-`, Stripe, GitHub, GitLab, AWS, Google, Slack, Hugging Face, and more) and webhook URLs |
@@ -73,6 +73,8 @@ detector:
 - The entity name becomes the `{type}` in the token (`<PRIVYX_EMPLOYEE_ID_1>`).
   It must start with a letter and contain only letters, digits, and
   underscores, up to 64 characters.
+- A pattern that replaces a built-in one is used as written, without the
+  built-in's check, such as the Luhn checksum for `CREDIT_CARD`.
 - Patterns are case-sensitive. Start one with `(?i)` to ignore case.
 - A group named `value` masks only that part of the match: the pattern above
   masks the password and leaves `PASSWORD=` for the model to read.
