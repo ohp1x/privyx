@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
 import click
+
+#: Seconds the requests still in flight get to finish on SIGTERM or a --reload
+#: restart; then they are cancelled, which still deletes their ephemeral
+#: sessions.  Within the 10 s `docker stop` waits before it sends SIGKILL.
+SHUTDOWN_GRACE_SECONDS = 5
 
 
 @click.command()
@@ -149,15 +155,32 @@ async def _watch_config(path: Path, event: asyncio.Event) -> None:
 
 async def _serve_until_reload(server: Any, event: asyncio.Event | None) -> None:
     """Serve until the server stops on its own, or until ``event`` fires."""
-    if event is None:
-        await server.serve()
-        return
-    serving = asyncio.create_task(server.serve())
-    waiting = asyncio.create_task(event.wait())
-    await asyncio.wait({serving, waiting}, return_when=asyncio.FIRST_COMPLETED)
-    server.should_exit = True  # graceful uvicorn shutdown
-    waiting.cancel()
-    await serving
+    # uvicorn stops on SIGINT or SIGTERM, then raises it again for the handler
+    # it found, which kills the process or cancels this task before the
+    # requests it cut off have cleaned up and the vault and the audit log have
+    # closed.  Its own handler there only asks it to stop, again.
+    stops = (signal.SIGINT, signal.SIGTERM)
+    previous = {sig: signal.signal(sig, server.handle_exit) for sig in stops}
+    try:
+        if event is None:
+            await server.serve()
+            return
+        serving = asyncio.create_task(server.serve())
+        waiting = asyncio.create_task(event.wait())
+        await asyncio.wait({serving, waiting}, return_when=asyncio.FIRST_COMPLETED)
+        server.should_exit = True  # graceful uvicorn shutdown
+        waiting.cancel()
+        await serving
+    finally:
+        # uvicorn cancels the requests still running after the grace period but
+        # does not wait for them, and their cleanup (the ephemeral session's
+        # deletion, the last audit events) must end before the vault and the
+        # audit log close.
+        cancelled = set(server.server_state.tasks)
+        if cancelled:
+            await asyncio.wait(cancelled, timeout=2)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 async def _run_server(settings: Any, watch_path: Path | None = None) -> bool:
@@ -245,6 +268,7 @@ async def _serve_transparent(
             ssl_keyfile=settings.tls.keyfile or None,
             ssl_keyfile_password=settings.tls.keyfile_password or None,
             ssl_ca_certs=settings.tls.ca_certs or None,
+            timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
         )
     )
     try:
@@ -287,6 +311,7 @@ async def _serve_gateway(
             ssl_keyfile=settings.tls.keyfile or None,
             ssl_keyfile_password=settings.tls.keyfile_password or None,
             ssl_ca_certs=settings.tls.ca_certs or None,
+            timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
         )
     )
     try:
