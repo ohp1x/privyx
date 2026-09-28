@@ -31,7 +31,6 @@ LABEL = re.compile(r"⟦([A-Z_]+):(.*?)⟧", re.DOTALL)
 #: improves the type; a type not listed must score 1.0 on both.
 FLOORS = {
     "API_KEY": (1.0, 0.92),
-    "CREDIT_CARD": (0.58, 1.0),
     "EMAIL": (0.79, 1.0),
     "IP_ADDRESS": (0.39, 1.0),
     "PHONE": (0.58, 0.7),

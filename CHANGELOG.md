@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Detector:** `CREDIT_CARD` masks only digit runs that pass the Luhn checksum, as every card number does, so millisecond timestamps, long IDs, and a `git log` hash next to its date are no longer masked (precision on the detection corpus 0.58 → 1.00, recall unchanged)
+
 ## [0.1.7] - 2026-09-28
 
 ### Added

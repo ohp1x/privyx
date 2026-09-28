@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Span
@@ -88,6 +89,21 @@ DEFAULT_PATTERNS: dict[str, str] = {
 }
 
 
+def _luhn(match: re.Match[str]) -> bool:
+    """Whether the digits pass the Luhn checksum, as every card number does."""
+    digits = [int(char) for char in match[0] if char.isdigit()]
+    doubled = [sum(divmod(2 * digit, 10)) for digit in digits[-2::-2]]
+    return (sum(digits[-1::-2]) + sum(doubled)) % 10 == 0
+
+
+#: Checks a match of a built-in pattern must pass to count.  They belong to the
+#: built-in pattern: your own pattern for the same entity is used as written.
+_CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
+    # Timestamps, long IDs, and a `git log` hash next to its date are digit runs too.
+    "CREDIT_CARD": _luhn,
+}
+
+
 def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection:
     """Run each entity's regex over ``text``.
 
@@ -95,12 +111,16 @@ def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection
     ``DB_PASSWORD=(?P<value>\\S+)`` hides the secret but leaves the variable
     name for the model to read.  A match whose ``value`` group did not take part
     (another alternative matched) marks the whole match; an empty span marks
-    nothing.
+    nothing.  A built-in pattern's match must also pass its entity's check in
+    :data:`_CHECKS`.
     """
     detection = Detection()
     for entity, pattern in compiled:
         has_value = "value" in pattern.groupindex
+        check = _CHECKS.get(entity) if pattern.pattern == DEFAULT_PATTERNS.get(entity) else None
         for match in pattern.finditer(text):
+            if check is not None and not check(match):
+                continue
             group = "value" if has_value and match["value"] is not None else 0
             start, end = match.span(group)
             if start < end:

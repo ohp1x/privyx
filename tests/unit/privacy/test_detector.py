@@ -64,6 +64,25 @@ def test_email_matches_the_whole_address(address: str) -> None:
     assert [s.text for s in detection.spans] == [address]
 
 
+@pytest.mark.parametrize(
+    ("text", "cards"),
+    [
+        ("4111 1111 1111 1111 or 378282246310005", ["4111 1111 1111 1111", "378282246310005"]),
+        # Both fail the Luhn check: a millisecond timestamp and an order ID.
+        ("ts 1790517229401 order 1234567812345678", []),
+    ],
+)
+def test_credit_card_must_pass_the_luhn_check(text: str, cards: list[str]) -> None:
+    detection = RegexDetector().detect_sync(text, Context())
+    assert [s.text for s in detection.spans if s.entity_type == "CREDIT_CARD"] == cards
+
+
+def test_own_pattern_for_a_builtin_entity_is_used_as_written() -> None:
+    detector = YamlDetector({"CREDIT_CARD": r"\b\d{16}\b"})
+    detection = detector.detect_sync("id 1234567812345678", Context())
+    assert [s.text for s in detection.spans] == ["1234567812345678"]
+
+
 def _fill(unit: str, size: int = 100_000) -> str:
     return (unit * (size // len(unit) + 1))[:size]
 
