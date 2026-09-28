@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Development:** CI also runs the test suite, with every extra, on Python 3.13 and 3.14, which the package now lists as supported alongside 3.12
+
 ### Changed
 
 - **Proxy:** a connection to the upstream that cannot be opened (refused, DNS, TLS handshake) is retried twice, 0.5 s and 1 s apart, before the client gets a `502`, so requests that arrive while the upstream restarts go through
