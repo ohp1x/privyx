@@ -78,6 +78,25 @@ def test_credit_card_must_pass_the_luhn_check(text: str, cards: list[str]) -> No
 
 
 @pytest.mark.parametrize(
+    ("text", "phones"),
+    [
+        ("call +1 (555) 010-4477 or 555-010-9981", ["+1 (555) 010-4477", "555-010-9981"]),
+        (
+            "wa 0812-3456, 081234567890, +6281234567890",
+            ["0812-3456", "081234567890", "+6281234567890"],
+        ),
+        # Two bare groups: a screen size, the seconds and year of a date, an ID.
+        ("1920 1080 at 14:02:11 2026 for INV-2026-0042", []),
+        # A YYYYMMDD date at the start of an added diff line is too short for E.164.
+        ("+20260927,15912", []),
+    ],
+)
+def test_phone_numbers_and_what_only_looks_like_one(text: str, phones: list[str]) -> None:
+    detection = RegexDetector().detect_sync(text, Context())
+    assert [s.text for s in detection.spans if s.entity_type == "PHONE"] == phones
+
+
+@pytest.mark.parametrize(
     ("address", "masked"),
     [
         ("10.0.3.17", True),

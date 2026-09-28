@@ -12,4 +12,5 @@
 2026-09-27T14:02:21.500Z DEBUG session cookie=⟦JWT:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzQyIiwiZXhwIjoxNzkwNTE3MjI5fQ.Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0AyQe2Wr5Ty8U⟧
 2026-09-27T14:02:22.000Z INFO  upstream 192.0.2.10 (documentation example) resolved
 2026-09-27T14:02:23.000Z INFO  agent 999.1.2.300 connected
+2026-09-27T14:02:23.500Z INFO  billing 1.4.2+20260927 ready
 2026-09-27T14:02:24.000Z WARN  sms to ⟦PHONE:+62 812-3456-7890⟧ failed, retrying in 5s
