@@ -28,22 +28,22 @@ With no configuration, the `regex` detector finds:
 | `PRIVATE_KEY` | PEM private key blocks, even when cut off before the end |
 | `AUTH_TOKEN` | The credential in `Authorization: Bearer …` or `Basic …` |
 | `URL_CREDENTIAL` | The password in `scheme://user:password@host` |
+| `SECRET` | A value assigned to a secret-looking name (`DB_PASSWORD=…`, `api_key: …`, `"token": "…"`) in `.env`, YAML, JSON, shell, and code |
 
 Names and anything specific to you need more configuration.
 
 ## Secrets
 
-The built-in patterns catch secrets with a recognizable shape. A password or
-key without one, such as `DB_PASSWORD=hunter2`, is only found by its name. The
-annotated
-[`configs/default.yaml`](https://github.com/ohp1x/privyx/blob/main/configs/default.yaml)
-adds a pattern for that:
+Most built-in secret patterns match a recognizable shape, such as a vendor
+prefix or a PEM header. A password or key without one, such as
+`DB_PASSWORD=hunter2`, is found by its name: `SECRET` masks the value assigned
+to a name such as `password`, `token`, `secret`, `api_key`, or an upper-case
+`…_KEY`. It leaves alone what cannot be the secret:
 
-- `SECRET`: a value assigned to a secret-looking name (`password=…`,
-  `api_key: …`, `"token": "…"`), in `.env`, YAML, JSON, shell, and code.
-
-Use the file as your config (`-c default.yaml`), or copy its
-`detector.patterns` into your own.
+- a variable that holds it: `api_key=api_key`, `SECRET_KEY = os.environ[…]`;
+- a name that describes it: `TOKEN_URL`, `token_type`, `KEY_FILE`;
+- a placeholder or punctuation: `sk-...`, `${API_KEY:-}`, `**Token:**`;
+- a sentence after a colon, as in a docstring: `api_key: When set, …`.
 
 ## Detector types
 

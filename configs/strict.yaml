@@ -23,7 +23,7 @@ detector:
 policy:
   type: strict
   allowed: [EMAIL, PHONE, SSN, CREDIT_CARD, IP_ADDRESS, DATE_OF_BIRTH,
-            API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL]
+            API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, SECRET]
 
 operator:
   type: pseudonym
