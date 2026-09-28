@@ -24,6 +24,9 @@ DEFAULT_BASE_URLS: dict[str, str] = {
     "anthropic": "https://api.anthropic.com/v1/messages",
 }
 
+#: The ``proxy`` settings a built-in provider's upstream client takes.
+_CLIENT_OPTIONS = ("timeout", "connect_timeout", "max_connections")
+
 
 class ProviderRegistry:
     """Maps provider names to factory functions."""
@@ -44,6 +47,10 @@ class ProviderRegistry:
         return sorted(self._factories)
 
 
+def _client_options(config: dict[str, Any]) -> dict[str, Any]:
+    return {key: config[key] for key in _CLIENT_OPTIONS if key in config}
+
+
 def default_registry() -> ProviderRegistry:
     """Registry with the built-in providers."""
     registry = ProviderRegistry()
@@ -53,6 +60,7 @@ def default_registry() -> ProviderRegistry:
             base_url=config.get("base_url") or DEFAULT_BASE_URLS["generic"],
             api_key=config.get("api_key"),
             headers=config.get("headers"),
+            **_client_options(config),
         )
 
     def openai_factory(config: dict[str, Any]) -> Provider:
@@ -60,6 +68,7 @@ def default_registry() -> ProviderRegistry:
             base_url=config.get("base_url") or DEFAULT_BASE_URLS["openai"],
             api_key=config.get("api_key"),
             headers=config.get("headers"),
+            **_client_options(config),
         )
 
     def anthropic_factory(config: dict[str, Any]) -> Provider:
@@ -73,6 +82,7 @@ def default_registry() -> ProviderRegistry:
         return GenericProvider(
             base_url=config.get("base_url") or DEFAULT_BASE_URLS["anthropic"],
             headers=headers,
+            **_client_options(config),
         )
 
     registry.register("generic", generic_factory)
@@ -158,7 +168,10 @@ def build_provider(settings: Any) -> Any:
     }
     registry = default_registry()
     if ptype in registry.names():
-        return registry.build(ptype, config)
+        # Not added to `config` itself: a plugin gets `config` over its own
+        # options, and one of those may be called `timeout` too.
+        upstream = {key: getattr(settings.proxy, key) for key in _CLIENT_OPTIONS}
+        return registry.build(ptype, {**config, **upstream})
     if ptype in PLUGINS.providers:
         # Keys the schema does not define are the plugin's own options.
         options = provider_config.model_extra or {}

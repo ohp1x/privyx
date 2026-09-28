@@ -42,6 +42,7 @@ from privyx.config.schema import ProxyConfig
 from privyx.core.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
+from privyx.providers.generic import upstream_client
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
 from privyx.proxy.session import resolve_session_id
@@ -102,7 +103,9 @@ class TransparentProxy:
         extra_headers: Static headers merged into every upstream request.
         client: Optional httpx client (owned by the caller when supplied); used by
             tests to inject a mock transport.
-        timeout: Read/write timeout in seconds (generous, for long streams).
+        timeout, connect_timeout, max_connections: For the client built when
+            ``client`` is not given; see
+            :func:`~privyx.providers.generic.upstream_client`.
         audit: Optional audit logger for the PII-safe ``proxy.request`` event.
             Defaults to a disabled no-op logger.
         session_strategy: How to identify a session when the client sends no
@@ -122,6 +125,8 @@ class TransparentProxy:
         extra_headers: Mapping[str, str] | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = 300.0,
+        connect_timeout: float = 10.0,
+        max_connections: int | None = None,
         audit: AuditLogger | None = None,
         session_strategy: str = "ephemeral",
     ) -> None:
@@ -136,8 +141,8 @@ class TransparentProxy:
         self._api_key = api_key
         self._extra_headers = dict(extra_headers or {})
         self._owns_client = client is None
-        self._client = client or httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=timeout, write=timeout, pool=10.0)
+        self._client = client or upstream_client(
+            timeout=timeout, connect_timeout=connect_timeout, max_connections=max_connections
         )
 
     @property

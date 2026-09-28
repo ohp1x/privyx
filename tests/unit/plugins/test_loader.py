@@ -256,7 +256,7 @@ def test_plugin_options_reach_from_config(tmp_path: Path) -> None:
     config = {
         "plugins": {"paths": [str(tmp_path)]},
         "detector": {"type": "configured", "marker": "Z", "cache": False},
-        "provider": {"type": "echo", "region": "eu"},
+        "provider": {"type": "echo", "region": "eu", "timeout": 5},
     }
     cfg.write_text(json.dumps(config), encoding="utf-8")
     settings = load_config(cfg)
@@ -264,6 +264,7 @@ def test_plugin_options_reach_from_config(tmp_path: Path) -> None:
 
     assert build_detector_from(settings).marker == "Z"  # type: ignore[attr-defined]
     assert build_provider(settings).config["region"] == "eu"
+    assert build_provider(settings).config["timeout"] == 5  # not proxy.timeout
 
 
 def test_name_derived_when_unset(tmp_path: Path) -> None:

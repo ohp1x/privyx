@@ -125,6 +125,9 @@ environment.
 | `routes` | six chat paths | Path → wire schema (`openai`, `anthropic`, `responses`) for the requests Privyx masks. See [Routes](../architecture/proxy.md#routes). |
 | `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead. |
 | `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key`. `false` drops them so only the configured key is used. |
+| `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
+| `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
+| `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection fails. |
 
 [Proxy architecture](../architecture/proxy.md) explains the two modes and when
 to pick which.

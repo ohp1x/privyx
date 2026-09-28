@@ -197,6 +197,10 @@ class ProxyConfig(BaseModel):
     routes: dict[str, str] = Field(default_factory=_default_routes)
     forward_client_auth: bool = True
     passthrough_unknown: bool = True
+    # The upstream client, in both modes; see privyx.providers.generic.upstream_client.
+    timeout: float = Field(default=300.0, gt=0)  # seconds between bytes, read or write
+    connect_timeout: float = Field(default=10.0, gt=0)
+    max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
 
 
 class AuditConfig(BaseModel):

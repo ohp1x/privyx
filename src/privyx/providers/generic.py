@@ -15,6 +15,23 @@ from privyx.core.errors import ProviderError
 from privyx.providers.base import BaseProvider
 
 
+def upstream_client(
+    *, timeout: float = 300.0, connect_timeout: float = 10.0, max_connections: int | None = None
+) -> httpx.AsyncClient:
+    """The httpx client both proxy modes reach the upstream with.
+
+    ``timeout`` bounds each read and write, not the whole exchange: an upstream
+    can take minutes to send its first byte, and a stream lasts as long as bytes
+    keep coming.  ``max_connections`` of ``None`` sets no limit, so the proxy is
+    never narrower than its clients; httpx's default of 100 made request 101
+    onward wait for a free connection and fail.
+    """
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=connect_timeout, read=timeout, write=timeout, pool=10.0),
+        limits=httpx.Limits(max_connections=max_connections, max_keepalive_connections=20),
+    )
+
+
 class GenericProvider(BaseProvider):
     """HTTP passthrough provider.
 
@@ -23,6 +40,8 @@ class GenericProvider(BaseProvider):
         api_key: Optional bearer token attached to upstream requests.
         headers: Extra headers merged into every request.
         client: Optional existing httpx.AsyncClient (owned by caller).
+        timeout, connect_timeout, max_connections: For the client built when
+            ``client`` is not given; see :func:`upstream_client`.
     """
 
     name = "generic"
@@ -33,15 +52,17 @@ class GenericProvider(BaseProvider):
         api_key: str | None = None,
         headers: dict[str, str] | None = None,
         client: httpx.AsyncClient | None = None,
+        *,
+        timeout: float = 300.0,
+        connect_timeout: float = 10.0,
+        max_connections: int | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._headers = dict(headers or {})
         self._owns_client = client is None
-        # The transparent proxy's timeouts: an upstream can take minutes to send
-        # its first byte, which a flat 60 s cut off.
-        self._client = client or httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=300.0, write=300.0, pool=10.0)
+        self._client = client or upstream_client(
+            timeout=timeout, connect_timeout=connect_timeout, max_connections=max_connections
         )
 
     async def close(self) -> None:
