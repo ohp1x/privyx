@@ -77,6 +77,24 @@ def test_credit_card_must_pass_the_luhn_check(text: str, cards: list[str]) -> No
     assert [s.text for s in detection.spans if s.entity_type == "CREDIT_CARD"] == cards
 
 
+@pytest.mark.parametrize(
+    ("address", "masked"),
+    [
+        ("10.0.3.17", True),
+        ("192.168.1.20", True),
+        ("8.8.8.8", True),
+        ("127.0.0.1", False),  # loopback
+        ("0.0.0.0", False),
+        ("192.0.2.10", False),  # documentation ranges
+        ("203.0.113.7", False),
+        ("999.1.2.300", False),  # a version number, not an address
+    ],
+)
+def test_ip_address_must_point_at_a_host(address: str, masked: bool) -> None:
+    detection = RegexDetector().detect_sync(f"host {address} is up", Context())
+    assert [s.text for s in detection.spans] == ([address] if masked else [])
+
+
 def test_own_pattern_for_a_builtin_entity_is_used_as_written() -> None:
     detector = YamlDetector({"CREDIT_CARD": r"\b\d{16}\b"})
     detection = detector.detect_sync("id 1234567812345678", Context())

@@ -6,6 +6,7 @@ These are intentionally dependency-free: pure regex + simple heuristics.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import re
 from collections.abc import Callable
 
@@ -96,11 +97,37 @@ def _luhn(match: re.Match[str]) -> bool:
     return (sum(digits[-1::-2]) + sum(doubled)) % 10 == 0
 
 
+#: Set aside for documentation and examples (RFC 5737).
+_DOCUMENTATION_NETWORKS = tuple(
+    ipaddress.IPv4Network(network)
+    for network in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
+)
+
+
+def _host_address(match: re.Match[str]) -> bool:
+    """Whether the dotted quad is an address that can point at a real host.
+
+    An octet above 255 makes a version number, not an address.  Loopback,
+    ``0.0.0.0``, and the documentation ranges point at no host in particular.
+    Private ranges count: they map out an internal network.
+    """
+    octets = [int(octet) for octet in match[0].split(".")]
+    if max(octets) > 255:
+        return False
+    address = ipaddress.IPv4Address(bytes(octets))
+    return not (
+        address.is_loopback
+        or address.is_unspecified
+        or any(address in network for network in _DOCUMENTATION_NETWORKS)
+    )
+
+
 #: Checks a match of a built-in pattern must pass to count.  They belong to the
 #: built-in pattern: your own pattern for the same entity is used as written.
 _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     # Timestamps, long IDs, and a `git log` hash next to its date are digit runs too.
     "CREDIT_CARD": _luhn,
+    "IP_ADDRESS": _host_address,
 }
 
 

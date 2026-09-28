@@ -32,7 +32,6 @@ LABEL = re.compile(r"⟦([A-Z_]+):(.*?)⟧", re.DOTALL)
 FLOORS = {
     "API_KEY": (1.0, 0.92),
     "EMAIL": (0.79, 1.0),
-    "IP_ADDRESS": (0.39, 1.0),
     "PHONE": (0.58, 0.7),
     "SECRET": (0.47, 0.9),
     "URL_CREDENTIAL": (1.0, 0.75),

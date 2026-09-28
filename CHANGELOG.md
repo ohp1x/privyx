@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **Detector:** `CREDIT_CARD` masks only digit runs that pass the Luhn checksum, as every card number does, so millisecond timestamps, long IDs, and a `git log` hash next to its date are no longer masked (precision on the detection corpus 0.58 → 1.00, recall unchanged)
+- **Detector:** `IP_ADDRESS` no longer masks addresses that point at no host: loopback (`127.0.0.1`), `0.0.0.0`, the documentation ranges (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`), and dotted numbers with an octet above 255 such as `999.1.2.300`. Private addresses are still masked (precision on the detection corpus 0.39 → 1.00, recall unchanged)
 
 ## [0.1.7] - 2026-09-28
 
