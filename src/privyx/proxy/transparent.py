@@ -66,6 +66,16 @@ SCAN_FAILED_BODY = {
     }
 }
 
+#: Body of the 400 returned when a routed request's body is not a JSON object,
+#: the only kind Privyx can mask.  It is not forwarded either.
+INVALID_BODY = {
+    "error": {
+        "type": "privyx_invalid_request",
+        "message": "the request body is not a JSON object, so privyx could not mask it "
+        "and did not forward it",
+    }
+}
+
 
 def _elapsed_ms(start: float) -> float:
     """Milliseconds since a ``time.perf_counter()`` mark, rounded for the trail."""
@@ -187,14 +197,18 @@ class TransparentProxy:
                     media_type=_JSON,
                     body=json.dumps({"error": {"message": message}}).encode(),
                 )
-            content_type = _ci_get(headers, "content-type")
-
             if session_id is None:
                 session_id = _ci_get(headers, "x-privyx-session") or None
 
             # Parse the body once, up front: the session strategy may fingerprint
             # it (e.g. the first user message), and the transform reuses the parse.
-            payload = _loads(body) if schema and body and _JSON in content_type else None
+            # Whatever its content type says (`curl -d` sends a form type): a
+            # routed body that is not a JSON object would go upstream unmasked.
+            payload = _loads(body) if schema and body else None
+            if schema and body and not isinstance(payload, dict):
+                return ProxyResponse(
+                    status_code=400, media_type=_JSON, body=json.dumps(INVALID_BODY).encode()
+                )
             resolved_id, source = resolve_session_id(
                 self._session_strategy,
                 header_value=session_id,
@@ -255,7 +269,15 @@ class TransparentProxy:
                     request_id=req_id,
                     duration_ms=_elapsed_ms(start),
                 )
-                raise
+                if not isinstance(exc, httpx.RequestError):
+                    raise
+                status, error_headers, error = upstream_failure(exc)
+                return ProxyResponse(
+                    status_code=status,
+                    headers=error_headers,
+                    media_type=_JSON,
+                    body=json.dumps(error).encode(),
+                )
 
             resp_content_type = response.headers.get("content-type", "")
             resp_headers = filter_response_headers(response.headers)
@@ -454,6 +476,27 @@ class TransparentProxy:
             media_type=content_type or None,
             body=data,
         )
+
+
+def upstream_failure(exc: BaseException) -> tuple[int, dict[str, str], dict[str, Any]]:
+    """Status, headers, and JSON body for an upstream call that got no response.
+
+    Also logs it: the class at WARNING and the traceback only at DEBUG, since a
+    dead or slow upstream is an expected condition, not a bug in Privyx.
+    """
+    name = type(exc).__name__
+    _log.warning("no response from the upstream: %s", name)
+    _log.debug("upstream request failed", exc_info=exc)
+    headers: dict[str, str] = {}
+    if isinstance(exc, httpx.PoolTimeout):
+        status, kind, message = 503, "busy", "privyx is at proxy.max_connections; retry later"
+        headers["retry-after"] = "10"  # the time it already waited for a free connection
+    elif isinstance(exc, httpx.TimeoutException):
+        status, kind, message = 504, "timeout", "the upstream did not respond in time"
+    else:
+        status, kind, message = 502, "unreachable", "privyx could not reach the upstream"
+    body = {"error": {"type": f"privyx_upstream_{kind}", "message": f"{message} ({name})"}}
+    return status, headers, body
 
 
 def log_scan_failure(exc: Exception) -> None:

@@ -32,7 +32,12 @@ from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.streaming import AuditedStream
-from privyx.proxy.transparent import SCAN_FAILED_BODY, log_scan_failure
+from privyx.proxy.transparent import (
+    INVALID_BODY,
+    SCAN_FAILED_BODY,
+    log_scan_failure,
+    upstream_failure,
+)
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.utils.ids import request_id as new_request_id
 
@@ -123,7 +128,12 @@ class Gateway:
             ephemeral = False
             defer_cleanup = False
             try:
-                payload = await request.json()
+                try:
+                    payload = await request.json()
+                except ValueError:  # not JSON, or not UTF-8
+                    payload = None
+                if not isinstance(payload, dict):
+                    return JSONResponse(INVALID_BODY, status_code=400)
                 session_id, source = resolve_session_id(
                     self._session_strategy,
                     header_value=request.headers.get("x-privyx-session"),
@@ -315,11 +325,12 @@ class Gateway:
 
 
 def _relay_upstream_error(exc: ProviderError) -> Any:
-    """The upstream's own error response, or a 502 when it never answered."""
+    """The upstream's own error response, or Privyx's when it never answered."""
     from fastapi.responses import JSONResponse, Response
 
     if exc.status_code is None:
-        return JSONResponse({"error": {"message": str(exc)}}, status_code=502)
+        status, headers, error = upstream_failure(exc.__cause__ or exc)
+        return JSONResponse(error, status_code=status, headers=headers)
     return Response(exc.body, status_code=exc.status_code, media_type=exc.content_type or None)
 
 

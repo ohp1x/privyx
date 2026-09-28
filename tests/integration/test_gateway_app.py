@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 from typing import Any, cast
 
 import pytest
@@ -355,3 +356,54 @@ async def test_upstream_error_is_relayed(stream: bool) -> None:
     assert response.status_code == 400
     assert response.json() == error
     assert vault._sessions == {}  # ephemeral session still cleaned up
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    ("failure", "status", "kind"),
+    [
+        (httpx.ConnectError, 502, "unreachable"),
+        (httpx.ReadTimeout, 504, "timeout"),
+        (httpx.PoolTimeout, 503, "busy"),
+    ],
+)
+async def test_no_upstream_response_is_named_by_status_and_type(
+    failure: type[Exception], status: int, kind: str, stream: bool, caplog: Any
+) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise failure("")  # a timeout's message is empty
+
+    provider = GenericProvider(
+        base_url=UPSTREAM, client=httpx.AsyncClient(transport=httpx.MockTransport(fail))
+    )
+    gateway = Gateway(engine=_engine(), provider=provider, settings=Settings())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/v1/messages",
+            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+
+    error = response.json()["error"]
+    assert response.status_code == status
+    assert error["type"] == f"privyx_upstream_{kind}"
+    assert error["message"].endswith(f"({failure.__name__})")
+    assert response.headers.get("retry-after") == ("10" if status == 503 else None)
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING and r.exc_info]
+
+
+@pytest.mark.parametrize(
+    "body", [b"", b"mail alice@example.com", b'[{"content": "mail alice@example.com"}]']
+)
+async def test_a_body_that_is_not_a_json_object_is_a_400(body: bytes) -> None:
+    seen.clear()
+    client, _ = _client(_engine())
+    async with client:
+        response = await client.post(
+            "/v1/messages", content=body, headers={"content-type": "application/json"}
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["type"] == "privyx_invalid_request"
+    assert not seen
