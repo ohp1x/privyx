@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Detector:** `CREDIT_CARD` masks only digit runs that pass the Luhn checksum, as every card number does, so millisecond timestamps, long IDs, and a `git log` hash next to its date are no longer masked (precision on the detection corpus 0.58 → 1.00, recall unchanged)
 - **Detector:** `IP_ADDRESS` no longer masks addresses that point at no host: loopback (`127.0.0.1`), `0.0.0.0`, the documentation ranges (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`), and dotted numbers with an octet above 255 such as `999.1.2.300`. Private addresses are still masked (precision on the detection corpus 0.39 → 1.00, recall unchanged)
+- **Detector:** `PHONE` no longer masks two bare numbers such as a screen size (`1920 1080`), the seconds and year of a `git log` date (`11 2026`), or an ID (`INV-2026-0042`): two digit groups now need a `+<country>` code, an area code in parentheses, or a leading 0, so a US local number such as `555-0142` is no longer masked. Numbers without separators are now found in E.164 form (`+6281234567890`) and when they start with 08 (`081234567890`) (on the detection corpus, precision 0.58 → 1.00 and recall 0.70 → 1.00)
 
 ## [0.1.7] - 2026-09-28
 

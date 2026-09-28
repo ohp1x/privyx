@@ -15,12 +15,15 @@ from privyx.core.result import Detection, Span
 from privyx.privacy.detector.base import BaseDetector, Detector
 
 #: The phone pattern accepts an optional ``+<country>`` prefix and 2-3 groups
-#: separated by space/dot/dash.  The lookarounds keep it from biting a chunk out
-#: of a longer digit run: ``(?<!\d[-.])`` and ``(?![-.]\d)`` stop it matching
-#: inside an IP address or SSN, where a more specific pattern should win.
+#: separated by space/dot/dash, or a number without separators in E.164 form
+#: (``+6281234567890``) or starting with ``08`` (``081234567890``).  The
+#: lookarounds keep it from biting a chunk out of a longer digit run:
+#: ``(?<!\d[-.])`` and ``(?![-.]\d)`` stop it matching inside an IP address or
+#: SSN, where a more specific pattern should win.
 PHONE_PATTERN = (
     r"(?<![\w\d])(?<!\d[-.])"
-    r"(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})[\s.-]\d{3,4}(?:[\s.-]\d{3,4})?"
+    r"(?:(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})[\s.-]\d{3,4}(?:[\s.-]\d{3,4})?"
+    r"|\+[1-9]\d{9,14}|08\d{8,11})"
     r"(?![\w\d])(?![-.]\d)"
 )
 
@@ -122,12 +125,25 @@ def _host_address(match: re.Match[str]) -> bool:
     )
 
 
+def _phone_number(match: re.Match[str]) -> bool:
+    """Whether the match reads as a phone number rather than two numbers.
+
+    Two bare digit groups are more often a screen size, the seconds and year of
+    a date, or an ID (``1920 1080``, ``11 2026``, ``2026-0042``) than a local
+    number, so fewer than three groups need a ``+<country>`` code, an area code
+    in parentheses, or a leading 0.
+    """
+    number = match[0]
+    return number[0] in "+(0" or len(re.findall(r"\d+", number)) > 2
+
+
 #: Checks a match of a built-in pattern must pass to count.  They belong to the
 #: built-in pattern: your own pattern for the same entity is used as written.
 _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     # Timestamps, long IDs, and a `git log` hash next to its date are digit runs too.
     "CREDIT_CARD": _luhn,
     "IP_ADDRESS": _host_address,
+    "PHONE": _phone_number,
 }
 
 
