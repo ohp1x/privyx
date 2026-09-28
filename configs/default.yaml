@@ -34,7 +34,7 @@ vault:
 
 # --- Detector ---
 # Omit `patterns` to use the built-in set (EMAIL, PHONE, CREDIT_CARD,
-# IP_ADDRESS, SSN, API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL).
+# IP_ADDRESS, SSN, API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, SECRET).
 # Any patterns listed here are merged over the built-ins,
 # so you only need to name the ones you want to override or add.
 #
@@ -56,25 +56,14 @@ detector:
   cache:
     enabled: true
     max_size: 10000
-  # The built-ins also cover secrets with a recognizable shape: API_KEY
-  # (vendor-prefixed keys), JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL.
-  # Block scalars + (?x): whitespace and `# ...` are ignored.  A
-  # `(?P<value>...)` group masks only that part (the variable name stays
-  # readable for the model).
-  patterns:
-    # A value assigned to a secret-looking name: .env, shell, YAML, JSON, PHP,
-    # JS/Python, query strings, CLI flags.  Quoted → up to the closing quote;
-    # unquoted → up to whitespace/delimiter, skipping type hints (`password: str`),
-    # `${…}` references, and calls (`token = get_token()`).
-    SECRET: |
-      (?ix)
-      (?: passw(?:or)?d | passphrase | pwd | pass(?![a-z]) | secret(?![a-z]) | token(?![a-z])
-        | api[_-]?key | access[_-]?key | private[_-]?key | _key | credentials? )
-      [\w.-]{0,40}? ["']? [ \t]* (?: => | := | [:=](?!=) ) [ \t]*
-      (?: (?P<q>["'`])
-        | (?! (?:str|string|int|bool|boolean|number|any|none|null|true|false|undefined|optional|dict|list)\b
-            | \$[{(] ) )
-      (?P<value> (?(q) (?:\\.|(?!(?P=q))[^\r\n\\])+ | [^\s"'`,;&#(){}\[\]<>]++(?!\() ) )
+  # The built-ins also cover secrets: API_KEY (vendor-prefixed keys), JWT,
+  # PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, and SECRET (a value assigned to a
+  # secret-looking name, such as `DB_PASSWORD=…`).  A `(?P<value>...)` group
+  # masks only that part (the variable name stays readable for the model).
+  patterns: {}
+  # patterns:
+  #   EMPLOYEE_ID: '\bEMP-\d{6}\b'
+  #   PASSWORD: 'PASSWORD=(?P<value>\S+)'
   terms: {}
   # terms:
   #   PERSON:       [ann, bob]

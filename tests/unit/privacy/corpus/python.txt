@@ -59,3 +59,12 @@ TEST_KEY = """⟦PRIVATE_KEY:-----BEGIN RSA PRIVATE KEY·-----
 MIIEowIBAAKCAQEAq8Rz2LmXv4Tn7Kp1Wd9Hs3Jc6Fb0Ga5Ye8Nu2QiZq7Xw2Lp9Rt4
 Vb6Nm1Kc8Hd3Js5Gf0AyQe2Wr5Ty8Uq8Rz2LmXv4Tn7Kp1Wd9Hs3Jc6Fb0Ga5Ye8Nu2
 -----END RSA PRIVATE KEY-----⟧"""
+
+# Settings
+SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
+DATABASES = {"default": {"HOST": "db", "PASSWORD": os.environ.get("DB_PASSWORD", "")}}
+
+
+def invoice_cache_key(invoice_id: str) -> str:
+    cache_key = f"invoice:{invoice_id}"
+    return cache_key

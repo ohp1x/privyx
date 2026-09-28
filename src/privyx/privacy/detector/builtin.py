@@ -74,6 +74,25 @@ URL_CREDENTIAL_PATTERN = (
     r"""(?ix) [a-z][a-z0-9+.-]{0,20}:// [^\s:/@"'<>]{0,256} : (?P<value>[^\s/@"'<>]{1,256}) @"""
 )
 
+#: A value assigned to a secret-looking name: ``.env``, shell, YAML, JSON, PHP,
+#: JS/Python, query strings, CLI flags.  Quoted, up to the closing quote;
+#: unquoted, up to whitespace or a delimiter, skipping type hints
+#: (``password: str``), ``${…}`` references, and calls (``token = get_token()``).
+#: ``_KEY`` must be upper case: ``cache_key`` or ``sort_key`` in code is no
+#: secret.  :func:`_secret_value` drops the rest of what cannot be one.
+SECRET_PATTERN = r"""(?ix)
+(?P<name>
+    (?: passw(?:or)?d | passphrase | pwd | pass(?![a-z]) | secret(?![a-z]) | token(?![a-z])
+      | api[_-]?key | access[_-]?key | private[_-]?key | (?-i:_KEY) | credentials? )
+    [\w.-]{0,40}? )
+["']? [ \t]* (?P<sep> => | := | [:=](?!=) ) [ \t]*
+(?: (?P<q>["'`])
+  | (?! (?:str|string|int|bool|boolean|number|any|none|null|true|false|undefined|optional
+           |dict|list)\b
+      | \$[{(] ) )
+(?P<value> (?(q) (?:\\.|(?!(?P=q))[^\r\n\\])+ | [^\s"'`,;&#(){}\[\]<>]++(?!\() ) )
+"""
+
 #: Built-in entity patterns.  A ``regex`` detector built from config layers its
 #: own patterns over these (:func:`privyx.privacy.detector.yaml.build_detector`).
 DEFAULT_PATTERNS: dict[str, str] = {
@@ -90,6 +109,7 @@ DEFAULT_PATTERNS: dict[str, str] = {
     # `Authorization: Bearer …` / `Basic …`
     "AUTH_TOKEN": r"(?i)(?:bearer|basic)[ \t]+(?P<value>[\w.~+/-]{16,}=*)",
     "URL_CREDENTIAL": URL_CREDENTIAL_PATTERN,
+    "SECRET": SECRET_PATTERN,
 }
 
 
@@ -137,6 +157,54 @@ def _phone_number(match: re.Match[str]) -> bool:
     return number[0] in "+(0" or len(re.findall(r"\d+", number)) > 2
 
 
+#: Names that describe a secret rather than hold it: ``TOKEN_URL``, ``token_type``,
+#: ``KEY_FILE``, ``passwordLength``.
+_SECRET_METADATA = re.compile(
+    r"(?:[_.-](?i:url|uri|endpoint|path|file|header|name|type|length|prefix)"
+    r"|Url|Uri|Endpoint|Path|File|Header|Name|Type|Length|Prefix)$"
+)
+_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+_DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
+_WORDS_NEXT = re.compile(r"[ \t]+[A-Za-z]")
+
+
+def _secret_value(match: re.Match[str]) -> bool:
+    """Whether the value assigned to a secret-looking name can be the secret.
+
+    Not when it has no letter or digit (``-`` in ``${API_KEY:-}``, ``**`` in
+    ``**Token:**``) or is cut short (``sk-...``), or when the name describes the
+    secret instead of holding it (``TOKEN_URL``, ``token_type``).  Unquoted, not
+    when it refers to a variable (``os.environ``, ``settings.SECRET_KEY``) or to
+    one named for the same thing (``api_key=api_key``, ``self._token = token``),
+    or when a single word after a colon starts a sentence (``api_key: When set,
+    …`` in a docstring).
+    """
+    name, value = match["name"], match["value"]
+    if not any(char.isalnum() for char in value) or "..." in value or "…" in value:
+        return False
+    if _SECRET_METADATA.search(name):
+        return False
+    if match["q"] is not None:
+        return True
+    if _DOTTED_IDENTIFIER.fullmatch(value):
+        return False
+    if _IDENTIFIER.fullmatch(value) and _named_for(value, name):
+        return False
+    return not (
+        match["sep"] == ":" and value.isalpha() and _WORDS_NEXT.match(match.string, match.end())
+    )
+
+
+def _named_for(variable: str, name: str) -> bool:
+    """Whether ``variable`` is named for ``name``: ``api_key``, ``openai_api_key``, ``apiKey``."""
+    key = name.lstrip("_").lower()
+    variable = variable.lstrip("_")
+    start = len(variable) - len(key)
+    return variable.lower().endswith(key) and (
+        start == 0 or variable[start - 1] == "_" or variable[start].isupper()
+    )
+
+
 #: Checks a match of a built-in pattern must pass to count.  They belong to the
 #: built-in pattern: your own pattern for the same entity is used as written.
 _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
@@ -144,6 +212,7 @@ _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "CREDIT_CARD": _luhn,
     "IP_ADDRESS": _host_address,
     "PHONE": _phone_number,
+    "SECRET": _secret_value,
 }
 
 

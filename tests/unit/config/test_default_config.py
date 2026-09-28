@@ -1,5 +1,4 @@
-"""Secret patterns mask what they claim to: the built-ins with no config at all,
-and ``SECRET`` from ``configs/default.yaml``."""
+"""Secret patterns mask what they claim to, with no config at all."""
 
 from __future__ import annotations
 
@@ -17,7 +16,6 @@ from privyx.privacy.policy.strict import StrictPolicy
 
 CONFIGS = Path(__file__).parents[3] / "configs"
 NO_CONFIG = build_detector_from(load_config(None))
-DETECTOR = build_detector_from(load_config(CONFIGS / "default.yaml"))
 
 # Fake values, assembled here so the source holds no literal key-shaped string.
 A = "Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay"
@@ -62,7 +60,7 @@ KEYS = [
     "discord.com" + f"/api/webhooks/123/{A}",
 ]
 
-# (text, secret that must not survive), caught with no config
+# (text, secret that must not survive): secrets with a recognizable shape
 BUILTIN_LEAKS = [
     (f"keys:\\nsk-proj-{A}", A),  # right after a JSON-escaped newline
     (f"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.{A}", A),
@@ -72,7 +70,7 @@ BUILTIN_LEAKS = [
     ("redis://:R3disPass99@cache:6379/0", "R3disPass99"),
 ]
 
-# ... and the ones that need `SECRET` from configs/default.yaml
+# ... and values assigned to a secret-looking name (`SECRET`)
 LEAKS = [
     ("DB_PASSWORD=hunter2rocks", "hunter2rocks"),
     ('MAIL_PASSWORD="correct horse battery"', "horse battery"),
@@ -83,6 +81,11 @@ LEAKS = [
     ("const apiKey = 'camelKey123456';", "camelKey123456"),
     (f"https://api.example.com/v1?api_key={HEX}&q=1", HEX),
     ("mysql --password=cliPass123 -h db", "cliPass123"),
+    # A word after `=`, digits after a colon, a longer word, and an INI file.
+    ("PGPASSWORD=s3cret psql -h db", "s3cret"),
+    ("login ok, token: abc123def456 user: bob", "abc123def456"),
+    ("JWT_SECRET=supersecret", "supersecret"),
+    ("password = hunter2", "hunter2"),
 ]
 
 KEEP = [
@@ -93,10 +96,23 @@ KEEP = [
     "token = get_token()",
     "password: ${{ secrets.DB_PASSWORD }}",
     "The access token expires after an hour.",
+    # A variable holding the secret, not the secret
+    'self._api_key = api_key or os.environ["BILLING_API_KEY"]',
+    'SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]',
+    "client = Client(api_key=api_key, token=self.token)",
+    # What describes a secret, and keys that are none
+    'TOKEN_URL = "https://auth.example.com/oauth/token"',
+    '{"token_type": "Bearer", "expires_in": 3600}',
+    'cache_key = f"invoice:{invoice_id}"',
+    # Placeholders, punctuation, and a docstring
+    "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}",
+    "export OPENAI_API_KEY=sk-...",
+    "**Token:** the key from the dashboard",
+    "    api_key: When set, overrides the environment variable.",
 ]
 
 
-async def _mask(text: str, detector: Detector = DETECTOR) -> str:
+async def _mask(text: str, detector: Detector = NO_CONFIG) -> str:
     detection = (await detector.detect(text, Context())).merged(text)
     for span in reversed(detection.spans):
         text = text[: span.start] + "<X>" + text[span.end :]
@@ -106,13 +122,13 @@ async def _mask(text: str, detector: Detector = DETECTOR) -> str:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("key", KEYS)
 async def test_vendor_key_is_masked_without_config(key: str) -> None:
-    assert await _mask(f"key {key} end", NO_CONFIG) == "key <X> end"
+    assert await _mask(f"key {key} end") == "key <X> end"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("text", "secret"), BUILTIN_LEAKS)
 async def test_builtin_secret_is_masked_without_config(text: str, secret: str) -> None:
-    assert secret not in await _mask(text, NO_CONFIG)
+    assert secret not in await _mask(text)
 
 
 @pytest.mark.asyncio
@@ -128,9 +144,9 @@ async def test_secret_is_masked(text: str, secret: str) -> None:
     ids=["strict.yaml", "empty allowed"],
 )
 async def test_strict_policy_keeps_builtin_secrets(policy: Policy) -> None:
-    text = " ".join([f"key sk-proj-{A}", *(t for t, _ in BUILTIN_LEAKS)])
+    text = " ".join([f"key sk-proj-{A}", *(t for t, _ in BUILTIN_LEAKS + LEAKS)])
     detection = await NO_CONFIG.detect(text, Context())
-    assert "API_KEY" in {s.entity_type for s in detection.spans}
+    assert {"API_KEY", "SECRET"} <= {s.entity_type for s in detection.spans}
     assert (await policy.decide(detection, Context())).spans == detection.spans
 
 

@@ -15,9 +15,8 @@ docker run -d --name privyx -p 127.0.0.1:8000:8000 \
 ```
 
 Privyx detects emails, phone numbers, credit cards, IP addresses, SSNs, and
-secrets (API keys, bearer tokens, JWTs, private keys, passwords in URLs).
-`/app/configs/default.yaml` also detects values assigned to secret-looking
-names (`password=…`).
+secrets (API keys, bearer tokens, JWTs, private keys, passwords in URLs, and
+values assigned to secret-looking names such as `password=…`).
 
 Point your client at the proxy instead of the provider:
 
