@@ -1,0 +1,61 @@
+"""Client for the billing API, and the fixtures its tests use."""
+
+from __future__ import annotations
+
+import os
+
+import httpx
+
+DEFAULT_TIMEOUT = 30.0
+MAX_TOKENS = 4096
+TOKEN_URL = "https://auth.acme.example/oauth/token"
+STRIPE_TEST_KEY = "⟦API_KEY:sk_test_·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay⟧"
+
+
+class BillingClient:
+    """Talk to the billing API.
+
+    Args:
+        base_url: The API root, such as ``https://billing.acme.example/v1``.
+        api_key: When set, overrides the ``BILLING_API_KEY`` environment variable.
+        token: An OAuth access token to send instead of the key.
+        timeout: Seconds to wait for a response.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        token: str = "",
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> None:
+        self._api_key = api_key or os.environ["BILLING_API_KEY"]
+        self._token = token
+        self._http = httpx.Client(base_url=base_url, timeout=timeout)
+
+    def login(self, username: str, password: str) -> str:
+        response = self._http.post(TOKEN_URL, data={"username": username, "password": password})
+        response.raise_for_status()
+        return response.json()["access_token"]
+
+    def headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._token or self._api_key}"}
+
+
+# Test fixtures
+CUSTOMER = {
+    "name": "Ann Example",
+    "email": "⟦EMAIL:ann@example.com⟧",
+    "phone": "⟦PHONE:+1 (555) 123-4567⟧",
+    "ssn": "⟦SSN:123-45-6789⟧",
+    "created_ms": 1790517229401,
+    "order_id": 1234567812345678,
+}
+CARDS = {
+    "visa": "⟦CREDIT_CARD:4111 1111 1111 1111⟧",
+    "amex": "⟦CREDIT_CARD:378282246310005⟧",
+}
+TEST_KEY = """⟦PRIVATE_KEY:-----BEGIN RSA PRIVATE KEY·-----
+MIIEowIBAAKCAQEAq8Rz2LmXv4Tn7Kp1Wd9Hs3Jc6Fb0Ga5Ye8Nu2QiZq7Xw2Lp9Rt4
+Vb6Nm1Kc8Hd3Js5Gf0AyQe2Wr5Ty8Uq8Rz2LmXv4Tn7Kp1Wd9Hs3Jc6Fb0Ga5Ye8Nu2
+-----END RSA PRIVATE KEY-----⟧"""

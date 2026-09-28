@@ -1,0 +1,15 @@
+2026-09-27T14:02:11.482Z INFO  uvicorn Started server process [4821]
+2026-09-27T14:02:11.483Z INFO  uvicorn Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-09-27T14:02:15.120Z INFO  ⟦IP_ADDRESS:10.0.3.17⟧:51234 - "POST /v1/invoices HTTP/1.1" 201 request_id=550e8400-e29b-41d4-a716-446655440000
+2026-09-27T14:02:15.377Z INFO  invoice INV-2026-0042 created for ⟦EMAIL:ann@example.com⟧ total=49.99 currency=USD
+2026-09-27T14:02:16.004Z WARN  auth login failed user=⟦EMAIL:bob@acme.example⟧ ip=⟦IP_ADDRESS:192.168.1.20⟧ attempts=3
+2026-09-27T14:02:16.911Z DEBUG httpx request headers={'authorization': 'Bearer ⟦AUTH_TOKEN:9f8e7d6c5b4a39281706f5e4d3c2b1a0⟧', 'user-agent': 'billing/1.4.2'}
+2026-09-27T14:02:17.250Z INFO  {"event": "payment.succeeded", "ts": 1790517229401, "amount": 4999, "card_last4": "4242", "customer": "⟦EMAIL:ann@example.com⟧"}
+2026-09-27T14:02:18.733Z ERROR payment gateway timeout after 30.0s host=⟦IP_ADDRESS:172.16.4.2⟧ port=443
+2026-09-27T14:02:19.001Z INFO  pdf renderer ready viewport=1920 1080 scale=2
+2026-09-27T14:02:20.000Z INFO  ⟦IP_ADDRESS:10.0.3.17⟧:51240 - "GET /health HTTP/1.1" 200
+2026-09-27T14:02:20.004Z INFO  127.0.0.1:40112 - "GET /metrics HTTP/1.1" 200
+2026-09-27T14:02:21.500Z DEBUG session cookie=⟦JWT:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzQyIiwiZXhwIjoxNzkwNTE3MjI5fQ.Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0AyQe2Wr5Ty8U⟧
+2026-09-27T14:02:22.000Z INFO  upstream 192.0.2.10 (documentation example) resolved
+2026-09-27T14:02:23.000Z INFO  agent 999.1.2.300 connected
+2026-09-27T14:02:24.000Z WARN  sms to ⟦PHONE:+62 812-3456-7890⟧ failed, retrying in 5s

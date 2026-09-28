@@ -1,0 +1,36 @@
+# Copy to .env and fill in; never commit the real one.
+APP_ENV=production
+APP_URL=https://billing.acme.example
+HOST=0.0.0.0
+PORT=8000
+LOG_LEVEL=info
+
+# Database and cache
+DATABASE_URL=postgres://billing:⟦URL_CREDENTIAL:Pg-S3cret-2026⟧@db:5432/billing
+DB_HOST=127.0.0.1
+DB_PASSWORD=⟦SECRET:hunter2rocks⟧
+REDIS_URL=redis://:⟦URL_CREDENTIAL:R3disPass99⟧@cache:6379/0
+
+# Providers
+OPENAI_API_KEY=⟦API_KEY:sk-proj-·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay⟧
+ANTHROPIC_API_KEY=⟦API_KEY:sk-ant-api03-·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay-AAAA⟧
+ANTHROPIC_BASE_URL=http://127.0.0.1:8080
+GITHUB_TOKEN=⟦API_KEY:ghp_·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0AyABCD⟧
+STRIPE_SECRET_KEY=⟦API_KEY:sk_live_·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay⟧
+STRIPE_WEBHOOK_SECRET=⟦API_KEY:whsec_·Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay⟧
+AWS_ACCESS_KEY_ID=⟦API_KEY:AKIA·IOSFODNN7EXAMPLE⟧
+AWS_SECRET_ACCESS_KEY=⟦SECRET:q8Rz2Lm/Xv4Tn7Kp1Wd9Hs3Jc6Fb0Ga5Ye8Nu2Qi⟧
+AWS_REGION=eu-west-1
+SLACK_WEBHOOK_URL=https://⟦API_KEY:hooks.slack.com/services/·T01ABCDEF/B02GHIJKL/Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd⟧
+
+# Mail
+SMTP_HOST=smtp.acme.example
+SMTP_PORT=587
+SMTP_USER=⟦EMAIL:billing@acme.example⟧
+SMTP_PASSWORD=⟦SECRET:mail-Pass-4821⟧
+SUPPORT_EMAIL=⟦EMAIL:support@acme.example⟧
+
+# Auth
+JWT_SECRET=⟦SECRET:c2lnbmluZy1rZXktZm9yLXRlc3RzLW9ubHk⟧
+SESSION_SECRET=
+ADMIN_EMAIL=⟦EMAIL:ann@example.com⟧

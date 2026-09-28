@@ -1,0 +1,26 @@
+import { useState } from "react";
+
+const SUPPORT_PHONE = "⟦PHONE:+62 21 5550 1234⟧";
+const MAPS_API_KEY = "⟦API_KEY:AIza·SyZq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0AyB⟧";
+
+export function ContactCard({ email }: { email: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="contact-card">
+      <svg viewBox="0 0 512 512" width={16} height={16} aria-hidden="true">
+        <path d="M4 4h16v16H4z" />
+      </svg>
+      <a href={`mailto:${email}`}>{email}</a>
+      <a href="tel:⟦PHONE:+6281234567890⟧">⟦PHONE:0812-3456-7890⟧</a>
+      <button onClick={() => navigator.clipboard.writeText(SUPPORT_PHONE).then(() => setCopied(true))}>
+        {copied ? "Copied" : "Copy number"}
+      </button>
+      <iframe
+        src={`https://maps.example.com/embed?key=${MAPS_API_KEY}&q=Jakarta`}
+        width="600"
+        height="450"
+      />
+    </div>
+  );
+}

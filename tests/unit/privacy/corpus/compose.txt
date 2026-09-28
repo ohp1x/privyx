@@ -1,0 +1,44 @@
+services:
+  api:
+    image: ghcr.io/acme/billing:1.4.2
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql://billing:⟦URL_CREDENTIAL:Api-DB-pass-77⟧@db.prod.acme.internal:5432/billing
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      REDIS_PASSWORD: ⟦SECRET:redis-Pw-0192⟧
+    depends_on: [db, cache]
+    networks:
+      backend:
+        ipv4_address: ⟦IP_ADDRESS:172.20.0.10⟧
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  db:
+    image: postgres:16.4
+    environment:
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: ⟦SECRET:Api-DB-pass-77⟧
+      POSTGRES_DB: billing
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+
+  cache:
+    image: redis:7.4
+    command: redis-server --requirepass ⟦SECRET:redis-Pw-0192⟧
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks: [backend]
+
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: ⟦IP_ADDRESS:172.20.0.0⟧/16
+
+volumes:
+  pgdata:
