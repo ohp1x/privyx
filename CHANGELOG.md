@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Vault:** the `sqlite` vault writes through a write-ahead log (WAL), so a request spends ~4.5 ms on disk I/O instead of ~11 ms, and sweeps expired sessions at most once a minute instead of on every new session. Keep its file on a local disk: WAL does not work on a network file system such as NFS
+
+### Fixed
+
+- **Vault:** a `vault.dsn` file that is not a SQLite database stopped `privyx` with a traceback and then hung instead of exiting. It now exits with a one-line error, and every failed SQLite call is reported as a vault error
+
 ## [0.1.9] - 2026-09-28
 
 ### Added

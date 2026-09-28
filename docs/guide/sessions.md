@@ -52,6 +52,10 @@ vault:
   redis_url: redis://localhost:6379/0
 ```
 
+The `sqlite` vault writes through a write-ahead log, kept in `-wal` and `-shm`
+files beside the database. Put the database on a local disk: the log does not
+work on a network file system such as NFS.
+
 The `memory` vault lives inside one process, so the `privyx session` commands,
 which run as a separate process, cannot see it. Use `sqlite` or `redis` to
 inspect or prune sessions.
