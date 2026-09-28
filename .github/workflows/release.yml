@@ -179,7 +179,7 @@ jobs:
       # vX.Y.Z -> X.Y.Z and X.Y; `latest` only for stable releases, so a
       # pre-release tag never moves what `docker pull` gives users by default.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/${{ github.repository }}
