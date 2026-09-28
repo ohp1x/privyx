@@ -197,7 +197,7 @@ When Privyx answers instead, the body is `{"error": {"type": …, "message": …
 
 | Status | `type` | When |
 |---|---|---|
-| `400` | `privyx_invalid_request` | Gateway: the body is not a JSON object. Nothing is forwarded. |
+| `400` | `privyx_invalid_request` | A routed request's body is not a JSON object, whatever its `Content-Type` says: compressed, form-encoded, or not JSON. It cannot be masked, so it is not forwarded. |
 | `502` | `privyx_upstream_unreachable` | No response from the upstream: the connection was refused or dropped. |
 | `503` | `privyx_scan_failed` | Masking the request failed, so it was not forwarded. See [Detection](../guide/detection.md). |
 | `503` | `privyx_upstream_busy` | All `proxy.max_connections` connections stayed busy for 10 s. Sent with `Retry-After: 10`. |

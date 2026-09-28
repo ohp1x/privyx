@@ -212,6 +212,49 @@ async def test_unrouted_path_refused_without_passthrough() -> None:
     assert [r.url.path for r in capture] == ["/v1/chat/completions"]  # nothing leaked
 
 
+@pytest.mark.parametrize(
+    ("content_type", "body"),
+    [
+        ("application/json", f"mail {EMAIL}"),
+        ("application/json", json.dumps([{"role": "user", "content": EMAIL}])),
+        ("application/x-www-form-urlencoded", f"mail={EMAIL}"),
+    ],
+    ids=["not-json", "array", "form"],
+)
+async def test_a_routed_body_that_is_not_a_json_object_is_never_forwarded(
+    content_type: str, body: str
+) -> None:
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    result = await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": content_type},
+        body=body.encode(),
+    )
+
+    assert result.status_code == 400
+    assert json.loads(result.body)["error"]["type"] == "privyx_invalid_request"
+    assert not capture
+
+
+async def test_a_json_body_is_masked_whatever_its_content_type() -> None:
+    # `curl -d` sends application/x-www-form-urlencoded unless told otherwise.
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    result = await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+        body=json.dumps({"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}).encode(),
+    )
+
+    assert result.status_code == 200
+    assert EMAIL not in capture[-1].content.decode()
+
+
 def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> TransparentProxy:
     audit = AuditLogger(buf)
     engine = PrivacyEngine(

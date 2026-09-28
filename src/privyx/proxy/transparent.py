@@ -197,14 +197,18 @@ class TransparentProxy:
                     media_type=_JSON,
                     body=json.dumps({"error": {"message": message}}).encode(),
                 )
-            content_type = _ci_get(headers, "content-type")
-
             if session_id is None:
                 session_id = _ci_get(headers, "x-privyx-session") or None
 
             # Parse the body once, up front: the session strategy may fingerprint
             # it (e.g. the first user message), and the transform reuses the parse.
-            payload = _loads(body) if schema and body and _JSON in content_type else None
+            # Whatever its content type says (`curl -d` sends a form type): a
+            # routed body that is not a JSON object would go upstream unmasked.
+            payload = _loads(body) if schema and body else None
+            if schema and body and not isinstance(payload, dict):
+                return ProxyResponse(
+                    status_code=400, media_type=_JSON, body=json.dumps(INVALID_BODY).encode()
+                )
             resolved_id, source = resolve_session_id(
                 self._session_strategy,
                 header_value=session_id,
