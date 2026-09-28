@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **Proxy:** with more than 100 requests in flight, the rest no longer wait for a free upstream connection and fail with a 500 after 10 s (a 502 in gateway mode): the pool is now unlimited. New settings `proxy.timeout`, `proxy.connect_timeout`, and `proxy.max_connections` set the upstream timeouts and pool size in both modes
+- **Proxy:** a response with nothing to restore (a file download, anything on an unrouted path, a body that is not JSON) and an upload on an unrouted path were read whole before being passed on, so a 200 MB download reached the client only after its last byte (6 s instead of 0.005 s) and raised the proxy's memory by 400 MB. Both now stream through
 - **Proxy:** when the upstream sends no response, the client gets a JSON error that says why instead of a bare 500 (transparent) or a 502 with an empty message (gateway): `502` when it cannot be reached, `504` when it times out, `503` with `Retry-After` when all `proxy.max_connections` are busy, and no traceback in the log. The gateway answers a body that is not a JSON object with `400` instead of `500`
 
 ### Security

@@ -86,14 +86,15 @@ def _elapsed_ms(start: float) -> float:
 class ProxyResponse:
     """A framework-agnostic response the gateway renders into an ASGI response.
 
-    Exactly one of ``body`` (batch) or ``stream`` (SSE) is set.
+    Exactly one of ``body`` (a restored batch response) or ``stream`` (restored
+    SSE text, or the bytes of a response with nothing to restore) is set.
     """
 
     status_code: int
     headers: dict[str, str] = field(default_factory=dict)
     media_type: str | None = None
     body: bytes | None = None
-    stream: AsyncIterator[str] | None = None
+    stream: AsyncIterator[str] | AsyncIterator[bytes] | None = None
 
 
 class TransparentProxy:
@@ -171,11 +172,15 @@ class TransparentProxy:
         method: str,
         path: str,
         headers: Mapping[str, str],
-        body: bytes,
+        body: bytes | AsyncIterator[bytes],
         query_params: Any | None = None,
         session_id: str | None = None,
     ) -> ProxyResponse:
-        """Run the full per-request pipeline and return a :class:`ProxyResponse`."""
+        """Run the full per-request pipeline and return a :class:`ProxyResponse`.
+
+        ``body`` may be the chunks as they arrive: a routed body is read whole to
+        be masked, any other is streamed upstream as it comes.
+        """
         start = time.perf_counter()
         req_id = new_request_id()
         # Correlate every event of this exchange and aggregate its per-leaf
@@ -200,15 +205,24 @@ class TransparentProxy:
             if session_id is None:
                 session_id = _ci_get(headers, "x-privyx-session") or None
 
-            # Parse the body once, up front: the session strategy may fingerprint
-            # it (e.g. the first user message), and the transform reuses the parse.
-            # Whatever its content type says (`curl -d` sends a form type): a
-            # routed body that is not a JSON object would go upstream unmasked.
-            payload = _loads(body) if schema and body else None
-            if schema and body and not isinstance(payload, dict):
-                return ProxyResponse(
-                    status_code=400, media_type=_JSON, body=json.dumps(INVALID_BODY).encode()
-                )
+            payload: Any = None
+            if schema is not None:
+                if not isinstance(body, bytes):
+                    body = b"".join([chunk async for chunk in body])
+                # Parse the body once, up front: the session strategy may
+                # fingerprint it (e.g. the first user message), and the transform
+                # reuses the parse.  Whatever its content type says (`curl -d`
+                # sends a form type): a routed body that is not a JSON object
+                # would go upstream unmasked.
+                payload = _loads(body) if body else None
+                if body and not isinstance(payload, dict):
+                    return ProxyResponse(
+                        status_code=400, media_type=_JSON, body=json.dumps(INVALID_BODY).encode()
+                    )
+            elif not isinstance(body, bytes) and not (
+                _ci_get(headers, "content-length") or _ci_get(headers, "transfer-encoding")
+            ):
+                body = b""  # none was sent; an empty stream would go out chunked
             resolved_id, source = resolve_session_id(
                 self._session_strategy,
                 header_value=session_id,
@@ -246,18 +260,20 @@ class TransparentProxy:
             self._audit.flush_transform()
 
             url = f"{self._origin}/{path.lstrip('/')}"
+            upstream_headers = filter_request_headers(
+                headers,
+                schema=schema,
+                forward_client_auth=self._forward_client_auth,
+                api_key=self._api_key,
+                extra=self._extra_headers,
+            )
+            length = _ci_get(headers, "content-length")
+            if not isinstance(out_body, bytes) and length:
+                # Streamed unchanged, so its length still holds; without it
+                # httpx would send the body chunked.
+                upstream_headers["content-length"] = length
             request = self._client.build_request(
-                method,
-                url,
-                headers=filter_request_headers(
-                    headers,
-                    schema=schema,
-                    forward_client_auth=self._forward_client_auth,
-                    api_key=self._api_key,
-                    extra=self._extra_headers,
-                ),
-                content=out_body,
-                params=query_params,
+                method, url, headers=upstream_headers, content=out_body, params=query_params
             )
             try:
                 response = await self._client.send(request, stream=True)
@@ -304,8 +320,13 @@ class TransparentProxy:
                 return self._streaming_response(
                     response, resp_headers, schema, sid, req_id, start, ephemeral
                 )
-            return await self._batch_response(
-                response, resp_headers, resp_content_type, schema, sid, req_id, start
+            if schema and _JSON in resp_content_type:
+                return await self._batch_response(
+                    response, resp_headers, resp_content_type, sid, req_id, start
+                )
+            defer_cleanup = True  # as for a stream
+            return self._relayed_response(
+                response, resp_headers, resp_content_type, sid, req_id, start, ephemeral
             )
         finally:
             if not defer_cleanup and ephemeral and sid is not None:
@@ -419,6 +440,81 @@ class TransparentProxy:
                 if ephemeral:
                     await self._cleanup_session(session_id, request_id, start)
 
+    def _relayed_response(
+        self,
+        response: httpx.Response,
+        headers: dict[str, str],
+        content_type: str,
+        session_id: str,
+        request_id: str,
+        start: float,
+        ephemeral: bool,
+    ) -> ProxyResponse:
+        """Forward a response with nothing to restore as it arrives.
+
+        Read whole first, like a restored one, a download of any size sat in
+        memory and reached the client only after its last byte.
+        """
+        cleanup = (
+            (lambda: self._cleanup_session(session_id, request_id, start)) if ephemeral else None
+        )
+        return ProxyResponse(
+            status_code=response.status_code,
+            headers=headers,
+            media_type=content_type or None,
+            stream=AuditedStream(
+                self._relay(response, session_id, request_id, start, ephemeral),
+                response=response,
+                cleanup=cleanup,
+            ),
+        )
+
+    async def _relay(
+        self,
+        response: httpx.Response,
+        session_id: str,
+        request_id: str,
+        start: float,
+        ephemeral: bool,
+    ) -> AsyncIterator[bytes]:
+        size = 0
+        completed = aborted = False
+        try:
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                yield chunk
+            completed = True
+        except Exception as exc:
+            self._audit.error(
+                phase="response",
+                error_type=type(exc).__name__,
+                session_id=session_id,
+                request_id=request_id,
+                status=response.status_code,
+                duration_ms=_elapsed_ms(start),
+            )
+            raise
+        except BaseException:
+            aborted = True  # the client went away
+            raise
+        finally:
+            try:
+                await response.aclose()
+            finally:
+                if completed or aborted:
+                    self._audit.response(
+                        status=response.status_code,
+                        stream=False,
+                        size=size,
+                        restored=0,
+                        session_id=session_id,
+                        request_id=request_id,
+                        duration_ms=_elapsed_ms(start),
+                        aborted=aborted,
+                    )
+                if ephemeral:
+                    await self._cleanup_session(session_id, request_id, start)
+
     async def _cleanup_session(self, session_id: str, request_id: str, start: float) -> None:
         """Best-effort deletion for a request-scoped ephemeral session."""
         try:
@@ -448,18 +544,16 @@ class TransparentProxy:
         response: httpx.Response,
         headers: dict[str, str],
         content_type: str,
-        schema: str | None,
         session_id: str,
         request_id: str,
         start: float,
     ) -> ProxyResponse:
         data = await response.aread()
         await response.aclose()
-        if schema and _JSON in content_type:
-            payload = _loads(data)
-            if isinstance(payload, dict):
-                restored = await restore_response(payload, self._engine, session_id)
-                data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
+        payload = _loads(data)
+        if isinstance(payload, dict):
+            restored = await restore_response(payload, self._engine, session_id)
+            data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
         restored_n = self._audit.flush_restore()
         self._audit.response(
             status=response.status_code,

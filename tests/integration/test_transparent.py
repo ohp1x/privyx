@@ -187,7 +187,8 @@ async def test_non_chat_path_is_forwarded_verbatim() -> None:
 
     result = await proxy.handle(method="GET", path="v1/models", headers={}, body=b"")
 
-    data = json.loads(result.body)
+    assert result.stream is not None  # nothing to restore: relayed as it arrives
+    data = json.loads(b"".join([chunk async for chunk in result.stream]))
     # Token-shaped text on an unrouted path is not transformed.
     assert data["data"][0]["id"] == "gpt-x <PRIVYX_EMAIL_9>"
 

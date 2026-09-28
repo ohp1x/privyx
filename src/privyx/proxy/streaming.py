@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 
-class AuditedStream:
+class AuditedStream[T]:
     """Wrap an async generator to ensure cleanup and upstream closure on aclose.
 
     Python async generators do not execute their try/finally blocks if closed
@@ -17,7 +17,7 @@ class AuditedStream:
 
     def __init__(
         self,
-        stream: AsyncIterator[str],
+        stream: AsyncIterator[T],
         *,
         response: Any | None = None,
         cleanup: Callable[[], Awaitable[None]] | None = None,
@@ -27,10 +27,10 @@ class AuditedStream:
         self._cleanup = cleanup
         self._cleaned = False
 
-    def __aiter__(self) -> AsyncIterator[str]:
+    def __aiter__(self) -> AsyncIterator[T]:
         return self
 
-    async def __anext__(self) -> str:
+    async def __anext__(self) -> T:
         return await anext(self._stream)
 
     async def aclose(self) -> None:
