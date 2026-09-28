@@ -10,7 +10,8 @@
   forwarded to the upstream **origin**; the routed paths (see
   [Routes](#routes)) are pseudonymized on the way out and restored on the way
   back, batch or streaming, with no client-side change. Every other path
-  (models, embeddings, files, …) is forwarded verbatim. "Transparent" here means
+  (models, embeddings, files, …) is forwarded verbatim, and streamed both ways,
+  so a large upload or download is never held in memory. "Transparent" here means
   *drop-in* — it is an HTTP reverse proxy, not a network-level MITM/SOCKS proxy.
 - **`gateway`** — Privyx's *own* endpoints, all forwarded to the single upstream
   endpoint from `provider.base_url` (`resolve_base_url`), used **verbatim**: the

@@ -43,7 +43,10 @@ FRAME = (
 
 
 def _upstream(headers_sent: asyncio.Event) -> httpx.AsyncClient:
-    """Answer once ``headers_sent`` is set with one frame, then never finish."""
+    """Answer once ``headers_sent`` is set with one frame, then never finish.
+
+    Any path but ``/v1/messages`` gets a download, which is relayed unrestored.
+    """
 
     async def handler(request: httpx.Request) -> httpx.Response:
         await headers_sent.wait()
@@ -52,7 +55,9 @@ def _upstream(headers_sent: asyncio.Event) -> httpx.AsyncClient:
             yield FRAME
             await asyncio.sleep(60)
 
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body())
+        sse = request.url.path == "/v1/messages"
+        content_type = "text/event-stream" if sse else "application/octet-stream"
+        return httpx.Response(200, headers={"content-type": content_type}, content=body())
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
@@ -78,9 +83,17 @@ async def _drop_before_headers(client: httpx.AsyncClient, url: str) -> None:
         await client.post(url, json=BODY, timeout=0.2)
 
 
-@pytest.mark.parametrize("mode", ["transparent", "gateway"])
+@pytest.mark.parametrize(
+    ("mode", "path"),
+    [
+        ("transparent", "/v1/messages"),
+        ("gateway", "/v1/messages"),
+        ("transparent", "/v1/files/f/content"),
+    ],
+    ids=["transparent", "gateway", "transparent-download"],
+)
 @pytest.mark.parametrize("early", [False, True], ids=["mid-stream", "before-headers"])
-async def test_dropped_streams_leave_no_session(mode: str, early: bool) -> None:
+async def test_dropped_streams_leave_no_session(mode: str, path: str, early: bool) -> None:
     buf = io.StringIO()
     audit = AuditLogger(buf)
     vault = SQLiteVault(":memory:")
@@ -101,7 +114,7 @@ async def test_dropped_streams_leave_no_session(mode: str, early: bool) -> None:
     server = uvicorn.Server(uvicorn.Config(app, log_level="warning", lifespan="off"))
     serving = asyncio.create_task(server.serve(sockets=[sock]))
     try:
-        url = f"http://127.0.0.1:{sock.getsockname()[1]}/v1/messages"
+        url = f"http://127.0.0.1:{sock.getsockname()[1]}{path}"
         drop = _drop_before_headers if early else _drop_after_first_chunk
         async with httpx.AsyncClient(limits=httpx.Limits(max_connections=None)) as client:
             await asyncio.gather(*(drop(client, url) for _ in range(STREAMS)))

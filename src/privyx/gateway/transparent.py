@@ -50,7 +50,7 @@ def create_transparent_app(
             method=request.method,
             path=path,
             headers=request.headers,
-            body=await request.body(),
+            body=request.stream(),
             query_params=list(request.query_params.multi_items()),
             session_id=request.headers.get("x-privyx-session"),
         )
