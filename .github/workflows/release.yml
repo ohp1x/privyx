@@ -190,7 +190,7 @@ jobs:
             type=pep440,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ needs.build.outputs.is_prerelease == 'false' }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
