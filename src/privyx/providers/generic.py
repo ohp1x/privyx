@@ -6,6 +6,7 @@ relayed as-is, with the privacy engine applied to text leaves.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -13,6 +14,28 @@ import httpx
 
 from privyx.core.errors import ProviderError
 from privyx.providers.base import BaseProvider
+
+#: Seconds to wait before each retry of a connection that could not be opened.
+_CONNECT_RETRY_DELAYS = (0.5, 1.0)
+
+
+class _UpstreamClient(httpx.AsyncClient):
+    """Retries a request whose connection could not be opened.
+
+    Only :class:`httpx.ConnectError` (refused, DNS, TLS handshake): nothing has
+    been sent, so even a billed POST is safe to repeat.  A connect timeout is not
+    retried, since every attempt would wait ``connect_timeout`` again.  Done here
+    rather than with ``AsyncHTTPTransport(retries=...)``: a client given its own
+    transport ignores ``HTTPS_PROXY`` and ``NO_PROXY``.
+    """
+
+    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+        for delay in _CONNECT_RETRY_DELAYS:
+            try:
+                return await super().send(request, **kwargs)
+            except httpx.ConnectError:
+                await asyncio.sleep(delay)
+        return await super().send(request, **kwargs)
 
 
 def upstream_client(
@@ -24,9 +47,10 @@ def upstream_client(
     can take minutes to send its first byte, and a stream lasts as long as bytes
     keep coming.  ``max_connections`` of ``None`` sets no limit, so the proxy is
     never narrower than its clients; httpx's default of 100 made request 101
-    onward wait for a free connection and fail.
+    onward wait for a free connection and fail.  A connection that cannot be
+    opened is retried twice; see :class:`_UpstreamClient`.
     """
-    return httpx.AsyncClient(
+    return _UpstreamClient(
         timeout=httpx.Timeout(connect=connect_timeout, read=timeout, write=timeout, pool=10.0),
         limits=httpx.Limits(max_connections=max_connections, max_keepalive_connections=20),
     )
