@@ -66,11 +66,13 @@ async def test_sqlite_deletes_expired_rows_from_disk() -> None:
     vault = SQLiteVault(":memory:", ttl=60)
     await vault.connect()
     try:
-        await _idle(vault, 120)
-        await vault.create(Session())  # a new session sweeps expired rows
+        await _idle(vault, 120)  # its create ran this minute's sweep
+        await vault.create(Session())  # no second sweep within the minute
+        assert await vault._execute("SELECT count(*) FROM sessions") == [(2,)]
 
-        cursor = await vault._db.execute("SELECT count(*) FROM sessions")
-        assert (await cursor.fetchone())[0] == 1
+        vault._next_sweep -= 60  # a minute later, a new session sweeps the idle one
+        await vault.create(Session())
+        assert await vault._execute("SELECT count(*) FROM sessions") == [(2,)]
     finally:
         await vault.close()
 
