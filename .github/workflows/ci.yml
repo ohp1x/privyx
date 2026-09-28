@@ -20,6 +20,23 @@ jobs:
       - run: uv run mypy src
       - run: uv run pytest --cov=privyx --cov-report=term
 
+  # `check` runs on the .python-version above; requires-python allows newer too.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run pytest
+
   vulns:
     runs-on: ubuntu-latest
     steps:
