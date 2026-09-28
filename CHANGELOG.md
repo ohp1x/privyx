@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-09-28
+
 ### Fixed
 
 - **Detector:** `CREDIT_CARD` masks only digit runs that pass the Luhn checksum, as every card number does, so millisecond timestamps, long IDs, and a `git log` hash next to its date are no longer masked (precision on the detection corpus 0.58 → 1.00, recall unchanged)
@@ -232,7 +234,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/ohp1x/privyx/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/ohp1x/privyx/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/ohp1x/privyx/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/ohp1x/privyx/compare/v0.1.4...v0.1.5
