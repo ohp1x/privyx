@@ -779,3 +779,83 @@ async def test_serve_transparent_wires_proxy_settings(monkeypatch: pytest.Monkey
     assert captured["timeout"] == 42
     assert captured["connect_timeout"] == 10
     assert captured["max_connections"] == 7
+
+
+@pytest.mark.parametrize("serve", ["_serve_transparent", "_serve_gateway"])
+async def test_proxy_gives_running_requests_a_grace_period(
+    serve: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("uvicorn")
+    from privyx.cli.commands import proxy as proxy_command
+    from privyx.config.loader import load_config
+    from privyx.core.builder import build_engine
+
+    captured: dict[str, object] = {}
+
+    class Built(Exception):
+        pass
+
+    def fake_config(app: object, **kwargs: object) -> None:
+        captured.update(kwargs)
+        raise Built  # stop before uvicorn starts
+
+    monkeypatch.setattr("uvicorn.Config", fake_config)
+    settings = load_config()
+    engine, close_vault = await build_engine(settings)
+    try:
+        with pytest.raises(Built):
+            await getattr(proxy_command, serve)(settings, engine, audit=None)
+    finally:
+        await close_vault()
+
+    assert captured["timeout_graceful_shutdown"] == proxy_command.SHUTDOWN_GRACE_SECONDS
+
+
+async def test_a_signal_stop_lets_cut_requests_clean_up_first() -> None:
+    """After SIGTERM, uvicorn cancels what outlived the grace period without
+    waiting for it, then raises the signal again, which by default kills the
+    process before the vault and the audit log close."""
+    import asyncio
+    import signal
+
+    import httpx
+
+    uvicorn = pytest.importorskip("uvicorn")
+    from privyx.cli.commands.proxy import _serve_until_reload
+
+    started, cleaned = asyncio.Event(), asyncio.Event()
+
+    async def app(scope: dict[str, object], receive: object, send: object) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})  # type: ignore[operator]
+        started.set()
+        try:
+            await asyncio.sleep(60)  # a long stream
+        finally:
+            await asyncio.sleep(0.2)  # its ephemeral session's deletion
+            cleaned.set()
+
+    killed: list[int] = []
+    previous = signal.signal(signal.SIGTERM, lambda sig, frame: killed.append(sig))
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app, port=0, log_level="warning", lifespan="off", timeout_graceful_shutdown=0.1
+        )
+    )
+    try:
+        serving = asyncio.create_task(_serve_until_reload(server, None))
+        while not server.started:
+            assert not serving.done()  # it failed to start
+            await asyncio.sleep(0.01)
+        port = server.servers[0].sockets[0].getsockname()[1]
+        async with httpx.AsyncClient() as client:
+            async with client.stream("GET", f"http://127.0.0.1:{port}/"):
+                await started.wait()
+                server.handle_exit(signal.SIGTERM, None)  # what the signal does
+                await serving
+    except httpx.HTTPError:
+        pass  # the cut stream
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert cleaned.is_set()  # before _serve_until_reload returned
+    assert not killed

@@ -26,6 +26,10 @@ privyx proxy [-c FILE] [--host HOST] [--port PORT] [-u URL] [--transparent | --g
 Besides the proxied paths, the server answers `GET /health` and `GET /metrics` (Prometheus text), neither of which needs a
 key.
 
+On SIGTERM or Ctrl-C, and on a `--reload` restart, requests still running get
+5 s to finish. Longer ones, such as a long streamed reply, are then cut off:
+the client sees the connection close, and their ephemeral sessions are deleted.
+
 ## `privyx run`
 
 Start a proxy on a local port, run a tool against it, and stop the proxy when
