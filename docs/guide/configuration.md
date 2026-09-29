@@ -260,5 +260,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | `PRIVYX_SSL_CERTFILE`, `PRIVYX_SSL_KEYFILE`, `PRIVYX_SSL_KEYFILE_PASSWORD`, `PRIVYX_SSL_CA_CERTS` | `tls.*` (a `PRIVYX_TLS_` prefix works too) |
 
 Boolean variables are true for `1`, `true`, `yes`, or `on`, and false for
-anything else. Settings without a variable (`proxy`, `policy`, most of
-`detector`) need a config file.
+`0`, `false`, `no`, or `off`, in any case; any other value, like an invalid
+`PRIVYX_PORT`, stops `privyx` at startup with an error naming the variable.
+Settings without a variable (`proxy`, `policy`, most of `detector`) need a
+config file.

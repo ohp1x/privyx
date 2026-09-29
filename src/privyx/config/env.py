@@ -9,9 +9,22 @@ import json
 import os
 from typing import Any
 
+from privyx.core.errors import ConfigError
+
 
 def _env(key: str, default: str = "") -> str:
     return os.environ.get(f"PRIVYX_{key}", default)
+
+
+def _env_bool(key: str) -> bool:
+    # A typo must not read as false: PRIVYX_AUDIT_ENABLED=treu would turn the
+    # audit trail off without a word.
+    value = _env(key).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigError(f"PRIVYX_{key} must be 1, true, yes, on, 0, false, no, or off")
 
 
 def env_config() -> dict[str, Any]:
@@ -63,10 +76,7 @@ def env_config() -> dict[str, Any]:
         cfg["host"] = host
     port = _env("PORT")
     if port:
-        try:
-            cfg["port"] = int(port)
-        except ValueError:
-            pass
+        cfg["port"] = port  # validated with the rest, so a typo fails at startup
     log_level = _env("LOG_LEVEL")
     if log_level:
         cfg["log_level"] = log_level
@@ -76,28 +86,16 @@ def env_config() -> dict[str, Any]:
     logging_mode = _env("LOGGING")
     if logging_mode:
         cfg["logging"] = logging_mode
-    audit_enabled = _env("AUDIT_ENABLED")
-    if audit_enabled:
-        cfg.setdefault("audit", {})["enabled"] = audit_enabled.strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+    if _env("AUDIT_ENABLED"):
+        cfg.setdefault("audit", {})["enabled"] = _env_bool("AUDIT_ENABLED")
     audit_path = _env("AUDIT_PATH")
     if audit_path:
         cfg.setdefault("audit", {})["path"] = audit_path
     plugin_paths = _env("PLUGIN_PATHS")
     if plugin_paths:
         cfg["plugins"] = {"paths": [p.strip() for p in plugin_paths.split(",") if p.strip()]}
-    detector_cache = _env("DETECTOR_CACHE")
-    if detector_cache:
-        cfg.setdefault("detector", {})["cache"] = detector_cache.strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+    if _env("DETECTOR_CACHE"):
+        cfg.setdefault("detector", {})["cache"] = _env_bool("DETECTOR_CACHE")
     ssl_certfile = _env("SSL_CERTFILE") or _env("TLS_CERTFILE")
     if ssl_certfile:
         cfg.setdefault("tls", {})["certfile"] = ssl_certfile

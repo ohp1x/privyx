@@ -57,6 +57,32 @@ def test_an_invalid_env_vault_ttl_fails_at_load(
         load_config()
 
 
+def test_an_invalid_env_port_fails_at_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRIVYX_PORT", "80a")
+    with pytest.raises(ConfigError, match="port"):
+        load_config()
+
+
+@pytest.mark.parametrize("var", ["PRIVYX_AUDIT_ENABLED", "PRIVYX_DETECTOR_CACHE"])
+@pytest.mark.parametrize("value", ["treu", "Y", "enabled"])
+def test_an_invalid_env_boolean_fails_at_load(
+    monkeypatch: pytest.MonkeyPatch, var: str, value: str
+) -> None:
+    # Read as false, a typo in PRIVYX_AUDIT_ENABLED would turn the audit trail off.
+    monkeypatch.setenv(var, value)
+    with pytest.raises(ConfigError, match=var) as exc:
+        load_config()
+    assert repr(value) not in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("1", True), (" On ", True), ("off", False), ("0", False)]
+)
+def test_env_booleans(monkeypatch: pytest.MonkeyPatch, value: str, expected: bool) -> None:
+    monkeypatch.setenv("PRIVYX_AUDIT_ENABLED", value)
+    assert load_config().audit.enabled is expected
+
+
 def test_extra_overrides_base_extra() -> None:
     settings = load_config(extra={"session": {"strategy": "ephemeral"}}, base_extra=_CONVO)
     assert settings.session.strategy == "ephemeral"

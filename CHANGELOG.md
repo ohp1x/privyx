@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Config:** a boolean environment variable (`PRIVYX_AUDIT_ENABLED`, `PRIVYX_DETECTOR_CACHE`) that is not `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off` now stops `privyx` at startup instead of reading as false, so a typo such as `treu` no longer turns the audit trail off; an invalid `PRIVYX_PORT` fails too instead of falling back to 8000
+
 ### Fixed
 
 - **CLI:** `privyx config` with an invalid configuration printed a traceback; it now prints a one-line `Error:` and exits 1 like the other commands
