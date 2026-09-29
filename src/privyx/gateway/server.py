@@ -26,7 +26,7 @@ from fastapi import FastAPI, Request
 
 from privyx.config.schema import ProxyConfig, Settings
 from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import ProviderError
+from privyx.core.errors import ProviderError, VaultError
 from privyx.observability.audit import AuditLogger
 from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
@@ -35,7 +35,9 @@ from privyx.proxy.streaming import AuditedStream
 from privyx.proxy.transparent import (
     INVALID_BODY,
     SCAN_FAILED_BODY,
+    VAULT_UNAVAILABLE_BODY,
     log_scan_failure,
+    log_vault_failure,
     upstream_failure,
 )
 from privyx.streaming.adapters.registry import build_stream_adapter
@@ -154,6 +156,8 @@ class Gateway:
                     transformed, _ = await proxy.process_request(
                         payload, session_id=session_id, source=source
                     )
+                except VaultError:
+                    raise  # not a scan failure: answered below
                 except Exception as exc:
                     self._audit.error(
                         phase="transform",
@@ -218,6 +222,8 @@ class Gateway:
                 try:
                     response = await proxy.send_batch(transformed)
                     deanonymized = await proxy.process_response(response, session_id)
+                except VaultError:
+                    raise  # restoring failed, not the upstream: answered below
                 except Exception as exc:
                     self._audit.error(
                         phase="upstream",
@@ -241,6 +247,16 @@ class Gateway:
                     duration_ms=_elapsed_ms(start),
                 )
                 return result
+            except VaultError as exc:
+                self._audit.error(
+                    phase="vault",
+                    error_type=type(exc).__name__,
+                    session_id=session_id,
+                    request_id=req_id,
+                    duration_ms=_elapsed_ms(start),
+                )
+                log_vault_failure(exc)
+                return JSONResponse(VAULT_UNAVAILABLE_BODY, status_code=503)
             finally:
                 if not defer_cleanup and ephemeral and session_id is not None:
                     await self._cleanup_session(session_id, req_id, start)

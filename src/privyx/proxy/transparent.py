@@ -40,6 +40,7 @@ import httpx
 
 from privyx.config.schema import ProxyConfig
 from privyx.core.engine import PrivacyEngine
+from privyx.core.errors import VaultError
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
 from privyx.providers.generic import upstream_client
@@ -73,6 +74,17 @@ INVALID_BODY = {
         "type": "privyx_invalid_request",
         "message": "the request body is not a JSON object, so privyx could not mask it "
         "and did not forward it",
+    }
+}
+
+#: Body of the 503 returned when the session vault fails (Redis down or not
+#: answering, a SQLite error).  Fail-closed like a scan failure: without the
+#: session, a request cannot be masked and a reply cannot be restored.
+VAULT_UNAVAILABLE_BODY = {
+    "error": {
+        "type": "privyx_vault_unavailable",
+        "message": "privyx could not use its session vault, so it did not complete "
+        "this request; see the privyx logs",
     }
 }
 
@@ -241,6 +253,8 @@ class TransparentProxy:
                 transform_start = time.perf_counter()
                 try:
                     transformed = await transform_request(payload, self._engine, sid)
+                except VaultError:
+                    raise  # not a scan failure: answered below
                 except Exception as exc:
                     self._audit.error(
                         phase="transform",
@@ -314,11 +328,24 @@ class TransparentProxy:
             )
 
             if is_stream:
+                try:
+                    # Read before the 200 goes out, so a failing vault is a 503.
+                    stored = await self._engine.vault.get(sid)
+                except VaultError:
+                    await response.aclose()
+                    raise
                 # The generator owns cleanup: FastAPI/client cancellation closes
                 # it even when the caller does not drain the upstream stream.
                 defer_cleanup = True
                 return self._streaming_response(
-                    response, resp_headers, schema, sid, req_id, start, ephemeral
+                    response,
+                    resp_headers,
+                    schema,
+                    sid,
+                    stored.mapping if stored is not None else {},
+                    req_id,
+                    start,
+                    ephemeral,
                 )
             if schema and _JSON in resp_content_type:
                 return await self._batch_response(
@@ -327,6 +354,18 @@ class TransparentProxy:
             defer_cleanup = True  # as for a stream
             return self._relayed_response(
                 response, resp_headers, resp_content_type, sid, req_id, start, ephemeral
+            )
+        except VaultError as exc:
+            self._audit.error(
+                phase="vault",
+                error_type=type(exc).__name__,
+                session_id=sid,
+                request_id=req_id,
+                duration_ms=_elapsed_ms(start),
+            )
+            log_vault_failure(exc)
+            return ProxyResponse(
+                status_code=503, media_type=_JSON, body=json.dumps(VAULT_UNAVAILABLE_BODY).encode()
             )
         finally:
             if not defer_cleanup and ephemeral and sid is not None:
@@ -341,13 +380,16 @@ class TransparentProxy:
         headers: dict[str, str],
         schema: str | None,
         session_id: str,
+        mapping: dict[str, str],
         request_id: str,
         start: float,
         ephemeral: bool,
     ) -> ProxyResponse:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
-        stream_iter = self._stream(response, schema, session_id, request_id, start, ephemeral)
+        stream_iter = self._stream(
+            response, schema, session_id, mapping, request_id, start, ephemeral
+        )
         cleanup = (
             (lambda: self._cleanup_session(session_id, request_id, start)) if ephemeral else None
         )
@@ -367,6 +409,7 @@ class TransparentProxy:
         response: httpx.Response,
         schema: str | None,
         session_id: str,
+        mapping: dict[str, str],
         request_id: str,
         start: float,
         ephemeral: bool,
@@ -376,8 +419,6 @@ class TransparentProxy:
         restored = 0
         completed = aborted = False
         try:
-            session = await self._engine.vault.get(session_id)
-            mapping = session.mapping if session is not None else {}
             adapter = build_stream_adapter(schema or "generic")
             # Count restores by wrapping the resolver: a non-None lookup is one
             # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
@@ -601,6 +642,12 @@ def log_scan_failure(exc: Exception) -> None:
     """
     _log.warning("request not forwarded: %s while masking it", type(exc).__name__)
     _log.debug("masking failed", exc_info=exc)
+
+
+def log_vault_failure(exc: VaultError) -> None:
+    """Log a failed vault call: its cause at WARNING, the traceback only at DEBUG."""
+    _log.warning("request failed: %s from the session vault", type(exc.__cause__ or exc).__name__)
+    _log.debug("vault call failed", exc_info=exc)
 
 
 def _ci_get(headers: Mapping[str, str], name: str) -> str:
