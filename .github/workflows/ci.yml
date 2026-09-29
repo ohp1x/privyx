@@ -3,6 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    # Skip docs-only pushes, except the guide pages tests/unit/config/test_reference_docs.py reads.
+    # pull_request stays unfiltered: `check` is a required status check.
+    paths:
+      - "**"
+      - "!**.md"
+      - "!mkdocs.yml"
+      - docs/guide/configuration.md
+      - docs/guide/cli.md
   pull_request:
   schedule:
     - cron: "0 6 * * 1"  # weekly, so a newly published advisory fails `vulns` without a push
