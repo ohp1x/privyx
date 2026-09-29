@@ -4,14 +4,15 @@
 
     Claude Code  →  Privyx  →  Anthropic
 
-by starting the transparent proxy on a local port and launching the tool with its
-base-URL environment variable pointed at that port.  The tool is unmodified and
-unaware; it just talks to what it thinks is the provider, with its own paths and
-headers (its key or login included) relayed upstream.
+by starting the proxy on a local port and launching the tool with its base-URL
+environment variable pointed at that port.  The tool is unmodified and unaware;
+it just talks to what it thinks is the provider.  The transparent proxy (the
+default) relays the tool's own paths and headers, its key or login included;
+``proxy.mode: gateway`` serves the gateway, which sends only Privyx's own key.
 
 This is orchestration only (principle #12): no privacy logic lives here.  The
-engine and proxy both come from the same builders ``privyx proxy --transparent``
-uses, so both commands behave identically.
+engine and proxy both come from the same builders ``privyx proxy`` uses, so
+both commands behave identically.
 """
 
 from __future__ import annotations
@@ -186,6 +187,7 @@ async def _run_target(
     anchor secret, so aliases are stable across turns and restarts out of the
     box.  These are *defaults* (``base_extra``) the user's own config/env still
     overrides; an explicit ``--session-strategy`` is a hard override (``extra``).
+    ``proxy.mode`` picks the app, as in ``privyx proxy``.
 
     Returns:
         The tool's exit code.
@@ -194,8 +196,10 @@ async def _run_target(
     from privyx.config.loader import load_config
     from privyx.config.redact import redact
     from privyx.core.builder import build_audit_logger, build_engine
+    from privyx.gateway.server import Gateway
+    from privyx.gateway.transparent import create_transparent_app
     from privyx.plugins.loader import load_plugins
-    from privyx.providers.registry import resolve_origin
+    from privyx.providers.registry import build_provider, resolve_base_url, resolve_origin
     from privyx.security.keys import read_or_create_anchor_secret
 
     extra: dict[str, Any] = {"provider": {"type": spec.provider}}
@@ -218,16 +222,23 @@ async def _run_target(
     hooks = load_plugins(settings)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
-    proxy = build_transparent_proxy(settings, engine, audit)
+    if settings.proxy.mode == "gateway":
+        provider = build_provider(settings)
+        app = Gateway(engine=engine, provider=provider, settings=settings, audit=audit).app
+        close_upstream, target = provider.close, resolve_base_url(settings)
+    else:
+        proxy = build_transparent_proxy(settings, engine, audit)
+        app = create_transparent_app(engine, proxy, settings)
+        close_upstream, target = proxy.close, resolve_origin(settings)
     await hooks.run_startup()
 
-    server, bound_port = _make_server(engine, proxy, settings, port)
+    server, bound_port = _make_server(app, settings, port)
     serve_task = asyncio.create_task(server.serve())
     try:
         await _wait_until_started(server, serve_task)
         base_url = f"http://{settings.host}:{bound_port}"
 
-        click.echo(f"Privyx proxy → {redact(resolve_origin(settings), 'url')}")
+        click.echo(f"Privyx proxy → {redact(target, 'url')}")
         click.echo(f"Running: {spec.command} {' '.join(argv)}".rstrip())
         click.echo(f"  {', '.join(env_vars)} = {base_url}")
 
@@ -237,17 +248,15 @@ async def _run_target(
         await serve_task
         await hooks.run_shutdown()
         await close_vault()
-        await proxy.close()
+        await close_upstream()
         audit.close()
 
 
-def _make_server(engine: Any, proxy: Any, settings: Any, port: int) -> tuple[Any, int]:
-    """Build a uvicorn server bound to ``port`` (0 picks a free one)."""
+def _make_server(app: Any, settings: Any, port: int) -> tuple[Any, int]:
+    """Build a uvicorn server for ``app`` bound to ``port`` (0 picks a free one)."""
     import socket
 
     import uvicorn
-
-    from privyx.gateway.transparent import create_transparent_app
 
     if port == 0:
         with socket.socket() as sock:
@@ -255,7 +264,7 @@ def _make_server(engine: Any, proxy: Any, settings: Any, port: int) -> tuple[Any
             port = int(sock.getsockname()[1])
 
     config = uvicorn.Config(
-        create_transparent_app(engine, proxy, settings),
+        app,
         host=settings.host,
         port=port,
         log_level="warning",  # the tool owns the terminal; stay quiet
