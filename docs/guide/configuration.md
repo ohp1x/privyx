@@ -171,7 +171,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 | `type` | `regex` | `regex`, `yaml`, `presidio`, `llm`, or a plugin detector. |
 | `patterns` | `{}` | Entity → regular expression. |
 | `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
-| `cache` | `true` | Reuse detections for text seen before. `true`/`false`, or `{enabled, max_size}` (`max_size` defaults to `10000`). |
+| `cache` | `true` | Reuse detections for text seen before. `true`/`false`, or `{enabled, max_size}` (`max_size` defaults to `10000`). An entry keeps a digest of the text and what was found in it, not the text. |
 | `language` | `en` | `presidio`: language of the text. |
 | `model` | empty | `presidio`: spaCy model. Empty uses `{language}_core_web_sm`. |
 | `entities` | `[]` | `presidio`: entity types to look for. Empty uses every recognizer. |

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import tracemalloc
+
 import pytest
 
 from privyx.config.env import env_config
@@ -120,6 +123,30 @@ def test_cached_detector_clear_and_properties() -> None:
     assert cached.size == 0
     assert cached.hits == 0
     assert cached.misses == 0
+
+
+def test_cache_does_not_keep_the_texts_it_saw() -> None:
+    cached = CachedDetector(RegexDetector({"EMAIL": r"u\d+@example\.com"}), max_size=100)
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        for i in range(100):
+            cached.detect_sync(f"{i} mail u{i}@example.com " + "x" * 50_000, Context())
+        held = tracemalloc.get_traced_memory()[0] - before
+    finally:
+        tracemalloc.stop()
+
+    assert cached.size == 100
+    assert held < 500_000  # the texts alone are 5 MB
+
+
+def test_cache_takes_text_with_a_lone_surrogate() -> None:
+    cached = CachedDetector(RegexDetector({"EMAIL": r"u@example\.com"}), max_size=10)
+    text = json.loads('"\\ud800 mail u@example.com"')  # valid JSON, not valid UTF-8
+
+    for _ in range(2):
+        assert [s.text for s in cached.detect_sync(text, Context()).spans] == ["u@example.com"]
+    assert (cached.misses, cached.hits) == (1, 1)
 
 
 def test_detector_config_cache_coercion() -> None:

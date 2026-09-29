@@ -6,11 +6,14 @@ import asyncio
 import json
 from typing import Any
 
+import pytest
+
 from privyx.core.engine import PrivacyEngine
 from privyx.core.session import Session
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy
+from privyx.proxy import schemas
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
 from privyx.vault.memory import MemoryVault
 
@@ -430,6 +433,15 @@ async def test_echoed_thinking_gets_the_signed_text_back() -> None:
 
     assert out["messages"][1]["content"][0]["thinking"] == signed
     assert echo["messages"][1]["content"][0]["thinking"] == block["thinking"]  # no mutation
+
+
+def test_thinking_store_is_bounded_by_characters(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(schemas, "_THINKING", {})
+    monkeypatch.setattr(schemas, "_THINKING_MAX_CHARS", 1000)
+    for i in range(10):
+        schemas.remember_thinking(f"sig-{i}", "t" * 300)  # 305 characters each
+
+    assert list(schemas._THINKING) == ["sig-7", "sig-8", "sig-9"]  # the oldest go first
 
 
 async def test_transform_openai_chat_gaps() -> None:
