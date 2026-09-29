@@ -219,21 +219,14 @@ async def _run_server(settings: Any, watch_path: Path | None = None) -> bool:
     return reload_event is not None and reload_event.is_set()
 
 
-async def _serve_transparent(
-    settings: Any, engine: Any, audit: Any, reload_event: asyncio.Event | None = None
-) -> None:
-    """Serve the drop-in transparent reverse proxy."""
-    import uvicorn
-
-    from privyx.config.redact import redact
-    from privyx.gateway.transparent import create_transparent_app
+def build_transparent_proxy(settings: Any, engine: Any, audit: Any) -> Any:
+    """The transparent proxy ``settings`` describe; ``privyx run`` serves it too."""
     from privyx.providers.registry import resolve_api_key, resolve_origin
     from privyx.proxy.transparent import TransparentProxy
 
-    origin = resolve_origin(settings)
-    proxy_instance = TransparentProxy(
+    return TransparentProxy(
         engine,
-        origin=origin,
+        origin=resolve_origin(settings),
         routes=dict(settings.proxy.routes),
         passthrough_unknown=settings.proxy.passthrough_unknown,
         forward_client_auth=settings.proxy.forward_client_auth,
@@ -245,6 +238,20 @@ async def _serve_transparent(
         audit=audit,
         session_strategy=settings.session.strategy,
     )
+
+
+async def _serve_transparent(
+    settings: Any, engine: Any, audit: Any, reload_event: asyncio.Event | None = None
+) -> None:
+    """Serve the drop-in transparent reverse proxy."""
+    import uvicorn
+
+    from privyx.config.redact import redact
+    from privyx.gateway.transparent import create_transparent_app
+    from privyx.providers.registry import resolve_origin
+
+    origin = resolve_origin(settings)
+    proxy_instance = build_transparent_proxy(settings, engine, audit)
 
     scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())

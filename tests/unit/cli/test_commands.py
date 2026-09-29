@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -456,6 +457,137 @@ async def test_run_provisions_anchor_secret_by_default(
     secret = anchor_key.read_text(encoding="utf-8").strip()
     assert len(secret) == 64
     int(secret, 16)  # valid hex
+
+
+Seen = list[tuple[str, dict[str, str]]]
+
+
+@pytest.fixture
+def upstream() -> Iterator[tuple[str, Seen]]:
+    """A local upstream answering every POST with a message; records path and headers."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    seen: Seen = []
+
+    class Upstream(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers["content-length"]))
+            seen.append((self.path, {k.lower(): v for k, v in self.headers.items()}))
+            body = b'{"type": "message", "content": [{"type": "text", "text": "ok"}]}'
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}", seen
+    server.shutdown()
+
+
+async def test_run_relays_the_tools_own_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, upstream: tuple[str, Seen]
+) -> None:
+    """With no key configured, the tool's key or login reaches the upstream.
+
+    Claude Code sends ``x-api-key``, or ``authorization`` for a subscription
+    login, plus ``anthropic-beta`` for the features its body uses.  Dropping
+    them answered every request with 401 ``x-api-key header is required``.
+    """
+    import sys
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    for name in ("PRIVYX_API_KEY", "PRIVYX_ANTHROPIC_API_KEY", "PRIVYX_UPSTREAM_URL"):
+        monkeypatch.delenv(name, raising=False)
+    url, seen = upstream
+
+    from privyx.cli.commands.run import TARGETS, Target, _run_target
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, urllib.request\n"
+        "for auth in ({'x-api-key': 'sk-ant-client'}, {'authorization': 'Bearer oat-client'}):\n"
+        "    urllib.request.urlopen(urllib.request.Request(\n"
+        "        os.environ['ANTHROPIC_BASE_URL'] + '/v1/messages?beta=true',\n"
+        '        data=b\'{"messages": [{"role": "user", "content": "hi"}]}\',\n'
+        "        headers={'content-type': 'application/json', 'anthropic-beta': 'b1', **auth},\n"
+        "    ), timeout=5).read()\n",
+        encoding="utf-8",
+    )
+    spec = Target(command=sys.executable, provider="anthropic", env_vars=TARGETS["claude"].env_vars)
+    code = await _run_target(
+        spec=spec,
+        argv=[str(probe)],
+        config_path=None,
+        upstream=url,
+        port=0,
+        env_vars=spec.env_vars,
+        session_strategy="ephemeral",
+        no_anchor=True,
+    )
+
+    assert code == 0
+    assert [path for path, _ in seen] == ["/v1/messages?beta=true"] * 2
+    assert seen[0][1]["x-api-key"] == "sk-ant-client"
+    assert seen[1][1]["authorization"] == "Bearer oat-client"
+    assert all(headers["anthropic-beta"] == "b1" for _, headers in seen)
+
+
+async def test_run_serves_the_gateway_from_the_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, upstream: tuple[str, Seen]
+) -> None:
+    """``proxy.mode: gateway`` posts to the upstream URL as written, with Privyx's key.
+
+    That is what an upstream behind a base path needs; the transparent proxy
+    would keep only its origin.
+    """
+    import sys
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    monkeypatch.setenv("PRIVYX_ANTHROPIC_API_KEY", "sk-ant-privyx")
+    monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
+    url, seen = upstream
+    config = tmp_path / "gateway.yaml"
+    config.write_text(f"proxy:\n  mode: gateway\nupstream_url: {url}/base/v1/messages\n")
+
+    from privyx.cli.commands.run import TARGETS, Target, _run_target
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, urllib.request\n"
+        "urllib.request.urlopen(urllib.request.Request(\n"
+        "    os.environ['ANTHROPIC_BASE_URL'] + '/v1/messages',\n"
+        '    data=b\'{"messages": [{"role": "user", "content": "hi"}]}\',\n'
+        "    headers={'content-type': 'application/json'},\n"
+        "), timeout=5).read()\n",
+        encoding="utf-8",
+    )
+    spec = Target(command=sys.executable, provider="anthropic", env_vars=TARGETS["claude"].env_vars)
+    code = await _run_target(
+        spec=spec,
+        argv=[str(probe)],
+        config_path=str(config),
+        upstream=None,
+        port=0,
+        env_vars=spec.env_vars,
+        session_strategy="ephemeral",
+        no_anchor=True,
+    )
+
+    assert code == 0
+    assert [path for path, _ in seen] == ["/base/v1/messages"]
+    assert seen[0][1]["x-api-key"] == "sk-ant-privyx"
 
 
 # --------------------------------------------------------------------------
