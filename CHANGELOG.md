@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-09-29
+
 ### Added
 
 - **Config:** `PRIVYX_VAULT_TTL` sets `vault.ttl`, and `docker-compose.yml` sets it to a week, so the `conversation` sessions it keeps in Redis, with their original values, expire after a week without a request instead of piling up forever
@@ -13,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - **Proxy:** `ephemeral` sessions (the default) no longer go through the vault: each lives in memory for its one request, so with a `sqlite` or `redis` vault a request makes no vault calls instead of six, and the original values it masks are never written to disk or Redis. `client`, `conversation`, and `x-privyx-session` sessions still live in the vault
-- **Vault:** the `sqlite` vault writes through a write-ahead log (WAL), so a request spends ~4.5 ms on disk I/O instead of ~11 ms, and sweeps expired sessions at most once a minute instead of on every new session. Keep its file on a local disk: WAL does not work on a network file system such as NFS
+- **Vault:** the `sqlite` vault writes through a write-ahead log (WAL), which more than halves its disk I/O (a session created, read, saved, read twice, and deleted: ~11 ms → ~4.5 ms), and sweeps expired sessions at most once a minute instead of on every new session. Keep its file on a local disk: WAL does not work on a network file system such as NFS
 
 ### Fixed
 
@@ -271,7 +273,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.10...HEAD
+[0.1.10]: https://github.com/ohp1x/privyx/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/ohp1x/privyx/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/ohp1x/privyx/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/ohp1x/privyx/compare/v0.1.6...v0.1.7
