@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 from typing import Any
 
 import pytest
@@ -19,7 +20,7 @@ pytest.importorskip("fastapi")
 import httpx  # noqa: E402
 
 from privyx.core.engine import PrivacyEngine  # noqa: E402
-from privyx.core.errors import DetectorError  # noqa: E402
+from privyx.core.errors import DetectorError, VaultError  # noqa: E402
 from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
@@ -162,6 +163,64 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
     assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "DetectorError")]
     assert 'privyx_proxy_errors_total{phase="transform"} 1' in metrics
     assert await vault.list_sessions() == []  # the ephemeral session was cleaned up
+
+
+def _flaky_vault(method: str, nth: int) -> MemoryVault:
+    """A vault whose ``nth`` call of ``method`` fails, like a Redis that stops answering."""
+    vault = MemoryVault()
+    real = getattr(vault, method)
+    calls = 0
+
+    async def flaky(*args: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == nth:
+            raise VaultError("redis vault: Timeout reading from socket")
+        return await real(*args)
+
+    setattr(vault, method, flaky)
+    return vault
+
+
+@pytest.mark.parametrize(
+    ("method", "nth", "stream", "forwarded"),
+    [
+        ("create", 1, False, False),  # creating the session
+        ("save", 1, False, False),  # saving the request's pseudonyms
+        ("get", 2, False, True),  # reading them to restore the reply
+        ("get", 2, True, True),  # ... of a stream, before its 200 goes out
+    ],
+)
+async def test_a_vault_failure_is_a_503_audited(
+    method: str, nth: int, stream: bool, forwarded: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    seen: list[bytes] = []
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=_flaky_vault(method, nth),
+        audit=audit,
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+        metrics = (await client.get("/metrics")).text
+
+    assert response.status_code == 503
+    assert response.json()["error"]["type"] == "privyx_vault_unavailable"
+    assert bool(seen) is forwarded
+    errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
+    assert [(e["phase"], e["error_type"]) for e in errors] == [("vault", "VaultError")]
+    assert 'privyx_proxy_errors_total{phase="vault"} 1' in metrics
+    # One WARNING line; the traceback only at DEBUG.
+    assert any("session vault" in r.getMessage() for r in caplog.records)
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING and r.exc_info]
 
 
 async def test_chat_batch_round_trip_through_app() -> None:

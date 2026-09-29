@@ -23,7 +23,7 @@ import httpx  # noqa: E402
 
 from privyx.config.schema import Settings  # noqa: E402
 from privyx.core.engine import PrivacyEngine  # noqa: E402
-from privyx.core.errors import DetectorError  # noqa: E402
+from privyx.core.errors import DetectorError, VaultError  # noqa: E402
 from privyx.gateway.server import Gateway  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
@@ -76,6 +76,7 @@ def _client(
 
 def _stream_client(engine: PrivacyEngine, audit: AuditLogger) -> tuple[httpx.AsyncClient, Any]:
     def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
         body = json.loads(request.content)
         text = body["messages"][-1]["content"]
         frames = (
@@ -210,6 +211,53 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
     assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "DetectorError")]
     # The ephemeral session is known before masking starts, so it is cleaned up.
     assert await vault.list_sessions() == []
+
+
+def _flaky_vault(method: str, nth: int) -> MemoryVault:
+    """A vault whose ``nth`` call of ``method`` fails, like a Redis that stops answering."""
+    vault = MemoryVault()
+    real = getattr(vault, method)
+    calls = 0
+
+    async def flaky(*args: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == nth:
+            raise VaultError("redis vault: Timeout reading from socket")
+        return await real(*args)
+
+    setattr(vault, method, flaky)
+    return vault
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "nth", "stream", "forwarded"),
+    [
+        ("create", 1, False, False),  # creating the session
+        ("save", 1, False, False),  # saving the request's pseudonyms
+        ("get", 3, True, False),  # reading them to restore a stream, before the upstream call
+        ("get", 3, False, True),  # ... or a batch reply, after it
+    ],
+)
+async def test_a_vault_failure_is_a_503_audited(
+    method: str, nth: int, stream: bool, forwarded: bool
+) -> None:
+    seen.clear()
+    buf = io.StringIO()
+    engine, audit = _audited_engine(buf, _flaky_vault(method, nth))
+    client, _ = (_stream_client if stream else _client)(engine, audit)
+    async with client:
+        response = await client.post(
+            "/v1/messages",
+            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["type"] == "privyx_vault_unavailable"
+    assert bool(seen) is forwarded
+    errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
+    assert [(e["phase"], e["error_type"]) for e in errors] == [("vault", "VaultError")]
 
 
 @pytest.mark.asyncio
