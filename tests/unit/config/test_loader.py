@@ -42,6 +42,21 @@ def test_env_overrides_base_extra(monkeypatch: pytest.MonkeyPatch) -> None:
     assert load_config(base_extra=_CONVO).session.strategy == "client"
 
 
+def test_env_sets_the_vault_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRIVYX_VAULT_TTL", "604800")
+    assert load_config().vault.ttl == 604800
+
+
+@pytest.mark.parametrize("value", ["0", "7d"])
+def test_an_invalid_env_vault_ttl_fails_at_load(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    # Ignoring it would leave sessions, with their original values, to never expire.
+    monkeypatch.setenv("PRIVYX_VAULT_TTL", value)
+    with pytest.raises(ConfigError, match="vault.ttl"):
+        load_config()
+
+
 def test_extra_overrides_base_extra() -> None:
     settings = load_config(extra={"session": {"strategy": "ephemeral"}}, base_extra=_CONVO)
     assert settings.session.strategy == "ephemeral"

@@ -77,8 +77,12 @@ seconds without a request:
 ```yaml
 vault:
   type: sqlite
-  ttl: 604800                 # a week
+  ttl: 604800                 # a week, or PRIVYX_VAULT_TTL=604800
 ```
+
+Set one whenever `session.strategy` is `client` or `conversation`: each
+conversation leaves a session, with the original values it masked, and without
+a TTL they pile up. `docker-compose.yml` sets a week.
 
 Or clean up by hand. `list` and `show` never print original values unless you
 ask:

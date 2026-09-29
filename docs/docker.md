@@ -45,6 +45,7 @@ Common settings come from environment variables:
 | `PRIVYX_SESSION_STRATEGY` | `ephemeral` (default), `client`, or `conversation` |
 | `PRIVYX_VAULT` | Session vault: `memory` (default), `sqlite`, or `redis` |
 | `PRIVYX_REDIS_URL` | Redis URL when `PRIVYX_VAULT=redis` |
+| `PRIVYX_VAULT_TTL` | Seconds a session may sit idle before it expires; `docker-compose.yml` sets a week (`604800`) |
 | `PRIVYX_ENCRYPT_KEY` | Key for the `encrypt` operator (64 hex chars) |
 | `PRIVYX_ANCHOR_SECRET` | HMAC secret that keeps pseudonyms stable across turns and restarts |
 | `PRIVYX_LOG_LEVEL` | `debug`, `info` (default), `warning`, … |

@@ -26,6 +26,11 @@ def env_config() -> dict[str, Any]:
     redis_url = _env("REDIS_URL")
     if redis_url:
         cfg.setdefault("vault", {})["redis_url"] = redis_url
+    vault_ttl = _env("VAULT_TTL")
+    if vault_ttl:
+        # Validated with the rest: a typo fails at startup instead of leaving
+        # sessions, with their original values, to never expire.
+        cfg.setdefault("vault", {})["ttl"] = vault_ttl
     upstream = _env("UPSTREAM_URL")
     if upstream:
         cfg["upstream_url"] = upstream

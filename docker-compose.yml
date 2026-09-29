@@ -23,6 +23,8 @@ services:
       - PRIVYX_VAULT=${PRIVYX_VAULT:-redis}
       - PRIVYX_REDIS_URL=${PRIVYX_REDIS_URL:-redis://redis:6379/0}
       - PRIVYX_VAULT_DSN=${PRIVYX_VAULT_DSN:-sqlite+aiosqlite:////data/privyx.db}
+      # A conversation's session, with its original values, expires after a week idle.
+      - PRIVYX_VAULT_TTL=${PRIVYX_VAULT_TTL:-604800}
       - PRIVYX_SESSION_STRATEGY=${PRIVYX_SESSION_STRATEGY:-conversation}
       - PRIVYX_LOG_LEVEL=${PRIVYX_LOG_LEVEL:-info}
       - PRIVYX_AUDIT_ENABLED=${PRIVYX_AUDIT_ENABLED:-true}

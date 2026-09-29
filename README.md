@@ -106,7 +106,8 @@ restarts out of the box. See
 [docs/architecture/proxy.md](docs/architecture/proxy.md#sessions).
 
 Sticky sessions stay in the vault until something removes them. Set
-`vault.ttl` (seconds) to expire sessions idle that long, or clean up by hand:
+`vault.ttl` or `PRIVYX_VAULT_TTL` (seconds) to expire sessions idle that long
+(`docker-compose.yml` sets a week), or clean up by hand:
 
 ```bash
 privyx session list                        # ids, last activity, mapping counts
