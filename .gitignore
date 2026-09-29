@@ -22,8 +22,11 @@ site/
 *.db
 *.sqlite
 *.sqlite3
-*-audit.log
-*-debug.log
+# SQLite's -wal, -shm, and -journal files next to the database
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+*.log
 .env
 .env.local
 
