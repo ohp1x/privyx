@@ -111,10 +111,23 @@ class SQLiteVault(BaseVault):
             await self._execute(
                 "DELETE FROM sessions WHERE updated_at < ?", (self._cutoff(),), commit=True
             )
-        existing = await self.get(session.session_id)
-        if existing is not None:
+        # One statement, so parallel creates of one id (a conversation's first
+        # requests) cannot all succeed; an expired row may be taken over.
+        created = await self._execute(
+            "INSERT INTO sessions (session_id, payload, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT (session_id) DO UPDATE SET "
+            "payload = excluded.payload, updated_at = excluded.updated_at "
+            "WHERE sessions.updated_at < ? RETURNING session_id",
+            (
+                session.session_id,
+                json.dumps(session.to_dict()),
+                session.updated_at,
+                self._cutoff(),
+            ),
+            commit=True,
+        )
+        if not created:
             raise VaultError(f"session already exists: {session.session_id}")
-        await self._write(session)
 
     async def _write(self, session: Session) -> None:
         await self._execute(

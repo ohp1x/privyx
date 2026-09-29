@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **CLI:** `privyx config` with an invalid configuration printed a traceback; it now prints a one-line `Error:` and exits 1 like the other commands
+- **Vault:** creating a `sqlite` session was a read and then a write, so a conversation's 50 parallel first requests recorded 50 `session.created` events for one session, and a create could overwrite a session another request had just saved. It is now one statement, as with `redis`
 
 ## [0.1.10] - 2026-09-29
 
