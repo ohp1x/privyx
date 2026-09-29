@@ -86,6 +86,9 @@ _PREFIX_KEYS: tuple[str, ...] = ("tools", "system", "instructions")
 # move it into the vault if multi-instance deployments hit signature errors.
 _THINKING: dict[str, str] = {}
 _THINKING_MAX = 4096
+#: Characters held in all, signatures included: bounded by count alone, 4096
+#: long thinking blocks could hold hundreds of MB.
+_THINKING_MAX_CHARS = 16_000_000
 
 # A generator that yields each string leaf, receives its replacement, and
 # returns the rebuilt value.  Written once as a generator so the async
@@ -151,12 +154,18 @@ async def transform_request(
 
 
 def remember_thinking(signature: Any, text: str) -> None:
-    """Record the thinking ``text`` the upstream signed with ``signature``."""
+    """Record the thinking ``text`` the upstream signed with ``signature``.
+
+    The oldest entries go first once there are more than :data:`_THINKING_MAX`
+    of them or they hold more than :data:`_THINKING_MAX_CHARS` characters.
+    """
     if not isinstance(signature, str) or not signature:
         return
     _THINKING[signature] = text
-    if len(_THINKING) > _THINKING_MAX:
-        del _THINKING[next(iter(_THINKING))]
+    total = sum(len(key) + len(value) for key, value in _THINKING.items())
+    while len(_THINKING) > _THINKING_MAX or total > _THINKING_MAX_CHARS:
+        oldest = next(iter(_THINKING))
+        total -= len(oldest) + len(_THINKING.pop(oldest))
 
 
 def _pin_thinking(messages: Any) -> None:

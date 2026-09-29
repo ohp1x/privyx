@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Proxy:** the detection cache kept every text it had scanned, so its 10,000 entries could hold ~500 MB of 50 KB prompts; it now keeps a digest of each text (1,000 such texts: 51 MB → 0.4 MB). The signed thinking text kept to answer echoed thinking blocks is capped at 16 million characters, where 4,096 blocks of 20 KB took 84 MB
 - **Vault:** a `vault.dsn` file that is not a SQLite database stopped `privyx` with a traceback and then hung instead of exiting. It now exits with a one-line error, and every failed SQLite call is reported as a vault error
 - **Vault:** with redis-py older than 8, a Redis that stopped answering held every request forever; the `redis` vault now gives up after 5 s with any version. The first request after a Redis restart no longer fails, creating a session is atomic, and every failed Redis call is reported as a vault error
 - **Proxy:** when the session vault fails (Redis down or not answering, a SQLite error), both modes answer `503` with a `privyx_vault_unavailable` JSON error and record `proxy.error` with `phase: "vault"`, instead of a bare `500`. A stream's session is read before its `200` goes out, so a failure there is a `503` too, not a broken stream

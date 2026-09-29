@@ -7,11 +7,24 @@ or NLP scans across conversation turns where prior turns are re-sent in every re
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections import OrderedDict
 
 from privyx.core.context import Context
 from privyx.core.result import Detection
 from privyx.privacy.detector.base import BaseDetector, Detector
+
+
+def _key(text: str) -> bytes:
+    """The cache key for ``text``: its SHA-256 digest.
+
+    Keyed by the text itself, the cache kept every leaf it had seen alive
+    (10,000 leaves of 50 KB held ~500 MB).  SHA-256 rather than BLAKE2b: most
+    current CPUs hash it in hardware, about twice as fast.  ``surrogatepass``:
+    text parsed from JSON can hold a lone surrogate (``"\\ud800"``), which
+    plain UTF-8 refuses.
+    """
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).digest()
 
 
 class CachedDetector(BaseDetector):
@@ -31,7 +44,7 @@ class CachedDetector(BaseDetector):
         self._inner = inner
         self.name = inner.name
         self._max_size = max(0, max_size)
-        self._cache: OrderedDict[str, Detection] = OrderedDict()
+        self._cache: OrderedDict[bytes, Detection] = OrderedDict()
         self._hits = 0
         self._misses = 0
 
@@ -75,10 +88,11 @@ class CachedDetector(BaseDetector):
 
     def detect_sync(self, text: str, context: Context) -> Detection:
         """Synchronous detection with LRU cache lookup."""
-        cached = self._cache.get(text)
+        key = _key(text)
+        cached = self._cache.get(key)
         if cached is not None:
             self._hits += 1
-            self._cache.move_to_end(text)
+            self._cache.move_to_end(key)
             return Detection(spans=list(cached.spans))
 
         self._misses += 1
@@ -88,25 +102,26 @@ class CachedDetector(BaseDetector):
             detection = asyncio.run(self._inner.detect(text, context))
 
         if detection.cacheable:
-            self._store(text, detection)
+            self._store(key, detection)
         return Detection(spans=list(detection.spans))
 
     async def detect(self, text: str, context: Context) -> Detection:
         """Asynchronous detection with LRU cache lookup."""
-        cached = self._cache.get(text)
+        key = _key(text)
+        cached = self._cache.get(key)
         if cached is not None:
             self._hits += 1
-            self._cache.move_to_end(text)
+            self._cache.move_to_end(key)
             return Detection(spans=list(cached.spans))
 
         self._misses += 1
         detection = await self._inner.detect(text, context)
         if detection.cacheable:
-            self._store(text, detection)
+            self._store(key, detection)
         return Detection(spans=list(detection.spans))
 
-    def _store(self, text: str, detection: Detection) -> None:
+    def _store(self, key: bytes, detection: Detection) -> None:
         if self._max_size > 0:
-            self._cache[text] = detection
+            self._cache[key] = detection
             if len(self._cache) > self._max_size:
                 self._cache.popitem(last=False)

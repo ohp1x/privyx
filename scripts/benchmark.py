@@ -161,7 +161,7 @@ async def bench_request(kb: int, new_content: bool, n: int = 10) -> tuple[float,
 
 
 async def bench_vault(n: int = 100) -> float | None:
-    """Vault I/O of one ephemeral request with SQLite on disk, in ms."""
+    """Vault I/O of a sticky session's first request with SQLite on disk, in ms."""
     try:
         from privyx.vault.sqlite import SQLiteVault
     except ImportError:
@@ -172,14 +172,15 @@ async def bench_vault(n: int = 100) -> float | None:
         await vault.connect()
         start = time.perf_counter()
         for i in range(n):
-            # What one ephemeral request does: create, read and save the
-            # mapping, read it back to restore, delete.
+            # What the first request of a sticky session does: look it up and
+            # create it, read and save the mapping, read it back to restore.
+            # An ephemeral request does not touch the vault.
             session = Session()
             session.put(f"<PRIVYX_EMAIL_{i}>", f"user{i}@example.com")
+            await vault.get(session.session_id)
             await vault.create(session)
             await vault.save(await vault.get(session.session_id) or session)
             await vault.get(session.session_id)
-            await vault.delete(session.session_id)
         elapsed = (time.perf_counter() - start) / n
         await vault.close()
     return elapsed * 1000
@@ -216,7 +217,7 @@ async def main() -> None:
     if vault_ms is None:
         print("vault:      skipped (needs the sqlite extra)")
     else:
-        print(f"vault:      sqlite on disk, one ephemeral request {vault_ms:.1f} ms of I/O")
+        print(f"vault:      sqlite on disk, first request of a sticky session {vault_ms:.1f} ms")
 
 
 if __name__ == "__main__":
