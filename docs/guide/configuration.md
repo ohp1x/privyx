@@ -152,7 +152,7 @@ Where sessions and their mappings are stored. See
 |---|---|---|
 | `type` | `memory` | `memory` (lost on restart), `sqlite` (needs `privyx[sqlite]`), `redis` (needs `privyx[redis]`), or a plugin vault. |
 | `dsn` | `sqlite+aiosqlite:///privyx.db` | SQLite database file. A bare path works too. |
-| `redis_url` | `redis://localhost:6379/0` | Redis connection URL. |
+| `redis_url` | `redis://localhost:6379/0` | Redis connection URL. A call to Redis gives up after 5 s; query parameters change that, as in `redis://localhost:6379/0?socket_timeout=2&socket_connect_timeout=2`. |
 | `ttl` | unset | Expire a session after this many seconds without a request. Unset keeps sessions until they are deleted or pruned. Must be above `0`. |
 
 ### `session`
