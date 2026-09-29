@@ -39,9 +39,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Generator, Mapping
+from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any
 
 from privyx.core.engine import PrivacyEngine
+from privyx.core.session import Session
 
 #: The schemas whose request/response bodies this module knows how to walk.
 KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic", "responses"})
@@ -106,6 +108,8 @@ async def transform_request(
     payload: dict[str, Any],
     engine: PrivacyEngine,
     session_id: str,
+    *,
+    session: Session | None = None,
 ) -> dict[str, Any]:
     """Return a copy of ``payload`` with its content leaves pseudonymized.
 
@@ -113,6 +117,10 @@ async def transform_request(
     pseudonymized except the opaque keys (see :func:`_opaque`), including the
     assistant turns a client echoes back — a restored value that is not
     pseudonymized again would reach the upstream in the clear.
+
+    ``session``, an :meth:`~privyx.core.engine.PrivacyEngine.ephemeral_session`,
+    is used as is: no lock, no vault read or write.  Otherwise ``session_id`` is
+    held through :meth:`~privyx.core.engine.PrivacyEngine.session_scope`.
 
     The caller's ``payload`` is never mutated (the walk rebuilds every container
     it descends into; config values are shared, not copied).
@@ -122,10 +130,13 @@ async def transform_request(
         return _PREFIX_KEYS.index(key) if key in _PREFIX_KEYS else len(_PREFIX_KEYS)
 
     rebuilt: dict[str, Any] = {}
-    async with engine.session_scope(session_id) as session:
+    scope: AbstractAsyncContextManager[Session] = (
+        engine.session_scope(session_id) if session is None else nullcontext(session)
+    )
+    async with scope as held:
 
         async def transform(text: str) -> str:
-            return (await engine.transform(text, session=session, persist=False)).text
+            return (await engine.transform(text, session=held, persist=False)).text
 
         for key in sorted(payload, key=rank):  # stable: the rest keep their order
             value = payload[key]
@@ -166,19 +177,23 @@ async def restore_response(
     payload: dict[str, Any],
     engine: PrivacyEngine,
     session_id: str,
+    *,
+    session: Session | None = None,
 ) -> dict[str, Any]:
     """Return a copy of a batch ``payload`` with pseudonyms restored.
 
     Every string leaf is restored whatever the route's schema (OpenAI-compatible
     gateways often answer ``/v1/messages`` with a ``chat.completion`` body); only
-    opaque keys are skipped, so a token-shaped id is left alone.  When the
-    session is unknown the payload is returned untouched.
+    opaque keys are skipped, so a token-shaped id is left alone.  ``session``,
+    when the caller holds it, skips the vault read.  When the session is unknown
+    the payload is returned untouched.
     """
     content = payload.get("content")
     for block in content if isinstance(content, list) else []:
         if isinstance(block, dict) and block.get("type") == "thinking":
             remember_thinking(block.get("signature"), str(block.get("thinking", "")))
-    session = await engine.vault.get(session_id)
+    if session is None:
+        session = await engine.vault.get(session_id)
     if session is None:
         return payload
 

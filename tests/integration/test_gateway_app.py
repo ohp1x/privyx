@@ -129,11 +129,6 @@ def _session_id(response: httpx.Response) -> str:
     return cast(str, response.headers["x-privyx-session"])
 
 
-class FailingDeleteVault(MemoryVault):
-    async def delete(self, session_id: str) -> None:
-        raise RuntimeError("delete failed")
-
-
 @pytest.mark.asyncio
 async def test_messages_route_masks_and_restores() -> None:
     """``POST /v1/messages`` is served, pseudonymized, and restored as Anthropic."""
@@ -234,10 +229,11 @@ def _flaky_vault(method: str, nth: int) -> MemoryVault:
 @pytest.mark.parametrize(
     ("method", "nth", "stream", "forwarded"),
     [
-        ("create", 1, False, False),  # creating the session
+        ("get", 1, False, False),  # looking the session up
+        ("create", 1, False, False),  # creating it
         ("save", 1, False, False),  # saving the request's pseudonyms
-        ("get", 3, True, False),  # reading them to restore a stream, before the upstream call
-        ("get", 3, False, True),  # ... or a batch reply, after it
+        ("get", 4, True, False),  # reading them to restore a stream, before the upstream call
+        ("get", 4, False, True),  # ... or a batch reply, after it
     ],
 )
 async def test_a_vault_failure_is_a_503_audited(
@@ -251,6 +247,7 @@ async def test_a_vault_failure_is_a_503_audited(
         response = await client.post(
             "/v1/messages",
             json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+            headers={"x-privyx-session": "ses_sticky"},  # an ephemeral one skips the vault
         )
 
     assert response.status_code == 503
@@ -330,21 +327,27 @@ async def test_gateway_sticky_session_is_retained() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gateway_cleanup_failure_preserves_response() -> None:
+@pytest.mark.parametrize("stream", [False, True], ids=["batch", "stream"])
+async def test_an_ephemeral_request_never_touches_the_vault(stream: bool) -> None:
+    calls: list[str] = []
+    vault = MemoryVault()
+    for name in ("create", "get", "save", "delete", "list_sessions"):
+        setattr(vault, name, lambda *args, _name=name: calls.append(_name))
     buf = io.StringIO()
-    engine, audit = _audited_engine(buf, FailingDeleteVault())
-    client, _ = _client(engine, audit)
-
+    engine, audit = _audited_engine(buf, vault)
+    client, _ = (_stream_client if stream else _client)(engine, audit)
     async with client:
         response = await client.post(
-            "/v1/messages", json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+            "/v1/messages",
+            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
         )
 
+    assert calls == []
     assert response.status_code == 200
-    records = _records(buf)
-    error = next(r for r in records if r["event"] == "proxy.error" and r["phase"] == "cleanup")
-    assert error["error_type"] == "RuntimeError"
-    assert not any(r["event"] == "session.deleted" for r in records)
+    assert EMAIL in response.text  # masked and restored with the in-memory mapping
+    lifecycle = [r for r in _records(buf) if r["event"] in ("session.created", "session.deleted")]
+    assert [r["event"] for r in lifecycle] == ["session.created", "session.deleted"]
+    assert lifecycle[1]["mapping_count"] == 1
 
 
 @pytest.mark.asyncio

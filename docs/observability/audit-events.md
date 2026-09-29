@@ -53,8 +53,9 @@ and streaming paths.
 | `transformations` | int | Total pseudonyms reversed. |
 
 ### `session.deleted`
-A session was successfully deleted from the vault. For the default `ephemeral`
-source, this follows exchange completion (or stream cancellation). Sticky
+A session and its mapping were destroyed: deleted from the vault by
+`privyx session prune`, or, for the default `ephemeral` source, dropped from
+memory when its exchange completed or the client disconnected. Sticky
 `header`, `client`, and `conversation` sessions remain available for reuse and
 therefore do not emit this event during ordinary request cleanup.
 
@@ -94,7 +95,7 @@ An exchange failed.
 
 | field | type | notes |
 |---|---|---|
-| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `vault` (reading or writing the session failed; the client got `503`), `upstream` (no response from the upstream; the client got `502`, `503`, or `504`, see [Errors](../architecture/proxy.md#errors)), `stream`, `response`, or `cleanup`. |
+| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `vault` (reading or writing the session failed; the client got `503`), `upstream` (no response from the upstream; the client got `502`, `503`, or `504`, see [Errors](../architecture/proxy.md#errors)), `stream`, or `response`. |
 | `error_type` | string | The exception's **class name** — never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |
@@ -108,11 +109,12 @@ An exchange failed.
   reconstruct the timeline (`session.created` → `session.transform` →
   `proxy.request` → `session.restore` → `proxy.response` → `session.deleted`, or
   `proxy.error`).
-- **Lifecycle-aware.** `session.deleted` is written only after the vault deletion
-  succeeds. A cleanup failure produces `proxy.error` with `phase: "cleanup"` and
-  leaves the session available; it never produces a false deletion event.
-- **Source-aware retention.** Default `ephemeral` sessions are removed after the
-  exchange. Explicit-header and derived `client` / `conversation` sessions stay
+- **Lifecycle-aware.** `privyx session prune` writes `session.deleted` only
+  after the vault deletion succeeds, so the trail never reports a deletion that
+  failed. An ephemeral session is never in the vault; its `session.deleted`
+  marks the end of its request.
+- **Source-aware retention.** Default `ephemeral` sessions end with their
+  exchange and never reach the vault. Explicit-header and derived `client` / `conversation` sessions stay
   in the vault until `privyx session prune` deletes them (audited) or
   `vault.ttl` expires them (not audited: the vault drops them without a caller
   to report it).

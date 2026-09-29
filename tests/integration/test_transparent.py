@@ -401,7 +401,8 @@ async def test_ephemeral_stream_session_is_deleted_after_drain() -> None:
     assert any(r["event"] == "session.deleted" and r["session_id"] == sid for r in records)
 
 
-async def test_ephemeral_stream_session_is_deleted_when_closed_early() -> None:
+@pytest.mark.parametrize("pulled", [0, 1], ids=["before-first-chunk", "after-first-chunk"])
+async def test_ephemeral_stream_session_is_deleted_when_closed_early(pulled: int) -> None:
     buf = io.StringIO()
     proxy = _audited_proxy(buf, _mock_client())
 
@@ -415,11 +416,14 @@ async def test_ephemeral_stream_session_is_deleted_when_closed_early() -> None:
     )
     sid = result.headers["x-privyx-session"]
     assert result.stream is not None
+    for _ in range(pulled):
+        await anext(result.stream)
     await result.stream.aclose()
 
     assert await proxy._engine.vault.get(sid) is None  # noqa: SLF001
     records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
-    assert any(r["event"] == "session.deleted" and r["session_id"] == sid for r in records)
+    deleted = [r for r in records if r["event"] == "session.deleted"]
+    assert [r["session_id"] for r in deleted] == [sid]  # once, however it was closed
 
 
 async def test_sticky_session_is_retained_and_not_deleted() -> None:
@@ -450,35 +454,6 @@ async def test_sticky_session_is_retained_and_not_deleted() -> None:
     assert second.headers["x-privyx-session"] == "ses_sticky_1"
     assert await engine.vault.get("ses_sticky_1") is not None
     records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
-    assert not any(r["event"] == "session.deleted" for r in records)
-
-
-async def test_cleanup_failure_preserves_response_and_audits_error() -> None:
-    class FailingDeleteVault(MemoryVault):
-        async def delete(self, session_id: str) -> None:
-            raise RuntimeError("delete failed")
-
-    buf = io.StringIO()
-    audit = AuditLogger(buf)
-    engine = PrivacyEngine(
-        detector=RegexDetector(),
-        policy=DefaultPolicy(),
-        operator=PseudonymOperator(),
-        vault=FailingDeleteVault(),
-        audit=audit,
-    )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
-
-    result = await _post_json(
-        proxy,
-        "v1/chat/completions",
-        {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
-    )
-
-    assert result.status_code == 200
-    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
-    error = next(r for r in records if r["event"] == "proxy.error" and r["phase"] == "cleanup")
-    assert error["error_type"] == "RuntimeError"
     assert not any(r["event"] == "session.deleted" for r in records)
 
 

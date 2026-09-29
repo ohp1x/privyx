@@ -46,7 +46,7 @@ AI data privacy gateway — a privacy engine + proxy for LLM providers.
 6. **Vault is a backend abstraction.**
 7. **Streaming is first-class.**
 8. **SSE envelope is separated from text transformation.**
-9. **Session state must not depend on process memory.**
+9. **Session state that outlives a request must not depend on process memory.**
 10. **CLI is only orchestration/UI.**
 11. **Observability must not leak into privacy logic.**
 12. **No plaintext PII in logs by default.**
