@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 
@@ -13,6 +13,8 @@ class AuditedStream[T]:
     before the first item is pulled (in the GEN_CREATED state).  Wrapping the
     stream guarantees that upstream response resources and ephemeral sessions
     are released even when the client disconnects before consuming any chunks.
+    A stream that did start runs its own ``finally``, so ``cleanup`` is then
+    left to it: it must run once per request.
     """
 
     def __init__(
@@ -20,17 +22,19 @@ class AuditedStream[T]:
         stream: AsyncIterator[T],
         *,
         response: Any | None = None,
-        cleanup: Callable[[], Awaitable[None]] | None = None,
+        cleanup: Callable[[], None] | None = None,
     ) -> None:
         self._stream = stream
         self._response = response
         self._cleanup = cleanup
         self._cleaned = False
+        self._started = False
 
     def __aiter__(self) -> AsyncIterator[T]:
         return self
 
     async def __anext__(self) -> T:
+        self._started = True
         return await anext(self._stream)
 
     async def aclose(self) -> None:
@@ -47,5 +51,5 @@ class AuditedStream[T]:
                 if self._response is not None and hasattr(self._response, "aclose"):
                     await self._response.aclose()
             finally:
-                if self._cleanup is not None:
-                    await self._cleanup()
+                if self._cleanup is not None and not self._started:
+                    self._cleanup()

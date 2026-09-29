@@ -133,6 +133,27 @@ class PrivacyEngine:
         self._audit.session_created(session.session_id, source=source)
         return session
 
+    def ephemeral_session(self) -> Session:
+        """A new session for one proxied request, kept out of the vault.
+
+        Only that request knows its id, so there is nothing to share, lock, or
+        persist: the session lives in the request's memory and goes with it,
+        however the request ends.  Pass it to the transforms and restores as
+        ``session``; :meth:`end_ephemeral_session` records its end.
+        """
+        session = Session()
+        self._audit.session_created(session.session_id, source="ephemeral")
+        return session
+
+    def end_ephemeral_session(self, session: Session, *, request_id: str | None = None) -> None:
+        """Audit the end of an :meth:`ephemeral_session`, whose mapping is now dropped."""
+        self._audit.session_deleted(
+            session.session_id,
+            reason="ephemeral_request_complete",
+            mapping_count=len(session.mapping),
+            request_id=request_id,
+        )
+
     @asynccontextmanager
     async def session_scope(self, session_id: str) -> AsyncIterator[Session]:
         """Hold ``session_id`` for a batch of transforms: one vault read, one write.

@@ -37,9 +37,9 @@
 ## Data Minimization
 
 - Sessions only store mappings for values actually pseudonymized.
-- Default `ephemeral` proxy sessions are deleted from the vault after the batch
-  response completes or after a streaming response is drained/cancelled;
-  `session.deleted` is emitted only after the deletion succeeds.
+- Default `ephemeral` proxy sessions never reach the vault: each lives in the
+  proxy's memory for its one request and is dropped when the response completes
+  or the client disconnects, which `session.deleted` records.
 - Explicit-header and derived `client` / `conversation` sessions are retained for
   continuity and are not deleted at the end of each request. Bound their
   lifetime with `vault.ttl` or `privyx session prune`.

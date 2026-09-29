@@ -67,7 +67,8 @@ instance like any other store of personal data; see
 
 ## Expiring sessions
 
-An `ephemeral` session is deleted when its request finishes. Sticky sessions
+An `ephemeral` session never enters the vault: it lives in the proxy's memory
+for its one request and is dropped when the request finishes. Sticky sessions
 (`client`, `conversation`, or a header) stay in the vault until something
 removes them: in a `memory` vault until the process exits, in `sqlite` or
 `redis` indefinitely. Set `vault.ttl` to expire a session after that many

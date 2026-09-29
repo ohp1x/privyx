@@ -20,6 +20,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from privyx.core.engine import PrivacyEngine
+from privyx.core.session import Session
 from privyx.providers.base import Provider
 from privyx.proxy.schemas import restore_response, transform_request
 from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
@@ -51,15 +52,23 @@ class HTTPProxy:
         session_id: str | None = None,
         *,
         source: str = "ephemeral",
+        session: Session | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         """Pseudonymize the request payload and return (transformed, session_id).
 
         ``source`` records how ``session_id`` was chosen for the audit trail; see
-        :func:`privyx.proxy.session.resolve_session_id`.
+        :func:`privyx.proxy.session.resolve_session_id`.  ``session``, an
+        :meth:`~privyx.core.engine.PrivacyEngine.ephemeral_session`, is masked
+        in memory instead of through the vault.
         """
-        session = await self._engine.get_or_create_session(session_id, source=source)
-        transformed = await transform_request(payload, self._engine, session.session_id)
-        return transformed, session.session_id
+        if session is not None:
+            transformed = await transform_request(
+                payload, self._engine, session.session_id, session=session
+            )
+            return transformed, session.session_id
+        stored = await self._engine.get_or_create_session(session_id, source=source)
+        transformed = await transform_request(payload, self._engine, stored.session_id)
+        return transformed, stored.session_id
 
     async def send_batch(self, payload: dict[str, Any]) -> Any:
         """Forward a batch (non-streaming) request to the upstream provider."""
@@ -69,16 +78,20 @@ class HTTPProxy:
         self,
         response: Any,
         session_id: str,
+        *,
+        session: Session | None = None,
     ) -> Any:
-        """Deanonymize a batch response."""
+        """Deanonymize a batch response; ``session``, when held, skips the vault read."""
         if isinstance(response, dict):
-            return await restore_response(response, self._engine, session_id)
+            return await restore_response(response, self._engine, session_id, session=session)
         return response
 
     async def process_stream(
         self,
         payload: dict[str, Any],
         session_id: str,
+        *,
+        session: Session | None = None,
     ) -> AsyncGenerator[Any, None]:
         """Forward a streaming request, deanonymizing each SSE chunk.
 
@@ -86,8 +99,10 @@ class HTTPProxy:
         :meth:`process_request` first). This method only handles the streaming
         direction: upstream → deanonymize → yield.  All SSE reassembly, held-back
         text ordering, and tool-call buffering live in :class:`StreamRouter`.
+        ``session``, when held, skips the vault read.
         """
-        session = await self._engine.vault.get(session_id)
+        if session is None:
+            session = await self._engine.vault.get(session_id)
         mapping = session.mapping if session is not None else {}
         resolve = resolver_for(self._engine.operator, mapping)
         router = StreamRouter(

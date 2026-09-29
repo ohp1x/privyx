@@ -16,17 +16,16 @@ an upstream that speaks Anthropic.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 from urllib.parse import urlsplit
 
-import anyio
 from fastapi import FastAPI, Request
 
 from privyx.config.schema import ProxyConfig, Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ProviderError, VaultError
+from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
@@ -127,7 +126,7 @@ class Gateway:
             req_id = new_request_id()
             token = self._audit.begin_request(req_id)
             session_id: str | None = None
-            ephemeral = False
+            ephemeral: Session | None = None
             defer_cleanup = False
             try:
                 try:
@@ -143,18 +142,21 @@ class Gateway:
                     payload=payload,
                     schema=schema,
                 )
-                ephemeral = source == "ephemeral"
                 is_stream = bool(payload.get("stream", False))
 
                 # Created here rather than inside process_request so that the
-                # finally below knows the id and cleans up an ephemeral session
-                # even when masking fails part-way.
-                session = await self._engine.get_or_create_session(session_id, source=source)
+                # finally below has the session to end even when masking fails
+                # part-way.  An ephemeral one lives for this request only, so it
+                # never touches the vault.
+                if source == "ephemeral":
+                    session = ephemeral = self._engine.ephemeral_session()
+                else:
+                    session = await self._engine.get_or_create_session(session_id, source=source)
                 session_id = session.session_id
                 transform_start = time.perf_counter()
                 try:
                     transformed, _ = await proxy.process_request(
-                        payload, session_id=session_id, source=source
+                        payload, session_id=session_id, source=source, session=ephemeral
                     )
                 except VaultError:
                     raise  # not a scan failure: answered below
@@ -186,7 +188,7 @@ class Gateway:
                 )
 
                 if is_stream:
-                    frames = proxy.process_stream(transformed, session_id)
+                    frames = proxy.process_stream(transformed, session_id, session=ephemeral)
                     # Pull the first frame before committing to a 200, so an
                     # upstream error status reaches the client as itself.
                     try:
@@ -208,20 +210,19 @@ class Gateway:
                         start=start,
                         ephemeral=ephemeral,
                     )
-                    cleanup = (
-                        (lambda: self._cleanup_session(session_id, req_id, start))
-                        if ephemeral
-                        else None
-                    )
                     return StreamingResponse(
-                        AuditedStream(stream_iter, cleanup=cleanup),
+                        AuditedStream(
+                            stream_iter, cleanup=lambda: self._end_session(ephemeral, req_id)
+                        ),
                         media_type="text/event-stream",
                         headers={"X-Privyx-Session": session_id},
                     )
 
                 try:
                     response = await proxy.send_batch(transformed)
-                    deanonymized = await proxy.process_response(response, session_id)
+                    deanonymized = await proxy.process_response(
+                        response, session_id, session=ephemeral
+                    )
                 except VaultError:
                     raise  # restoring failed, not the upstream: answered below
                 except Exception as exc:
@@ -258,8 +259,8 @@ class Gateway:
                 log_vault_failure(exc)
                 return JSONResponse(VAULT_UNAVAILABLE_BODY, status_code=503)
             finally:
-                if not defer_cleanup and ephemeral and session_id is not None:
-                    await self._cleanup_session(session_id, req_id, start)
+                if not defer_cleanup:
+                    self._end_session(ephemeral, req_id)
                 self._audit.end_request(token)
 
         return handler
@@ -271,7 +272,7 @@ class Gateway:
         session_id: str,
         request_id: str,
         start: float,
-        ephemeral: bool,
+        ephemeral: Session | None,
     ) -> Any:
         """Forward a gateway SSE stream, recording ``proxy.response`` at the end.
 
@@ -312,32 +313,15 @@ class Gateway:
                     duration_ms=_elapsed_ms(start),
                     aborted=aborted,
                 )
-            if ephemeral:
-                await self._cleanup_session(session_id, request_id, start)
+            self._end_session(ephemeral, request_id)
 
-    async def _cleanup_session(self, session_id: str, request_id: str, start: float) -> None:
-        """Best-effort deletion for a request-scoped ephemeral session."""
-        try:
-            # Shielded: when the client disconnects, Starlette cancels the stream
-            # task, and anyio raises that cancellation again at every await in
-            # the cancelled scope, so the deletion would never run.
-            with anyio.CancelScope(shield=True):
-                await self._engine.delete_session(
-                    session_id,
-                    reason="ephemeral_request_complete",
-                    request_id=request_id,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            # Cleanup must never mask the response or an upstream/stream error.
-            self._audit.error(
-                phase="cleanup",
-                error_type=type(exc).__name__,
-                session_id=session_id,
-                request_id=request_id,
-                duration_ms=_elapsed_ms(start),
-            )
+    def _end_session(self, ephemeral: Session | None, request_id: str) -> None:
+        """End the request's ephemeral session, if it has one.
+
+        No I/O, so a cancelled stream cannot interrupt it, and nothing to fail.
+        """
+        if ephemeral is not None:
+            self._engine.end_ephemeral_session(ephemeral, request_id=request_id)
 
 
 def _relay_upstream_error(exc: ProviderError) -> Any:

@@ -229,7 +229,8 @@ codex, aider, the OpenAI CLI) never send one, so `session.strategy` decides the
 fallback (`proxy/session.py::resolve_session_id`, applied by both the transparent
 proxy and the gateway before `get_or_create_session`):
 
-- **`ephemeral`** (default) — a fresh session per request. Pseudonymize and
+- **`ephemeral`** (default) — a fresh session per request, kept in the proxy's
+  memory and never in the vault. Pseudonymize and
   restore happen within one exchange and the client only ever sees restored text,
   so a per-request session is correct and — unlike a single shared session —
   cannot collide two callers' pseudonym maps. The cost is that a multi-turn

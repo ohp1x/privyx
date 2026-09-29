@@ -17,7 +17,8 @@ Sessions are resolved from the ``x-privyx-session`` header when present and are
 otherwise **ephemeral per request**: a request is pseudonymized and its reply
 restored within one exchange, and the client never sees a pseudonym, so a fresh
 session per request is correct and — unlike a single shared session — cannot
-collide two callers' pseudonym maps.
+collide two callers' pseudonym maps.  It stays in memory for that one exchange
+and never touches the vault.
 
 :class:`TransparentProxy` is framework-agnostic: it returns a :class:`ProxyResponse`
 that the gateway turns into an ASGI response, so it can be unit-tested without a
@@ -26,7 +27,6 @@ web server.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -35,12 +35,12 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-import anyio
 import httpx
 
 from privyx.config.schema import ProxyConfig
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import VaultError
+from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
 from privyx.providers.generic import upstream_client
@@ -200,7 +200,7 @@ class TransparentProxy:
         # streaming generator carries req_id explicitly, so it needs no scope).
         token = self._audit.begin_request(req_id)
         sid: str | None = None
-        ephemeral = False
+        ephemeral: Session | None = None
         defer_cleanup = False
         try:
             schema = detect_schema(path, self._routes)
@@ -242,8 +242,11 @@ class TransparentProxy:
                 payload=payload,
                 schema=schema,
             )
-            ephemeral = source == "ephemeral"
-            session = await self._engine.get_or_create_session(resolved_id, source=source)
+            if source == "ephemeral":
+                # It lives for this request only, so it never touches the vault.
+                session = ephemeral = self._engine.ephemeral_session()
+            else:
+                session = await self._engine.get_or_create_session(resolved_id, source=source)
             sid = session.session_id
             self._audit.set_session(sid)
 
@@ -252,7 +255,9 @@ class TransparentProxy:
             if isinstance(payload, dict):
                 transform_start = time.perf_counter()
                 try:
-                    transformed = await transform_request(payload, self._engine, sid)
+                    transformed = await transform_request(
+                        payload, self._engine, sid, session=ephemeral
+                    )
                 except VaultError:
                     raise  # not a scan failure: answered below
                 except Exception as exc:
@@ -330,7 +335,7 @@ class TransparentProxy:
             if is_stream:
                 try:
                     # Read before the 200 goes out, so a failing vault is a 503.
-                    stored = await self._engine.vault.get(sid)
+                    stored = ephemeral or await self._engine.vault.get(sid)
                 except VaultError:
                     await response.aclose()
                     raise
@@ -349,7 +354,7 @@ class TransparentProxy:
                 )
             if schema and _JSON in resp_content_type:
                 return await self._batch_response(
-                    response, resp_headers, resp_content_type, sid, req_id, start
+                    response, resp_headers, resp_content_type, sid, ephemeral, req_id, start
                 )
             defer_cleanup = True  # as for a stream
             return self._relayed_response(
@@ -368,8 +373,8 @@ class TransparentProxy:
                 status_code=503, media_type=_JSON, body=json.dumps(VAULT_UNAVAILABLE_BODY).encode()
             )
         finally:
-            if not defer_cleanup and ephemeral and sid is not None:
-                await self._cleanup_session(sid, req_id, start)
+            if not defer_cleanup:
+                self._end_session(ephemeral, req_id)
             self._audit.end_request(token)
 
     # -- internals ---------------------------------------------------------
@@ -383,15 +388,12 @@ class TransparentProxy:
         mapping: dict[str, str],
         request_id: str,
         start: float,
-        ephemeral: bool,
+        ephemeral: Session | None,
     ) -> ProxyResponse:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
         stream_iter = self._stream(
             response, schema, session_id, mapping, request_id, start, ephemeral
-        )
-        cleanup = (
-            (lambda: self._cleanup_session(session_id, request_id, start)) if ephemeral else None
         )
         return ProxyResponse(
             status_code=response.status_code,
@@ -400,7 +402,7 @@ class TransparentProxy:
             stream=AuditedStream(
                 stream_iter,
                 response=response,
-                cleanup=cleanup,
+                cleanup=lambda: self._end_session(ephemeral, request_id),
             ),
         )
 
@@ -412,7 +414,7 @@ class TransparentProxy:
         mapping: dict[str, str],
         request_id: str,
         start: float,
-        ephemeral: bool,
+        ephemeral: Session | None,
     ) -> AsyncIterator[str]:
         frames = 0
         status = response.status_code
@@ -478,8 +480,7 @@ class TransparentProxy:
                         duration_ms=_elapsed_ms(start),
                         aborted=aborted,
                     )
-                if ephemeral:
-                    await self._cleanup_session(session_id, request_id, start)
+                self._end_session(ephemeral, request_id)
 
     def _relayed_response(
         self,
@@ -489,16 +490,13 @@ class TransparentProxy:
         session_id: str,
         request_id: str,
         start: float,
-        ephemeral: bool,
+        ephemeral: Session | None,
     ) -> ProxyResponse:
         """Forward a response with nothing to restore as it arrives.
 
         Read whole first, like a restored one, a download of any size sat in
         memory and reached the client only after its last byte.
         """
-        cleanup = (
-            (lambda: self._cleanup_session(session_id, request_id, start)) if ephemeral else None
-        )
         return ProxyResponse(
             status_code=response.status_code,
             headers=headers,
@@ -506,7 +504,7 @@ class TransparentProxy:
             stream=AuditedStream(
                 self._relay(response, session_id, request_id, start, ephemeral),
                 response=response,
-                cleanup=cleanup,
+                cleanup=lambda: self._end_session(ephemeral, request_id),
             ),
         )
 
@@ -516,7 +514,7 @@ class TransparentProxy:
         session_id: str,
         request_id: str,
         start: float,
-        ephemeral: bool,
+        ephemeral: Session | None,
     ) -> AsyncIterator[bytes]:
         size = 0
         completed = aborted = False
@@ -553,32 +551,15 @@ class TransparentProxy:
                         duration_ms=_elapsed_ms(start),
                         aborted=aborted,
                     )
-                if ephemeral:
-                    await self._cleanup_session(session_id, request_id, start)
+                self._end_session(ephemeral, request_id)
 
-    async def _cleanup_session(self, session_id: str, request_id: str, start: float) -> None:
-        """Best-effort deletion for a request-scoped ephemeral session."""
-        try:
-            # Shielded: when the client disconnects, Starlette cancels the stream
-            # task, and anyio raises that cancellation again at every await in
-            # the cancelled scope, so the deletion would never run.
-            with anyio.CancelScope(shield=True):
-                await self._engine.delete_session(
-                    session_id,
-                    reason="ephemeral_request_complete",
-                    request_id=request_id,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            # Cleanup must never mask the response or an upstream/stream error.
-            self._audit.error(
-                phase="cleanup",
-                error_type=type(exc).__name__,
-                session_id=session_id,
-                request_id=request_id,
-                duration_ms=_elapsed_ms(start),
-            )
+    def _end_session(self, ephemeral: Session | None, request_id: str) -> None:
+        """End the request's ephemeral session, if it has one.
+
+        No I/O, so a cancelled stream cannot interrupt it, and nothing to fail.
+        """
+        if ephemeral is not None:
+            self._engine.end_ephemeral_session(ephemeral, request_id=request_id)
 
     async def _batch_response(
         self,
@@ -586,6 +567,7 @@ class TransparentProxy:
         headers: dict[str, str],
         content_type: str,
         session_id: str,
+        ephemeral: Session | None,
         request_id: str,
         start: float,
     ) -> ProxyResponse:
@@ -593,7 +575,7 @@ class TransparentProxy:
         await response.aclose()
         payload = _loads(data)
         if isinstance(payload, dict):
-            restored = await restore_response(payload, self._engine, session_id)
+            restored = await restore_response(payload, self._engine, session_id, session=ephemeral)
             data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
         restored_n = self._audit.flush_restore()
         self._audit.response(

@@ -185,10 +185,11 @@ def _flaky_vault(method: str, nth: int) -> MemoryVault:
 @pytest.mark.parametrize(
     ("method", "nth", "stream", "forwarded"),
     [
-        ("create", 1, False, False),  # creating the session
+        ("get", 1, False, False),  # looking the session up
+        ("create", 1, False, False),  # creating it
         ("save", 1, False, False),  # saving the request's pseudonyms
-        ("get", 2, False, True),  # reading them to restore the reply
-        ("get", 2, True, True),  # ... of a stream, before its 200 goes out
+        ("get", 3, False, True),  # reading them to restore the reply
+        ("get", 3, True, True),  # ... of a stream, before its 200 goes out
     ],
 )
 async def test_a_vault_failure_is_a_503_audited(
@@ -209,6 +210,7 @@ async def test_a_vault_failure_is_a_503_audited(
         response = await client.post(
             "/v1/chat/completions",
             json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+            headers={"x-privyx-session": "ses_sticky"},  # an ephemeral one skips the vault
         )
         metrics = (await client.get("/metrics")).text
 
@@ -221,6 +223,37 @@ async def test_a_vault_failure_is_a_503_audited(
     # One WARNING line; the traceback only at DEBUG.
     assert any("session vault" in r.getMessage() for r in caplog.records)
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING and r.exc_info]
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["batch", "stream"])
+async def test_an_ephemeral_request_never_touches_the_vault(stream: bool) -> None:
+    calls: list[str] = []
+    vault = MemoryVault()
+    for name in ("create", "get", "save", "delete", "list_sessions"):
+        setattr(vault, name, lambda *args, _name=name: calls.append(_name))
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=vault,
+        audit=audit,
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(), audit=audit)
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+
+    assert calls == []
+    assert response.status_code == 200
+    assert EMAIL in response.text  # masked and restored with the in-memory mapping
+    events = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    lifecycle = [e for e in events if e["event"] in ("session.created", "session.deleted")]
+    assert [e["event"] for e in lifecycle] == ["session.created", "session.deleted"]
+    assert lifecycle[1]["mapping_count"] == 1
 
 
 async def test_chat_batch_round_trip_through_app() -> None:

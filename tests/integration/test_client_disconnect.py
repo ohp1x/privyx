@@ -2,8 +2,8 @@
 
 Each app runs under a real uvicorn server: only there does Starlette cancel the
 stream when the client disconnects (uvicorn reports ASGI 2.3), which httpx's
-ASGITransport never does.  The vault is SQLite because the in-memory vault never
-suspends, so the cancellation would not reach its deletion.
+ASGITransport never does.  The vault is SQLite, so a session that reached it
+would still be there after the streams are gone.
 """
 
 from __future__ import annotations
