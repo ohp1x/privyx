@@ -248,6 +248,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`, `PRIVYX_GOOGLE_API_KEY` | `provider.openai_api_key`, … |
 | `PRIVYX_VAULT` | `vault.type` |
 | `PRIVYX_VAULT_DSN` | `vault.dsn` |
+| `PRIVYX_VAULT_TTL` | `vault.ttl` |
 | `PRIVYX_REDIS_URL` | `vault.redis_url` |
 | `PRIVYX_SESSION_STRATEGY` | `session.strategy` |
 | `PRIVYX_DETECTOR_CACHE` | `detector.cache` |
@@ -260,4 +261,4 @@ How placeholders look. See [Token format](masking.md#token-format).
 
 Boolean variables are true for `1`, `true`, `yes`, or `on`, and false for
 anything else. Settings without a variable (`proxy`, `policy`, most of
-`detector`, `vault.ttl`) need a config file.
+`detector`) need a config file.

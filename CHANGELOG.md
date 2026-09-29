@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Config:** `PRIVYX_VAULT_TTL` sets `vault.ttl`, and `docker-compose.yml` sets it to a week, so the `conversation` sessions it keeps in Redis, with their original values, expire after a week without a request instead of piling up forever
+
 ### Changed
 
 - **Proxy:** `ephemeral` sessions (the default) no longer go through the vault: each lives in memory for its one request, so with a `sqlite` or `redis` vault a request makes no vault calls instead of six, and the original values it masks are never written to disk or Redis. `client`, `conversation`, and `x-privyx-session` sessions still live in the vault
