@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI:** `privyx config` with an invalid configuration printed a traceback; it now prints a one-line `Error:` and exits 1 like the other commands
+
 ## [0.1.10] - 2026-09-29
 
 ### Added

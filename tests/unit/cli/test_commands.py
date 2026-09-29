@@ -469,6 +469,19 @@ def test_config_show_outputs_settings(runner: CliRunner) -> None:
     assert "detector" in result.output or "vault" in result.output
 
 
+@pytest.mark.parametrize("args", [["config"], ["config", "--show"]])
+def test_config_reports_bad_config_without_traceback(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, args: list[str]
+) -> None:
+    monkeypatch.setenv("PRIVYX_SESSION_STRATEGY", "bogus")
+
+    result = runner.invoke(cli, args)
+
+    assert result.exit_code == 1
+    assert "Error: invalid configuration" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_config_show_masks_secrets(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

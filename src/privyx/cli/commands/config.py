@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import click
 
@@ -19,9 +20,14 @@ def config_cmd(show: bool, path: bool, config_path: str | None) -> None:
     import os
 
     from privyx.config.loader import load_config
+    from privyx.core.errors import PrivyxError
     from privyx.providers.registry import resolve_base_url
 
-    settings = load_config(config_path)
+    try:
+        settings = load_config(config_path)
+    except PrivyxError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
     if show:
         click.echo(json.dumps(redact(settings.model_dump(mode="json")), indent=2))
     elif path:
