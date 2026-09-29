@@ -177,14 +177,13 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
 
     if vault_type == "redis":
         try:
-            from redis.asyncio import from_url
+            from privyx.vault.redis import RedisVault, redis_client
         except ImportError as exc:  # pragma: no cover - optional extra
             raise ConfigError(
                 "redis vault requires the redis extra: pip install privyx[redis]"
             ) from exc
-        from privyx.vault.redis import RedisVault
 
-        client = from_url(settings.vault.redis_url)
+        client = redis_client(settings.vault.redis_url)
         return RedisVault(client, ttl=settings.vault.ttl), client.aclose
 
     if vault_type in PLUGINS.vaults:

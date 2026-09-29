@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **Vault:** a `vault.dsn` file that is not a SQLite database stopped `privyx` with a traceback and then hung instead of exiting. It now exits with a one-line error, and every failed SQLite call is reported as a vault error
+- **Vault:** with redis-py older than 8, a Redis that stopped answering held every request forever; the `redis` vault now gives up after 5 s with any version. The first request after a Redis restart no longer fails, creating a session is atomic, and every failed Redis call is reported as a vault error
 
 ## [0.1.9] - 2026-09-28
 

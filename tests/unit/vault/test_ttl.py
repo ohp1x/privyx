@@ -83,8 +83,11 @@ class _FakeRedis:
     def __init__(self) -> None:
         self.data: dict[str, bytes] = {}
 
-    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+    async def set(self, key: str, value: str, ex: int | None = None, nx: bool = False) -> Any:
+        if nx and key in self.data:
+            return None
         self.data[key] = value.encode()
+        return True
 
     async def get(self, key: str) -> bytes | None:
         return self.data.get(key)

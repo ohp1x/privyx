@@ -122,6 +122,10 @@ class PrivacyEngine:
             # A concurrent request created this id first — clients fan out
             # parallel requests at conversation start, and a derived (sticky) id
             # makes them collide. Adopt the winner rather than failing the race.
+            # A minted id cannot collide: the vault itself failed, and asking it
+            # again would only double the time to fail.
+            if not session_id:
+                raise
             existing = await self._vault.get(session.session_id)
             if existing is not None:
                 return existing

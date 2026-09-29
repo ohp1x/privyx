@@ -8,7 +8,8 @@ import json
 import pytest
 
 from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import SessionNotFoundError
+from privyx.core.errors import SessionNotFoundError, VaultError
+from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
@@ -164,6 +165,30 @@ async def test_delete_session_audits_after_vault_delete() -> None:
     assert buf.getvalue().index('"event": "session.deleted"') > buf.getvalue().index(
         '"event": "session.transform"'
     )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_create_of_a_minted_id_is_not_retried_as_a_race() -> None:
+    """A fresh id cannot collide: asking a failing vault again only doubles the wait."""
+
+    class DownVault(MemoryVault):
+        gets = 0
+
+        async def create(self, session: Session) -> None:
+            raise VaultError("redis vault: Timeout reading from socket")
+
+        async def get(self, session_id: str) -> Session | None:
+            self.gets += 1
+            return await super().get(session_id)
+
+    vault = DownVault()
+    engine = PrivacyEngine(
+        detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
+    )
+
+    with pytest.raises(VaultError):
+        await engine.get_or_create_session()
+    assert vault.gets == 0
 
 
 @pytest.mark.asyncio
