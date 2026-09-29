@@ -32,8 +32,8 @@ uv sync --all-extras
 # Start the drop-in transparent proxy (default mode)
 privyx proxy --upstream https://api.openai.com
 
-# Run a provider through the proxy
-privyx run openai
+# Or wrap a tool: starts its own proxy and launches the tool through it
+privyx run claude
 ```
 
 Then point any client at Privyx — no code change, just the base URL:
