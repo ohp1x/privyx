@@ -1,0 +1,35 @@
+name: CodeQL
+
+# Replaces the repository's default setup, which scans every push and PR:
+# this one skips changes that touch no analyzed code (docs, config, lockfile).
+on:
+  push:
+    branches: [main]
+    paths: ["**.py", .github/workflows/**]
+  pull_request:
+    paths: ["**.py", .github/workflows/**]
+  schedule:
+    - cron: "0 6 * * 1"  # weekly, so new CodeQL queries run without a push
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, python]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4
+        with:
+          # Same category as the default setup, so existing alerts carry over.
+          category: /language:${{ matrix.language }}
