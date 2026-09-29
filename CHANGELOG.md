@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI:** `privyx run` dropped the tool's own key or login, so without `PRIVYX_<TYPE>_API_KEY` every request failed with `401` (`x-api-key header is required` for `privyx run claude`). It now runs the transparent proxy, which relays the tool's headers and paths as `privyx proxy` does; `--upstream` uses only the URL's origin
+
 ## [0.1.11] - 2026-09-29
 
 ### Changed

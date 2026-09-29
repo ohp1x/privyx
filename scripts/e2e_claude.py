@@ -1,6 +1,6 @@
 """End-to-end leak check: real Claude Code → Privyx → fake Anthropic.
 
-    uv run python scripts/e2e_claude.py                 # `privyx run claude` (gateway)
+    uv run python scripts/e2e_claude.py                 # `privyx run claude`
     uv run python scripts/e2e_claude.py --transparent   # `privyx proxy`, its defaults
 
 Everything lives in a fresh temp dir — HOME, CLAUDE_CONFIG_DIR, XDG_CONFIG_HOME
@@ -392,7 +392,11 @@ def main(transparent: bool) -> int:
     echo = next((ln for ln in out.splitlines() if ln.startswith("Echo:")), "")
     check(bool(echo) and not TOKEN.search(echo), "final answer restored", echo or "(no Echo line)")
 
-    bodies = [r["body"] for r in RECORDS if r["body"] and is_main(r["body"])]
+    main_records = [r for r in RECORDS if r["body"] and is_main(r["body"])]
+    keys = {r["headers"].get("x-api-key") for r in main_records}
+    check(keys == {env["ANTHROPIC_API_KEY"]}, "client key relayed", f"{len(main_records)} turn(s)")
+
+    bodies = [r["body"] for r in main_records]
     problems = roundtrip(bodies)
     check(not problems, "echoed turns byte-identical", f"{len(SENT)} turn(s) sent")
     for problem in problems:

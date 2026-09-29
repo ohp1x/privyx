@@ -32,8 +32,10 @@ the client sees the connection close, and their ephemeral sessions are deleted.
 
 ## `privyx run`
 
-Start a proxy on a local port, run a tool against it, and stop the proxy when
-the tool exits. The exit code is the tool's.
+Start the transparent proxy on a local port, run a tool against it, and stop
+the proxy when the tool exits. The exit code is the tool's. The tool's own key
+or login is relayed upstream unless Privyx has a key of its own
+([Configuration](configuration.md)).
 
 ```bash
 privyx run [OPTIONS] TARGET [ARGS]...
@@ -45,7 +47,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | Option | Description |
 |---|---|
 | `-p`, `--provider` | Provider type upstream (`openai`, `anthropic`, `generic`). Known targets set it for you. |
-| `-u`, `--upstream` | Upstream URL. Default: the provider type's default. |
+| `-u`, `--upstream` | Upstream URL; only its origin is used, and the tool's own paths are appended. Default: the provider type's default. |
 | `--port` | Proxy port. `0` (default) picks a free one. |
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |

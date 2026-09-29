@@ -4,12 +4,13 @@
 
     Claude Code  →  Privyx  →  Anthropic
 
-by starting the proxy on a local port and launching the tool with its base-URL
-environment variable pointed at that port.  The tool is unmodified and unaware;
-it just talks to what it thinks is the provider.
+by starting the transparent proxy on a local port and launching the tool with its
+base-URL environment variable pointed at that port.  The tool is unmodified and
+unaware; it just talks to what it thinks is the provider, with its own paths and
+headers (its key or login included) relayed upstream.
 
 This is orchestration only (principle #12): no privacy logic lives here.  The
-engine and provider both come from the same builders ``privyx proxy``
+engine and proxy both come from the same builders ``privyx proxy --transparent``
 uses, so both commands behave identically.
 """
 
@@ -189,11 +190,12 @@ async def _run_target(
     Returns:
         The tool's exit code.
     """
+    from privyx.cli.commands.proxy import build_transparent_proxy
     from privyx.config.loader import load_config
     from privyx.config.redact import redact
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.plugins.loader import load_plugins
-    from privyx.providers.registry import build_provider, resolve_base_url
+    from privyx.providers.registry import resolve_origin
     from privyx.security.keys import read_or_create_anchor_secret
 
     extra: dict[str, Any] = {"provider": {"type": spec.provider}}
@@ -216,16 +218,16 @@ async def _run_target(
     hooks = load_plugins(settings)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
-    provider = build_provider(settings)
+    proxy = build_transparent_proxy(settings, engine, audit)
     await hooks.run_startup()
 
-    server, bound_port = _make_server(engine, provider, settings, port, audit)
+    server, bound_port = _make_server(engine, proxy, settings, port)
     serve_task = asyncio.create_task(server.serve())
     try:
         await _wait_until_started(server, serve_task)
         base_url = f"http://{settings.host}:{bound_port}"
 
-        click.echo(f"Privyx proxy → {redact(resolve_base_url(settings), 'url')}")
+        click.echo(f"Privyx proxy → {redact(resolve_origin(settings), 'url')}")
         click.echo(f"Running: {spec.command} {' '.join(argv)}".rstrip())
         click.echo(f"  {', '.join(env_vars)} = {base_url}")
 
@@ -235,28 +237,25 @@ async def _run_target(
         await serve_task
         await hooks.run_shutdown()
         await close_vault()
-        await provider.close()
+        await proxy.close()
         audit.close()
 
 
-def _make_server(
-    engine: Any, provider: Any, settings: Any, port: int, audit: Any
-) -> tuple[Any, int]:
+def _make_server(engine: Any, proxy: Any, settings: Any, port: int) -> tuple[Any, int]:
     """Build a uvicorn server bound to ``port`` (0 picks a free one)."""
     import socket
 
     import uvicorn
 
-    from privyx.gateway.server import Gateway
+    from privyx.gateway.transparent import create_transparent_app
 
     if port == 0:
         with socket.socket() as sock:
             sock.bind((settings.host, 0))
             port = int(sock.getsockname()[1])
 
-    gateway = Gateway(engine=engine, provider=provider, settings=settings, audit=audit)
     config = uvicorn.Config(
-        gateway.app,
+        create_transparent_app(engine, proxy, settings),
         host=settings.host,
         port=port,
         log_level="warning",  # the tool owns the terminal; stay quiet

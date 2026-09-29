@@ -25,7 +25,7 @@ def test_registry_builds_generic() -> None:
 
 
 def test_gateway_waits_for_the_upstream_as_long_as_the_transparent_proxy() -> None:
-    # `privyx run` serves the gateway, and an upstream can take minutes to send
+    # `privyx proxy --gateway` serves it, and an upstream can take minutes to send
     # its first byte: a flat 60 s timeout turned those requests into a 502.
     provider = GenericProvider(base_url="http://localhost:9999")
     assert provider._client.timeout == httpx.Timeout(  # noqa: SLF001
