@@ -110,6 +110,7 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
                 if existing:
                     return existing
                 time.sleep(0.01)
+            os.chmod(target, 0o600)  # the leftover may be readable by others
             fd = os.open(target, os.O_WRONLY | os.O_TRUNC)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(secret)
