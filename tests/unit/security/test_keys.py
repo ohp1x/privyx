@@ -60,12 +60,14 @@ def test_first_runs_started_together_share_one_secret(tmp_path: Path) -> None:
         assert {run.result() for run in runs} == {path.read_text(encoding="utf-8")}
 
 
-def test_an_empty_file_gets_a_secret(tmp_path: Path) -> None:
+def test_an_empty_file_gets_a_secret_owner_only(tmp_path: Path) -> None:
     path = tmp_path / "anchor.key"
     path.touch()
+    path.chmod(0o644)
     secret = read_or_create_anchor_secret(path)
     assert _HEX64.match(secret)
     assert path.read_text(encoding="utf-8") == secret
+    assert (path.stat().st_mode & 0o777) == 0o600
 
 
 def test_unwritable_location_still_returns_a_secret(tmp_path: Path) -> None:
