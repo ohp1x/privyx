@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from privyx.config.schema import Settings
+from privyx.core.errors import ConfigError
 from privyx.observability.logging import JsonFormatter, configure_logging
 
 
@@ -87,6 +88,11 @@ def test_log_file_gets_third_party_debug_console_does_not(
     assert "vault row" not in console
     assert "vault row" in log_file.read_text()
     assert log_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_an_unwritable_log_file_is_a_config_error(_root_logging: None, tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="cannot write log_file"):
+        configure_logging(Settings(log_file=str(tmp_path / "missing" / "privyx.log")))
 
 
 def test_log_file_trims_third_party_chatter(_root_logging: None, tmp_path: Path) -> None:

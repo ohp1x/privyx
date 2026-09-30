@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from privyx.config.schema import Settings
+from privyx.core.errors import ConfigError
 
 #: Marks the handler this module installs, so re-configuring replaces it instead
 #: of stacking a second handler that double-prints every line.
@@ -101,8 +102,12 @@ def configure_logging(settings: Settings, *, console: bool = True) -> None:
         handlers.append(stream)
     if settings.log_file:
         # Third-party debug output includes raw vault rows (original PII): owner-only.
-        Path(settings.log_file).touch(mode=0o600)
-        log_file = logging.FileHandler(settings.log_file, encoding="utf-8")
+        try:
+            Path(settings.log_file).touch(mode=0o600)
+            log_file = logging.FileHandler(settings.log_file, encoding="utf-8")
+        except OSError as exc:
+            msg = f"cannot write log_file {settings.log_file}: {exc.strerror or exc}"
+            raise ConfigError(msg) from exc
         log_file.addFilter(_tidy_third_party)
         handlers.append(log_file)
     if not handlers:

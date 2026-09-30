@@ -394,6 +394,21 @@ def test_run_reports_a_port_in_use_in_one_line(
     assert f"Error: cannot listen on 127.0.0.1:{port}: " in result.output
 
 
+@pytest.mark.parametrize("variable", ["PRIVYX_LOG_FILE", "PRIVYX_AUDIT_PATH"])
+def test_run_reports_an_unwritable_log_file_or_audit_path_in_one_line(
+    variable: str, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    (tmp_path / "file").write_text("")  # a file where a directory is needed
+    monkeypatch.setenv(variable, str(tmp_path / "file" / "privyx.log"))
+
+    result = runner.invoke(cli, ["run", "--no-anchor", "--env-var", "X", "--", "true"])
+
+    assert isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "Error: cannot write " in result.output
+
+
 @pytest.mark.parametrize("log_file", [False, True])
 def test_run_writes_nothing_to_the_tools_terminal(tmp_path: Path, log_file: bool) -> None:
     """The tool owns the terminal, so a warning would land on its screen.
