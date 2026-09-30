@@ -71,9 +71,11 @@ Known targets, and where each gets the proxy's URL:
 | `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
 
 Claude Code keeps only the last `--settings`: one of your own, after `--`,
-replaces Privyx's. If the tool exits without having sent Privyx a single
-request, `privyx run` warns: a tool that calls its provider directly is not
-masked.
+replaces Privyx's. If your Claude Code settings point `ANTHROPIC_BASE_URL` at a
+router or another proxy, give that URL to `privyx run` as `--upstream`: Privyx
+now takes that place and forwards to its own upstream. If the tool exits
+without having sent Privyx a single request, `privyx run` warns: a tool that
+calls its provider directly is not masked.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.

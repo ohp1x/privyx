@@ -82,8 +82,9 @@ default) unless something in front of it authenticates callers.
 
 ## Or wrap a tool with `privyx run`
 
-`privyx run` starts a proxy on a free local port, launches a tool with its
-base-URL variable pointed at it, and stops the proxy when the tool exits:
+`privyx run` starts a proxy on a free local port, launches a tool pointed at it
+(its base-URL variable, plus an option for the tools whose own settings would
+override that variable), and stops the proxy when the tool exits:
 
 ```bash
 privyx run claude            # Claude Code → Privyx → Anthropic
@@ -98,8 +99,9 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 ```
 
 `privyx run` also picks defaults suited to a chat tool: one session per
-conversation, and an anchor secret in `~/.config/privyx/anchor.key` so
-pseudonyms stay the same across turns and restarts. See
+conversation, an anchor secret in `~/.config/privyx/anchor.key` so pseudonyms
+stay the same across turns and restarts, and an audit trail in
+`~/.local/state/privyx/audit.log` rather than in your project. See
 [Sessions and vault](sessions.md).
 
 ## What is masked
