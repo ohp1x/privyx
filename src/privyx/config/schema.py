@@ -164,7 +164,9 @@ class ProviderConfig(PluggableConfig):
 
 def _default_routes() -> dict[str, str]:
     # Unlisted paths (embeddings, legacy /v1/completions, Gemini-native) are
-    # forwarded without pseudonymization; see docs/architecture/proxy.md.
+    # forwarded without pseudonymization; see docs/architecture/proxy.md.  The
+    # paths without /v1 are what the OpenAI SDK calls when its base URL lacks
+    # the /v1 it expects.
     return {
         "/v1/chat/completions": "openai",
         "/v1/messages": "anthropic",
@@ -172,6 +174,10 @@ def _default_routes() -> dict[str, str]:
         "/v1/responses": "responses",
         "/v1/responses/input_tokens": "responses",
         "/v1/responses/compact": "responses",
+        "/chat/completions": "openai",
+        "/responses": "responses",
+        "/responses/input_tokens": "responses",
+        "/responses/compact": "responses",
     }
 
 

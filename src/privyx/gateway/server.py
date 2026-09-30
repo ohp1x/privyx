@@ -46,7 +46,13 @@ from privyx.utils.ids import request_id as new_request_id
 #: one chat endpoint, which would turn a token count into a billed completion,
 #: so these stay unserved (404) and clients fall back as they would upstream.
 _AUXILIARY_ROUTES = frozenset(
-    {"/v1/messages/count_tokens", "/v1/responses/input_tokens", "/v1/responses/compact"}
+    {
+        "/v1/messages/count_tokens",
+        "/v1/responses/input_tokens",
+        "/v1/responses/compact",
+        "/responses/input_tokens",
+        "/responses/compact",
+    }
 )
 
 
