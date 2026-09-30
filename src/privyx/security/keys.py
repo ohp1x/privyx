@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import time
 from hashlib import sha256
 from pathlib import Path
 
@@ -98,8 +99,20 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
     secret = generate_key()
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(secret, encoding="utf-8")
-        target.chmod(0o600)
+        try:
+            # Created owner-only; of two first runs, the second reads the first's.
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            # Empty until its creator writes the secret; still empty after
+            # 0.1 s, it is a leftover and gets ours.
+            for _ in range(10):
+                existing = target.read_text(encoding="utf-8").strip()
+                if existing:
+                    return existing
+                time.sleep(0.01)
+            fd = os.open(target, os.O_WRONLY | os.O_TRUNC)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(secret)
     except OSError:
         pass  # best effort: an unwritable location still yields a working secret
     return secret

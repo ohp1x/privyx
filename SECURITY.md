@@ -22,7 +22,7 @@ In scope:
 Out of scope (v0.1):
 
 - Multi-tenant authN/authZ
-- At-rest encryption of the vault (planned)
+- Plaintext original values in the vault (`pseudonym`, `hash`, `faker`): protect the store with disk encryption and access control, or use the `encrypt` operator
 
 ## Responsible Disclosure
 

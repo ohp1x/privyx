@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **CLI:** `privyx run codex`, and `privyx run claude` when Claude Code's `settings.json` sets `ANTHROPIC_BASE_URL`, bypassed the proxy and sent every request unmasked: codex reads its base URL from its own config, and Claude Code prefers its settings to the environment. `privyx run` now passes the proxy's URL where each tool reads it first (`-c openai_base_url=…`, `--settings`)
 - **Proxy:** an OpenAI client whose base URL lacks `/v1` (`OPENAI_BASE_URL=http://localhost:8000`) calls `/chat/completions` and `/responses`, which the transparent proxy forwarded unmasked; these paths are now masked like their `/v1` versions
+- **Vault:** the `sqlite` vault file with its `-wal` and `-shm` files and the `--map` file of `privyx mask`, which hold original values, were created readable by every local user, as was the anchor key of `privyx run` until its `chmod`; they are now created owner-only (`0600`). Existing files keep their mode (`chmod 600 privyx.db*`)
 
 ## [0.1.11] - 2026-09-29
 

@@ -8,6 +8,7 @@ that quietly hardcodes its own detector or vault and ignores ``--config``.
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -972,6 +973,19 @@ def test_mask_continues_an_existing_map_instead_of_overwriting_it(
     assert first.stdout.strip() in second.stdout
     mapping = json.loads(map_path.read_text(encoding="utf-8"))["mapping"]
     assert sorted(mapping.values()) == [EMAIL, "bob@example.com"]
+
+
+def test_mask_creates_the_map_file_owner_only(runner: CliRunner, tmp_path: Path) -> None:
+    """The map holds the original values."""
+    map_path = tmp_path / "m.json"
+    umask = os.umask(0o022)  # a plain write would then create it 0644
+    try:
+        result = runner.invoke(cli, ["mask", "--map", str(map_path), f"mail {EMAIL}"])
+    finally:
+        os.umask(umask)
+
+    assert result.exit_code == 0
+    assert map_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_mask_unmask_round_trips_through_the_vault(runner: CliRunner, sqlite_config: Path) -> None:

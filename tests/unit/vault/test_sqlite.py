@@ -1,9 +1,10 @@
-"""SQLite vault: journal mode, atomic create, and database errors."""
+"""SQLite vault: journal mode, atomic create, file modes, and database errors."""
 
 from __future__ import annotations
 
 import asyncio
 import io
+import os
 from pathlib import Path
 
 import pytest
@@ -93,3 +94,32 @@ async def test_a_file_that_is_not_a_database_fails_to_connect(tmp_path: Path) ->
         assert vault._db is None  # closed: its worker thread would keep the process alive
     finally:
         await vault.close()
+
+
+async def test_new_files_are_owner_only(tmp_path: Path) -> None:
+    """The database and its -wal and -shm files hold original values."""
+    vault = SQLiteVault(str(tmp_path / "privyx.db"))
+    umask = os.umask(0o022)  # SQLite's own default would then be 0644
+    try:
+        await vault.connect()
+        await vault.create(Session(mapping={"<EMAIL_1>": "ann@example.com"}))
+        modes = {
+            name: (tmp_path / name).stat().st_mode & 0o777
+            for name in ("privyx.db", "privyx.db-wal", "privyx.db-shm")
+        }
+    finally:
+        os.umask(umask)
+        await vault.close()
+
+    assert modes == {"privyx.db": 0o600, "privyx.db-wal": 0o600, "privyx.db-shm": 0o600}
+
+
+async def test_an_existing_file_keeps_its_mode(tmp_path: Path) -> None:
+    path = tmp_path / "privyx.db"
+    path.touch()
+    path.chmod(0o644)
+    vault = SQLiteVault(str(path))
+    await vault.connect()
+    await vault.close()
+
+    assert path.stat().st_mode & 0o777 == 0o644

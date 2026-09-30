@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -111,7 +112,10 @@ def mask(
             )
         )
         if map_path:
-            Path(map_path).write_text(_dumps(session.to_dict(), indent=2) + "\n", encoding="utf-8")
+            # The map holds the original values: a new file is owner-only.
+            fd = os.open(map_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(_dumps(session.to_dict(), indent=2) + "\n")
         click.echo(f"session: {session.session_id}", err=True)
         _write_output(result, output_path)
     except (PrivyxError, *_EXPECTED) as exc:
