@@ -751,6 +751,53 @@ async def test_run_points_each_known_target_at_the_proxy(
     assert "PRIVYX_EMAIL" in body
 
 
+@pytest.mark.parametrize("requests", [0, 1])
+async def test_run_warns_when_no_request_reached_privyx(
+    requests: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    upstream: tuple[str, Seen],
+) -> None:
+    """A tool that calls its provider directly sends Privyx nothing at all."""
+    import sys
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
+    url, _ = upstream
+
+    from privyx.cli.commands.run import Target, _run_target
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, urllib.request\n"
+        f"for _ in range({requests}):\n"
+        "    urllib.request.urlopen(urllib.request.Request(\n"
+        "        os.environ['ANTHROPIC_BASE_URL'] + '/v1/messages', data=b'{\"messages\": []}',\n"
+        "        headers={'content-type': 'application/json'},\n"
+        "    ), timeout=5).read()\n",
+        encoding="utf-8",
+    )
+    spec = Target(command=sys.executable, provider="anthropic", env_vars=("ANTHROPIC_BASE_URL",))
+    code = await _run_target(
+        spec=spec,
+        argv=[str(probe)],
+        config_path=None,
+        upstream=url,
+        port=0,
+        env_vars=spec.env_vars,
+        session_strategy="ephemeral",
+        no_anchor=True,
+    )
+
+    assert code == 0
+    warned = "Warning: no request from" in capsys.readouterr().err
+    assert warned is (requests == 0)
+
+
 # --------------------------------------------------------------------------
 # config
 
