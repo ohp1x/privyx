@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI:** `privyx run` dropped the tool's own key or login, so without `PRIVYX_<TYPE>_API_KEY` every request failed with `401` (`x-api-key header is required` for `privyx run claude`). It now follows `proxy.mode` like `privyx proxy`: the transparent proxy by default, which relays the tool's headers and paths (`--upstream` then uses only the URL's origin), or the gateway with `proxy.mode: gateway`
 - **CLI:** `privyx run openai` and `privyx run aider` gave the tool a base URL without the `/v1` the OpenAI SDK expects, so every request was answered `404`
 - **CLI:** a port outside 0–65535 (`port`, `PRIVYX_PORT`, `--port`) printed three tracebacks once the server tried to bind it; it is now refused at startup with a one-line error, as is a port already in use for `privyx run`
+- **CLI:** `privyx run` printed Privyx's warnings, such as an unreachable upstream, into the tool's terminal, over its screen; they now go to `log_file` when one is set, and nowhere else
 
 ### Security
 
