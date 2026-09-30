@@ -36,10 +36,14 @@ Start a proxy on a local port, run a tool against it, and stop the proxy when
 the tool exits. The exit code is the tool's. The proxy follows `proxy.mode`,
 like `privyx proxy`. The transparent proxy (the default) relays the tool's own
 key or login unless Privyx has a key of its own
-([Configuration](configuration.md)). With `proxy.mode: gateway` in the config
+([Configuration](configuration.md)). It masks the chat paths in `proxy.routes`
+and forwards any other path unmasked, embeddings for instance;
+`proxy.passthrough_unknown: false` answers those with `403` instead. With
+`proxy.mode: gateway` in the config
 file, Privyx sends only its own key and posts to the upstream URL as written,
 which an upstream behind a base path needs. The tool owns the terminal, so
-Privyx writes no log lines to it; they go to `log_file` when one is set. The
+Privyx writes no log lines to it; they go to `log_file` when one is set, which
+is where to look when a request fails with a `503`. The
 tool usually runs in your project, so the audit trail goes to
 `$XDG_STATE_HOME/privyx/audit.log` (`~/.local/state/privyx/audit.log`) instead
 of the working directory, unless `audit.path` or `PRIVYX_AUDIT_PATH` sets it.
@@ -71,9 +75,13 @@ Known targets, and where each gets the proxy's URL:
 | `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
 
 Claude Code keeps only the last `--settings`: one of your own, after `--`,
-replaces Privyx's. If the tool exits without having sent Privyx a single
-request, `privyx run` warns: a tool that calls its provider directly is not
-masked.
+replaces Privyx's. `openai_base_url` applies to codex's built-in `openai`
+provider: with a `model_provider` of your own in codex's config, codex does
+not reach Privyx. If your Claude Code settings point `ANTHROPIC_BASE_URL` at a
+router or another proxy, give that URL to `privyx run` as `--upstream`: Privyx
+now takes that place and forwards to its own upstream. If the tool exits
+without having sent Privyx a single request, `privyx run` warns: a tool that
+calls its provider directly is not masked.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.

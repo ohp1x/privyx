@@ -136,5 +136,5 @@ provider:
 # entity *types* and *counts* (never payload content) plus request metadata.
 # Separate from application logs (log_level / logging above).
 audit:
-  enabled: true
-  path: privyx-audit.log   # or PRIVYX_AUDIT_PATH / PRIVYX_AUDIT_ENABLED
+  enabled: true            # or PRIVYX_AUDIT_ENABLED
+  # path: privyx-audit.log # the default (privyx run: ~/.local/state/privyx/audit.log), or PRIVYX_AUDIT_PATH

@@ -19,9 +19,9 @@ defaults for the rest of `vault`. A list replaces the default rather than
 extending it. Empty environment variables are ignored, so an unset variable
 never clears a value from the file.
 
-`privyx run` adds its own defaults (a `conversation` session strategy and an
-anchor secret) just above the built-in ones, so your file and environment
-still override them.
+`privyx run` adds its own defaults (a `conversation` session strategy, an
+anchor secret, and an audit trail in `~/.local/state/privyx/audit.log`) just
+above the built-in ones, so your file and environment still override them.
 
 A config with a misspelled setting, an unknown type, an invalid regex, or a
 value of the wrong kind fails at startup, before any request is served. A
