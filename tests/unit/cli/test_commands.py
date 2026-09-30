@@ -798,6 +798,41 @@ async def test_run_warns_when_no_request_reached_privyx(
     assert warned is (requests == 0)
 
 
+async def test_run_keeps_the_audit_trail_out_of_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool runs in the user's project, where a privyx-audit.log is litter."""
+    import sys
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    for var in ("PRIVYX_AUDIT_PATH", "PRIVYX_AUDIT_ENABLED", "PRIVYX_CONFIG"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+
+    from privyx.cli.commands.run import Target, _run_target
+
+    spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
+    code = await _run_target(
+        spec=spec,
+        argv=["-c", "pass"],
+        config_path=None,
+        upstream=None,
+        port=0,
+        env_vars=spec.env_vars,
+        session_strategy="ephemeral",
+        no_anchor=True,
+    )
+
+    assert code == 0
+    assert list(project.iterdir()) == []
+    assert (tmp_path / "state" / "privyx" / "audit.log").exists()
+
+
 # --------------------------------------------------------------------------
 # config
 

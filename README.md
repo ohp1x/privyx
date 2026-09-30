@@ -117,8 +117,9 @@ privyx session prune --older-than 7d       # add --dry-run to preview
 
 ### Audit trail and metrics
 
-Every exchange is recorded in `audit.path` (default `privyx-audit.log`) as
-PII-safe JSON lines: event names, entity types, and counts, never content
+Every exchange is recorded in `audit.path` (default `privyx-audit.log`, or
+`~/.local/state/privyx/audit.log` for `privyx run`) as PII-safe JSON lines:
+event names, entity types, and counts, never content
 ([docs/observability/audit-events.md](docs/observability/audit-events.md)).
 
 ```bash

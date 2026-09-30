@@ -1,8 +1,9 @@
 # Audit Events
 
 Privyx appends a PII-safe audit trail as one JSON object per line to `audit.path`
-(default `privyx-audit.log`). This is the stable, versioned contract a store,
-query layer, or dashboard reads. Implementation: `observability/audit.py`.
+(default `privyx-audit.log`; `~/.local/state/privyx/audit.log` for `privyx run`).
+This is the stable, versioned contract a store, query layer, or dashboard reads.
+Implementation: `observability/audit.py`.
 
 ## Envelope
 

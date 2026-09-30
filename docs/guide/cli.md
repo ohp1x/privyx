@@ -39,7 +39,10 @@ key or login unless Privyx has a key of its own
 ([Configuration](configuration.md)). With `proxy.mode: gateway` in the config
 file, Privyx sends only its own key and posts to the upstream URL as written,
 which an upstream behind a base path needs. The tool owns the terminal, so
-Privyx writes no log lines to it; they go to `log_file` when one is set.
+Privyx writes no log lines to it; they go to `log_file` when one is set. The
+tool usually runs in your project, so the audit trail goes to
+`$XDG_STATE_HOME/privyx/audit.log` (`~/.local/state/privyx/audit.log`) instead
+of the working directory, unless `audit.path` or `PRIVYX_AUDIT_PATH` sets it.
 
 ```bash
 privyx run [OPTIONS] TARGET [ARGS]...
@@ -143,7 +146,8 @@ privyx session prune --older-than 7d [--dry-run]
 
 ## `privyx audit`
 
-Read the audit trail. `FILE` defaults to `audit.path`.
+Read the audit trail. `FILE` defaults to `audit.path`; the trail of
+`privyx run` is in `~/.local/state/privyx/audit.log` unless you set one.
 
 ```bash
 privyx audit stats [FILE] [--since 24h]
