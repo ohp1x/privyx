@@ -265,12 +265,15 @@ async def test_routes_come_from_config() -> None:
         "/v1/chat/completions": "openai",
         "/v1/messages": "anthropic",
         "/v1/responses": "responses",
+        "/chat/completions": "openai",
+        "/responses": "responses",
     }
     async with client:
         assert (await client.get("/health")).json() == {"status": "ok"}
         assert (await client.post("/v1/embeddings", json={})).status_code == 404
         # Never forwarded to the chat endpoint as a billed completion.
-        assert (await client.post("/v1/messages/count_tokens", json={})).status_code == 404
+        for path in ("/v1/messages/count_tokens", "/responses/input_tokens", "/responses/compact"):
+            assert (await client.post(path, json={})).status_code == 404
 
 
 @pytest.mark.asyncio

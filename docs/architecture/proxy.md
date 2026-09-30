@@ -19,7 +19,8 @@
   schema each speaks, comes from the same `proxy.routes` map (see
   [Routes](#routes)). Every served path posts to that one endpoint, so the
   token-counting and compaction routes (`/v1/messages/count_tokens`,
-  `/v1/responses/input_tokens`, `/v1/responses/compact`) are left unserved —
+  `/v1/responses/input_tokens`, `/v1/responses/compact`, and the last two
+  without `/v1`) are left unserved —
   forwarding them would turn a count into a billed completion — and a default
   gateway answers `/v1/responses` by forwarding it there too; narrow
   `proxy.routes` to the paths your upstream endpoint actually speaks.
@@ -136,6 +137,13 @@ The default:
 | `/v1/responses` | `responses` |
 | `/v1/responses/input_tokens` | `responses` |
 | `/v1/responses/compact` | `responses` |
+| `/chat/completions` | `openai` |
+| `/responses`, `/responses/input_tokens`, `/responses/compact` | `responses` |
+
+The paths without `/v1` are what the OpenAI SDK calls when its base URL lacks
+the `/v1` it expects (`OPENAI_BASE_URL=http://localhost:8000`). They are masked
+like the others and forwarded to the same path, which the upstream may not
+serve; set the base URL with `/v1`.
 
 Not covered — forwarded verbatim, so any PII in them reaches the upstream:
 `/v1/embeddings`, the legacy `/v1/completions`, Gemini's native

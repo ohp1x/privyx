@@ -116,6 +116,28 @@ async def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
+async def test_chat_paths_without_v1_are_masked() -> None:
+    """The OpenAI SDK calls these when its base URL lacks /v1; they are not forwarded as is."""
+    seen: list[tuple[str, bytes]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, request.content))
+        return httpx.Response(200, json={})
+
+    engine = _engine()
+    upstream = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy = TransparentProxy(engine, origin="https://up.test", client=upstream)
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        chat = {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        await client.post("/chat/completions", json=chat)
+        await client.post("/responses", json={"input": f"mail {EMAIL}"})
+
+    assert [path for path, _ in seen] == ["/chat/completions", "/responses"]
+    for _, body in seen:
+        assert EMAIL.encode() not in body
+        assert b"PRIVYX_EMAIL" in body
+
+
 async def test_metrics_count_proxied_exchanges() -> None:
     async with _client(_app()) as client:
         await client.post(
