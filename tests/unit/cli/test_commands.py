@@ -366,6 +366,33 @@ def test_run_unknown_target_without_env_var_is_a_usage_error(runner: CliRunner) 
     assert "--env-var" in result.output
 
 
+def test_run_rejects_a_port_out_of_range(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["run", "--port", "70000", "--env-var", "X", "--", "true"])
+
+    assert result.exit_code == 2
+    assert "0<=x<=65535" in result.output
+
+
+def test_run_reports_a_port_in_use_in_one_line(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not uvicorn's log line followed by an unretrieved task exception."""
+    import socket
+    import sys
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    with socket.create_server(("127.0.0.1", 0)) as busy:
+        port = busy.getsockname()[1]
+        result = runner.invoke(
+            cli,
+            ["run", "--no-anchor", "--port", str(port), "--env-var", "X", "--", sys.executable],
+        )
+
+    assert isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert f"Error: cannot listen on 127.0.0.1:{port}: " in result.output
+
+
 async def test_run_spawns_target_against_a_live_proxy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

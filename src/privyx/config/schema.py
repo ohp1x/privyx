@@ -253,7 +253,7 @@ class Settings(BaseModel):
     """Top-level Privyx settings."""
 
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = Field(default=8000, ge=0, le=65535)
     log_level: str = "info"
     logging: str = "text"
     log_file: str = ""

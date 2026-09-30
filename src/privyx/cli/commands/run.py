@@ -23,6 +23,7 @@ import json
 import os
 import shlex
 import shutil
+import socket
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -104,7 +105,12 @@ TARGETS: dict[str, Target] = {
 @click.option("--config", "-c", "config_path", default=None, help="Config file path")
 @click.option("--provider", "-p", default=None, help="Override the upstream provider type")
 @click.option("--upstream", "-u", default=None, help="Override the upstream URL")
-@click.option("--port", default=0, type=int, help="Proxy port (0 = pick a free one)")
+@click.option(
+    "--port",
+    default=0,
+    type=click.IntRange(0, 65535),
+    help="Proxy port (0 = pick a free one)",
+)
 @click.option(
     "--env-var",
     "env_vars",
@@ -237,6 +243,8 @@ async def _run_target(
         base_extra["anchor"] = {"secret": read_or_create_anchor_secret()}
 
     settings = load_config(config_path, extra=extra, base_extra=base_extra)
+    # Bound before anything else opens, so a port in use leaves nothing to undo.
+    sock, bound_port = _listen(settings.host, port)
 
     # The child tool owns the terminal, so we do not configure application
     # logging here; the audit trail still records to its file.
@@ -253,8 +261,8 @@ async def _run_target(
         close_upstream, target = proxy.close, resolve_origin(settings)
     await hooks.run_startup()
 
-    server, bound_port = _make_server(app, settings, port)
-    serve_task = asyncio.create_task(server.serve())
+    server = _make_server(app, settings, bound_port)
+    serve_task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
         await _wait_until_started(server, serve_task)
         base_url = f"http://{settings.host}:{bound_port}{spec.base_path}"
@@ -274,16 +282,27 @@ async def _run_target(
         audit.close()
 
 
-def _make_server(app: Any, settings: Any, port: int) -> tuple[Any, int]:
-    """Build a uvicorn server for ``app`` bound to ``port`` (0 picks a free one)."""
-    import socket
+def _listen(host: str, port: int) -> tuple[socket.socket, int]:
+    """Bind the proxy's socket on ``port`` (0 picks a free one); return it and its port.
 
+    Raises:
+        PrivyxError: If the port cannot be bound, e.g. another process uses it.
+    """
+    from privyx.core.errors import PrivyxError
+
+    sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as uvicorn's own bind does
+    try:
+        sock.bind((host, port))
+    except OSError as exc:
+        sock.close()
+        raise PrivyxError(f"cannot listen on {host}:{port}: {exc.strerror or exc}") from exc
+    return sock, int(sock.getsockname()[1])
+
+
+def _make_server(app: Any, settings: Any, port: int) -> Any:
+    """Build a uvicorn server for ``app``, to serve the socket from :func:`_listen`."""
     import uvicorn
-
-    if port == 0:
-        with socket.socket() as sock:
-            sock.bind((settings.host, 0))
-            port = int(sock.getsockname()[1])
 
     config = uvicorn.Config(
         app,
@@ -291,7 +310,7 @@ def _make_server(app: Any, settings: Any, port: int) -> tuple[Any, int]:
         port=port,
         log_level="warning",  # the tool owns the terminal; stay quiet
     )
-    return uvicorn.Server(config), port
+    return uvicorn.Server(config)
 
 
 async def _wait_until_started(server: Any, serve_task: asyncio.Task[Any]) -> None:
