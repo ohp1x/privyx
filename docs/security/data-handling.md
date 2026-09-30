@@ -11,6 +11,9 @@
 - Session mappings persist in the configured vault.
 - Default `MemoryVault` keeps nothing across restarts.
 - `SQLiteVault` / `RedisVault` persist mappings — secure the store.
+- The `sqlite` vault file (with its `-wal` and `-shm` files) and
+  `privyx mask --map` files are created readable by their owner only. An
+  existing file keeps its mode: `chmod 600` it.
 
 ## Logging
 

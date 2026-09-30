@@ -72,6 +72,10 @@ class SQLiteVault(BaseVault):
 
         if self._dsn != ":memory:":
             Path(self._dsn).parent.mkdir(parents=True, exist_ok=True)
+            # Sessions hold original values, so a new file is owner-only; SQLite
+            # creates the -wal and -shm files with the database file's mode.
+            with contextlib.suppress(OSError):  # it exists, or connect() says why not
+                Path(self._dsn).touch(mode=0o600, exist_ok=False)  # noqa: ASYNC240 - once per connect
         try:
             self._db = await aiosqlite.connect(self._dsn)
             await self._db.executescript(_PRAGMAS + _SCHEMA)
