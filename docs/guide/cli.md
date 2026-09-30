@@ -68,7 +68,9 @@ Known targets, and where each gets the proxy's URL:
 | `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
 
 Claude Code keeps only the last `--settings`: one of your own, after `--`,
-replaces Privyx's.
+replaces Privyx's. If the tool exits without having sent Privyx a single
+request, `privyx run` warns: a tool that calls its provider directly is not
+masked.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.

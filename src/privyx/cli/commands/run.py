@@ -263,7 +263,8 @@ async def _run_target(
         close_upstream, target = proxy.close, resolve_origin(settings)
     await hooks.run_startup()
 
-    server = _make_server(app, settings, bound_port)
+    counted = _Counted(app)
+    server = _make_server(counted, settings, bound_port)
     serve_task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
         await _wait_until_started(server, serve_task)
@@ -274,7 +275,15 @@ async def _run_target(
         click.echo(f"Running: {shlex.join([spec.command, *argv])}")
         click.echo(f"  {', '.join(env_vars)} = {base_url}")
 
-        return await _spawn(spec, argv, base_url, env_vars)
+        code = await _spawn(spec, argv, base_url, env_vars)
+        if not counted.requests:
+            # What a tool that ignores the proxy URL looks like from here.
+            click.echo(
+                f"Warning: no request from {spec.command} reached Privyx; if it called "
+                "its provider, it did so directly, without masking.",
+                err=True,
+            )
+        return code
     finally:
         server.should_exit = True
         await serve_task
@@ -282,6 +291,19 @@ async def _run_target(
         await close_vault()
         await close_upstream()
         audit.close()
+
+
+class _Counted:
+    """An ASGI app that counts the HTTP requests reaching ``app``."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+        self.requests = 0
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http":
+            self.requests += 1
+        await self.app(scope, receive, send)
 
 
 def _listen(host: str, port: int) -> tuple[socket.socket, int]:
