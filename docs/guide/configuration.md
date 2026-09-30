@@ -227,7 +227,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | Key | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Append PII-safe audit events to `path`. |
-| `path` | `privyx-audit.log` | Audit log file, one JSON object per line. See [Audit events](../observability/audit-events.md). |
+| `path` | `privyx-audit.log` | Audit log file, one JSON object per line. `privyx run` defaults to `$XDG_STATE_HOME/privyx/audit.log` (`~/.local/state/privyx/audit.log`). See [Audit events](../observability/audit-events.md). |
 
 ### `plugins`
 
