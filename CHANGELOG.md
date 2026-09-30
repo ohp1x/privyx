@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **CLI:** `privyx run` warns when the tool exits without having sent a single request through the proxy, which is what a tool that calls its provider directly, unmasked, looks like
+- **Development:** CI also runs the test suite on Python 3.15, with every extra but `presidio`, whose spaCy has no 3.15 build yet, and the package lists 3.15 as supported
 
 ### Changed
 
