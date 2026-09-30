@@ -57,17 +57,20 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--no-anchor` | Do not create an anchor secret in `~/.config/privyx/anchor.key`. |
 | `--list` | List the known targets and exit. |
 
-Known targets:
+Known targets, and where each gets the proxy's URL:
 
-| Target | Provider | Variables set |
+| Target | Provider | Proxy URL passed as |
 |---|---|---|
-| `claude` | `anthropic` | `ANTHROPIC_BASE_URL` |
-| `codex` | `openai` | `OPENAI_BASE_URL` |
-| `openai` | `openai` | `OPENAI_BASE_URL` |
-| `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL` |
+| `claude` | `anthropic` | `ANTHROPIC_BASE_URL`, and the same variable in `--settings`, which outranks a base URL in Claude Code's own `settings.json` |
+| `codex` | `openai` | `-c openai_base_url=…/v1` (codex does not read `OPENAI_BASE_URL`), and `OPENAI_BASE_URL` |
+| `openai` | `openai` | `OPENAI_BASE_URL`, ending in `/v1` as the OpenAI SDK expects |
+| `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
+
+Claude Code keeps only the last `--settings`: one of your own, after `--`,
+replaces Privyx's.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
-at the proxy.
+at the proxy. The variable gets the proxy's URL with no path.
 
 ## `privyx detect`
 

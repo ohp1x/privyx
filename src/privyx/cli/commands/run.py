@@ -4,8 +4,9 @@
 
     Claude Code  →  Privyx  →  Anthropic
 
-by starting the proxy on a local port and launching the tool with its base-URL
-environment variable pointed at that port.  The tool is unmodified and unaware;
+by starting the proxy on a local port and launching the tool pointed at that
+port: its base-URL environment variable, plus an argument for a tool whose own
+config outranks that variable.  The tool is unmodified and unaware;
 it just talks to what it thinks is the provider.  The transparent proxy (the
 default) relays the tool's own paths and headers, its key or login included;
 ``proxy.mode: gateway`` serves the gateway, which sends only Privyx's own key.
@@ -18,10 +19,13 @@ both commands behave identically.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import shlex
 import shutil
 import sys
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import click
@@ -35,6 +39,10 @@ class Target:
         command: Executable to launch.
         provider: Provider type the tool expects upstream.
         env_vars: Environment variables to set to the proxy's base URL.
+        base_path: Appended to the proxy's URL for a tool whose base URL ends
+            in the API version, as the OpenAI SDK's does (``…/v1``).
+        args: Builds, from that URL, arguments that go before the user's own,
+            for a tool whose own config outranks its environment.
         extra_env: Fixed environment variables the tool needs (e.g. a dummy key
             when the tool refuses to start without one — the real key is added
             upstream by the proxy).
@@ -43,7 +51,20 @@ class Target:
     command: str
     provider: str
     env_vars: tuple[str, ...]
+    base_path: str = ""
+    args: Callable[[str], list[str]] | None = None
     extra_env: dict[str, str] = field(default_factory=dict)
+
+
+def _claude_args(base_url: str) -> list[str]:
+    # A base URL in Claude Code's settings.json outranks its environment, and
+    # --settings outranks settings.json.
+    return ["--settings", json.dumps({"env": {"ANTHROPIC_BASE_URL": base_url}})]
+
+
+def _codex_args(base_url: str) -> list[str]:
+    # Codex reads its base URL from its config, not from OPENAI_BASE_URL.
+    return ["-c", f"openai_base_url={json.dumps(base_url)}"]
 
 
 TARGETS: dict[str, Target] = {
@@ -51,21 +72,26 @@ TARGETS: dict[str, Target] = {
         command="claude",
         provider="anthropic",
         env_vars=("ANTHROPIC_BASE_URL",),
+        args=_claude_args,
     ),
     "codex": Target(
         command="codex",
         provider="openai",
         env_vars=("OPENAI_BASE_URL",),
+        base_path="/v1",
+        args=_codex_args,
     ),
     "openai": Target(
         command="openai",
         provider="openai",
         env_vars=("OPENAI_BASE_URL",),
+        base_path="/v1",
     ),
     "aider": Target(
         command="aider",
         provider="openai",
         env_vars=("OPENAI_API_BASE", "OPENAI_BASE_URL"),
+        base_path="/v1",
     ),
 }
 
@@ -134,12 +160,7 @@ def run(
         command=target, provider=provider or "generic", env_vars=()
     )
     if provider:
-        spec = Target(
-            command=spec.command,
-            provider=provider,
-            env_vars=spec.env_vars,
-            extra_env=spec.extra_env,
-        )
+        spec = replace(spec, provider=provider)
     all_env_vars = tuple(spec.env_vars) + tuple(env_vars)
     if not all_env_vars:
         raise click.UsageError(
@@ -236,10 +257,11 @@ async def _run_target(
     serve_task = asyncio.create_task(server.serve())
     try:
         await _wait_until_started(server, serve_task)
-        base_url = f"http://{settings.host}:{bound_port}"
+        base_url = f"http://{settings.host}:{bound_port}{spec.base_path}"
+        argv = [*(spec.args(base_url) if spec.args else []), *argv]
 
         click.echo(f"Privyx proxy → {redact(target, 'url')}")
-        click.echo(f"Running: {spec.command} {' '.join(argv)}".rstrip())
+        click.echo(f"Running: {shlex.join([spec.command, *argv])}")
         click.echo(f"  {', '.join(env_vars)} = {base_url}")
 
         return await _spawn(spec, argv, base_url, env_vars)
