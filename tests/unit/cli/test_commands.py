@@ -459,12 +459,12 @@ async def test_run_provisions_anchor_secret_by_default(
     int(secret, 16)  # valid hex
 
 
-Seen = list[tuple[str, dict[str, str]]]
+Seen = list[tuple[str, dict[str, str], str]]
 
 
 @pytest.fixture
 def upstream() -> Iterator[tuple[str, Seen]]:
-    """A local upstream answering every POST with a message; records path and headers."""
+    """A local upstream answering every POST with a message; records path, headers, body."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -472,8 +472,9 @@ def upstream() -> Iterator[tuple[str, Seen]]:
 
     class Upstream(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
-            self.rfile.read(int(self.headers["content-length"]))
-            seen.append((self.path, {k.lower(): v for k, v in self.headers.items()}))
+            raw = self.rfile.read(int(self.headers["content-length"]))
+            headers = {k.lower(): v for k, v in self.headers.items()}
+            seen.append((self.path, headers, raw.decode()))
             body = b'{"type": "message", "content": [{"type": "text", "text": "ok"}]}'
             self.send_response(200)
             self.send_header("content-type", "application/json")
@@ -488,6 +489,7 @@ def upstream() -> Iterator[tuple[str, Seen]]:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_address[1]}", seen
     server.shutdown()
+    server.server_close()
 
 
 async def test_run_relays_the_tools_own_credential(
@@ -535,10 +537,10 @@ async def test_run_relays_the_tools_own_credential(
     )
 
     assert code == 0
-    assert [path for path, _ in seen] == ["/v1/messages?beta=true"] * 2
+    assert [path for path, *_ in seen] == ["/v1/messages?beta=true"] * 2
     assert seen[0][1]["x-api-key"] == "sk-ant-client"
     assert seen[1][1]["authorization"] == "Bearer oat-client"
-    assert all(headers["anthropic-beta"] == "b1" for _, headers in seen)
+    assert all(headers["anthropic-beta"] == "b1" for _, headers, _ in seen)
 
 
 async def test_run_serves_the_gateway_from_the_config(
@@ -586,8 +588,92 @@ async def test_run_serves_the_gateway_from_the_config(
     )
 
     assert code == 0
-    assert [path for path, _ in seen] == ["/base/v1/messages"]
+    assert [path for path, *_ in seen] == ["/base/v1/messages"]
     assert seen[0][1]["x-api-key"] == "sk-ant-privyx"
+
+
+# Each known tool reduced to how it finds its base URL.  Port 9 stands in for
+# the provider the real tool would call when privyx run does not reach it.
+FAKE_TOOL = """
+import json, os, sys, urllib.request
+args = sys.argv[1:]
+if TOOL == "claude":  # --settings outranks settings.json, which outranks the environment
+    settings = json.loads(args[args.index("--settings") + 1]) if "--settings" in args else {}
+    base = settings.get("env", {}).get("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
+    path, body = "/v1/messages", {"messages": [{"role": "user", "content": TEXT}]}
+elif TOOL == "codex":  # its config, not OPENAI_BASE_URL
+    config = [arg.split("=", 1)[1] for arg in args if arg.startswith("openai_base_url=")]
+    base = json.loads(config[0]) if config else "http://127.0.0.1:9"
+    path, body = "/responses", {"input": TEXT}
+else:  # the OpenAI SDK, whose base URL ends in /v1
+    base = os.environ["OPENAI_API_BASE" if TOOL == "aider" else "OPENAI_BASE_URL"]
+    path, body = "/chat/completions", {"messages": [{"role": "user", "content": TEXT}]}
+urllib.request.urlopen(urllib.request.Request(
+    base + path, data=json.dumps(body).encode(), headers={"content-type": "application/json"}
+), timeout=5).read()
+"""
+
+
+@pytest.mark.parametrize(
+    ("name", "path"),
+    [
+        ("claude", "/v1/messages"),
+        ("codex", "/v1/responses"),
+        ("openai", "/v1/chat/completions"),
+        ("aider", "/v1/chat/completions"),
+    ],
+)
+async def test_run_points_each_known_target_at_the_proxy(
+    name: str,
+    path: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    upstream: tuple[str, Seen],
+) -> None:
+    """Every known tool reaches Privyx, on a masked path.
+
+    Codex reads its base URL from its config, not ``OPENAI_BASE_URL``; a base
+    URL in Claude Code's settings.json outranks its environment; and the OpenAI
+    SDK expects ``/v1`` in its base URL, without which its ``/chat/completions``
+    is forwarded as is.
+    """
+    import sys
+    from dataclasses import replace
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    for var in ("PRIVYX_API_KEY", "PRIVYX_ANTHROPIC_API_KEY", "PRIVYX_OPENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
+    url, seen = upstream
+
+    from privyx.cli.commands.run import TARGETS, _run_target
+
+    tool = tmp_path / name
+    tool.write_text(
+        f"#!{sys.executable}\nTOOL, TEXT = {name!r}, {f'mail {EMAIL}'!r}\n{FAKE_TOOL}",
+        encoding="utf-8",
+    )
+    tool.chmod(0o755)
+    spec = replace(TARGETS[name], command=str(tool))
+    code = await _run_target(
+        spec=spec,
+        argv=[],
+        config_path=None,
+        upstream=url,
+        port=0,
+        env_vars=spec.env_vars,
+        session_strategy="ephemeral",
+        no_anchor=True,
+    )
+
+    assert code == 0, f"{name} did not reach Privyx"
+    assert [seen_path for seen_path, *_ in seen] == [path]
+    body = seen[0][2]
+    assert EMAIL not in body
+    assert "PRIVYX_EMAIL" in body
 
 
 # --------------------------------------------------------------------------

@@ -343,6 +343,10 @@ def main(transparent: bool) -> int:
         proxy, env["ANTHROPIC_BASE_URL"] = start_proxy(root, env, upstream)
         cmd = ["claude", *claude]
     else:
+        # A base URL in Claude Code's own settings outranks its environment;
+        # privyx run must reach it anyway (nothing answers on port 9).
+        settings = {"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9"}}
+        (home / ".claude" / "settings.json").write_text(json.dumps(settings))
         cmd = ["privyx", "run", "claude", "-c", str(root / "privyx.yaml"),
                "--upstream", f"{upstream}/v1/messages", "--", *claude]  # fmt: skip
     proc = subprocess.Popen(
