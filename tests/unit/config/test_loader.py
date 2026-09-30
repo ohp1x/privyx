@@ -57,8 +57,9 @@ def test_an_invalid_env_vault_ttl_fails_at_load(
         load_config()
 
 
-def test_an_invalid_env_port_fails_at_load(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PRIVYX_PORT", "80a")
+@pytest.mark.parametrize("value", ["80a", "70000", "-1"])
+def test_an_invalid_env_port_fails_at_load(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("PRIVYX_PORT", value)
     with pytest.raises(ConfigError, match="port"):
         load_config()
 
