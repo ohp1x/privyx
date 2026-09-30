@@ -7,8 +7,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from privyx.config.schema import AuditConfig, Settings
 from privyx.core.builder import build_audit_logger
+from privyx.core.errors import ConfigError
 from privyx.observability.audit import SCHEMA_VERSION, AuditEvent, AuditLogger
 
 
@@ -259,6 +262,22 @@ def test_build_audit_logger_disabled_is_noop(tmp_path: Path) -> None:
 
     assert audit.enabled is False
     assert not path.exists()  # disabled must not open or create the file
+
+
+def test_build_audit_logger_creates_the_directory(tmp_path: Path) -> None:
+    path = tmp_path / "state" / "privyx" / "audit.log"
+    audit = build_audit_logger(Settings(audit=AuditConfig(enabled=True, path=str(path))))
+    audit.close()
+
+    assert path.exists()
+
+
+def test_an_unwritable_audit_path_is_a_config_error(tmp_path: Path) -> None:
+    (tmp_path / "file").write_text("")  # a file where a directory is needed
+    settings = Settings(audit=AuditConfig(enabled=True, path=str(tmp_path / "file" / "audit.log")))
+
+    with pytest.raises(ConfigError, match="cannot write audit.path"):
+        build_audit_logger(settings)
 
 
 def test_no_op_transform_and_restore_are_not_recorded() -> None:

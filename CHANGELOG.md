@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI:** `privyx run openai` and `privyx run aider` gave the tool a base URL without the `/v1` the OpenAI SDK expects, so every request was answered `404`
 - **CLI:** a port outside 0–65535 (`port`, `PRIVYX_PORT`, `--port`) printed three tracebacks once the server tried to bind it; it is now refused at startup with a one-line error, as is a port already in use for `privyx run`
 - **CLI:** `privyx run` printed Privyx's warnings, such as an unreachable upstream, into the tool's terminal, over its screen; they now go to `log_file` when one is set, and nowhere else
+- **CLI:** a `log_file` or `audit.path` that cannot be written stopped `privyx proxy` and `privyx run` with a traceback; it is now a one-line error, and a missing directory for `audit.path` is created
 
 ### Security
 

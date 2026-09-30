@@ -249,14 +249,12 @@ async def _run_target(
     base_extra["audit"] = {"path": str(_default_audit_path())}
 
     settings = load_config(config_path, extra=extra, base_extra=base_extra)
-    if settings.audit.enabled:
-        Path(settings.audit.path).parent.mkdir(parents=True, exist_ok=True)
-    # Bound before anything else opens, so a port in use leaves nothing to undo.
-    sock, bound_port = _listen(settings.host, port)
-
     # The child tool owns the terminal: log lines go to log_file if one is set,
     # else nowhere, and the audit trail still records every error.
     configure_logging(settings, console=False)
+    # Bound before the rest opens, so a port in use leaves nothing to undo.
+    sock, bound_port = _listen(settings.host, port)
+
     hooks = load_plugins(settings)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)

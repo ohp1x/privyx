@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from privyx.config.schema import Settings
@@ -213,14 +214,23 @@ def _sqlite_path(dsn: str) -> str:
 def build_audit_logger(settings: Settings) -> AuditLogger:
     """Build the configured audit logger.
 
-    When ``audit.enabled`` is set, opens ``audit.path`` in append mode and hands
-    the handle to an :class:`AuditLogger`; the caller owns it and must call
-    :meth:`AuditLogger.close` on shutdown.  When disabled, returns a no-op
-    logger (a ``None`` writer), so call sites need no ``if audit:`` guards.
+    When ``audit.enabled`` is set, opens ``audit.path`` in append mode, creating
+    its directory, and hands the handle to an :class:`AuditLogger`; the caller
+    owns it and must call :meth:`AuditLogger.close` on shutdown.  When disabled,
+    returns a no-op logger (a ``None`` writer), so call sites need no
+    ``if audit:`` guards.
+
+    Raises:
+        ConfigError: If ``audit.path`` cannot be written.
     """
     if not settings.audit.enabled:
         return AuditLogger(None)
-    writer = open(settings.audit.path, "a", encoding="utf-8")
+    path = Path(settings.audit.path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        writer = open(path, "a", encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"cannot write audit.path {path}: {exc.strerror or exc}") from exc
     return AuditLogger(writer)
 
 
