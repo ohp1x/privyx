@@ -17,15 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- **CLI:** `privyx run` dropped the tool's own key or login, so without `PRIVYX_<TYPE>_API_KEY` every request failed with `401` (`x-api-key header is required` for `privyx run claude`). It now follows `proxy.mode` like `privyx proxy`: the transparent proxy by default, which relays the tool's headers and paths (`--upstream` then uses only the URL's origin), or the gateway with `proxy.mode: gateway`
+- **CLI:** `privyx run` dropped the tool's own key or login, so without `PRIVYX_<TYPE>_API_KEY` every request failed with `401` (`x-api-key header is required` for `privyx run claude`). It now follows `proxy.mode` like `privyx proxy`: the transparent proxy by default, which relays the tool's headers and paths (`--upstream` then uses only the URL's origin), or the gateway with `proxy.mode: gateway`. As with `privyx proxy`, a path outside `proxy.routes` is forwarded unmasked; `proxy.passthrough_unknown: false` refuses it
 - **CLI:** `privyx run openai` and `privyx run aider` gave the tool a base URL without the `/v1` the OpenAI SDK expects, so every request was answered `404`
-- **CLI:** a port outside 0–65535 (`port`, `PRIVYX_PORT`, `--port`) printed three tracebacks once the server tried to bind it; it is now refused at startup with a one-line error, as is a port already in use for `privyx run`
+- **CLI:** a port outside 0–65535 (`port`, `PRIVYX_PORT`, `--port`) printed three tracebacks once the server tried to bind it; it is now refused at startup with an `Error:` message, and `privyx run` reports a port already in use in one line
 - **CLI:** `privyx run` printed Privyx's warnings, such as an unreachable upstream, into the tool's terminal, over its screen; they now go to `log_file` when one is set, and nowhere else
 - **CLI:** a `log_file` or `audit.path` that cannot be written stopped `privyx proxy` and `privyx run` with a traceback; it is now a one-line error, and a missing directory for `audit.path` is created
 
 ### Security
 
-- **CLI:** `privyx run codex`, and `privyx run claude` when Claude Code's `settings.json` sets `ANTHROPIC_BASE_URL`, bypassed the proxy and sent every request unmasked: codex reads its base URL from its own config, and Claude Code prefers its settings to the environment. `privyx run` now passes the proxy's URL where each tool reads it first (`-c openai_base_url=…`, `--settings`); give a router set in those settings to `--upstream`
+- **CLI:** `privyx run codex`, and `privyx run claude` when Claude Code's `settings.json` sets `ANTHROPIC_BASE_URL`, bypassed the proxy and sent every request unmasked: codex reads its base URL from its own config, and Claude Code prefers its settings to the environment. `privyx run` now passes the proxy's URL where each tool reads it first (`--settings`, and `-c openai_base_url=…` for codex's built-in OpenAI provider); give a router set in Claude Code's settings to `--upstream`
 - **Proxy:** an OpenAI client whose base URL lacks `/v1` (`OPENAI_BASE_URL=http://localhost:8000`) calls `/chat/completions` and `/responses`, which the transparent proxy forwarded unmasked; these paths are now masked like their `/v1` versions
 - **Vault:** the `sqlite` vault file with its `-wal` and `-shm` files and the `--map` file of `privyx mask`, which hold original values, were created readable by every local user, as was the anchor key of `privyx run` until its `chmod`; they are now created owner-only (`0600`). Existing files keep their mode (`chmod 600 privyx.db*`)
 

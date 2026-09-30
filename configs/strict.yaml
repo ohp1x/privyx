@@ -43,4 +43,4 @@ provider:
 # Keep the PII-safe audit trail on for higher-sensitivity deployments.
 audit:
   enabled: true
-  path: privyx-audit.log
+  # path defaults to privyx-audit.log (privyx run: ~/.local/state/privyx/audit.log)
