@@ -225,6 +225,7 @@ async def _run_target(
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.gateway.server import Gateway
     from privyx.gateway.transparent import create_transparent_app
+    from privyx.observability.logging import configure_logging
     from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider, resolve_base_url, resolve_origin
     from privyx.security.keys import read_or_create_anchor_secret
@@ -246,8 +247,9 @@ async def _run_target(
     # Bound before anything else opens, so a port in use leaves nothing to undo.
     sock, bound_port = _listen(settings.host, port)
 
-    # The child tool owns the terminal, so we do not configure application
-    # logging here; the audit trail still records to its file.
+    # The child tool owns the terminal: log lines go to log_file if one is set,
+    # else nowhere, and the audit trail still records every error.
+    configure_logging(settings, console=False)
     hooks = load_plugins(settings)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
@@ -309,6 +311,7 @@ def _make_server(app: Any, settings: Any, port: int) -> Any:
         host=settings.host,
         port=port,
         log_level="warning",  # the tool owns the terminal; stay quiet
+        log_config=None,  # uvicorn's records go to Privyx's handlers, not stderr
     )
     return uvicorn.Server(config)
 

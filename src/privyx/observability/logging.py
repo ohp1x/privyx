@@ -74,12 +74,14 @@ def _tidy_third_party(record: logging.LogRecord) -> bool | logging.LogRecord:
     return True
 
 
-def configure_logging(settings: Settings) -> None:
+def configure_logging(settings: Settings, *, console: bool = True) -> None:
     """Set up application logging from Privyx settings.
 
     ``log_level`` governs Privyx's own loggers.  Third-party libraries
     (aiosqlite, httpcore, ...) reach the console only at WARNING and above; set
-    ``log_file`` to capture them in full at ``log_level`` for debugging.
+    ``log_file`` to capture them in full at ``log_level`` for debugging.  With
+    ``console=False`` (``privyx run``, whose tool owns the terminal) records go
+    to ``log_file`` only, or nowhere without one.
 
     Idempotent: re-configuring (``privyx run`` then ``privyx proxy`` in the same
     process, or repeated test setup) replaces Privyx's handlers rather than
@@ -91,16 +93,21 @@ def configure_logging(settings: Settings) -> None:
     else:
         formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-    console = logging.StreamHandler(sys.stdout)
-    own = logging.Filter("privyx")
-    console.addFilter(lambda record: record.levelno >= logging.WARNING or own.filter(record))
-    handlers: list[logging.Handler] = [console]
+    handlers: list[logging.Handler] = []
+    if console:
+        stream = logging.StreamHandler(sys.stdout)
+        own = logging.Filter("privyx")
+        stream.addFilter(lambda record: record.levelno >= logging.WARNING or own.filter(record))
+        handlers.append(stream)
     if settings.log_file:
         # Third-party debug output includes raw vault rows (original PII): owner-only.
         Path(settings.log_file).touch(mode=0o600)
         log_file = logging.FileHandler(settings.log_file, encoding="utf-8")
         log_file.addFilter(_tidy_third_party)
         handlers.append(log_file)
+    if not handlers:
+        # With no handler at all, logging's last resort prints warnings to stderr.
+        handlers.append(logging.NullHandler())
 
     root = logging.getLogger()
     for existing in list(root.handlers):

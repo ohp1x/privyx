@@ -38,7 +38,8 @@ like `privyx proxy`. The transparent proxy (the default) relays the tool's own
 key or login unless Privyx has a key of its own
 ([Configuration](configuration.md)). With `proxy.mode: gateway` in the config
 file, Privyx sends only its own key and posts to the upstream URL as written,
-which an upstream behind a base path needs.
+which an upstream behind a base path needs. The tool owns the terminal, so
+Privyx writes no log lines to it; they go to `log_file` when one is set.
 
 ```bash
 privyx run [OPTIONS] TARGET [ARGS]...

@@ -393,6 +393,54 @@ def test_run_reports_a_port_in_use_in_one_line(
     assert f"Error: cannot listen on 127.0.0.1:{port}: " in result.output
 
 
+@pytest.mark.parametrize("log_file", [False, True])
+def test_run_writes_nothing_to_the_tools_terminal(tmp_path: Path, log_file: bool) -> None:
+    """The tool owns the terminal, so a warning would land on its screen.
+
+    Run in a subprocess, as for real: pytest's own log handlers would keep
+    logging from printing a warning to stderr as its last resort.
+    """
+    import os
+    import subprocess
+    import sys
+
+    pytest.importorskip("uvicorn")
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, urllib.error, urllib.request\n"
+        "request = urllib.request.Request(\n"
+        "    os.environ['ANTHROPIC_BASE_URL'] + '/v1/messages', data=b'{\"messages\": []}',\n"
+        "    headers={'content-type': 'application/json'},\n"
+        ")\n"
+        "try:\n"
+        "    urllib.request.urlopen(request, timeout=30)\n"
+        "except urllib.error.HTTPError as exc:\n"
+        "    print('status', exc.code)\n",
+        encoding="utf-8",
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PRIVYX_")}
+    env["PRIVYX_AUDIT_ENABLED"] = "0"
+    if log_file:
+        env["PRIVYX_LOG_FILE"] = str(tmp_path / "privyx.log")
+    # Nothing listens on port 9: the upstream is unreachable, which Privyx logs.
+    command = ["run", "--no-anchor", "--provider", "anthropic", "--upstream", "http://127.0.0.1:9",
+               "--env-var", "ANTHROPIC_BASE_URL", "--", sys.executable, str(probe)]  # fmt: skip
+    result = subprocess.run(
+        [sys.executable, "-c", "from privyx.cli.main import cli; cli()", *command],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        timeout=60,
+    )
+
+    assert "status 502" in result.stdout
+    assert result.stderr == ""
+    if log_file:
+        assert "no response from the upstream" in (tmp_path / "privyx.log").read_text()
+
+
 async def test_run_spawns_target_against_a_live_proxy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
