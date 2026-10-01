@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-10-01
+
 ### Added
 
 - **Development:** `make e2e` can put a real provider behind its recorder (`--upstream`) and drive Codex as well (`--agent codex`); the script is now `scripts/test-e2e/`, one file per agent
@@ -319,7 +321,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.13...HEAD
+[0.1.13]: https://github.com/ohp1x/privyx/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/ohp1x/privyx/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/ohp1x/privyx/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/ohp1x/privyx/compare/v0.1.9...v0.1.10
