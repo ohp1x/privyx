@@ -416,6 +416,113 @@ async def test_transform_numbers_the_cache_prefix_first() -> None:
     assert list(outs[1]) == ["messages", "system"]  # key order kept
 
 
+async def test_transform_masks_what_the_client_reports_about_its_machine() -> None:
+    engine = _engine()
+    sid = await _session(engine)
+    # Claude Code's `safeguards`.  In a message `status`, `name`, and `url` are
+    # wire structure and skipped; here they hold file names and git remotes.
+    context = {
+        "permission_mode": "auto",
+        "live_cwd": f"/home/{EMAIL}/app",
+        "git_state": {
+            "status": {"clean": False, "porcelain": f"?? {EMAIL}.txt"},
+            "remotes": [{"name": EMAIL, "url": f"https://git.example/{EMAIL}/app.git"}],
+        },
+    }
+    payload = {
+        "safeguards": [{"type": "dangerous_tool_use", "classifier_context": context}],
+        "messages": [],
+    }
+    original = json.dumps(payload)
+
+    out = await transform_request(payload, engine, sid)
+
+    assert EMAIL not in json.dumps(out)
+    assert json.dumps(payload) == original  # caller payload untouched
+    masked = out["safeguards"][0]["classifier_context"]
+    assert out["safeguards"][0]["type"] == "dangerous_tool_use"
+    assert masked["permission_mode"] == "auto" and masked["git_state"]["status"]["clean"] is False
+    assert masked["live_cwd"].startswith("/home/<PRIVYX_EMAIL_")
+
+
+async def test_machine_metadata_does_not_renumber_the_conversation() -> None:
+    # `safeguards` comes with a session's first request only, and ahead of the
+    # messages.  Numbered first, its values would shift every token after them
+    # on that one turn: a prompt-cache miss, and an echoed turn that differs.
+    conversation = {
+        "system": f"owner {PHONE}",
+        "messages": [{"role": "user", "content": f"mail {EMAIL}"}],
+    }
+    context = {"home_dir": "/home/bob@example.com", "live_cwd": f"/srv/{EMAIL}"}
+    first = {"safeguards": [{"classifier_context": context}], **conversation}
+    outs = []
+    for payload in (first, conversation):
+        engine = _engine()
+        outs.append(await transform_request(payload, engine, await _session(engine)))
+
+    assert outs[0]["system"] == outs[1]["system"]
+    assert outs[0]["messages"] == outs[1]["messages"]
+    # A value in both places gets one token.
+    token = outs[0]["messages"][0]["content"].removeprefix("mail ")
+    assert outs[0]["safeguards"][0]["classifier_context"]["live_cwd"] == f"/srv/{token}"
+    assert list(outs[0]) == ["safeguards", "system", "messages"]  # key order kept
+
+
+def _codex_metadata(path: str) -> str:
+    """Codex's turn metadata: a JSON string with the workspace path as a key."""
+    remotes = {"origin": f"https://git.example{path}.git"}
+    workspaces = {path: {"associated_remote_urls": remotes, "has_changes": False}}
+    return json.dumps({"session_id": "s-1", "workspaces": workspaces})
+
+
+async def test_transform_masks_codex_turn_metadata_in_body_and_header() -> None:
+    vault = _CopyingVault()
+    engine = PrivacyEngine(
+        detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
+    )
+    sid = await _session(engine)
+    metadata = _codex_metadata(f"/home/{EMAIL}/app")
+    payload = {
+        "client_metadata": {"session_id": "s-1", "x-codex-turn-metadata": metadata},
+        "input": f"mail {EMAIL}",
+    }
+    headers = {"x-codex-turn-metadata": metadata, "authorization": "Bearer key"}
+    vault.gets = vault.saves = 0
+
+    out = await transform_request(payload, engine, sid, headers=headers)
+
+    assert (vault.gets, vault.saves) == (1, 1)  # one session scope for body and header
+    token = out["input"].removeprefix("mail ")
+    assert token.startswith("<PRIVYX_EMAIL_")
+    body_copy = out["client_metadata"]["x-codex-turn-metadata"]
+    assert headers == {"x-codex-turn-metadata": body_copy, "authorization": "Bearer key"}
+    assert EMAIL not in body_copy
+    assert json.loads(body_copy) == json.loads(_codex_metadata(f"/home/{token}/app"))
+
+
+async def test_metadata_json_escapes_are_decoded_before_masking() -> None:
+    # Codex writes /home/josé as /home/josé, which no detector would match.
+    engine = PrivacyEngine(
+        detector=RegexDetector({"PERSON": "josé"}),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+    )
+    sid = await _session(engine)
+    metadata = _codex_metadata("/home/josé/zoë")
+    assert metadata.isascii() and "jos\\u00e9" in metadata
+    headers = {"x-codex-turn-metadata": metadata}
+    payload = {"client_metadata": {"x-codex-turn-metadata": metadata}}
+
+    out = await transform_request(payload, engine, sid, headers=headers)
+
+    header = headers["x-codex-turn-metadata"]
+    for masked in (header, out["client_metadata"]["x-codex-turn-metadata"]):
+        (path,) = json.loads(masked)["workspaces"]
+        assert path.startswith("/home/<PRIVYX_PERSON_") and path.endswith("/zoë")
+    assert header.isascii()  # a header value is one line of ASCII
+
+
 async def test_echoed_thinking_gets_the_signed_text_back() -> None:
     engine = _engine()
     sid = await _session(engine)

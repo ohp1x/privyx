@@ -21,13 +21,14 @@ default rather than leaking:
   every string leaf except opaque/structural keys (:func:`_opaque`).  It fails
   closed: an unknown field is pseudonymized, never forwarded raw.  ``tools`` is
   config too, except its ``description`` prose (:func:`_descriptions`): an MCP
-  server writes those, and they reach the model on every turn.
+  server writes those, and they reach the model on every turn.  What a client
+  reports about its own machine (:data:`METADATA_KEYS`) is walked whole.
 
 Two things keep a multi-turn conversation byte-stable, which prompt caching and
 Anthropic's thinking signatures both need: the request is walked in cache-prefix
-order (``tools``, then ``system`` / ``instructions``, then the rest), so a value
-first seen in a later message cannot renumber the system prompt; and an echoed
-``thinking`` block gets back the exact text the upstream signed
+order (``tools``, then ``system`` / ``instructions``, then the rest, client
+metadata last), so a value first seen later cannot renumber the system prompt;
+and an echoed ``thinking`` block gets back the exact text the upstream signed
 (:func:`remember_thinking`) instead of a re-pseudonymization of its restored form.
 
 Streaming responses are handled by
@@ -75,6 +76,16 @@ OPAQUE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+#: Top-level request keys in which a client describes the machine it runs on,
+#: not the conversation: Claude Code's ``safeguards`` (working directory, home,
+#: user name, git branch and remotes) and Codex's ``client_metadata`` (workspace
+#: paths and remote URLs).  No key is opaque in there: it is not wire structure
+#: this module knows, and a file list sits under ``status``, a remote under ``url``.
+METADATA_KEYS: frozenset[str] = frozenset({"safeguards", "client_metadata"})
+
+#: Request headers that carry the same: Codex repeats its turn metadata in one.
+MASKED_HEADERS: frozenset[str] = frozenset({"x-codex-turn-metadata"})
+
 #: Top-level keys walked first, in the order the provider caches the prompt.
 _PREFIX_KEYS: tuple[str, ...] = ("tools", "system", "instructions")
 
@@ -113,6 +124,7 @@ async def transform_request(
     session_id: str,
     *,
     session: Session | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Return a copy of ``payload`` with its content leaves pseudonymized.
 
@@ -120,6 +132,13 @@ async def transform_request(
     pseudonymized except the opaque keys (see :func:`_opaque`), including the
     assistant turns a client echoes back — a restored value that is not
     pseudonymized again would reach the upstream in the clear.
+
+    :data:`METADATA_KEYS` are walked whole, and last: some come with only one
+    request of a conversation, and numbered earlier their values would shift
+    every token after them on that turn alone.  ``headers``, the ones about to
+    be sent upstream, belong to the same request: the values of
+    :data:`MASKED_HEADERS` are pseudonymized **in place**, after the body and in
+    the same session, so a path gets one token in both.
 
     ``session``, an :meth:`~privyx.core.engine.PrivacyEngine.ephemeral_session`,
     is used as is: no lock, no vault read or write.  Otherwise ``session_id`` is
@@ -130,6 +149,8 @@ async def transform_request(
     """
 
     def rank(key: str) -> int:
+        if key in METADATA_KEYS:
+            return len(_PREFIX_KEYS) + 1
         return _PREFIX_KEYS.index(key) if key in _PREFIX_KEYS else len(_PREFIX_KEYS)
 
     rebuilt: dict[str, Any] = {}
@@ -141,16 +162,50 @@ async def transform_request(
         async def transform(text: str) -> str:
             return (await engine.transform(text, session=held, persist=False)).text
 
+        async def metadata(text: str) -> str:
+            return await transform(_unescaped(text))
+
         for key in sorted(payload, key=rank):  # stable: the rest keep their order
             value = payload[key]
             if key == "tools":
                 rebuilt[key] = await _drive(_descriptions(value), transform)
             elif key in CONTENT_KEYS:
                 rebuilt[key] = await walk_async(value, transform, key)
+            elif key in METADATA_KEYS:
+                rebuilt[key] = await _drive(_walk(value, key, True), metadata)
             else:
                 rebuilt[key] = value
+        if headers:
+            for name in MASKED_HEADERS & headers.keys():
+                headers[name] = _header_value(await metadata(headers[name]))
     _pin_thinking(rebuilt.get("messages"))
     return {key: rebuilt[key] for key in payload}
+
+
+def _unescaped(text: str) -> str:
+    """``text`` with its ``\\uXXXX`` escapes decoded, when it is a JSON document.
+
+    Codex writes a workspace under ``/home/josé`` as ``/home/jos\\u00e9``, which
+    no detector would match.  Such a document is then pseudonymized as text, not
+    leaf by leaf: the paths in it are keys.
+    """
+    if "\\u" not in text:
+        return text
+    try:
+        decoded = json.dumps(json.loads(text), ensure_ascii=False, separators=(",", ":"))
+        decoded.encode()  # a lone surrogate could not be sent
+    except ValueError:
+        return text
+    return decoded
+
+
+def _header_value(text: str) -> str:
+    """``text`` as one line of printable ASCII, all a header value may hold.
+
+    Any other character becomes its JSON escape (``é`` → ``\\u00e9``), which the
+    JSON these headers hold reads back unchanged.
+    """
+    return "".join(c if " " <= c <= "~" else json.dumps(c)[1:-1] for c in text)
 
 
 def remember_thinking(signature: Any, text: str) -> None:

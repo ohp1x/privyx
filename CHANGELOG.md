@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **Proxy coverage:** Claude Code's `safeguards` request field (working directory, home, user name, git branch and remotes) reached the provider unmasked; it is now masked like the rest of the request
+- **Proxy coverage:** Codex's turn metadata (workspace paths and git remote URLs) reached the provider unmasked, in `client_metadata` and in the `x-codex-turn-metadata` request header; both are now masked, with the tokens the request body uses
+
 ## [0.1.12] - 2026-09-30
 
 ### Added

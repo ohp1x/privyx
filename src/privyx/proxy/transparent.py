@@ -8,7 +8,8 @@ restored on the way back, batch or streaming, without any client-side change.
 The per-request pipeline:
 
 1. classify the path against the configured routes (:func:`detect_schema`);
-2. for a chat path with a JSON body, pseudonymize the sensitive text leaves;
+2. for a chat path with a JSON body, pseudonymize the sensitive text leaves,
+   and on any path the headers that describe the client's machine;
 3. forward method, path, query, and (filtered) headers to ``origin/path``;
 4. restore the response — structurally for JSON, event-by-event for SSE — and
    forward anything else (models, embeddings, non-JSON) verbatim.
@@ -45,7 +46,12 @@ from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
 from privyx.providers.generic import upstream_client
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
-from privyx.proxy.schemas import detect_schema, restore_response, transform_request
+from privyx.proxy.schemas import (
+    MASKED_HEADERS,
+    detect_schema,
+    restore_response,
+    transform_request,
+)
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
 from privyx.proxy.streaming import AuditedStream
@@ -250,13 +256,26 @@ class TransparentProxy:
             sid = session.session_id
             self._audit.set_session(sid)
 
+            upstream_headers = filter_request_headers(
+                headers,
+                schema=schema,
+                forward_client_auth=self._forward_client_auth,
+                api_key=self._api_key,
+                extra=self._extra_headers,
+            )
             out_body = body
             transform_ms: float | None = None
-            if isinstance(payload, dict):
+            # A masked header comes on body-less requests too, such as the GET
+            # that asks for a WebSocket, and on unrouted paths.
+            if isinstance(payload, dict) or not MASKED_HEADERS.isdisjoint(upstream_headers):
                 transform_start = time.perf_counter()
                 try:
                     transformed = await transform_request(
-                        payload, self._engine, sid, session=ephemeral
+                        payload or {},
+                        self._engine,
+                        sid,
+                        session=ephemeral,
+                        headers=upstream_headers,
                     )
                 except VaultError:
                     raise  # not a scan failure: answered below
@@ -275,17 +294,11 @@ class TransparentProxy:
                         body=json.dumps(SCAN_FAILED_BODY).encode(),
                     )
                 transform_ms = _elapsed_ms(transform_start)
-                out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
+                if isinstance(payload, dict):
+                    out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
             self._audit.flush_transform()
 
             url = f"{self._origin}/{path.lstrip('/')}"
-            upstream_headers = filter_request_headers(
-                headers,
-                schema=schema,
-                forward_client_auth=self._forward_client_auth,
-                api_key=self._api_key,
-                extra=self._extra_headers,
-            )
             length = _ci_get(headers, "content-length")
             if not isinstance(out_body, bytes) and length:
                 # Streamed unchanged, so its length still holds; without it
