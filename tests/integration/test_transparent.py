@@ -214,6 +214,27 @@ async def test_unrouted_path_refused_without_passthrough() -> None:
     assert [r.url.path for r in capture] == ["/v1/chat/completions"]  # nothing leaked
 
 
+async def test_websocket_upgrade_is_refused_with_426() -> None:
+    """A WebSocket could not be relayed, so its frames could not be masked.
+
+    Codex opens ``/v1/responses`` as one first.  ``426`` makes it fall back to
+    HTTP at once; on another status it retries for seconds before it does.
+    """
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    refused = await proxy.handle(
+        method="GET",
+        path="v1/responses",
+        headers={"Connection": "Upgrade", "Upgrade": "websocket"},
+        body=b"",
+    )
+
+    assert refused.status_code == 426
+    assert "WebSocket" in json.loads(refused.body or b"{}")["error"]["message"]
+    assert capture == []  # not forwarded as a plain GET
+
+
 @pytest.mark.parametrize(
     ("content_type", "body"),
     [
@@ -286,9 +307,9 @@ async def test_codex_turn_metadata_header_is_masked_with_the_body() -> None:
     ]
 
 
-@pytest.mark.parametrize("path", ["v1/responses", "v1/models"], ids=["websocket", "unrouted"])
+@pytest.mark.parametrize("path", ["v1/responses", "v1/models"], ids=["routed", "unrouted"])
 async def test_codex_turn_metadata_header_is_masked_without_a_body(path: str) -> None:
-    # Codex first asks for /v1/responses as a WebSocket: a GET with the header.
+    # A request without a body carries the header too.
     capture: list[httpx.Request] = []
     proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
 

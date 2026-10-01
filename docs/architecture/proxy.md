@@ -155,6 +155,11 @@ then answers every unrouted path with a 403 instead of forwarding it, including
 harmless ones such as `GET /v1/models`. The gateway already serves only the
 routed paths.
 
+A WebSocket upgrade is answered `426 Upgrade Required` and never forwarded: the
+transparent proxy cannot relay one, so its frames could not be masked. Codex
+opens `/v1/responses` as a WebSocket first and falls back to HTTP at once on
+that status; on any other it retries for seconds before it does.
+
 ## What gets transformed and restored
 
 Both directions share one leaf walk (`proxy/schemas.py`) rather than a walker
@@ -204,8 +209,8 @@ per field, so a field a provider adds later is covered by default:
   values would shift every token after them on those turns alone. Codex repeats its metadata
   in the `x-codex-turn-metadata` request header, which the transparent proxy
   masks in the same session, so a path gets one token in the body and in the
-  header. That holds on any path and method: the `GET` with which Codex asks
-  for a WebSocket carries the header too. A value that is itself JSON, as that
+  header. That holds on any path and method, a request without a body
+  included. A value that is itself JSON, as that
   metadata is, has its `\uXXXX` escapes decoded and is then pseudonymized as
   text, since the paths in it are keys; the header goes out as ASCII again. No
   other request header is masked.

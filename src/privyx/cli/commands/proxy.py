@@ -271,6 +271,7 @@ async def _serve_transparent(
             host=settings.host,
             port=settings.port,
             log_level=settings.log_level,
+            ws="none",  # a WebSocket upgrade arrives as a plain HTTP request
             ssl_certfile=settings.tls.certfile or None,
             ssl_keyfile=settings.tls.keyfile or None,
             ssl_keyfile_password=settings.tls.keyfile_password or None,
@@ -314,6 +315,7 @@ async def _serve_gateway(
             host=settings.host,
             port=settings.port,
             log_level=settings.log_level,
+            ws="none",  # a WebSocket upgrade arrives as a plain HTTP request
             ssl_certfile=settings.tls.certfile or None,
             ssl_keyfile=settings.tls.keyfile or None,
             ssl_keyfile_password=settings.tls.keyfile_password or None,
