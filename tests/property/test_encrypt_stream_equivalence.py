@@ -116,3 +116,14 @@ def test_encrypt_every_single_boundary_equals_batch() -> None:
         assert actual == expected, f"cut={cut}"
     # And the finest possible chunking: one character at a time.
     assert stream_deanonymize(list(encrypted), operator, session.mapping) == expected
+
+
+def test_encrypt_restores_tokens_written_without_brackets_at_every_boundary() -> None:
+    text = "x alice@example.com y 123-45-6789 z"
+    encrypted, session, operator = encrypt_pseudonymize(text)
+    bare = encrypted.replace("<", "").replace(">", "")
+    assert bare != encrypted
+
+    assert batch_deanonymize(bare, operator, session) == text
+    for cut in range(len(bare) + 1):
+        assert stream_deanonymize([bare[:cut], bare[cut:]], operator, session.mapping) == text

@@ -24,6 +24,13 @@ The codec compiles the format into two regexes:
 
 Field grammars are capped in length so neither regex can be forced to buffer or
 backtrack over an unbounded run.
+
+A model sometimes writes a token without the format's edge literals
+(``PRIVYX_EMAIL_1`` for ``<PRIVYX_EMAIL_1>``).  The ``restorable*`` methods find
+that *bare* form too, for the restore paths only: between word boundaries and
+with the codec's own namespace in front, which is what keeps it from reading
+every word as a token.  A format with no edge literal, or one that does not
+begin with ``{namespace}``, has no bare form.
 """
 
 from __future__ import annotations
@@ -35,6 +42,9 @@ from typing import Protocol, runtime_checkable
 
 from privyx.token.errors import TokenFormatError
 from privyx.token.model import LogicalToken
+
+#: What may not touch a bare token on either side.
+_WORD = "[A-Za-z0-9_]"
 
 #: Field body grammars, as ``(regex_body, max_len)``.  ``regex_body`` matches one
 #: full field value (minimum one character); ``max_len`` caps it.  ``namespace``
@@ -126,8 +136,27 @@ class FormatCodec:
         if "type" not in self._fields or "id" not in self._fields:
             raise TokenFormatError(f"token format must contain {{type}} and {{id}}: {format!r}")
 
-        self._token_re = re.compile(self._build_token_pattern(segments))
+        token_pattern = self._build_token_pattern(segments)
+        self._token_re = re.compile(token_pattern)
         self._prefix_re = re.compile(self._build_prefix_pattern(segments))
+
+        # The bare form: the token without its edge literals.
+        self._lead = segments[0][1] if segments[0][0] == "lit" else ""
+        self._trail = segments[-1][1] if segments[-1][0] == "lit" else ""
+        core = segments[bool(self._lead) : len(segments) - bool(self._trail)]
+        self._written_re: re.Pattern[str] | None = None
+        self._bare_re: re.Pattern[str] | None = None
+        self._bare_prefix_re: re.Pattern[str] | None = None
+        if (self._lead or self._trail) and core[0] == ("field", "namespace"):
+            bare = [("lit", namespace), *core[1:]]
+            body = "".join(
+                re.escape(value) if kind == "lit" else f"(?:{self._fields[value].greedy})"
+                for kind, value in bare
+            )
+            bare_pattern = f"(?<!{_WORD}){body}(?!{_WORD})"
+            self._bare_re = re.compile(bare_pattern)
+            self._bare_prefix_re = re.compile(f"(?<!{_WORD}){self._build_prefix_pattern(bare)}")
+            self._written_re = re.compile(f"(?P<full>{token_pattern})|{bare_pattern}")
 
     @classmethod
     def default(cls) -> FormatCodec:
@@ -189,6 +218,49 @@ class FormatCodec:
         """
         match = self._prefix_re.match(text, pos)
         return match.end() - pos if match else 0
+
+    # -- restore: full and bare forms ------------------------------------------
+
+    def restorable(self, text: str) -> Iterator[tuple[int, int, str]]:
+        """Yield ``(start, end, token)`` for every token written in ``text``.
+
+        ``token`` is the token's full text, the key a session knows it by;
+        ``text[start:end]`` is how it was written, which may be the bare form.
+        Left to right and non-overlapping, a full token before a bare one at the
+        same position: the order :meth:`restorable_at` gives one position at a
+        time, so a stream and a batch find the same tokens.
+        """
+        if self._written_re is None:
+            for found in self.finditer(text):
+                yield found.start, found.end, found.text
+            return
+        for match in self._written_re.finditer(text):
+            written = match.group(0)
+            full = match.group("full") is not None
+            yield match.start(), match.end(), written if full else self._full(written)
+
+    def restorable_at(self, text: str, pos: int) -> tuple[int, str] | None:
+        """Return ``(end, token)`` for the token written exactly at ``pos``, or ``None``."""
+        match = self._token_re.match(text, pos)
+        if match is not None:
+            return match.end(), match.group(0)
+        if self._bare_re is not None and (match := self._bare_re.match(text, pos)):
+            return match.end(), self._full(match.group(0))
+        return None
+
+    def restorable_prefix_len(self, text: str, pos: int) -> int:
+        """:meth:`longest_prefix_len`, counting a bare token still being written.
+
+        A complete bare token that reaches the end of ``text`` counts too: only
+        the next character says whether it ends there.
+        """
+        longest = self.longest_prefix_len(text, pos)
+        if self._bare_prefix_re is not None and (match := self._bare_prefix_re.match(text, pos)):
+            longest = max(longest, match.end() - pos)
+        return longest
+
+    def _full(self, bare: str) -> str:
+        return f"{self._lead}{bare}{self._trail}"
 
     # -- internals -----------------------------------------------------------
 

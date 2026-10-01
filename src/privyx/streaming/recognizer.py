@@ -73,13 +73,24 @@ class CodecRecognizer:
     def __init__(self, codec: TokenCodec, resolve: Callable[[str], str | None]) -> None:
         self._codec = codec
         self._resolve = resolve
+        # A token may be written without its edge literals; a codec that does
+        # not know that form (a plugin's) keeps to full tokens.
+        self._at = getattr(codec, "restorable_at", None)
+        self._prefix_len = getattr(codec, "restorable_prefix_len", codec.longest_prefix_len)
 
     def longest_prefix_len(self, text: str, pos: int) -> int:
-        return self._codec.longest_prefix_len(text, pos)
+        length: int = self._prefix_len(text, pos)
+        return length
 
     def match_at(self, text: str, pos: int) -> tuple[str, str] | None:
-        match = self._codec.match_at(text, pos)
-        if match is None:
+        if self._at is None:
+            match = self._codec.match_at(text, pos)
+            found = (match.end, match.text) if match else None
+        else:
+            found = self._at(text, pos)
+        if found is None:
             return None
-        original = self._resolve(match.text)
-        return (match.text, match.text if original is None else original)
+        end, token = found
+        written = text[pos:end]
+        original = self._resolve(token)
+        return (written, written if original is None else original)

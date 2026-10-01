@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from privyx.proxy import schemas
 from privyx.proxy.stream_router import StreamRouter, select_processor_factory
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
@@ -289,10 +291,11 @@ def test_anthropic_thinking_remembered_as_sent_by_signature() -> None:
     assert schemas._THINKING["sig-stream-1"] == f"mail {TOKEN} or ops@vendor.test"
 
 
-def test_anthropic_tool_use_buffered_and_restored() -> None:
+@pytest.mark.parametrize("written", [TOKEN, TOKEN.strip("<>")], ids=["full", "bare"])
+def test_anthropic_tool_use_buffered_and_restored(written: str) -> None:
     adapter = AnthropicStreamAdapter()
     router = _router(adapter, {TOKEN: ORIG})
-    full = json.dumps({"to": TOKEN})
+    full = json.dumps({"to": written})
     fragments = [full[:4], full[4:10], full[10:]]
 
     def input_json(partial: str) -> str:
@@ -323,7 +326,7 @@ def test_anthropic_tool_use_buffered_and_restored() -> None:
 
     out = _run(router, body)
 
-    assert TOKEN not in out
+    assert written not in out
     input_events = [
         ev for ev in _events(out) if ev.get("delta", {}).get("type") == "input_json_delta"
     ]

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Restore:** a token the model wrote without its outer delimiters (`PRIVYX_EMAIL_1` for `<PRIVYX_EMAIL_1>`) was not restored, so a tool could receive the token's name in place of the value; that form is now restored too, for tokens the session issued
 - **Proxy:** Codex spent 7 to 14 seconds at the start of every run retrying a WebSocket through the transparent proxy before it fell back to HTTP; a WebSocket upgrade is now answered `426`, on which Codex falls back at once
 
 ### Security

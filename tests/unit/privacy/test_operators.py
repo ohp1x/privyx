@@ -19,7 +19,7 @@ from privyx.core.errors import ConfigError
 from privyx.core.result import Detection, Span
 from privyx.core.session import Session
 from privyx.privacy.anchor.hmac import HMACAnchor
-from privyx.privacy.operator.base import BaseOperator
+from privyx.privacy.operator.base import BaseOperator, restore
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.pseudonym import ANCHOR_TOKEN_LENGTH, PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
@@ -248,3 +248,17 @@ async def test_many_spans_take_linear_time(operator_class: type[BaseOperator]) -
     assert len(masked.transformations) == 4000
     assert middle - start < 0.5
     assert end - middle < 0.5
+
+
+def test_restore_brings_back_an_issued_token_written_without_its_brackets() -> None:
+    """A model sometimes drops the ``< >``; only a token this session issued counts."""
+    session = Session()
+    session.put("<PRIVYX_EMAIL_1>", "alice@example.com")
+    text = '{"query": "PRIVYX_EMAIL_1"} PRIVYX_EMAIL_12 PRIVYX_SSN_9 xPRIVYX_EMAIL_1'
+
+    result = restore(text, session, FormatCodec.default())
+
+    assert result.text == (
+        '{"query": "alice@example.com"} PRIVYX_EMAIL_12 PRIVYX_SSN_9 xPRIVYX_EMAIL_1'
+    )
+    assert len(result.transformations) == 1

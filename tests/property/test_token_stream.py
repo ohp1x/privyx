@@ -31,12 +31,14 @@ KNOWN = {
 #: Syntactically valid tokens the session never issued — must pass through intact.
 UNKNOWN = ["<PRIVYX_SSN_9>", "<PRIVYX_EMAIL_deadbeef>"]
 TOKENS = [*KNOWN, *UNKNOWN]
+#: The same tokens as a model sometimes writes them: without the brackets.
+BARE = [token.strip("<>") for token in TOKENS]
 
 # Filler deliberately includes the delimiter characters (``<``, ``_``, ``>``) and
 # a multi-byte emoji, so boundaries land inside partial/false tokens and inside
 # Unicode.  Equivalence holds regardless: both paths recognize tokens identically.
 FILLER = st.text(alphabet=string.ascii_letters + string.digits + " .,<>_🎉", max_size=20)
-PIECES = st.lists(st.one_of(FILLER, st.sampled_from(TOKENS)), min_size=1, max_size=12)
+PIECES = st.lists(st.one_of(FILLER, st.sampled_from([*TOKENS, *BARE])), min_size=1, max_size=12)
 CHUNK_SIZES = st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=30)
 
 SETTINGS = settings(
@@ -81,8 +83,15 @@ def test_stream_equals_batch(pieces: list[str], sizes: list[int]) -> None:
 
 def test_every_single_boundary_equals_batch() -> None:
     """Exhaustively split a representative multi-token string at each position."""
-    text = "x <PRIVYX_EMAIL_1> y <PRIVYX_CREDIT_CARD_2>🎉<PRIVYX_SSN_9> z"
+    text = (
+        "x <PRIVYX_EMAIL_1> y <PRIVYX_CREDIT_CARD_2>🎉<PRIVYX_SSN_9> z"
+        " PRIVYX_PHONE_3, PRIVYX_SSN_9 PRIVYX_EMAIL_12 <PRIVYX_IP_ADDRESS_4 PRIVYX_EMAIL_1"
+    )
     expected = _batch(text)
+    assert expected == (
+        "x alice@example.com y 4111 1111 1111 1111🎉<PRIVYX_SSN_9> z"
+        " +1-555-0142, PRIVYX_SSN_9 PRIVYX_EMAIL_12 <192.168.1.254 alice@example.com"
+    )
     for cut in range(len(text) + 1):
         assert _stream([text[:cut], text[cut:]]) == expected, f"cut={cut}"
     # And the finest possible chunking: one character at a time.
@@ -112,3 +121,13 @@ def test_multi_char_delimiter_format_streams_equivalently() -> None:
         processor = TokenStreamProcessor(codec, known.get)
         out = processor.feed(text[:cut]) + processor.feed(text[cut:]) + processor.flush()
         assert out == expected, f"cut={cut}"
+
+
+def test_a_flush_ends_the_text_and_what_came_before_it_is_no_context() -> None:
+    """One processor restores many separate strings, each from its first character."""
+    processor = TokenStreamProcessor(CODEC, KNOWN.get)
+
+    first = processor.feed("query") + processor.flush()
+    second = processor.feed("PRIVYX_EMAIL_1") + processor.flush()
+
+    assert (first, second) == ("query", "alice@example.com")
