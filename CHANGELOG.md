@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Development:** `make e2e` can put a real provider behind its recorder (`--upstream`) and drive Codex as well (`--agent codex`); the script is now `scripts/test-e2e/`, one file per agent
+
 ### Security
 
 - **Proxy coverage:** Claude Code's `safeguards` request field (working directory, home, user name, git branch and remotes) reached the provider unmasked; it is now masked like the rest of the request

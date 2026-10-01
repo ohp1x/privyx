@@ -47,7 +47,7 @@ uv run pytest -n auto             # parallel
 
 ## End-to-end: a real agent (`make e2e`)
 
-`scripts/e2e_claude.py` runs the real `claude` CLI through `privyx run` (or, with
+`scripts/test-e2e/run.py` runs the real `claude` CLI through `privyx run` (or, with
 `--transparent`, through `privyx proxy` on its defaults: ephemeral sessions, no
 anchor) against a local fake Anthropic API, so nothing needs a key or the
 network. `make e2e` runs both. HOME,
@@ -71,6 +71,39 @@ The run fails if:
 
 The temp dir is kept after the run: `upstream.jsonl` shows exactly what reached
 the provider. The script needs `claude` on PATH, so it is not part of CI.
+
+### A real provider (`--upstream`)
+
+A scripted upstream cannot show what a model does with a token. `--upstream ORIGIN`
+keeps the recorder in place and relays each recorded request to a real provider:
+
+```bash
+ANTHROPIC_API_KEY=... uv run python scripts/test-e2e/run.py --upstream https://api.anthropic.com
+CODEX_API_KEY=... uv run python scripts/test-e2e/run.py --agent codex --upstream https://api.openai.com
+```
+
+`ORIGIN` is the provider's address without `/v1`. The credential comes from the
+environment (`ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`; `CODEX_API_KEY` for
+codex) and is left out of the kept files. `--model` picks the model, and
+`--transparent` works as above. These runs call the provider and are billed.
+
+The model writes the loop itself, so the prompt asks it to call the MCP tool, read
+the file, and answer on one `Echo:` line. The leak, restore, and `system`/`tools`
+checks stay; the echoed-turn check gives way to one that the provider accepted
+every turn, and `upstream.jsonl` also holds each reply. A token the model wrote
+without its `<` `>` is a missed restore; a model that skips the MCP tool or
+declines to give the `Echo:` line is reported as a note, not a failure. Beyond its read-only
+tools, Claude Code may use only the MCP tool and `cat notes.txt`; codex runs in
+its read-only sandbox.
+
+`--agent codex` drives `codex exec` with `CODEX_HOME` in the temp dir. It needs
+`--upstream`, because it has no fake upstream yet, and `system`/`tools` stability
+is not checked for it.
+
+Each agent is one file in `scripts/test-e2e/` that exports an `Agent`
+(`common.py`): how to configure it, launch it, and point it at a proxy, plus,
+optionally, a fake upstream. To add an agent, write its file and list it in
+`AGENTS` in `run.py`.
 
 ## Hypothesis
 
