@@ -13,8 +13,8 @@ coverage:
 	uv run pytest --cov=privyx --cov-report=term --cov-report=html
 
 e2e:
-	uv run python scripts/e2e_claude.py
-	uv run python scripts/e2e_claude.py --transparent
+	uv run python scripts/test-e2e/run.py
+	uv run python scripts/test-e2e/run.py --transparent
 
 # Timing of the request path; numbers vary by machine, so not run in CI.
 bench:
