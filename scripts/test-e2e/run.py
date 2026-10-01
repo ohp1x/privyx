@@ -22,7 +22,7 @@ forwards is recorded.  The run fails on:
 
 - a canary in a recorded request — a leak;
 - a token in the MCP tool's arguments or the final answer, with or without its
-  ``< >`` — a missed restore;
+  ``< >`` or as its id alone — a missed restore;
 - an echoed assistant turn that differs from what the upstream sent — the
   provider rejects a modified thinking block (its signature covers the text);
 - ``system`` / ``tools`` changing between turns — every turn misses the prompt cache.
@@ -58,7 +58,7 @@ from typing import Any
 
 import claude
 import codex
-from common import CANARIES, DUMMY_KEY, EMAIL, GIT_USER, IP, ORG, PERSON, Agent, Record
+from common import CANARIES, DUMMY_KEY, EMAIL, GIT_USER, IP, ORG, PERSON, TOKEN, Agent, Record
 
 AGENTS: dict[str, Agent] = {"claude": claude.AGENT, "codex": codex.AGENT}
 CONFIG = f"""\
@@ -340,22 +340,29 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
         failed |= not ok
         print(f"{'ok  ' if ok else 'FAIL'}  {what}: {detail}")
 
-    # A model may write a token without its < >, which Privyx then leaves as it
-    # is: the bare name counts as a missed restore too.  A real model may also
-    # skip the tool, decline, or rephrase; that says nothing about Privyx.
+    # A model may write a token without its < >, or its id alone: either counts
+    # as a missed restore.  A counter id is too short to tell from other text.
+    issued = TOKEN.findall(json.dumps([r["body"] for r in RECORDS]))
+    ids = {token[:-1].rpartition("_")[2] for token in issued}
+
+    def leftover(text: str) -> bool:
+        return BARE in text or any(part in text for part in ids if len(part) >= 8)
+
+    # A real model may also skip the tool, decline, or rephrase; that says
+    # nothing about Privyx.
     calls = root / "mcp-calls.jsonl"
     args = calls.read_text().strip() if calls.exists() else ""
     if REAL and not args:
         print("note  MCP tool: the model never called it")
     else:
-        check(bool(args) and BARE not in args, "MCP tool args restored", args or "(never called)")
+        check(bool(args) and not leftover(args), "MCP tool args restored", args or "(never called)")
     # The last one: an agent that prints its transcript shows the prompt first.
     echo = next((ln for ln in reversed(out.splitlines()) if "Echo:" in ln), "")
     answered = all(v in echo for v in (PERSON, ORG, EMAIL, IP))
-    if REAL and not answered and BARE not in out:
+    if REAL and not answered and not leftover(out):
         print("note  final answer: no token left in it, but no Echo line with the four values")
     else:
-        check(answered and BARE not in out, "final answer restored", echo or "(no Echo line)")
+        check(answered and not leftover(out), "final answer restored", echo or "(no Echo line)")
 
     main_records = [r for r in RECORDS if agent.main(r)]
     bodies = [r["body"] for r in main_records]

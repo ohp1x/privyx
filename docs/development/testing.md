@@ -91,7 +91,7 @@ The model writes the loop itself, so the prompt asks it to call the MCP tool, re
 the file, and answer on one `Echo:` line. The leak, restore, and `system`/`tools`
 checks stay; the echoed-turn check gives way to one that the provider accepted
 every turn, and `upstream.jsonl` also holds each reply. A token the model wrote
-without its `<` `>` is a missed restore; a model that skips the MCP tool or
+without its `<` `>`, or as its id alone, is a missed restore; a model that skips the MCP tool or
 declines to give the `Echo:` line is reported as a note, not a failure. Beyond its read-only
 tools, Claude Code may use only the MCP tool and `cat notes.txt`; codex runs in
 its read-only sandbox.
