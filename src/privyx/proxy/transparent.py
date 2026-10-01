@@ -209,6 +209,16 @@ class TransparentProxy:
         ephemeral: Session | None = None
         defer_cleanup = False
         try:
+            if _ci_get(headers, "upgrade").lower() == "websocket":
+                # A WebSocket cannot be relayed here, so its frames could not be
+                # masked.  426 makes Codex fall back to HTTP at once; on another
+                # status it retries for seconds first, and gives up on a 400.
+                message = "privyx: WebSocket is not supported; use HTTP"
+                return ProxyResponse(
+                    status_code=426,
+                    media_type=_JSON,
+                    body=json.dumps({"error": {"message": message}}).encode(),
+                )
             schema = detect_schema(path, self._routes)
             if schema is None and not self._passthrough_unknown:
                 message = (
@@ -265,8 +275,8 @@ class TransparentProxy:
             )
             out_body = body
             transform_ms: float | None = None
-            # A masked header comes on body-less requests too, such as the GET
-            # that asks for a WebSocket, and on unrouted paths.
+            # A masked header comes on body-less requests too, and on unrouted
+            # paths.
             if isinstance(payload, dict) or not MASKED_HEADERS.isdisjoint(upstream_headers):
                 transform_start = time.perf_counter()
                 try:

@@ -352,6 +352,7 @@ def _make_server(app: Any, settings: Any, port: int) -> Any:
         host=settings.host,
         port=port,
         log_level="warning",  # the tool owns the terminal; stay quiet
+        ws="none",  # a WebSocket upgrade arrives as a plain HTTP request
         log_config=None,  # uvicorn's records go to Privyx's handlers, not stderr
     )
     return uvicorn.Server(config)
