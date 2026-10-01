@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **CLI:** `privyx run codex` with a `-c` of your own after a subcommand (`-- exec -c …`) bypassed the proxy and sent every request unmasked: codex then drops the base URL given before the subcommand. `privyx run` now says it again after your arguments
+
 ## [0.1.13] - 2026-10-01
 
 ### Added

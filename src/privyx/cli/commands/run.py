@@ -43,7 +43,7 @@ class Target:
         env_vars: Environment variables to set to the proxy's base URL.
         base_path: Appended to the proxy's URL for a tool whose base URL ends
             in the API version, as the OpenAI SDK's does (``…/v1``).
-        args: Builds, from that URL, arguments that go before the user's own,
+        args: Builds the tool's arguments from that URL and the user's own,
             for a tool whose own config outranks its environment.
         extra_env: Fixed environment variables the tool needs (e.g. a dummy key
             when the tool refuses to start without one — the real key is added
@@ -54,19 +54,25 @@ class Target:
     provider: str
     env_vars: tuple[str, ...]
     base_path: str = ""
-    args: Callable[[str], list[str]] | None = None
+    args: Callable[[str, list[str]], list[str]] | None = None
     extra_env: dict[str, str] = field(default_factory=dict)
 
 
-def _claude_args(base_url: str) -> list[str]:
+def _claude_args(base_url: str, argv: list[str]) -> list[str]:
     # A base URL in Claude Code's settings.json outranks its environment, and
     # --settings outranks settings.json.
-    return ["--settings", json.dumps({"env": {"ANTHROPIC_BASE_URL": base_url}})]
+    return ["--settings", json.dumps({"env": {"ANTHROPIC_BASE_URL": base_url}}), *argv]
 
 
-def _codex_args(base_url: str) -> list[str]:
+def _codex_args(base_url: str, argv: list[str]) -> list[str]:
     # Codex reads its base URL from its config, not from OPENAI_BASE_URL.
-    return ["-c", f"openai_base_url={json.dumps(base_url)}"]
+    override = ["-c", f"openai_base_url={json.dumps(base_url)}"]
+    # A -c after a subcommand replaces every -c before it, this one included:
+    # when the user's arguments hold one, the override is said again after
+    # them.  Past a `--` it would be read as an argument.
+    end = argv.index("--") if "--" in argv else len(argv)
+    own = any(arg.startswith(("-c", "--config")) for arg in argv[:end])
+    return [*override, *argv[:end], *(override if own else []), *argv[end:]]
 
 
 TARGETS: dict[str, Target] = {
@@ -274,7 +280,7 @@ async def _run_target(
     try:
         await _wait_until_started(server, serve_task)
         base_url = f"http://{settings.host}:{bound_port}{spec.base_path}"
-        argv = [*(spec.args(base_url) if spec.args else []), *argv]
+        argv = spec.args(base_url, argv) if spec.args else argv
 
         click.echo(f"Privyx proxy → {redact(target, 'url')}")
         click.echo(f"Running: {shlex.join([spec.command, *argv])}")
