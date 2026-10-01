@@ -48,7 +48,9 @@ def restore(
 
     Unknown tokens are passed through untouched: a stream may legitimately
     contain text that fits the token syntax but was never issued by us, and
-    dropping or mangling it would corrupt the response.
+    dropping or mangling it would corrupt the response.  A token the model wrote
+    without its edge literals (``PRIVYX_EMAIL_1``) is restored as well, under the
+    same rule: only if this session issued it.
 
     Args:
         text: Text containing tokens.
@@ -62,11 +64,16 @@ def restore(
     resolve = resolve if resolve is not None else session.get
     transforms: list[Transformation] = []
 
-    for match in sorted(codec.finditer(text), key=lambda m: m.start):
-        original = resolve(match.text)
+    # A token may be written without its edge literals; a codec that does not
+    # know that form (a plugin's) keeps to full tokens.
+    restorable = getattr(codec, "restorable", None)
+    full = ((m.start, m.end, m.text) for m in codec.finditer(text))
+    found = restorable(text) if restorable else full
+    for start, end, token in sorted(found):
+        original = resolve(token)
         if original is None:
             continue
-        transforms.append(Transformation(match.start, match.end, match.text, original))
+        transforms.append(Transformation(start, end, text[start:end], original))
 
     return TransformResult(text=apply_replacements(text, transforms), transformations=transforms)
 

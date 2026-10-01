@@ -200,3 +200,67 @@ def test_custom_format_finds_tokens_in_text() -> None:
     codec = FormatCodec("[[{namespace}:{type}:{id}]]", namespace="privyx")
     text = "call [[privyx:PHONE:7]] now"
     assert [m.text for m in codec.finditer(text)] == ["[[privyx:PHONE:7]]"]
+
+
+# -- tokens written without their edge literals -------------------------------
+
+
+def test_restorable_finds_a_token_written_without_its_brackets() -> None:
+    codec = FormatCodec.default()
+    text = "mail PRIVYX_EMAIL_1 and <PRIVYX_CREDIT_CARD_2>, card PRIVYX_CREDIT_CARD_2."
+
+    assert [(text[start:end], key) for start, end, key in codec.restorable(text)] == [
+        ("PRIVYX_EMAIL_1", "<PRIVYX_EMAIL_1>"),
+        ("<PRIVYX_CREDIT_CARD_2>", "<PRIVYX_CREDIT_CARD_2>"),
+        ("PRIVYX_CREDIT_CARD_2", "<PRIVYX_CREDIT_CARD_2>"),
+    ]
+
+
+def test_restorable_takes_the_whole_bare_token_not_a_shorter_one_inside_it() -> None:
+    found = FormatCodec.default().restorable("PRIVYX_EMAIL_12")
+
+    assert [key for *_, key in found] == ["<PRIVYX_EMAIL_12>"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["xPRIVYX_EMAIL_1", "_PRIVYX_EMAIL_1", "PRIVYX_EMAIL_1_", "PRIVYX_EMAIL", "PRIVYX_ EMAIL_1"],
+)
+def test_restorable_needs_a_whole_bare_token_between_word_boundaries(text: str) -> None:
+    assert list(FormatCodec.default().restorable(text)) == []
+
+
+def test_restorable_at_and_prefix_len_follow_a_bare_token_as_it_grows() -> None:
+    codec = FormatCodec.default()
+    text = "see PRIVYX_EMAIL_1 now"
+
+    assert codec.restorable_at(text, 4) == (18, "<PRIVYX_EMAIL_1>")
+    assert codec.restorable_at(text, 5) is None  # no word boundary on its left
+    # Every growing prefix reaches the end of what has arrived: it is held back.
+    for end in range(5, 19):
+        assert codec.restorable_prefix_len(text[:end], 4) == end - 4
+    assert codec.restorable_prefix_len("see Paris", 4) == 1  # "P", then it cannot be one
+    assert codec.restorable_prefix_len("xP", 1) == 0  # no word boundary on its left
+    assert codec.restorable_prefix_len("see <PRIVYX_EM", 4) == 10  # a full token, as before
+
+
+@pytest.mark.parametrize("fmt", ["[[{namespace}:{type}:{id}]]", "<{namespace}:{type}:{id}>"])
+def test_restorable_follows_the_format(fmt: str) -> None:
+    codec = FormatCodec(fmt)
+    token = codec.encode(LogicalToken(namespace="PRIVYX", type="EMAIL", identifier="1"))
+    text = "a PRIVYX:EMAIL:1: b"
+
+    assert [(text[start:end], key) for start, end, key in codec.restorable(text)] == [
+        ("PRIVYX:EMAIL:1", token)
+    ]
+
+
+@pytest.mark.parametrize(
+    "fmt", ["{namespace}_{type}_{id}", "<{type}_{id}>", "<{type}:{namespace}:{id}>"]
+)
+def test_a_format_without_edge_literals_or_a_leading_namespace_has_no_bare_form(fmt: str) -> None:
+    codec = FormatCodec(fmt)
+    token = codec.encode(LogicalToken(namespace="PRIVYX", type="EMAIL", identifier="1"))
+    text = f"a {token.strip('<>')} b {token} c"
+
+    assert list(codec.restorable(text)) == [(m.start, m.end, m.text) for m in codec.finditer(text)]

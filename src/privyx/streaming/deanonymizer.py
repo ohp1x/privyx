@@ -56,30 +56,13 @@ class _BufferedStream:
     def __init__(self, recognizer: Recognizer) -> None:
         self._recognizer = recognizer
         self._pending = ""
+        # The character before the pending text: a recognizer may need to see
+        # what a token follows (a bare token starts at a word boundary).
+        self._before = ""
 
     def feed(self, chunk: str) -> str:
         """Feed a chunk and return the transformed output delta."""
-        text = self._pending + chunk
-        self._pending = ""
-        recognizer = self._recognizer
-        out: list[str] = []
-        i = 0
-        n = len(text)
-        while i < n:
-            prefix_len = recognizer.longest_prefix_len(text, i)
-            if prefix_len > 0 and i + prefix_len == n:
-                # The tail is a viable token prefix that may continue next chunk.
-                self._pending = text[i:]
-                break
-            match = recognizer.match_at(text, i)
-            if match is not None:
-                matched, replacement = match
-                out.append(replacement)
-                i += len(matched)
-                continue
-            out.append(text[i])
-            i += 1
-        return "".join(out)
+        return self._scan(chunk, final=False)
 
     def flush(self) -> str:
         """Flush any pending buffered text at end of stream."""
@@ -90,8 +73,33 @@ class _BufferedStream:
             out = match[1]
         else:
             out = self._pending
-        self._pending = ""
+        self._before = self._pending = ""  # the next text starts afresh
         return out
+
+    def _scan(self, chunk: str, final: bool) -> str:
+        text = self._before + self._pending + chunk
+        self._pending = ""
+        recognizer = self._recognizer
+        out: list[str] = []
+        i = len(self._before)
+        n = len(text)
+        while i < n:
+            if not final:
+                prefix_len = recognizer.longest_prefix_len(text, i)
+                if prefix_len > 0 and i + prefix_len == n:
+                    # The tail is a viable token prefix that may continue next chunk.
+                    self._pending = text[i:]
+                    break
+            match = recognizer.match_at(text, i)
+            if match is not None:
+                matched, replacement = match
+                out.append(replacement)
+                i += len(matched)
+                continue
+            out.append(text[i])
+            i += 1
+        self._before = text[i - 1 : i] if i else ""
+        return "".join(out)
 
 
 class StreamingDeanonymizer(_BufferedStream):
@@ -120,3 +128,10 @@ class TokenStreamProcessor(_BufferedStream):
 
     def __init__(self, codec: TokenCodec, resolve: Callable[[str], str | None]) -> None:
         super().__init__(CodecRecognizer(codec, resolve))
+
+    def flush(self) -> str:
+        # Scanned once more, nothing held back: text held as the start of a full
+        # token (``<PRIVYX_EMAIL_1`` with no ``>``) may hold a bare one.
+        out = self._scan("", final=True)
+        self._before = ""  # the next text starts afresh
+        return out
