@@ -171,7 +171,8 @@ per field, so a field a provider adds later is covered by default:
   top-level key is config (`model`, `tools`, `tool_choice`, `response_format`,
   Responses `text` / `reasoning`, `metadata`, …) and is forwarded as-is — except
   every `description` string inside `tools` (tool and parameter descriptions are
-  prose an MCP server writes; names, `enum`, `pattern`, `default` stay). Inside
+  prose an MCP server writes; names, `enum`, `pattern`, `default` stay) and what
+  the client reports about its machine (below). Inside
   a content subtree *every* string leaf is pseudonymized except the opaque keys,
   which are skipped with their whole subtree: `id` and anything ending in `_id`,
   `type`, `role`, `name` (tool/function names must survive), `signature`,
@@ -194,6 +195,20 @@ per field, so a field a provider adds later is covered by default:
   them is opaque (a `name` argument is PII). A string `arguments` is parsed,
   walked, and re-serialized — never transformed as one blob, where a match could
   straddle a JSON escape — and walked as plain text if it does not parse.
+- **What a client reports about its machine is masked whole, and last.** Claude
+  Code's `safeguards` (working directory, home, user name, git branch and
+  remotes) and Codex's `client_metadata` (workspace paths, git remote URLs) are
+  walked with no opaque key: there a file list sits under `status` and a remote
+  under `url`. They are walked after everything else, because a client may send
+  `safeguards` with only some requests of a conversation: numbered earlier, its
+  values would shift every token after them on those turns alone. Codex repeats its metadata
+  in the `x-codex-turn-metadata` request header, which the transparent proxy
+  masks in the same session, so a path gets one token in the body and in the
+  header. That holds on any path and method: the `GET` with which Codex asks
+  for a WebSocket carries the header too. A value that is itself JSON, as that
+  metadata is, has its `\uXXXX` escapes decoded and is then pseudonymized as
+  text, since the paths in it are keys; the header goes out as ASCII again. No
+  other request header is masked.
 
 Known gaps: a chat message's participant `name` is kept (it shares the key with
 tool names); dict *keys* are never rewritten; `logprobs` token strings are not

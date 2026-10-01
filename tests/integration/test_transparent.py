@@ -19,6 +19,7 @@ import httpx
 import pytest
 
 from privyx.core.engine import PrivacyEngine
+from privyx.core.errors import DetectorError
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
@@ -254,6 +255,80 @@ async def test_a_json_body_is_masked_whatever_its_content_type() -> None:
 
     assert result.status_code == 200
     assert EMAIL not in capture[-1].content.decode()
+
+
+def _codex_metadata() -> str:
+    """Codex's turn metadata: JSON with the workspace path as a key."""
+    return json.dumps({"turn_id": "t-1", "workspaces": {f"/home/{EMAIL}/app": {}}})
+
+
+async def test_codex_turn_metadata_header_is_masked_with_the_body() -> None:
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    metadata = _codex_metadata()
+    payload = {"input": f"mail {EMAIL}", "client_metadata": {"x-codex-turn-metadata": metadata}}
+
+    await proxy.handle(
+        method="POST",
+        path="v1/responses",
+        headers={"content-type": "application/json", "X-Codex-Turn-Metadata": metadata},
+        body=json.dumps(payload).encode(),
+    )
+
+    sent = capture[0]
+    body = json.loads(sent.content)
+    token = body["input"].removeprefix("mail ")
+    assert token.startswith("<PRIVYX_EMAIL_")
+    # One value, one token: in the input, the body's copy, and the header.
+    assert sent.headers["x-codex-turn-metadata"] == body["client_metadata"]["x-codex-turn-metadata"]
+    assert list(json.loads(sent.headers["x-codex-turn-metadata"])["workspaces"]) == [
+        f"/home/{token}/app"
+    ]
+
+
+@pytest.mark.parametrize("path", ["v1/responses", "v1/models"], ids=["websocket", "unrouted"])
+async def test_codex_turn_metadata_header_is_masked_without_a_body(path: str) -> None:
+    # Codex first asks for /v1/responses as a WebSocket: a GET with the header.
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    await proxy.handle(
+        method="GET", path=path, headers={"x-codex-turn-metadata": _codex_metadata()}, body=b""
+    )
+
+    sent = capture[0].headers["x-codex-turn-metadata"]
+    assert EMAIL not in sent
+    assert list(json.loads(sent)["workspaces"])[0].startswith("/home/<PRIVYX_EMAIL_")
+    assert capture[0].content == b""
+
+
+class _BrokenDetector:
+    name = "broken"
+
+    async def detect(self, text: str, context: Any) -> Any:
+        raise DetectorError("boom")
+
+
+async def test_a_header_that_cannot_be_masked_is_never_forwarded() -> None:
+    capture: list[httpx.Request] = []
+    engine = PrivacyEngine(
+        detector=_BrokenDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+    )
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(capture))
+
+    result = await proxy.handle(
+        method="GET",
+        path="v1/responses",
+        headers={"x-codex-turn-metadata": _codex_metadata()},
+        body=b"",
+    )
+
+    assert result.status_code == 503
+    assert json.loads(result.body)["error"]["type"] == "privyx_scan_failed"
+    assert not capture
 
 
 def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> TransparentProxy:
