@@ -70,12 +70,14 @@ Known targets, and where each gets the proxy's URL:
 | Target | Provider | Proxy URL passed as |
 |---|---|---|
 | `claude` | `anthropic` | `ANTHROPIC_BASE_URL`, and the same variable in `--settings`, which outranks a base URL in Claude Code's own `settings.json` |
-| `codex` | `openai` | `-c openai_base_url=…/v1` (codex does not read `OPENAI_BASE_URL`), and `OPENAI_BASE_URL` |
+| `codex` | `openai` | `-c openai_base_url=…/v1` (codex does not read `OPENAI_BASE_URL`), said again after your arguments when they hold a `-c` of their own, and `OPENAI_BASE_URL` |
 | `openai` | `openai` | `OPENAI_BASE_URL`, ending in `/v1` as the OpenAI SDK expects |
 | `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
 
 Claude Code keeps only the last `--settings`: one of your own, after `--`,
-replaces Privyx's. `openai_base_url` applies to codex's built-in `openai`
+replaces Privyx's. Codex drops every `-c` given before a subcommand once one
+follows it (`exec -c …`), which is why Privyx repeats its own after your
+arguments. `openai_base_url` applies to codex's built-in `openai`
 provider: with a `model_provider` of your own in codex's config, codex does
 not reach Privyx. If your Claude Code settings point `ANTHROPIC_BASE_URL` at a
 router or another proxy, give that URL to `privyx run` as `--upstream`: Privyx

@@ -693,7 +693,11 @@ if TOOL == "claude":  # --settings outranks settings.json, which outranks the en
     base = settings.get("env", {}).get("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
     path, body = "/v1/messages", {"messages": [{"role": "user", "content": TEXT}]}
 elif TOOL == "codex":  # its config, not OPENAI_BASE_URL
-    config = [arg.split("=", 1)[1] for arg in args if arg.startswith("openai_base_url=")]
+    # A -c after the subcommand replaces every -c before it; past `--` nothing is a flag.
+    flags = args[: args.index("--")] if "--" in args else args
+    sub = flags[flags.index("exec") :] if "exec" in flags else []
+    level = sub if any(arg.startswith(("-c", "--config")) for arg in sub) else flags
+    config = [arg.split("=", 1)[1] for arg in level if arg.startswith("openai_base_url=")]
     base = json.loads(config[0]) if config else "http://127.0.0.1:9"
     path, body = "/responses", {"input": TEXT}
 else:  # the OpenAI SDK, whose base URL ends in /v1
@@ -706,16 +710,19 @@ urllib.request.urlopen(urllib.request.Request(
 
 
 @pytest.mark.parametrize(
-    ("name", "path"),
+    ("name", "argv", "path"),
     [
-        ("claude", "/v1/messages"),
-        ("codex", "/v1/responses"),
-        ("openai", "/v1/chat/completions"),
-        ("aider", "/v1/chat/completions"),
+        ("claude", [], "/v1/messages"),
+        ("codex", [], "/v1/responses"),
+        ("codex", ["exec", "-c", 'model="m"', "hi"], "/v1/responses"),
+        ("codex", ["exec", "--config=model=m", "--", "hi"], "/v1/responses"),
+        ("openai", [], "/v1/chat/completions"),
+        ("aider", [], "/v1/chat/completions"),
     ],
 )
 async def test_run_points_each_known_target_at_the_proxy(
     name: str,
+    argv: list[str],
     path: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -723,7 +730,9 @@ async def test_run_points_each_known_target_at_the_proxy(
 ) -> None:
     """Every known tool reaches Privyx, on a masked path.
 
-    Codex reads its base URL from its config, not ``OPENAI_BASE_URL``; a base
+    Codex reads its base URL from its config, not ``OPENAI_BASE_URL``, and drops
+    the override given before a subcommand once the user's own arguments hold a
+    ``-c`` after it; a base
     URL in Claude Code's settings.json outranks its environment; and the OpenAI
     SDK expects ``/v1`` in its base URL, without which its ``/chat/completions``
     is forwarded as is.
@@ -751,7 +760,7 @@ async def test_run_points_each_known_target_at_the_proxy(
     spec = replace(TARGETS[name], command=str(tool))
     code = await _run_target(
         spec=spec,
-        argv=[],
+        argv=argv,
         config_path=None,
         upstream=url,
         port=0,
@@ -765,6 +774,18 @@ async def test_run_points_each_known_target_at_the_proxy(
     body = seen[0][2]
     assert EMAIL not in body
     assert "PRIVYX_EMAIL" in body
+
+
+def test_run_repeats_the_codex_override_only_after_a_config_flag_of_the_users() -> None:
+    from privyx.cli.commands.run import _codex_args
+
+    override = ["-c", 'openai_base_url="http://proxy/v1"']
+
+    assert _codex_args("http://proxy/v1", ["exec", "hi"]) == [*override, "exec", "hi"]
+    # An attached value counts; a `-c` past `--` is an argument, not a flag.
+    assert _codex_args("http://proxy/v1", ["exec", "-cmodel=m", "--", "-c"]) == [
+        *override, "exec", "-cmodel=m", *override, "--", "-c"
+    ]  # fmt: skip
 
 
 @pytest.mark.parametrize("requests", [0, 1])
