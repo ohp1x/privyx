@@ -25,7 +25,7 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from privyx.streaming.trie import PseudonymTrie
-from privyx.token.codec import TokenCodec
+from privyx.token.codec import TokenCodec, TokenIds
 
 
 @runtime_checkable
@@ -68,18 +68,28 @@ class CodecRecognizer:
             token is passed through verbatim — a stream may legitimately contain
             token-shaped text we never issued, and mangling it would corrupt the
             response.
+        ids: The session's tokens by id (:meth:`FormatCodec.ids`), to find an
+            id written on its own.  Without it only whole tokens are found.
     """
 
-    def __init__(self, codec: TokenCodec, resolve: Callable[[str], str | None]) -> None:
+    def __init__(
+        self,
+        codec: TokenCodec,
+        resolve: Callable[[str], str | None],
+        ids: TokenIds | None = None,
+    ) -> None:
         self._codec = codec
         self._resolve = resolve
-        # A token may be written without its edge literals; a codec that does
-        # not know that form (a plugin's) keeps to full tokens.
+        self._ids = ids
+        # A token may be written without its edge literals, or as its id alone;
+        # a codec that does not know those forms (a plugin's) keeps to full tokens.
         self._at = getattr(codec, "restorable_at", None)
-        self._prefix_len = getattr(codec, "restorable_prefix_len", codec.longest_prefix_len)
+        self._prefix_len = getattr(codec, "restorable_prefix_len", None)
 
     def longest_prefix_len(self, text: str, pos: int) -> int:
-        length: int = self._prefix_len(text, pos)
+        if self._prefix_len is None:
+            return self._codec.longest_prefix_len(text, pos)
+        length: int = self._prefix_len(text, pos, self._ids)
         return length
 
     def match_at(self, text: str, pos: int) -> tuple[str, str] | None:
@@ -87,7 +97,7 @@ class CodecRecognizer:
             match = self._codec.match_at(text, pos)
             found = (match.end, match.text) if match else None
         else:
-            found = self._at(text, pos)
+            found = self._at(text, pos, self._ids)
         if found is None:
             return None
         end, token = found

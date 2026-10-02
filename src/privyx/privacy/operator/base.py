@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Transformation, TransformResult
@@ -49,8 +49,9 @@ def restore(
     Unknown tokens are passed through untouched: a stream may legitimately
     contain text that fits the token syntax but was never issued by us, and
     dropping or mangling it would corrupt the response.  A token the model wrote
-    without its edge literals (``PRIVYX_EMAIL_1``) is restored as well, under the
-    same rule: only if this session issued it.
+    without its edge literals (``PRIVYX_EMAIL_1``), or as its id alone when the
+    id is long enough, is restored as well, under the same rule: only if this
+    session issued it.
 
     Args:
         text: Text containing tokens.
@@ -64,11 +65,11 @@ def restore(
     resolve = resolve if resolve is not None else session.get
     transforms: list[Transformation] = []
 
-    # A token may be written without its edge literals; a codec that does not
-    # know that form (a plugin's) keeps to full tokens.
+    # A token may be written without its edge literals, or as its id alone; a
+    # codec that does not know those forms (a plugin's) keeps to full tokens.
     restorable = getattr(codec, "restorable", None)
     full = ((m.start, m.end, m.text) for m in codec.finditer(text))
-    found = restorable(text) if restorable else full
+    found = restorable(text, _token_ids(session, codec)) if restorable else full
     for start, end, token in sorted(found):
         original = resolve(token)
         if original is None:
@@ -76,6 +77,18 @@ def restore(
         transforms.append(Transformation(start, end, text[start:end], original))
 
     return TransformResult(text=apply_replacements(text, transforms), transformations=transforms)
+
+
+def _token_ids(session: Session, codec: Any) -> Any:
+    """``session``'s tokens by id, indexed again only once it has issued more.
+
+    A response is restored one string at a time, and indexing every token for
+    each of them would cost strings × tokens.
+    """
+    size = len(session.mapping)
+    if session.token_ids is None or session.token_ids[0] != size:
+        session.token_ids = (size, codec.ids(session.mapping))
+    return session.token_ids[1]
 
 
 class BaseOperator(ABC):

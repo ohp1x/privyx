@@ -21,6 +21,7 @@ import pytest
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import DetectorError
 from privyx.observability.audit import AuditLogger
+from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy
@@ -161,6 +162,42 @@ async def test_anthropic_batch_round_trip() -> None:
     assert data["content"][0]["text"] == f"mail {EMAIL}"
     sent = capture[0].content.decode()
     assert EMAIL not in sent  # both system and message pseudonymized
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["batch", "stream"])
+async def test_a_token_id_written_on_its_own_is_restored(stream: bool) -> None:
+    """A model sometimes keeps only a token's id; an anchor's is long enough to stand alone."""
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(anchor=HMACAnchor("test-secret")),
+        vault=MemoryVault(),
+    )
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(capture))
+
+    async def ask(content: str) -> str:
+        result = await proxy.handle(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json", "x-privyx-session": "s1"},
+            body=json.dumps(
+                {"stream": stream, "messages": [{"role": "user", "content": content}]}
+            ).encode(),
+        )
+        if result.stream is None:
+            return result.body.decode()
+        return "".join([chunk async for chunk in result.stream])
+
+    await ask(f"mail {EMAIL}")
+    token = json.loads(capture[0].content)["messages"][0]["content"].removeprefix("mail ")
+    ident = token.strip("<>").rpartition("_")[2]
+    assert len(ident) == 16
+
+    out = await ask(f"look up {ident}")  # the upstream echoes it: the id and nothing else
+
+    assert ident not in out
+    assert EMAIL in out
 
 
 async def test_concurrent_requests_use_isolated_sessions() -> None:

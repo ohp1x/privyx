@@ -167,7 +167,8 @@ per field, so a field a provider adds later is covered by default:
 
 - **Restore walks every string leaf** of a batch response, whatever the schema.
   Placeholders exist only because Privyx minted them, so restoring anywhere is
-  safe. A token the model wrote without its outer delimiters (`PRIVYX_EMAIL_1`)
+  safe. A token the model wrote without its outer delimiters (`PRIVYX_EMAIL_1`),
+  or as its id alone when the id is long enough,
   is restored as well, in a batch and in a stream alike, if the session issued
   it; see [Token format](../guide/masking.md#token-format). Streaming restores deltas event by event (a token can split across
   them) and every other event — `content_block_start`, `citations_delta`,

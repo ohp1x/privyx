@@ -30,6 +30,9 @@ class Session:
         created_at: Unix timestamp of creation.
         updated_at: Unix timestamp of last update.
         metadata: Free-form session metadata (provider, model, ...).
+        token_ids: ``mapping`` indexed by token id, with the size it had then
+            (memory cache only; kept by
+            :func:`~privyx.privacy.operator.base.restore`).
     """
 
     session_id: str = field(default_factory=new_session_id)
@@ -38,6 +41,7 @@ class Session:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
+    token_ids: tuple[int, Any] | None = field(default=None, repr=False, compare=False)
 
     def put(self, pseudonym: str, original: str) -> None:
         self.mapping[pseudonym] = original

@@ -34,7 +34,9 @@ Only the "is there a token here?" decision is pluggable
   (a trie of known values) — syntax-agnostic. Backs `StreamingDeanonymizer`.
 - **`CodecRecognizer`** matches any text that fits the configured token syntax
   via the token codec, reconstructs the logical
-  token, and resolves it against the session mapping. Backs
+  token, and resolves it against the session mapping. A token's id written on
+  its own has no syntax, so it is found among the ids of the session's tokens,
+  and a word that begins one is held back like the start of a token. Backs
   `TokenStreamProcessor`, which the proxy uses — so streaming recognizes tokens
   the same way everything else does, and knows no syntax of its own.
 

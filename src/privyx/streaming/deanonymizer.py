@@ -33,7 +33,7 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from privyx.streaming.recognizer import CodecRecognizer, Recognizer, TrieRecognizer
-from privyx.token.codec import TokenCodec
+from privyx.token.codec import TokenCodec, TokenIds
 
 
 @runtime_checkable
@@ -124,10 +124,16 @@ class TokenStreamProcessor(_BufferedStream):
     Args:
         codec: The token codec (syntax authority).
         resolve: Maps a token's text to its original value, or ``None`` if unknown.
+        ids: The session's tokens by id, to restore an id written on its own.
     """
 
-    def __init__(self, codec: TokenCodec, resolve: Callable[[str], str | None]) -> None:
-        super().__init__(CodecRecognizer(codec, resolve))
+    def __init__(
+        self,
+        codec: TokenCodec,
+        resolve: Callable[[str], str | None],
+        ids: TokenIds | None = None,
+    ) -> None:
+        super().__init__(CodecRecognizer(codec, resolve, ids))
 
     def flush(self) -> str:
         # Scanned once more, nothing held back: text held as the start of a full

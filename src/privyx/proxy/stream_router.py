@@ -580,7 +580,12 @@ def select_processor_factory(
     """
     if getattr(operator, "stream_restore", "token") == "literal":
         return lambda: StreamingDeanonymizer(mapping)
-    return lambda: TokenStreamProcessor(codec, resolve)
+    # A token's id may be written alone.  The session's tokens are indexed once
+    # for all of this stream's processors, and again on its next stream: keep
+    # the index with the session if a long one ever makes that show.
+    index = getattr(codec, "ids", None)
+    ids = index(mapping) if index else None
+    return lambda: TokenStreamProcessor(codec, resolve, ids)
 
 
 def _reframe(event: SSEEvent, payload: dict[str, Any]) -> str:

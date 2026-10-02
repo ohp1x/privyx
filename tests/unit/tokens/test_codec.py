@@ -264,3 +264,100 @@ def test_a_format_without_edge_literals_or_a_leading_namespace_has_no_bare_form(
     text = f"a {token.strip('<>')} b {token} c"
 
     assert list(codec.restorable(text)) == [(m.start, m.end, m.text) for m in codec.finditer(text)]
+
+
+# -- a token's id written on its own -------------------------------------------
+
+ID = "9F3A1C2B7D4E5F60"
+ANCHORED = f"<PRIVYX_EMAIL_{ID}>"
+
+
+def test_ids_indexes_the_ids_long_enough_to_stand_alone() -> None:
+    codec = FormatCodec.default()
+    hashed = "<PRIVYX_SSN_ff8d9819fc0e>"
+
+    ids = codec.ids(["<PRIVYX_EMAIL_1>", ANCHORED, hashed, "not a token"])
+
+    assert ids is not None
+    assert (ids.token(ID), ids.token("ff8d9819fc0e")) == (ANCHORED, hashed)
+    assert ids.token("1") is None
+    # A session of counters, however many, has no id to look for.
+    assert codec.ids(["<PRIVYX_EMAIL_1>", "<PRIVYX_PHONE_12345678901>"]) is None
+
+
+def test_restorable_finds_an_issued_id_written_on_its_own() -> None:
+    codec = FormatCodec.default()
+    text = f'{{"query": "{ID}"}} {ANCHORED} PRIVYX_EMAIL_{ID} /home/{ID}/notes'
+    ids = codec.ids([ANCHORED])
+
+    assert [(text[start:end], key) for start, end, key in codec.restorable(text, ids)] == [
+        (ID, ANCHORED),
+        (ANCHORED, ANCHORED),
+        (f"PRIVYX_EMAIL_{ID}", ANCHORED),
+        (ID, ANCHORED),
+    ]
+    # Without the session's ids a word is a word.
+    assert [text[start:end] for start, end, _ in codec.restorable(text)] == [
+        ANCHORED,
+        f"PRIVYX_EMAIL_{ID}",
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [f"x{ID}", f"{ID}0", f"_{ID}", f"{ID}_", ID[:-1], ID.lower(), "0123456789ABCDEF"],
+)
+def test_restorable_needs_the_whole_id_of_an_issued_token_between_word_boundaries(
+    text: str,
+) -> None:
+    codec = FormatCodec.default()
+
+    assert list(codec.restorable(text, codec.ids([ANCHORED]))) == []
+
+
+def test_an_id_that_two_tokens_carry_is_not_restored_on_its_own() -> None:
+    """Nothing says which of the two the id alone stands for."""
+    codec = FormatCodec.default()
+    other = f"<PRIVYX_PHONE_{ID}>"
+    text = f"{ID} {ANCHORED} {other}"
+
+    found = codec.restorable(text, codec.ids([ANCHORED, other]))
+
+    assert [key for *_, key in found] == [ANCHORED, other]
+
+
+def test_restorable_at_and_prefix_len_follow_an_id_as_it_grows() -> None:
+    codec = FormatCodec.default()
+    ids = codec.ids([ANCHORED])
+    text = f"see {ID} now"
+
+    assert codec.restorable_at(text, 4, ids) == (20, ANCHORED)
+    assert codec.restorable_at(text, 5, ids) is None  # no word boundary on its left
+    assert codec.restorable_at(text, 4) is None  # the session's ids were not given
+    # Every growing prefix reaches the end of what has arrived: it is held back.
+    for end in range(5, 21):
+        assert codec.restorable_prefix_len(text[:end], 4, ids) == end - 4
+        assert codec.restorable_prefix_len(text[:end], 4) == 0
+    assert codec.restorable_prefix_len("see 9F4", 4, ids) == 0  # no id begins like this
+    assert codec.restorable_prefix_len("x9F3A", 1, ids) == 0  # no word boundary on its left
+    assert codec.restorable_prefix_len(text, 4, ids) == 0  # it has ended: nothing to wait for
+
+
+@pytest.mark.parametrize(
+    "fmt", ["[[{namespace}:{type}:{id}]]", "<{type}_{id}>", "{namespace}_{type}_{id}"]
+)
+def test_an_id_on_its_own_is_found_whatever_the_format(fmt: str) -> None:
+    codec = FormatCodec(fmt)
+    token = codec.encode(LogicalToken(namespace="PRIVYX", type="EMAIL", identifier=ID))
+
+    assert list(codec.restorable(f"a {ID} b", codec.ids([token]))) == [(2, 18, token)]
+
+
+def test_a_word_that_is_no_issued_id_hides_no_token_inside_it() -> None:
+    """With no leading literal a token may start in the middle of a word."""
+    codec = FormatCodec("{namespace}:{type}:{id}>")
+    text = "123456789012PRIVYX:EMAIL:1> x"
+    found = [(12, 27, "PRIVYX:EMAIL:1>")]
+
+    assert list(codec.restorable(text)) == found
+    assert list(codec.restorable(text, codec.ids([f"PRIVYX:EMAIL:{ID}>"]))) == found

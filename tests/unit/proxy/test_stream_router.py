@@ -334,6 +334,56 @@ def test_anthropic_tool_use_buffered_and_restored(written: str) -> None:
     assert json.loads(input_events[0]["delta"]["partial_json"])["to"] == ORIG
 
 
+def test_anthropic_restores_a_token_id_written_on_its_own() -> None:
+    """In a tool's input and in text, where the id comes split across deltas."""
+    token, ident, name = "<PRIVYX_PERSON_9F3A1C2B7D4E5F60>", "9F3A1C2B7D4E5F60", "Alice Example"
+    mapping = {token: name}
+    codec, adapter = FormatCodec.default(), AnthropicStreamAdapter()
+    router = StreamRouter(
+        codec,
+        mapping.get,
+        adapter,
+        make_processor=select_processor_factory(object(), codec, mapping.get, mapping),
+    )
+
+    def delta(index: int, payload: dict[str, Any]) -> str:
+        body = {"type": "content_block_delta", "index": index, "delta": payload}
+        return _anthropic("content_block_delta", body)
+
+    def block(index: int, kind: str, *deltas: str) -> str:
+        start = {"type": "content_block_start", "index": index, "content_block": {"type": kind}}
+        stop = {"type": "content_block_stop", "index": index}
+        return (
+            _anthropic("content_block_start", start)
+            + "".join(deltas)
+            + _anthropic("content_block_stop", stop)
+        )
+
+    arguments = json.dumps({"query": ident})
+    out = _run(
+        router,
+        block(
+            0,
+            "tool_use",
+            delta(0, {"type": "input_json_delta", "partial_json": arguments[:14]}),
+            delta(0, {"type": "input_json_delta", "partial_json": arguments[14:]}),
+        )
+        + block(
+            1,
+            "text",
+            delta(1, {"type": "text_delta", "text": f"Found {ident[:7]}"}),
+            delta(1, {"type": "text_delta", "text": f"{ident[7:]}."}),
+        ),
+    )
+
+    assert ident not in out
+    deltas = [ev["delta"] for ev in _events(out) if ev["type"] == "content_block_delta"]
+    assert [json.loads(d["partial_json"]) for d in deltas if "partial_json" in d] == [
+        {"query": name}
+    ]
+    assert "".join(d.get("text", "") for d in deltas) == f"Found {name}."
+
+
 def test_anthropic_citations_delta_restored_whole() -> None:
     adapter = AnthropicStreamAdapter()
     router = _router(adapter, {TOKEN: ORIG})
