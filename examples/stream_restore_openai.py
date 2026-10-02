@@ -1,7 +1,8 @@
-"""Use the Privyx engine with OpenAI-style streaming.
+"""Restore an OpenAI-style stream by hand, without the proxy or a provider.
 
-Demonstrates the full flow: pseudonymize request content, forward, then
-deanonymize each SSE delta with the streaming deanonymizer.
+Pseudonymizes a request, then feeds a simulated SSE reply through the
+streaming deanonymizer, with a token split between two chunks.  The proxy does
+all of this for you; this is the building block it uses.
 """
 
 from __future__ import annotations

@@ -1,7 +1,8 @@
-"""Use the Privyx engine with Anthropic-style streaming.
+"""Restore an Anthropic-style stream by hand, without the proxy or a provider.
 
-Anthropic emits ``content_block_delta`` SSE events with ``delta.text``.
-The adapter ignores ``thinking`` deltas so they pass through untouched.
+Anthropic emits ``content_block_delta`` SSE events with ``delta.text``.  This
+low-level adapter extracts text deltas only and leaves ``thinking`` deltas
+alone; the proxy restores those too, through its stream router.
 """
 
 from __future__ import annotations
