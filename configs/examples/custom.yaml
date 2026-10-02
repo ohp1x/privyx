@@ -1,7 +1,8 @@
 # Example: custom provider endpoint
 #
-# Privyx is a transparent proxy: it does not need to know the schema.
-# Point any HTTP client at the gateway and it will forward to `base_url`.
+# Any endpoint that speaks the OpenAI or Anthropic chat format works: point a
+# client at Privyx and it forwards to `base_url`.  Requests on the paths in
+# `proxy.routes` are masked; other paths are forwarded as sent.
 
 provider:
   type: generic

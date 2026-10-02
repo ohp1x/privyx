@@ -72,7 +72,10 @@ class LicensePlateDetector(BaseDetector):
         return d
 ```
 
-A ready-to-run copy lives in `plugins/detectors/license_plate.py`.
+A ready-to-run copy lives in `plugins/detectors/license_plate.py`. A second
+example, `plugins/detectors/iban.py`, validates a checksum and takes an
+option; the tutorial [A detector plugin](../tutorials/detector-plugin.md)
+builds it step by step.
 
 A detector that calls a paid or remote service can report what it did with
 `context.counters["my_calls"] += 1`. The counts land in the audit trail as

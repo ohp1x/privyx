@@ -3,11 +3,12 @@ name: Docs
 on:
   push:
     branches: [main]
-    # examples/ and configs/ are embedded in the pages.
-    paths: [docs/**, mkdocs.yml, examples/**, configs/**, .github/workflows/docs.yml]
+    # examples/, configs/, and plugins/ are embedded in the pages; overrides/
+    # is the theme's template directory.
+    paths: [docs/**, mkdocs.yml, overrides/**, examples/**, configs/**, plugins/**, .github/workflows/docs.yml]
   pull_request:
-    # examples/ and configs/ are embedded in the pages.
-    paths: [docs/**, mkdocs.yml, examples/**, configs/**, .github/workflows/docs.yml]
+    # As above.
+    paths: [docs/**, mkdocs.yml, overrides/**, examples/**, configs/**, plugins/**, .github/workflows/docs.yml]
   workflow_dispatch:
 
 permissions:

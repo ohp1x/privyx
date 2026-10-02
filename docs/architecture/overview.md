@@ -1,6 +1,8 @@
-# Privyx
+# Architecture overview
 
-AI data privacy gateway — a privacy engine + proxy for LLM providers.
+Privyx is a privacy engine with an HTTP proxy around it. This page shows how
+the parts fit together. For what the proxy does from a user's point of view,
+see [How it works](../guide/how-it-works.md).
 
 ## Architecture
 
@@ -9,8 +11,8 @@ AI data privacy gateway — a privacy engine + proxy for LLM providers.
 │                      PRIVYX GATEWAY                     │
 │                                                        │
 │  HTTP ──┐                                              │
-│  SSE ───┤──► Protocol / Provider Adapter               │
-│  WS ────┘               │                              │
+│  SSE ───┴──► Protocol / Provider Adapter               │
+│                         │                              │
 │                         ▼                              │
 │                  Privacy Pipeline                      │
 │                         │                              │

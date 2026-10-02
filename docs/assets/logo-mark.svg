@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="14 14 100 100" role="img" aria-labelledby="privyx-logo-title">
+  <title id="privyx-logo-title">Privyx</title>
+  <g fill="none" stroke-width="12">
+    <rect x="22" y="46" width="84" height="36" rx="18" stroke="#B4BEFE"/>
+    <rect x="34" y="22" width="36" height="84" rx="18" stroke="#FFFFFF"/>
+    <!-- The horizontal pill again, only where it passes over the vertical one. -->
+    <path d="M22 64A18 18 0 0 1 40 46H52M52 82H88A18 18 0 0 0 106 64" stroke="#B4BEFE"/>
+  </g>
+</svg>

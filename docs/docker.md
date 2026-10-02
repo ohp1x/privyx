@@ -1,8 +1,8 @@
-# Privyx
+# Privyx Docker image
 
-AI data privacy gateway: a drop-in proxy for LLM providers that pseudonymizes
-sensitive data before a request leaves your machine and restores it in the
-reply, batch or streaming, without changing your client.
+Privyx is an AI data privacy gateway: a drop-in proxy for LLM providers that
+pseudonymizes sensitive data before a request leaves your machine and
+restores it in the reply, batch or streaming, without changing your client.
 
 ## Quick start
 
@@ -99,5 +99,9 @@ docker run -d -p 127.0.0.1:8000:8000 \
 
 ## More
 
-Full documentation, the Python package, and the changelog:
-[pypi.org/project/privyx](https://pypi.org/project/privyx/)
+- Documentation: [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/),
+  with a tutorial for
+  [a shared gateway](https://ohp1x.github.io/privyx/tutorials/team-gateway/)
+  on Docker Compose
+- Source and changelog: [github.com/ohp1x/privyx](https://github.com/ohp1x/privyx)
+- Python package: [pypi.org/project/privyx](https://pypi.org/project/privyx/)

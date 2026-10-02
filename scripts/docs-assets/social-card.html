@@ -1,0 +1,55 @@
+<!doctype html>
+<!--
+  Source of docs/assets/social-card.png, the image link previews show.
+  Render it at 1280x640 with any Chromium, from the repo root:
+
+    chromium --headless --hide-scrollbars --window-size=1280,640 --virtual-time-budget=5000 \
+      --screenshot=docs/assets/social-card.png scripts/docs-assets/social-card.html
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Privyx social card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=JetBrains+Mono:wght@500&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; }
+  body {
+    width: 1280px; height: 640px; overflow: hidden;
+    font-family: Inter, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #e0e7ff;
+    background:
+      radial-gradient(900px 500px at 88% -10%, rgba(99, 102, 241, .45), transparent 60%),
+      radial-gradient(700px 420px at -5% 110%, rgba(67, 56, 202, .5), transparent 60%),
+      #14152b;
+  }
+  .card { box-sizing: border-box; height: 100%; padding: 68px 84px; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 22px; }
+  .brand img { width: 84px; height: 84px; }
+  .brand span { font-size: 54px; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+  h1 { margin: 44px 0 0; font-size: 60px; line-height: 1.12; font-weight: 800; letter-spacing: -0.025em; color: #fff; max-width: 1000px; }
+  .demo {
+    margin-top: auto; padding: 24px 30px; border-radius: 16px;
+    background: rgba(15, 16, 35, .72); border: 1px solid rgba(165, 180, 252, .22);
+    font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    font-size: 25px; line-height: 1.62; color: #cdd6f4; white-space: nowrap;
+  }
+  .label { display: inline-block; width: 250px; color: #8f96c2; }
+  .plain { color: #f38ba8; }
+  .token { color: #b4befe; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <img src="../../docs/assets/logo.svg" alt="">
+      <span>Privyx</span>
+    </div>
+    <h1>Keep secrets and personal data out of LLM prompts.</h1>
+    <div class="demo">
+      <div><span class="label">you send</span>Mail <span class="plain">ann@example.com</span>. DB_PASSWORD=<span class="plain">hunter2</span></div>
+      <div><span class="label">provider gets</span>Mail <span class="token">&lt;PRIVYX_EMAIL_1&gt;</span>. DB_PASSWORD=<span class="token">&lt;PRIVYX_SECRET_2&gt;</span></div>
+    </div>
+  </div>
+</body>
+</html>

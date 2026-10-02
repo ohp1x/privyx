@@ -8,22 +8,24 @@ unless a key is configured on Privyx.
 ```python
 from openai import OpenAI
 
-client = OpenAI(
-    base_url="http://localhost:8000/v1",  # Privyx (transparent) proxy
-    api_key="your-key",
-)
+client = OpenAI(base_url="http://localhost:8000/v1")  # the key still comes from OPENAI_API_KEY
 
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "My email is alice@example.com"}],
+reply = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Write a short greeting to alice@example.com"}],
 )
+print(reply.choices[0].message.content)
 ```
 
 Start it with:
 
 ```bash
-privyx proxy --transparent --upstream https://api.openai.com
+privyx proxy --upstream https://api.openai.com
 ```
+
+Streaming, tool calls, and the Responses API are shown in
+[An app on the OpenAI or Anthropic SDK](../tutorials/sdk-app.md), and Codex in
+[Coding agents](../tutorials/coding-agents.md).
 
 Privyx pseudonymizes the request, forwards to OpenAI, and deanonymizes the
 streaming or batch response — including tool-call arguments. `/v1/chat/completions`

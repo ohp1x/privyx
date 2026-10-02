@@ -6,8 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Docs:** the documentation is reorganized around what a reader wants to do: a quickstart, six tutorials, pages for frameworks and providers, and new pages on proxy modes, deployment, errors, limitations, and troubleshooting. The README is a short front page, and the project has a logo
+- **Examples:** `examples/from_config.py` builds the engine from the configuration the CLI reads, and `plugins/detectors/iban.py` is a detector plugin that validates a checksum; the test suite runs both
+
+### Changed
+
+- **Examples:** `examples/openai.py` and `examples/anthropic.py`, which simulate a stream and call no provider, are now `examples/stream_restore_openai.py` and `examples/stream_restore_anthropic.py`
+
 ### Fixed
 
+- **Docker:** `.env.example` copied to `.env` unchanged, as the README said to, gave the container a relative audit path it cannot write and a `localhost` upstream, so the proxy could not start; every line in the file is now commented out, and the image's and the compose file's defaults apply
 - **Restore:** a token's id that the model wrote on its own (`9F3A1C2B7D4E5F60` for `<PRIVYX_EMAIL_9F3A1C2B7D4E5F60>`) was not restored, so a tool could receive the id in place of the value; an id of 12 characters or more is now restored too, for tokens the session issued
 
 ## [0.1.14] - 2026-10-01
