@@ -1,13 +1,19 @@
+---
+description: Copy-and-paste examples for Privyx. SDK snippets, curl, coding tools, configuration recipes, and command-line one-liners.
+---
+
 # Examples
 
-Each client below talks to Privyx instead of the provider. Only the base URL
-changes; the client keeps its own API key, which Privyx relays upstream. The
-examples assume a proxy on the default port:
+Short recipes to copy. Each client below talks to Privyx instead of the
+provider: only the base URL changes, and the client keeps its own API key,
+which Privyx relays. The examples assume a proxy on the default port:
 
 ```bash
 privyx proxy --upstream https://api.openai.com        # for the OpenAI examples
 privyx proxy --upstream https://api.anthropic.com     # for the Anthropic examples
 ```
+
+For a guided walkthrough instead, see the [tutorials](../tutorials/index.md).
 
 ## OpenAI Python SDK
 
@@ -34,10 +40,10 @@ touching the code.
 ```python
 import anthropic
 
-client = anthropic.Anthropic(base_url="http://localhost:8000")  # key from ANTHROPIC_API_KEY
+client = anthropic.Anthropic(base_url="http://localhost:8000")  # the key still comes from ANTHROPIC_API_KEY
 
 reply = client.messages.create(
-    model="claude-opus-5",
+    model="claude-opus-5-5",
     max_tokens=16000,
     messages=[{"role": "user", "content": "Write a short greeting to alice@example.com"}],
 )
@@ -46,10 +52,30 @@ print(next(block.text for block in reply.content if block.type == "text"))
 
 Or set `ANTHROPIC_BASE_URL=http://localhost:8000`.
 
+## Node
+
+```js
+import OpenAI from "openai";
+
+const client = new OpenAI({ baseURL: "http://localhost:8000/v1" }); // the key still comes from OPENAI_API_KEY
+
+const reply = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "Write a short greeting to alice@example.com" }],
+});
+console.log(reply.choices[0].message.content);
+```
+
+The Anthropic SDK for Node takes `baseURL: "http://localhost:8000"` in the
+same way. Streaming, tool calls, and the Responses API are in
+[An app on the OpenAI or Anthropic SDK](../tutorials/sdk-app.md); LangChain,
+LlamaIndex, LiteLLM, and the Vercel AI SDK are under
+[Integrations](../integrations/index.md).
+
 ## One session per user
 
-By default every request gets its own session. To keep one pseudonym mapping
-per user of your application, send an `x-privyx-session` header:
+By default every request gets its own session. To keep one mapping per user
+of your application, send an `x-privyx-session` header:
 
 ```python
 from openai import OpenAI
@@ -75,6 +101,16 @@ curl http://localhost:8000/v1/chat/completions \
        "messages": [{"role": "user", "content": "Write a short greeting to alice@example.com"}]}'
 ```
 
+```bash
+curl http://localhost:8000/v1/messages \
+  -H "x-api-key: $ANTHROPIC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-opus-5-5", "max_tokens": 1024,
+       "messages": [{"role": "user", "content": "Write a short greeting to alice@example.com"}]}'
+```
+
+Privyx adds the `anthropic-version` header when the request has none.
+
 ## Coding tools
 
 `privyx run` starts a proxy for the tool and points it there:
@@ -91,6 +127,29 @@ the variable yourself:
 ```bash
 privyx proxy -c privyx.yaml --upstream https://api.anthropic.com
 ANTHROPIC_BASE_URL=http://localhost:8000 claude
+```
+
+## On the command line
+
+```bash
+# What would be masked in this text, and what the provider would get
+privyx detect --transform "DB_PASSWORD=hunter2, mail dana@acme.example"
+
+# The same for a file
+privyx detect --transform --stdin < app.log
+
+# Mask a file and keep the mapping; restore the answer later
+privyx mask --map map.json -i app.log -o app.masked.log
+privyx unmask --map map.json -i answer.txt
+
+# Only the messages of a JSON request
+privyx mask --map map.json -i request.json --path '$.messages'
+
+# A JSONL dataset through a pipe
+cat tickets.jsonl | privyx mask --map map.json -f jsonl -i - -o tickets.masked.jsonl
+
+# What happened lately, without any content
+privyx audit stats --since 24h
 ```
 
 ## Configuration recipes
@@ -117,20 +176,42 @@ Docker image under `/app/configs`.
 --8<-- "configs/strict.yaml"
 ```
 
-## Using the engine from Python
+### Sessions that survive a restart
 
-The engine can run inside your own program, without the proxy. These scripts
-live in [`examples/`](https://github.com/ohp1x/privyx/tree/main/examples) and
-the test suite runs each of them.
+```yaml
+vault:
+  type: sqlite               # needs privyx[sqlite]
+  dsn: /var/lib/privyx/privyx.db
+  ttl: 604800                # forget sessions idle for a week
 
-### Mask and restore a string
-
-```python
---8<-- "examples/basic.py"
+session:
+  strategy: conversation     # one session per conversation
 ```
 
-### Serve the gateway from your own code
+### Refuse what cannot be masked
+
+```yaml
+proxy:
+  passthrough_unknown: false   # 403 for embeddings and every other unrouted path
+```
+
+### Names without a list
+
+```yaml
+detector:
+  - type: regex               # built-in patterns, your terms and patterns
+  - type: presidio            # needs privyx[presidio] and a spaCy model
+    language: en
+    entities: [PERSON, LOCATION]
+```
+
+## Using the engine from Python
+
+The engine can run inside your own program, without the proxy. The scripts in
+[`examples/`](https://github.com/ohp1x/privyx/tree/main/examples) show how,
+and the test suite runs each of them. [Python library](../development/python-library.md)
+walks through them.
 
 ```python
---8<-- "examples/fastapi_gateway.py"
+--8<-- "examples/from_config.py"
 ```

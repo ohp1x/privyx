@@ -1,226 +1,166 @@
-# Privyx
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ohp1x/privyx/main/docs/assets/logo.svg" width="88" height="88" alt="Privyx logo">
+</p>
 
-[![PyPI](https://img.shields.io/pypi/v/privyx)](https://pypi.org/project/privyx/)
-[![Python](https://img.shields.io/pypi/pyversions/privyx)](https://pypi.org/project/privyx/)
-[![Docker Pulls](https://img.shields.io/docker/pulls/ohp1x/privyx)](https://hub.docker.com/r/ohp1x/privyx)
-[![License](https://img.shields.io/pypi/l/privyx)](https://pypi.org/project/privyx/)
+<h1 align="center">Privyx</h1>
 
-> AI data privacy gateway — a privacy engine + proxy for LLM providers.
+<p align="center"><strong>Keep secrets and personal data out of LLM prompts.</strong></p>
 
-Privyx is a modular, extensible privacy gateway that intercepts traffic to/from AI
-providers, pseudonymizes sensitive data (PII), manages session vaults, and
-deanonymizes streaming responses — all without changing your application code.
+<p align="center">
+  <a href="https://pypi.org/project/privyx/"><img src="https://img.shields.io/pypi/v/privyx" alt="PyPI"></a>
+  <a href="https://pypi.org/project/privyx/"><img src="https://img.shields.io/pypi/pyversions/privyx" alt="Python versions"></a>
+  <a href="https://github.com/ohp1x/privyx/actions/workflows/ci.yml"><img src="https://github.com/ohp1x/privyx/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://hub.docker.com/r/ohp1x/privyx"><img src="https://img.shields.io/docker/pulls/ohp1x/privyx" alt="Docker pulls"></a>
+  <a href="https://github.com/ohp1x/privyx/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/privyx" alt="License"></a>
+</p>
 
-## Features
+<p align="center">
+  <a href="https://ohp1x.github.io/privyx/">Documentation</a> ·
+  <a href="https://ohp1x.github.io/privyx/guide/getting-started/">Quickstart</a> ·
+  <a href="https://ohp1x.github.io/privyx/tutorials/">Tutorials</a> ·
+  <a href="https://ohp1x.github.io/privyx/integrations/">Integrations</a>
+</p>
 
-- **Privacy Engine** — pluggable detectors, policies, operators, and anchors
-- **Transparent Proxy** — works with OpenAI, Anthropic, and any OpenAI-compatible HTTP provider
-- **Native TLS/HTTPS** — the proxy can terminate TLS directly, no reverse proxy required
-- **Streaming Deanonymization** — real-time pseudonym reversal in SSE streams
-- **Session Vault** — memory, SQLite, or Redis backends
-- **Docker-ready** — multi-stage `Dockerfile` and `docker-compose.yml` with a Redis vault
-- **CLI** — `privyx proxy`, `privyx run`, `privyx detect`, `privyx mask`/`unmask`,
-  `privyx session`, `privyx audit`, `privyx doctor`
-- **Plugin System** — custom detectors, operators, and providers
+Privyx is a proxy between your tools and an AI provider. It replaces the API
+keys, passwords, email addresses, and other sensitive values it detects in a
+request with placeholders, and puts the originals back into the reply. The
+only thing that changes in your client is its base URL.
 
-## Quick Start
+![A terminal: privyx mask replaces a secret key and an email address in a prompt with tokens, and privyx unmask puts the email address back into the model's reply.](https://raw.githubusercontent.com/ohp1x/privyx/main/docs/assets/demo.gif)
 
-```bash
-# Install
-uv sync --all-extras
+## Quick start
 
-# Start the drop-in transparent proxy (default mode)
-privyx proxy --upstream https://api.openai.com
-
-# Or wrap a tool: starts its own proxy and launches the tool through it
-privyx run claude
-```
-
-Then point any client at Privyx — no code change, just the base URL:
-
-```bash
-export OPENAI_BASE_URL=http://localhost:8000/v1      # OpenAI clients
-export ANTHROPIC_BASE_URL=http://localhost:8000      # Anthropic clients
-```
-
-Chat Completions, Anthropic Messages, and OpenAI Responses requests (plus their
-token-count endpoints) are pseudonymized before forwarding and the reply is
-restored on the way back (batch or streaming, including tool-call arguments);
-every other path is forwarded verbatim.
-
-Use `--gateway` when the upstream endpoint carries a base path (say
-`https://api.deepseek.com/anthropic/v1/messages`): that mode serves Privyx's own
-endpoints and posts to `provider.base_url` verbatim, instead of appending the
-client's path to a bare origin. See [docs/architecture/proxy.md](docs/architecture/proxy.md).
-
-### TLS / HTTPS
-
-The proxy can terminate TLS natively instead of sitting behind a separate reverse
-proxy:
-
-```bash
-privyx proxy --upstream https://api.openai.com \
-  --ssl-certfile cert.pem --ssl-keyfile key.pem
-```
-
-Equivalent config via `tls:` in `config.yaml`, or the `PRIVYX_SSL_*` /
-`PRIVYX_TLS_*` environment variables. When configured, both transparent and
-gateway proxy modes listen on `https://`.
-
-### Docker
-
-```bash
-cp .env.example .env   # fill in upstream keys and secrets
-docker compose up -d
-```
-
-This starts Privyx on `127.0.0.1:8000` alongside a Redis-backed session vault
-(see `docker-compose.yml`). Configs and plugins are mounted read-only from
-`./configs` and `./plugins`; persistent data (vault DB, audit log) lives in the
-`privyx_data` volume. Run the published image standalone with:
-
-```bash
-docker run -p 127.0.0.1:8000:8000 --env-file .env ohp1x/privyx:latest
-```
-
-Images are pushed to Docker Hub (`ohp1x/privyx`) and GHCR on every release tag
-(`X.Y.Z`, `X.Y`, and `latest` for stable releases); see
-[docs/docker.md](docs/docker.md) for the variables and volumes the image uses.
-To build locally instead: `docker build -t privyx .`
-
-### Sessions
-
-Most clients (Claude Code, codex, aider) never send an `x-privyx-session` header,
-so by default each request is its own **ephemeral** session — safe, but a
-multi-turn conversation is re-tokenized every turn and shows up as many sessions.
-Set `session.strategy` (or `PRIVYX_SESSION_STRATEGY`) to make sessions stick:
-
-- `client` — one session per API key;
-- `conversation` — one session per conversation, keyed on the first user message,
-  so a conversation's turns share a pseudonym map while different conversations
-  (even under the same key) stay isolated.
-
-`privyx run` uses `conversation` and auto-provisions an HMAC anchor secret
-(`~/.config/privyx/anchor.key`), so pseudonyms are stable across turns and
-restarts out of the box. See
-[docs/architecture/proxy.md](docs/architecture/proxy.md#sessions).
-
-Sticky sessions stay in the vault until something removes them. Set
-`vault.ttl` or `PRIVYX_VAULT_TTL` (seconds) to expire sessions idle that long
-(`docker-compose.yml` sets a week), or clean up by hand:
-
-```bash
-privyx session list                        # ids, last activity, mapping counts
-privyx session show ses_1234 [--reveal]    # one session's mappings, masked by default
-privyx session prune --older-than 7d       # add --dry-run to preview
-```
-
-### Audit trail and metrics
-
-Every exchange is recorded in `audit.path` (default `privyx-audit.log`, or
-`~/.local/state/privyx/audit.log` for `privyx run`) as PII-safe JSON lines:
-event names, entity types, and counts, never content
-([docs/observability/audit-events.md](docs/observability/audit-events.md)).
-
-```bash
-privyx audit stats [--since 24h]           # requests, errors, sessions, masked entity types
-privyx audit tail                          # last events, then follow new ones (--no-follow)
-curl localhost:8000/metrics                # the same counters, Prometheus text format
-```
-
-### Pseudonymizing your own terms
-
-Beyond the built-in patterns, `detector.terms` takes plain word lists — Privyx
-escapes them and matches case-insensitively, longest term first:
-
-```yaml
-# my.yaml
-detector:
-  type: regex                 # keeps the built-in patterns (PII and secrets)
-  terms:
-    PERSON:       [ann, bob]
-    ORGANIZATION: [acme, initech]
-    URL:          ["https://git.internal.example/team"]
-```
-
-```bash
-privyx detect -c my.yaml --transform "ann at acme"   # → <PRIVYX_PERSON_1> at <PRIVYX_ORGANIZATION_2>
-privyx proxy -c my.yaml --upstream https://api.openai.com
-
-# While tuning the list: --reload restarts the proxy whenever my.yaml changes
-privyx proxy -c my.yaml --reload --upstream https://api.openai.com
-```
-
-The entity name is yours to choose — it becomes the `{type}` in the token.
-`terms` and `patterns` can both be set; see `configs/examples/terms.yaml`.
-A `patterns` regex with a `(?P<value>...)` group masks only that group —
-`PASSWORD=(?P<value>\S+)` hides the secret, not the variable name.
-
-To run several detectors at once, give `detector` a list. Each item is its own
-detector config, and their spans are pooled:
-
-```yaml
-detector:
-  - type: regex               # structured PII + your terms
-    terms:
-      PROJECT: [bluebird]
-  - type: presidio            # names, orgs, locations (needs privyx[presidio])
-    language: en
-  - type: llm                 # context-dependent PII an LLM can spot (needs privyx[providers])
-    llm_provider: openai      # or anthropic; api key defaults to the SDK's own env var
-    llm_timeout: 30           # seconds per scan; a failure fails the request (fail-closed)
-    llm_max_chars: 4000       # longer text is scanned in overlapping chunks, never truncated
-    llm_fallback_on_error: false
-```
-
-If the LLM detector fails, times out, or replies without a JSON array of spans
-(it chatted, or ran out of tokens), the request fails with `503`
-(`privyx_scan_failed`) rather than reach the upstream with a weaker scan. `llm_fallback_on_error: true` keeps traffic flowing
-by scanning with the built-in regex patterns instead, which lets through
-whatever only the LLM would have caught (names, organizations). Each fallback is
-logged and counted in the audit trail as `detector_counts.llm_fallbacks`,
-alongside `llm_calls` and estimated `llm_input_tokens` / `llm_output_tokens`.
-
-Detection results are cached in an LRU cache (`detector.cache: true`, default) so that
-in multi-turn conversations, unchanged previous turns do not need to be scanned again.
-Disable with `cache: false` or `PRIVYX_DETECTOR_CACHE=false`.
-
-### Masking without the proxy
-
-`mask` and `unmask` run the same engine over a string, a file, JSON, JSONL, or
-stdin — handy in a pipeline, in CI, or from another project:
-
-```bash
-privyx mask --map map.json "mail alice@example.com"   # -> mail <PRIVYX_EMAIL_1>
-privyx unmask --map map.json -i masked.txt            # -> mail alice@example.com
-
-# JSON: every string leaf, or just one subtree
-privyx mask --map map.json -i request.json
-privyx mask --map map.json -i request.json --path '$.messages'
-cat events.jsonl | privyx mask --map map.json -f jsonl -i - -o masked.jsonl
-```
-
-The `--map` file holds the token mapping and is enough to reverse the output
-anywhere. Use `--session ID` instead to keep the mapping in the configured
-vault — that needs a persistent one (`vault.type: sqlite` or `redis`), since
-the default `memory` vault forgets it the moment the command exits.
-
-## Installation
+Privyx needs Python 3.12 or newer.
 
 ```bash
 pip install privyx
-# or
-uv add privyx
 ```
 
-Optional extras: `sqlite`, `redis`, `providers` (LLM detector), `presidio`, `faker`, `crypto`.
-See [Getting started](https://ohp1x.github.io/privyx/guide/getting-started/).
+**With a coding agent.** `privyx run` starts a proxy, launches the tool through
+it, and stops the proxy when the tool exits:
+
+```bash
+privyx run claude        # Claude Code; also: codex, aider
+```
+
+**With an application or any other client.** Start the proxy, then change the
+client's base URL. The client keeps its own API key, which Privyx relays:
+
+```bash
+privyx proxy --upstream https://api.openai.com
+export OPENAI_BASE_URL=http://localhost:8000/v1
+```
+
+For Anthropic: `--upstream https://api.anthropic.com` and
+`ANTHROPIC_BASE_URL=http://localhost:8000`.
+
+**Without installing.** See what would be masked in a text. Nothing is sent
+anywhere:
+
+```console
+$ uvx privyx detect --transform "DB_PASSWORD=hunter2 deploy to 10.0.4.17, cc dana@acme.example"
+    12:19    SECRET            'hunter2'
+    30:39    IP_ADDRESS        '10.0.4.17'
+    44:61    EMAIL             'dana@acme.example'
+
+DB_PASSWORD=<PRIVYX_SECRET_1> deploy to <PRIVYX_IP_ADDRESS_2>, cc <PRIVYX_EMAIL_3>
+```
+
+The [Quickstart](https://ohp1x.github.io/privyx/guide/getting-started/) walks
+through each of these, and there is a Docker image:
+[`ohp1x/privyx`](https://ohp1x.github.io/privyx/docker/).
+
+## How it works
+
+![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The provider answers using the placeholder, and your tool gets the reply with the address back in it.](https://raw.githubusercontent.com/ohp1x/privyx/main/docs/assets/how-it-works.svg)
+
+The model works with `<PRIVYX_EMAIL_1>`: it can reason about it, repeat it,
+and hand it to a tool. The mapping back to the real value stays with Privyx.
+More in [How it works](https://ohp1x.github.io/privyx/guide/how-it-works/).
+
+## Who it is for
+
+- **You use a coding agent.** Claude Code, Codex, or aider reads your `.env`,
+  your logs, and your git history, and sends them to a provider.
+  [Coding agents](https://ohp1x.github.io/privyx/tutorials/coding-agents/)
+- **You build an application.** Your prompts carry your users' data. Keep it
+  out of them with the OpenAI or Anthropic SDK, LangChain, LlamaIndex,
+  LiteLLM, or the Vercel AI SDK.
+  [An app on the OpenAI or Anthropic SDK](https://ohp1x.github.io/privyx/tutorials/sdk-app/)
+- **You run a gateway for a team.** One proxy for everyone, with a shared
+  vault, TLS, and an audit trail.
+  [A shared gateway for a team](https://ohp1x.github.io/privyx/tutorials/team-gateway/)
+- **You want to mask files.** Logs, JSON, and datasets, in a script or in CI,
+  without a proxy.
+  [Files and logs in a pipeline](https://ohp1x.github.io/privyx/tutorials/mask-files/)
+
+## What it does
+
+- **Masks secrets and personal data.** Built-in patterns cover email
+  addresses, phone numbers, card numbers, IP addresses, API keys, tokens,
+  private keys, and passwords. Add your own
+  [word lists and patterns](https://ohp1x.github.io/privyx/tutorials/custom-terms/),
+  or a detector that understands names: Presidio or an LLM.
+- **Restores the reply.** In batch and streaming responses, in reasoning text,
+  and in tool-call arguments, so your tools receive real values.
+- **Drops in.** It speaks OpenAI Chat Completions and Responses and Anthropic
+  Messages, so SDKs, frameworks, and coding tools only need a base URL.
+- **Keeps sessions your way.** One mapping per request, per client, or per
+  conversation, in memory, SQLite, or Redis.
+- **Shows what it did.** A PII-safe audit trail and Prometheus metrics count
+  what was masked, without recording any of it.
+- **Fails closed.** A request it cannot mask is not forwarded.
+- **Extends.** Plugins add detectors, operators, policies, vaults, and
+  providers.
+
+## What it does not do
+
+Privyx reduces what a provider sees. It does not make a prompt safe by itself:
+
+- Names, organizations, and project terms are only masked once you configure
+  a word list or a detector for them.
+- Only chat requests are masked. Other API paths, such as embeddings, are
+  forwarded as the client sent them, unless you tell Privyx to refuse them.
+- Images, audio, and other binary content are not inspected.
+- The proxy has no authentication of its own. Keep it on `127.0.0.1`, or put
+  something in front of it that authenticates callers.
+
+[Limitations](https://ohp1x.github.io/privyx/security/limitations/) has the full
+list, and the [threat model](https://ohp1x.github.io/privyx/security/threat-model/)
+says what Privyx protects against.
 
 ## Documentation
 
-The documentation site at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/)
-covers architecture, provider guides, and security. Its source is in [docs/](docs/).
+The documentation is at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/):
+
+- [Quickstart](https://ohp1x.github.io/privyx/guide/getting-started/) and
+  [tutorials](https://ohp1x.github.io/privyx/tutorials/)
+- Guides to [detection](https://ohp1x.github.io/privyx/guide/detection/),
+  [masking](https://ohp1x.github.io/privyx/guide/masking/),
+  [sessions](https://ohp1x.github.io/privyx/guide/sessions/), and
+  [deployment](https://ohp1x.github.io/privyx/guide/deployment/)
+- [Integrations](https://ohp1x.github.io/privyx/integrations/) with providers
+  and frameworks
+- Reference for [configuration](https://ohp1x.github.io/privyx/guide/configuration/),
+  the [CLI](https://ohp1x.github.io/privyx/guide/cli/), and
+  [errors](https://ohp1x.github.io/privyx/reference/errors/)
+- [Troubleshooting](https://ohp1x.github.io/privyx/guide/troubleshooting/) and
+  the [FAQ](https://ohp1x.github.io/privyx/guide/faq/)
+
+Its source is in [`docs/`](https://github.com/ohp1x/privyx/tree/main/docs).
+
+## Project
+
+Privyx is in its `0.1.x` series; the
+[changelog](https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md) lists what
+each release changed.
+
+- Questions and ideas: [Discussions](https://github.com/ohp1x/privyx/discussions)
+- Bugs: [Issues](https://github.com/ohp1x/privyx/issues)
+- Security: [report privately](https://github.com/ohp1x/privyx/security/advisories/new);
+  see the [security policy](https://github.com/ohp1x/privyx/blob/main/SECURITY.md)
+- Contributing: [CONTRIBUTING.md](https://github.com/ohp1x/privyx/blob/main/CONTRIBUTING.md)
 
 ## License
 
-MIT
+[MIT](https://github.com/ohp1x/privyx/blob/main/LICENSE)

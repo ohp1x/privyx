@@ -76,11 +76,11 @@ policy:
   # allowed: [EMAIL, PHONE, SSN]
 
 # --- Operator ---
-# `pseudonym` and `hash` are reversible through the session vault; `redact`
-# destroys the original, so responses referring to a redacted value cannot be
-# restored.
+# `pseudonym`, `hash`, `encrypt`, and `faker` are reversible through the
+# session vault; `redact` destroys the original, so responses referring to a
+# redacted value cannot be restored.
 operator:
-  type: pseudonym        # pseudonym | redact | hash
+  type: pseudonym        # pseudonym | hash | encrypt | faker | redact
   # token: "[REDACTED]"  # redact: replacement text
   # length: 12           # hash: digest length
 

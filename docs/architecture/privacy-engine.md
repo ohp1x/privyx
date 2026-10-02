@@ -54,6 +54,7 @@ they differ in the substitution and its reversibility.
 |----------|--------------|------------|-------------------------|
 | `pseudonym` | a codec token (`<PRIVYX_EMAIL_1>`), counter- or anchor-derived | yes (vault) | codec syntax |
 | `hash` | a codec token whose id is a content hash | yes (vault) | codec syntax |
+| `encrypt` | a codec token whose id is a keyed digest; the vault holds AES-256-GCM ciphertext | yes (vault, decrypted with the key) | codec syntax |
 | `redact` | a fixed string (`[REDACTED]`) | no | — |
 | `faker` | a *realistic* fake of the same kind (fake email, name, …) | yes (vault) | exact substituted values |
 

@@ -140,6 +140,9 @@ detector:
   llm_fallback_on_error: false
 ```
 
+Set `llm_model` to a model your account can use; the built-in default for a
+provider can be one that provider has since retired.
+
 The text is sent *unmasked* to that provider, so use one you already trust with
 it. The key comes from `llm_api_key`, or else the SDK's own variable
 (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`). The SDK also reads `OPENAI_BASE_URL` /

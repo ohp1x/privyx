@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 128 128" role="img" aria-labelledby="privyx-logo-title">
+  <title id="privyx-logo-title">Privyx</title>
+  <defs>
+    <linearGradient id="privyx-logo-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#4338CA"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#privyx-logo-bg)"/>
+  <g transform="translate(6.4 6.4) scale(.9)" fill="none" stroke-width="12">
+    <rect x="22" y="46" width="84" height="36" rx="18" stroke="#B4BEFE"/>
+    <rect x="34" y="22" width="36" height="84" rx="18" stroke="#FFFFFF"/>
+    <!-- The horizontal pill again, only where it passes over the vertical one. -->
+    <path d="M22 64A18 18 0 0 1 40 46H52M52 82H88A18 18 0 0 0 106 64" stroke="#B4BEFE"/>
+  </g>
+</svg>

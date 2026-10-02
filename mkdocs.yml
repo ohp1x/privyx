@@ -7,8 +7,21 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  # overrides/main.html adds the link-preview tags (Open Graph, Twitter).
+  custom_dir: overrides
+  logo: assets/logo-mark.svg
+  favicon: assets/favicon.png
   features:
+    - content.action.edit
     - content.code.copy
+    - content.tabs.link
+    - navigation.footer
+    - navigation.indexes
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
   palette:
     - media: "(prefers-color-scheme)"
       toggle:
@@ -31,10 +44,16 @@ theme:
 
 
 markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
   - toc:
       permalink: true
+  - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
   # `--8<-- "examples/basic.py"` embeds a repository file, so the docs show the
   # file as it is; a missing file fails the build.
   - pymdownx.snippets:
@@ -49,32 +68,61 @@ validation:
 
 nav:
   - Home: index.md
-  - Guide:
-      - Getting started: guide/getting-started.md
-      - Examples: guide/examples.md
-      - Configuration: guide/configuration.md
+  - Get started:
+      - Quickstart: guide/getting-started.md
+      - Installation: guide/installation.md
+      - How it works: guide/how-it-works.md
+  - Tutorials:
+      - tutorials/index.md
+      - Coding agents: tutorials/coding-agents.md
+      - An app on the OpenAI or Anthropic SDK: tutorials/sdk-app.md
+      - Your own names and terms: tutorials/custom-terms.md
+      - Files and logs in a pipeline: tutorials/mask-files.md
+      - A shared gateway for a team: tutorials/team-gateway.md
+      - A detector plugin: tutorials/detector-plugin.md
+  - Guides:
       - Detection: guide/detection.md
       - Masking: guide/masking.md
       - Sessions and vault: guide/sessions.md
-      - CLI reference: guide/cli.md
+      - Proxy modes and routes: guide/proxy.md
+      - Deployment: guide/deployment.md
       - Docker: docker.md
+      - Troubleshooting: guide/troubleshooting.md
+      - FAQ: guide/faq.md
+  - Integrations:
+      - integrations/index.md
+      - Examples: guide/examples.md
+      - Providers:
+          - OpenAI: providers/openai.md
+          - Anthropic: providers/anthropic.md
+          - Google Gemini: providers/google.md
+          - Azure OpenAI: providers/azure-openai.md
+          - OpenRouter: providers/openrouter.md
+          - DeepSeek: providers/deepseek.md
+          - Ollama and local servers: providers/local.md
+          - Any other endpoint: providers/generic.md
+      - Frameworks:
+          - LangChain: integrations/langchain.md
+          - LlamaIndex: integrations/llamaindex.md
+          - LiteLLM: integrations/litellm.md
+          - Vercel AI SDK: integrations/vercel-ai-sdk.md
+  - Reference:
+      - Configuration: guide/configuration.md
+      - CLI: guide/cli.md
+      - Errors: reference/errors.md
+      - Audit events and metrics: observability/audit-events.md
+  - Security:
+      - Threat model: security/threat-model.md
+      - Limitations: security/limitations.md
+      - Data handling: security/data-handling.md
+      - Cryptography: security/cryptography.md
   - Architecture:
       - Overview: architecture/overview.md
       - Privacy engine: architecture/privacy-engine.md
       - Proxy: architecture/proxy.md
       - Streaming: architecture/streaming.md
       - Scaling: architecture/scaling.md
-  - Providers:
-      - OpenAI: providers/openai.md
-      - Anthropic: providers/anthropic.md
-      - Google Gemini: providers/google.md
-      - Generic: providers/generic.md
-  - Security:
-      - Threat model: security/threat-model.md
-      - Data handling: security/data-handling.md
-      - Cryptography: security/cryptography.md
-  - Observability:
-      - Audit events: observability/audit-events.md
   - Development:
+      - Python library: development/python-library.md
       - Plugins: development/plugins.md
       - Testing: development/testing.md

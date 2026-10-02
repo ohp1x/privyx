@@ -8,23 +8,26 @@ forwarded upstream.
 ```python
 import anthropic
 
-client = anthropic.Anthropic(
-    base_url="http://localhost:8000",  # Privyx (transparent) proxy
-    api_key="your-key",
-)
+client = anthropic.Anthropic(base_url="http://localhost:8000")  # the key still comes from ANTHROPIC_API_KEY
 
-message = client.messages.create(
-    model="claude-3-5-sonnet-latest",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "My phone is +1 (555) 123-4567"}],
+reply = client.messages.create(
+    model="claude-opus-5-5",
+    max_tokens=16000,
+    messages=[{"role": "user", "content": "Write a short greeting to alice@example.com"}],
 )
+print(next(block.text for block in reply.content if block.type == "text"))
 ```
 
 Start it with:
 
 ```bash
-privyx proxy --transparent --upstream https://api.anthropic.com
+privyx proxy --upstream https://api.anthropic.com
 ```
+
+The base URL has no `/v1`: the SDK adds `/v1/messages` itself. Streaming and
+tool calls are shown in
+[An app on the OpenAI or Anthropic SDK](../tutorials/sdk-app.md), and Claude
+Code in [Coding agents](../tutorials/coding-agents.md).
 
 ## Configuration
 

@@ -65,7 +65,7 @@ proxy:
 
 `proxy.routes` replaces the default map rather than merging into it; list the
 default paths too if the same config also fronts OpenAI or Anthropic (see
-[proxy.md](../architecture/proxy.md#routes)).
+[Adding a route](../guide/proxy.md#adding-a-route)).
 
 ```bash
 privyx proxy --transparent -c privyx.yaml --upstream https://generativelanguage.googleapis.com

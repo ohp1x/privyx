@@ -1,5 +1,9 @@
 # Proxy Architecture
 
+This page describes how the proxy is built. To pick a mode, add a route, set
+up HTTPS, or look up an error, see [Proxy modes and routes](../guide/proxy.md),
+[Deployment](../guide/deployment.md), and [Errors](../reference/errors.md).
+
 ## Two serving modes
 
 `privyx proxy` serves one of two apps, selected by `proxy.mode` (or
@@ -55,110 +59,15 @@ per-request schema selection, and header/credential forwarding on top. The
 
 ## HTTPS & TLS Termination
 
-Privyx supports HTTPS via two methods:
-
-### 1. Built-in Native TLS (Uvicorn)
-
-Pass the certificate and private key via CLI options:
-
-```bash
-privyx proxy --ssl-certfile /path/to/cert.pem --ssl-keyfile /path/to/key.pem
-```
-
-Or configure via `config.yaml`:
-
-```yaml
-tls:
-  certfile: /path/to/cert.pem
-  keyfile: /path/to/key.pem
-  keyfile_password: ""  # optional password if key is encrypted
-  ca_certs: ""          # optional CA bundle
-```
-
-Or via environment variables:
-
-```bash
-export PRIVYX_SSL_CERTFILE=/path/to/cert.pem
-export PRIVYX_SSL_KEYFILE=/path/to/key.pem
-```
-
-When both files are configured, the proxy serves HTTPS (`https://host:port`) directly.
-
-### 2. Reverse Proxy (Production Recommended)
-
-In production deployments, you can place a dedicated reverse proxy (e.g. Caddy, Nginx, Traefik, or Cloudflare Tunnel) in front of Privyx:
-
-**Caddy Example (`Caddyfile`):**
-
-```caddy
-api.privacy.example.com {
-    reverse_proxy 127.0.0.1:8000
-}
-```
-
-Caddy handles automatic TLS certificate issuance and renewal via Let's Encrypt.
-
-**Nginx Example:**
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name api.privacy.example.com;
-
-    ssl_certificate /path/to/fullchain.pem;
-    ssl_certificate_key /path/to/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Support Server-Sent Events (SSE) streaming:
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 300s;
-    }
-}
-```
+Serving HTTPS, natively or behind a reverse proxy, is covered in
+[Deployment](../guide/deployment.md#https).
 
 ## Routes
 
-`proxy.routes` maps a request path (matched without its query string, so
-`/v1/messages?beta=true` routes too) to the wire schema used to walk its body.
-The default:
-
-| Path | Schema |
-|---|---|
-| `/v1/chat/completions` | `openai` |
-| `/v1/messages` | `anthropic` |
-| `/v1/messages/count_tokens` | `anthropic` |
-| `/v1/responses` | `responses` |
-| `/v1/responses/input_tokens` | `responses` |
-| `/v1/responses/compact` | `responses` |
-| `/chat/completions` | `openai` |
-| `/responses`, `/responses/input_tokens`, `/responses/compact` | `responses` |
-
-The paths without `/v1` are what the OpenAI SDK calls when its base URL lacks
-the `/v1` it expects (`OPENAI_BASE_URL=http://localhost:8000`). They are masked
-like the others and forwarded to the same path, which the upstream may not
-serve; set the base URL with `/v1`.
-
-Not covered — forwarded verbatim, so any PII in them reaches the upstream:
-`/v1/embeddings`, the legacy `/v1/completions`, Gemini's native
-`generateContent`, and reads of stored objects such as `GET /v1/responses/{id}`.
-Add a route only for a path whose body really has one of the shapes above.
-
-To close that gap, set `proxy.passthrough_unknown: false`: the transparent proxy
-then answers every unrouted path with a 403 instead of forwarding it, including
-harmless ones such as `GET /v1/models`. The gateway already serves only the
-routed paths.
-
-A WebSocket upgrade is answered `426 Upgrade Required` and never forwarded: the
-transparent proxy cannot relay one, so its frames could not be masked. Codex
-opens `/v1/responses` as a WebSocket first and falls back to HTTP at once on
-that status; on any other it retries for seconds before it does.
+The default routes, how to add one, and what happens to a path without a
+route are covered in [Proxy modes and routes](../guide/proxy.md#routes).
+`proxy.routes` is looked up by exact path (`proxy/schemas.py::detect_schema`),
+with the query string already split off.
 
 ## What gets transformed and restored
 
@@ -224,23 +133,10 @@ restored, so a client that asks for them can see placeholder fragments.
 
 ## Errors
 
-An error response from the upstream reaches the client as the upstream sent it.
-When Privyx answers instead, the body is `{"error": {"type": …, "message": …}}`:
-
-| Status | `type` | When |
-|---|---|---|
-| `400` | `privyx_invalid_request` | A routed request's body is not a JSON object, whatever its `Content-Type` says: compressed, form-encoded, or not JSON. It cannot be masked, so it is not forwarded. |
-| `502` | `privyx_upstream_unreachable` | No response from the upstream: the connection was refused or dropped. A connection that could not be opened was already retried twice, 0.5 s and 1 s apart. |
-| `503` | `privyx_scan_failed` | Masking the request failed, so it was not forwarded. See [Detection](../guide/detection.md). |
-| `503` | `privyx_vault_unavailable` | The session vault failed: Redis is down or has not answered for 5 s, or a SQLite call failed. The request was not forwarded, or, when the vault failed while the reply was being restored, the reply was not returned. |
-| `503` | `privyx_upstream_busy` | All `proxy.max_connections` connections stayed busy for 10 s. Sent with `Retry-After: 10`. |
-| `504` | `privyx_upstream_timeout` | The upstream took longer than `proxy.connect_timeout` to accept the connection or `proxy.timeout` to answer. |
-
-The message ends with the error's class, such as `(ConnectError)`. Each of these
-is also a `proxy.error` [audit event](../observability/audit-events.md), and the
-upstream ones a single `WARNING` log line; the traceback is logged only at
-`debug`. A stream that fails after its first bytes cannot change its status:
-the connection is closed instead.
+The responses Privyx generates itself, with their status and `error.type`,
+are listed in [Errors](../reference/errors.md). Both modes build them in one
+place (`proxy/transparent.py::upstream_failure` and the `*_BODY` constants
+next to it), so they answer alike.
 
 ## Layers
 

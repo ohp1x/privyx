@@ -8,7 +8,7 @@
 # Every value below is a placeholder — replace it with your own.
 
 detector:
-  type: regex               # keeps the built-in EMAIL/PHONE/CREDIT_CARD/IP_ADDRESS/SSN
+  type: regex               # keeps the built-in patterns (personal data and secrets)
 
   terms:
     PERSON:       [ann, bob, annbob]

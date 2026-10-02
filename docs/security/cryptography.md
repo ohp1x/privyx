@@ -2,15 +2,18 @@
 
 ## Anchors
 
-`HMACAnchor` derives pseudonyms with `HMAC-SHA256(secret, value)`:
+With an anchor secret, the id of a `pseudonym` token is the first 16 hex
+characters (64 bits) of `HMAC-SHA256(secret, value)`:
 
-```python
-PRIVYX_<hexdigest>
+```text
+ann@example.com  →  <PRIVYX_EMAIL_E55D8A16FDB2F399>
 ```
 
-- Deterministic: same value → same pseudonym (no vault needed).
-- Keyed: only holders of the secret can derive/verify.
-- One-way: HMAC is not reversible; deanonymization requires a lookup map.
+- Deterministic: the same value gets the same token in every session.
+- Keyed: only holders of the secret can derive a token or test a guess
+  against one.
+- One-way: an HMAC cannot be reversed. Restoring a reply still needs the
+  session's mapping in the vault.
 
 ## Session Storage
 

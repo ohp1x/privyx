@@ -96,7 +96,7 @@ An exchange failed.
 
 | field | type | notes |
 |---|---|---|
-| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `vault` (reading or writing the session failed; the client got `503`), `upstream` (no response from the upstream; the client got `502`, `503`, or `504`, see [Errors](../architecture/proxy.md#errors)), `stream`, or `response`. |
+| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `vault` (reading or writing the session failed; the client got `503`), `upstream` (no response from the upstream; the client got `502`, `503`, or `504`, see [Errors](../reference/errors.md)), `stream`, or `response`. |
 | `error_type` | string | The exception's **class name** — never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |
