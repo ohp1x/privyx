@@ -107,13 +107,21 @@ A token only comes back if the model writes it exactly, so pick a syntax your
 model reproduces reliably. `PRIVYX_TOKEN_FORMAT` and `PRIVYX_TOKEN_NAMESPACE`
 set these from the environment.
 
-One departure is tolerated: a model sometimes drops the outer delimiters, most
+Two departures are tolerated. A model sometimes drops the outer delimiters, most
 often in a tool argument or a title, and writes `PRIVYX_EMAIL_1`. That bare form
 is restored too when the session issued the token and it stands between word
 boundaries (`PRIVYX_EMAIL_1` is not found inside `PRIVYX_EMAIL_12` or
 `xPRIVYX_EMAIL_1`). It needs a format that starts with `{namespace}` inside its
-outer delimiters, as the three above do. Any other change to a token, such as
-its id alone, is left as written.
+outer delimiters, as the three above do.
+
+A model may also keep only the id, and write `247102A91C49C99E` for
+`<PRIVYX_EMAIL_247102A91C49C99E>`. The id alone is restored when it is at least
+12 characters long, stands as a whole word, and belongs to exactly one token of
+the session. The ids of an [anchor](#anchors), of `hash` at its default length,
+and of `encrypt` are that long. A counter (`1`) is not: it is ordinary text, so
+it is never looked for on its own.
+
+Any other change to a token is left as written.
 
 ## Anchors
 

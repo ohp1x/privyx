@@ -27,18 +27,23 @@ KNOWN = {
     "<PRIVYX_CREDIT_CARD_2>": "4111 1111 1111 1111",
     "<PRIVYX_PHONE_3>": "+1-555-0142",
     "<PRIVYX_IP_ADDRESS_4>": "192.168.1.254",
+    "<PRIVYX_PERSON_9F3A1C2B7D4E5F60>": "Alice Example",  # an anchor's id
 }
 #: Syntactically valid tokens the session never issued — must pass through intact.
-UNKNOWN = ["<PRIVYX_SSN_9>", "<PRIVYX_EMAIL_deadbeef>"]
+UNKNOWN = ["<PRIVYX_SSN_9>", "<PRIVYX_EMAIL_deadbeef>", "<PRIVYX_SSN_0123456789ABCDEF>"]
 TOKENS = [*KNOWN, *UNKNOWN]
 #: The same tokens as a model sometimes writes them: without the brackets.
 BARE = [token.strip("<>") for token in TOKENS]
+#: Or as their id alone, and the start of one: held back in a stream, then let go.
+ALONE = [*(token.strip("<>").rpartition("_")[2] for token in TOKENS), "9F3A1C2B"]
 
 # Filler deliberately includes the delimiter characters (``<``, ``_``, ``>``) and
 # a multi-byte emoji, so boundaries land inside partial/false tokens and inside
 # Unicode.  Equivalence holds regardless: both paths recognize tokens identically.
 FILLER = st.text(alphabet=string.ascii_letters + string.digits + " .,<>_🎉", max_size=20)
-PIECES = st.lists(st.one_of(FILLER, st.sampled_from([*TOKENS, *BARE])), min_size=1, max_size=12)
+PIECES = st.lists(
+    st.one_of(FILLER, st.sampled_from([*TOKENS, *BARE, *ALONE])), min_size=1, max_size=12
+)
 CHUNK_SIZES = st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=30)
 
 SETTINGS = settings(
@@ -70,7 +75,7 @@ def _batch(text: str) -> str:
 
 
 def _stream(chunks: list[str]) -> str:
-    processor = TokenStreamProcessor(CODEC, KNOWN.get)
+    processor = TokenStreamProcessor(CODEC, KNOWN.get, CODEC.ids(KNOWN))
     return "".join([processor.feed(c) for c in chunks] + [processor.flush()])
 
 
@@ -95,6 +100,22 @@ def test_every_single_boundary_equals_batch() -> None:
     for cut in range(len(text) + 1):
         assert _stream([text[:cut], text[cut:]]) == expected, f"cut={cut}"
     # And the finest possible chunking: one character at a time.
+    assert _stream(list(text)) == expected
+
+
+def test_ids_written_on_their_own_equal_batch_at_every_boundary() -> None:
+    """An id is a word like any other until the whole of it has arrived."""
+    text = (
+        '{"q": "9F3A1C2B7D4E5F60"} 9F3A1C2B 9F3A1C2B7D4E5F601 x9F3A1C2B7D4E5F60'
+        " 0123456789ABCDEF 4 /home/9F3A1C2B7D4E5F60/notes <9F3A1C2B7D4E5F60"
+    )
+    expected = _batch(text)
+    assert expected == (
+        '{"q": "Alice Example"} 9F3A1C2B 9F3A1C2B7D4E5F601 x9F3A1C2B7D4E5F60'
+        " 0123456789ABCDEF 4 /home/Alice Example/notes <Alice Example"
+    )
+    for cut in range(len(text) + 1):
+        assert _stream([text[:cut], text[cut:]]) == expected, f"cut={cut}"
     assert _stream(list(text)) == expected
 
 

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Restore:** a token's id that the model wrote on its own (`9F3A1C2B7D4E5F60` for `<PRIVYX_EMAIL_9F3A1C2B7D4E5F60>`) was not restored, so a tool could receive the id in place of the value; an id of 12 characters or more is now restored too, for tokens the session issued
+
 ## [0.1.14] - 2026-10-01
 
 ### Fixed

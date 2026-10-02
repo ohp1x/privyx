@@ -262,3 +262,46 @@ def test_restore_brings_back_an_issued_token_written_without_its_brackets() -> N
         '{"query": "alice@example.com"} PRIVYX_EMAIL_12 PRIVYX_SSN_9 xPRIVYX_EMAIL_1'
     )
     assert len(result.transformations) == 1
+
+
+def test_restore_brings_back_an_issued_id_written_on_its_own() -> None:
+    """A model sometimes keeps only a token's id; a counter is never looked for."""
+    session = Session()
+    session.put("<PRIVYX_PERSON_9F3A1C2B7D4E5F60>", "Alice Example")
+    session.put("<PRIVYX_EMAIL_2>", "alice@example.com")
+    text = '{"query": "9F3A1C2B7D4E5F60"} item 2 of 0123456789ABCDEF x9F3A1C2B7D4E5F60'
+
+    result = restore(text, session, FormatCodec.default())
+
+    assert result.text == (
+        '{"query": "Alice Example"} item 2 of 0123456789ABCDEF x9F3A1C2B7D4E5F60'
+    )
+    assert len(result.transformations) == 1
+
+
+def test_restore_knows_the_id_of_a_token_issued_after_an_earlier_restore() -> None:
+    """The session's ids are indexed once, and again when it has issued more."""
+    session, codec = Session(), FormatCodec.default()
+    session.put("<PRIVYX_PERSON_9F3A1C2B7D4E5F60>", "Alice Example")
+    assert restore("9F3A1C2B7D4E5F60", session, codec).text == "Alice Example"
+
+    session.put("<PRIVYX_EMAIL_247102A91C49C99E>", "alice@example.com")
+
+    assert restore("247102A91C49C99E", session, codec).text == "alice@example.com"
+
+
+@pytest.mark.parametrize(
+    "operator",
+    [PseudonymOperator(anchor=HMACAnchor("s3cret")), HashOperator()],
+    ids=["anchor", "hash"],
+)
+async def test_ids_written_on_their_own_round_trip(operator: BaseOperator) -> None:
+    """An anchor's id and a hash's are long enough to stand alone."""
+    session = Session()
+    masked = await operator.pseudonymize(TEXT, _detection(), session, Context())
+    alone = re.sub(r"<PRIVYX_[A-Z_]+_([0-9A-Fa-f]+)>", r"\1", masked.text)
+    assert "PRIVYX" not in alone
+
+    restored = await operator.deanonymize(alone, session, Context())
+
+    assert restored.text == TEXT

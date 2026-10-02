@@ -82,7 +82,7 @@ def encrypt_pseudonymize(text: str) -> tuple[str, Session, EncryptOperator]:
 def stream_deanonymize(
     chunks: list[str], operator: EncryptOperator, mapping: dict[str, str]
 ) -> str:
-    processor = TokenStreamProcessor(CODEC, operator.build_resolver(mapping))
+    processor = TokenStreamProcessor(CODEC, operator.build_resolver(mapping), CODEC.ids(mapping))
     return "".join([processor.feed(c) for c in chunks] + [processor.flush()])
 
 
@@ -127,3 +127,16 @@ def test_encrypt_restores_tokens_written_without_brackets_at_every_boundary() ->
     assert batch_deanonymize(bare, operator, session) == text
     for cut in range(len(bare) + 1):
         assert stream_deanonymize([bare[:cut], bare[cut:]], operator, session.mapping) == text
+
+
+def test_encrypt_restores_ids_written_on_their_own_at_every_boundary() -> None:
+    text = "x alice@example.com y 123-45-6789 z"
+    encrypted, session, operator = encrypt_pseudonymize(text)
+    alone = encrypted
+    for token in session.mapping:
+        alone = alone.replace(token, token.strip("<>").rpartition("_")[2])
+    assert "PRIVYX" not in alone
+
+    assert batch_deanonymize(alone, operator, session) == text
+    for cut in range(len(alone) + 1):
+        assert stream_deanonymize([alone[:cut], alone[cut:]], operator, session.mapping) == text
