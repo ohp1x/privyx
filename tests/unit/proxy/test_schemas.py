@@ -102,6 +102,13 @@ def test_detect_schema_normalizes_leading_slash() -> None:
     assert detect_schema("v1/models", ROUTES) is None
 
 
+def test_detect_schema_matches_a_path_that_repeats_v1() -> None:
+    assert detect_schema("v1/v1/messages", ROUTES) == "anthropic"
+    assert detect_schema("/v1/v1/chat/completions", ROUTES) == "openai"
+    assert detect_schema("v1/v1/models", ROUTES) is None
+    assert detect_schema("v1/v1/messages", {**ROUTES, "/v1/v1/messages": "openai"}) == "openai"
+
+
 async def test_transform_request_openai_str_and_parts_no_mutation() -> None:
     engine = _engine()
     sid = await _session(engine)

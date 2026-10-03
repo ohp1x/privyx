@@ -113,9 +113,17 @@ def detect_schema(path: str, routes: dict[str, str]) -> str | None:
     ``path`` is matched with a single leading slash, so both ``v1/messages``
     (as FastAPI hands it to a ``{path:path}`` route) and ``/v1/messages`` resolve
     the same way.
+
+    A path that repeats ``/v1`` (``/v1/v1/messages``, what an Anthropic client
+    calls when its base URL ends in a ``/v1`` of its own) gets the schema of the
+    route it means: the upstream answers 404 either way, and the body must not
+    reach it unmasked.
     """
     normalized = "/" + path.lstrip("/")
-    return routes.get(normalized)
+    schema = routes.get(normalized)
+    if schema is None and normalized.startswith("/v1/v1/"):
+        schema = routes.get(normalized[3:])
+    return schema
 
 
 async def transform_request(

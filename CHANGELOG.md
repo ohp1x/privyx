@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Docker:** `.env.example` copied to `.env` unchanged, as the README said to, gave the container a relative audit path it cannot write and a `localhost` upstream, so the proxy could not start; every line in the file is now commented out, and the image's and the compose file's defaults apply
 - **Restore:** a token's id that the model wrote on its own (`9F3A1C2B7D4E5F60` for `<PRIVYX_EMAIL_9F3A1C2B7D4E5F60>`) was not restored, so a tool could receive the id in place of the value; an id of 12 characters or more is now restored too, for tokens the session issued
 
+### Security
+
+- **Proxy:** a request to a path that repeats `/v1` (`/v1/v1/messages`, what an Anthropic client calls when its base URL ends in `/v1`) was forwarded unmasked before the provider answered `404`; it is now masked like the route it means
+
 ## [0.1.14] - 2026-10-01
 
 ### Fixed

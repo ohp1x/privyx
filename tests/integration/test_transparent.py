@@ -219,6 +219,22 @@ async def test_concurrent_requests_use_isolated_sessions() -> None:
     assert second == f"mail {EMAIL2}"
 
 
+async def test_a_path_that_repeats_v1_is_masked_before_the_upstream_answers_404() -> None:
+    """What an Anthropic client calls when its base URL ends in ``/v1``."""
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    result = await _post_json(
+        proxy, "v1/v1/messages", {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+    )
+
+    assert result.status_code == 404
+    assert capture[0].url.path == "/v1/v1/messages"
+    sent = capture[0].content.decode()
+    assert EMAIL not in sent
+    assert "<PRIVYX_" in sent
+
+
 async def test_non_chat_path_is_forwarded_verbatim() -> None:
     engine = _engine()
     proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client())

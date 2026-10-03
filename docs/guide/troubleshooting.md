@@ -57,10 +57,8 @@ Usually the base URL has one `/v1` too many or too few.
 | Anthropic SDK, Claude Code | `http://localhost:8000` | The SDK appends `/v1/messages` itself. |
 
 An Anthropic client with a base URL ending in `/v1` calls `/v1/v1/messages`.
-That path has no route, so Privyx forwards the request **unmasked** before the
-provider answers `404`. Fix the base URL, and consider
-[`proxy.passthrough_unknown: false`](proxy.md#paths-without-a-route), which
-refuses such a request instead.
+Privyx masks that request like `/v1/messages`, and the provider answers `404`.
+Fix the base URL.
 
 ## `502 privyx_upstream_unreachable`
 
