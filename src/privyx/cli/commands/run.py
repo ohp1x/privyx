@@ -282,9 +282,10 @@ async def _run_target(
         base_url = f"http://{settings.host}:{bound_port}{spec.base_path}"
         argv = spec.args(base_url, argv) if spec.args else argv
 
-        click.echo(f"Privyx proxy → {redact(target, 'url')}")
-        click.echo(f"Running: {shlex.join([spec.command, *argv])}")
-        click.echo(f"  {', '.join(env_vars)} = {base_url}")
+        # On stderr: stdout is the tool's, and may be piped into a parser.
+        click.echo(f"Privyx proxy → {redact(target, 'url')}", err=True)
+        click.echo(f"Running: {shlex.join([spec.command, *argv])}", err=True)
+        click.echo(f"  {', '.join(env_vars)} = {base_url}", err=True)
 
         code = await _spawn(spec, argv, base_url, env_vars)
         if not counted.requests:

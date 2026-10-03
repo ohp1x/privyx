@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **CLI:** `privyx run` printed its three lines about the proxy to stdout, ahead of the tool's own output, which broke a pipeline such as `privyx run claude -- -p … --output-format json | jq`; they now go to stderr
 - **Detector:** the `llm` detector's default Anthropic model, `claude-3-5-haiku-latest`, has been retired, so every scan failed unless `llm_model` was set; the default is now `claude-haiku-4-5`
 - **Docker:** `.env.example` copied to `.env` unchanged, as the README said to, gave the container a relative audit path it cannot write and a `localhost` upstream, so the proxy could not start; every line in the file is now commented out, and the image's and the compose file's defaults apply
 - **Restore:** a token's id that the model wrote on its own (`9F3A1C2B7D4E5F60` for `<PRIVYX_EMAIL_9F3A1C2B7D4E5F60>`) was not restored, so a tool could receive the id in place of the value; an id of 12 characters or more is now restored too, for tokens the session issued

@@ -414,7 +414,9 @@ def test_run_writes_nothing_to_the_tools_terminal(tmp_path: Path, log_file: bool
     """The tool owns the terminal, so a warning would land on its screen.
 
     Run in a subprocess, as for real: pytest's own log handlers would keep
-    logging from printing a warning to stderr as its last resort.
+    logging from printing a warning to stderr as its last resort.  The three
+    lines ``privyx run`` prints itself go to stderr, so stdout holds only what the
+    tool printed and can be piped into a parser.
     """
     import os
     import subprocess
@@ -451,8 +453,9 @@ def test_run_writes_nothing_to_the_tools_terminal(tmp_path: Path, log_file: bool
         timeout=60,
     )
 
-    assert "status 502" in result.stdout
-    assert result.stderr == ""
+    assert result.stdout == "status 502\n"
+    started = [line.split()[0] for line in result.stderr.splitlines()]
+    assert started == ["Privyx", "Running:", "ANTHROPIC_BASE_URL"]
     if log_file:
         assert "no response from the upstream" in (tmp_path / "privyx.log").read_text()
 
