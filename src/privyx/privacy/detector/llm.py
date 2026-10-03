@@ -96,7 +96,7 @@ class _AnthropicClient:
 _ProviderEntry = tuple[str, str, Callable[[Any, str], LLMClient], str]
 _PROVIDER_DEFAULTS: dict[str, _ProviderEntry] = {
     "openai": ("openai", "AsyncOpenAI", _OpenAIClient, "gpt-4o-mini"),
-    "anthropic": ("anthropic", "AsyncAnthropic", _AnthropicClient, "claude-3-5-haiku-latest"),
+    "anthropic": ("anthropic", "AsyncAnthropic", _AnthropicClient, "claude-haiku-4-5"),
 }
 
 

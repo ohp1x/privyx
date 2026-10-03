@@ -134,7 +134,7 @@ cost of a model call per request.
 detector:
   type: llm
   llm_provider: openai          # or anthropic
-  llm_model: ""                 # empty → gpt-4o-mini / claude-3-5-haiku-latest
+  llm_model: ""                 # empty → gpt-4o-mini / claude-haiku-4-5
   llm_timeout: 30               # seconds per scan
   llm_max_chars: 4000           # longer text is scanned in overlapping chunks
   llm_fallback_on_error: false

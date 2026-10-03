@@ -177,7 +177,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 | `entities` | `[]` | `presidio`: entity types to look for. Empty uses every recognizer. |
 | `score_threshold` | `0.35` | `presidio`: minimum confidence. |
 | `llm_provider` | `openai` | `llm`: `openai` or `anthropic`. |
-| `llm_model` | empty | `llm`: model name. Empty uses `gpt-4o-mini` or `claude-3-5-haiku-latest`. |
+| `llm_model` | empty | `llm`: model name. Empty uses `gpt-4o-mini` or `claude-haiku-4-5`. |
 | `llm_api_key` | empty | `llm`: key for that provider. Empty uses the SDK's own environment variable. |
 | `llm_instructions` | empty | `llm`: replaces the built-in prompt. |
 | `llm_timeout` | `30` | `llm`: seconds before a scan fails. |
