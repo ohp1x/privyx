@@ -32,7 +32,7 @@ check:
 
 # Known vulnerabilities in every locked dependency (all extras, dev included).
 vulns:
-	uv export --frozen --all-extras --no-emit-project -q | uvx pip-audit --disable-pip -r /dev/stdin
+	uv export --color never --frozen --all-extras --no-emit-project -q | uvx pip-audit --disable-pip -r /dev/stdin
 
 # Serve the documentation site at http://127.0.0.1:8000 with live reload.
 docs:
