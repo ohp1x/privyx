@@ -1,6 +1,6 @@
 [project]
 name = "privyx"
-version = "0.1.14"
+version = "0.1.15"
 description = "AI data privacy gateway: privacy engine + proxy for LLM providers"
 readme = "README.md"
 requires-python = ">=3.12"
