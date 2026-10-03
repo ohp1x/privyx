@@ -460,8 +460,11 @@ def test_run_writes_nothing_to_the_tools_terminal(tmp_path: Path, log_file: bool
         assert "no response from the upstream" in (tmp_path / "privyx.log").read_text()
 
 
+@pytest.mark.parametrize(
+    ("host", "origin"), [("127.0.0.1", "http://127.0.0.1:"), ("::1", "http://[::1]:")]
+)
 async def test_run_spawns_target_against_a_live_proxy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str, origin: str
 ) -> None:
     """The spawned process really can reach the proxy through the injected URL.
 
@@ -470,10 +473,18 @@ async def test_run_spawns_target_against_a_live_proxy(
     non-zero if the URL is unreachable, so a proxy that never started — or
     bound to a different port — fails here rather than at first use.
     """
+    import socket
     import sys
 
     pytest.importorskip("uvicorn")
     pytest.importorskip("fastapi")
+
+    if ":" in host:
+        try:
+            socket.create_server((host, 0), family=socket.AF_INET6).close()
+        except OSError:
+            pytest.skip("no IPv6 loopback on this machine")
+    monkeypatch.setenv("PRIVYX_HOST", host)
 
     # `run` writes its audit trail to audit.path; keep it inside tmp_path so the
     # test does not drop a privyx-audit.log in the repo root.
@@ -509,7 +520,7 @@ async def test_run_spawns_target_against_a_live_proxy(
     assert code == 0, "the spawned tool could not reach the proxy"
     recorded = json.loads(result_file.read_text())
     assert recorded["health"] == {"status": "ok"}
-    assert recorded["url"].startswith("http://127.0.0.1:")
+    assert recorded["url"].startswith(origin)
 
 
 async def test_run_provisions_anchor_secret_by_default(

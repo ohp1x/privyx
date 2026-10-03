@@ -279,7 +279,8 @@ async def _run_target(
     serve_task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
         await _wait_until_started(server, serve_task)
-        base_url = f"http://{settings.host}:{bound_port}{spec.base_path}"
+        host = f"[{settings.host}]" if ":" in settings.host else settings.host  # IPv6
+        base_url = f"http://{host}:{bound_port}{spec.base_path}"
         argv = spec.args(base_url, argv) if spec.args else argv
 
         # On stderr: stdout is the tool's, and may be piped into a parser.
