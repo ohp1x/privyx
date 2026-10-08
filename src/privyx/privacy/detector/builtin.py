@@ -19,9 +19,10 @@ from privyx.privacy.detector.base import BaseDetector, Detector
 #: (``+6281234567890``) or starting with ``08`` (``081234567890``).  The
 #: lookarounds keep it from biting a chunk out of a longer digit run:
 #: ``(?<!\d[-.])`` and ``(?![-.]\d)`` stop it matching inside an IP address or
-#: SSN, where a more specific pattern should win.
+#: SSN, where a more specific pattern should win, and ``(?<!\d:)`` keeps it off
+#: the seconds and milliseconds of a time (``09:49:08.123``).
 PHONE_PATTERN = (
-    r"(?<![\w\d])(?<!\d[-.])"
+    r"(?<![\w\d])(?<!\d[-.])(?<!\d:)"
     r"(?:(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})[\s.-]\d{3,4}(?:[\s.-]\d{3,4})?"
     r"|\+[1-9]\d{9,14}|08\d{8,11})"
     r"(?![\w\d])(?![-.]\d)"
@@ -165,6 +166,7 @@ _SECRET_METADATA = re.compile(
 )
 _IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 _DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
+_STRING_PREFIX = re.compile(r"(?i:[rubf]|[bf]r|r[bf])")
 _WORDS_NEXT = re.compile(r"[ \t]+[A-Za-z]")
 
 
@@ -176,8 +178,9 @@ def _secret_value(match: re.Match[str]) -> bool:
     secret instead of holding it (``TOKEN_URL``, ``token_type``).  Unquoted, not
     when it refers to a variable (``os.environ``, ``settings.SECRET_KEY``) or to
     one named for the same thing (``api_key=api_key``, ``self._token = token``),
-    or when a single word after a colon starts a sentence (``api_key: When set,
-    …`` in a docstring).
+    when it is a subscripted name (``_KEYS: tuple[str, ...]``) or the prefix of a
+    string literal (``r"…"``), or when a single word after a colon starts a
+    sentence (``api_key: When set, …`` in a docstring).
     """
     name, value = match["name"], match["value"]
     if not any(char.isalnum() for char in value) or "..." in value or "…" in value:
@@ -188,7 +191,10 @@ def _secret_value(match: re.Match[str]) -> bool:
         return True
     if _DOTTED_IDENTIFIER.fullmatch(value):
         return False
-    if _IDENTIFIER.fullmatch(value) and _named_for(value, name):
+    following = match.string[match.end() : match.end() + 1]
+    if _IDENTIFIER.fullmatch(value) and (following == "[" or _named_for(value, name)):
+        return False
+    if _STRING_PREFIX.fullmatch(value) and following in ('"', "'"):
         return False
     return not (
         match["sep"] == ":" and value.isalpha() and _WORDS_NEXT.match(match.string, match.end())

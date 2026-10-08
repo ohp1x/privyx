@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Configuration:** the SQLite vault, the audit trail, and the anchor secret default to `~/.privyx/`; the anchor secret and the audit trail of `privyx run` move there on the first run, while a `privyx.db` or `privyx-audit.log` in a working directory stays where it is and is no longer read by default
 - **CLI:** `privyx config --path` prints every config file in use, and `--reload` watches each of them
 
+### Fixed
+
+- **Detector:** `PHONE` no longer masks the seconds and milliseconds of a timestamp (`09:49:08.123`), and `SECRET` no longer masks a subscripted name (`_KEYS: tuple[str, ...]`) or the prefix of a string literal (`r"…"`)
+
 ## [0.1.15] - 2026-10-03
 
 ### Added

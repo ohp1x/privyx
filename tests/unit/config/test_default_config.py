@@ -104,6 +104,10 @@ KEEP = [
     'TOKEN_URL = "https://auth.example.com/oauth/token"',
     '{"token_type": "Bearer", "expires_in": 3600}',
     'cache_key = f"invoice:{invoice_id}"',
+    # A subscripted name and a string prefix
+    "CONTENT_KEYS: frozenset[str] = frozenset()",
+    "_PREFIX_KEYS: tuple[str, ...] = ()",
+    'API_KEY_PATTERN = r"""(?x)',
     # Placeholders, punctuation, and a docstring
     "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}",
     "export OPENAI_API_KEY=sk-...",

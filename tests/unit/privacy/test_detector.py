@@ -89,6 +89,8 @@ def test_credit_card_must_pass_the_luhn_check(text: str, cards: list[str]) -> No
         ("1920 1080 at 14:02:11 2026 for INV-2026-0042", []),
         # A YYYYMMDD date at the start of an added diff line is too short for E.164.
         ("+20260927,15912", []),
+        # The seconds and milliseconds of a timestamp.
+        ("2026-10-08T09:49:08.123+08:00", []),
     ],
 )
 def test_phone_numbers_and_what_only_looks_like_one(text: str, phones: list[str]) -> None:
