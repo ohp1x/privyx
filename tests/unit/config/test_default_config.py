@@ -86,6 +86,8 @@ LEAKS = [
     ("login ok, token: abc123def456 user: bob", "abc123def456"),
     ("JWT_SECRET=supersecret", "supersecret"),
     ("password = hunter2", "hunter2"),
+    # A bytes or raw string literal
+    ('SECRET_KEY = b"bytesSecret123"', "bytesSecret123"),
 ]
 
 KEEP = [

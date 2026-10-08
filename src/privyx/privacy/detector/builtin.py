@@ -76,9 +76,10 @@ URL_CREDENTIAL_PATTERN = (
 )
 
 #: A value assigned to a secret-looking name: ``.env``, shell, YAML, JSON, PHP,
-#: JS/Python, query strings, CLI flags.  Quoted, up to the closing quote;
-#: unquoted, up to whitespace or a delimiter, skipping type hints
-#: (``password: str``), ``${…}`` references, and calls (``token = get_token()``).
+#: JS/Python, query strings, CLI flags.  Quoted, up to the closing quote, with
+#: or without a string prefix (``b"…"``); unquoted, up to whitespace or a
+#: delimiter, skipping type hints (``password: str``), ``${…}`` references, and
+#: calls (``token = get_token()``).
 #: ``_KEY`` must be upper case: ``cache_key`` or ``sort_key`` in code is no
 #: secret.  :func:`_secret_value` drops the rest of what cannot be one.
 SECRET_PATTERN = r"""(?ix)
@@ -87,7 +88,7 @@ SECRET_PATTERN = r"""(?ix)
       | api[_-]?key | access[_-]?key | private[_-]?key | (?-i:_KEY) | credentials? )
     [\w.-]{0,40}? )
 ["']? [ \t]* (?P<sep> => | := | [:=](?!=) ) [ \t]*
-(?: (?P<q>["'`])
+(?: (?:[rubf]|[bf]r|r[bf])? (?P<q>["'`])
   | (?! (?:str|string|int|bool|boolean|number|any|none|null|true|false|undefined|optional
            |dict|list)\b
       | \$[{(] ) )
