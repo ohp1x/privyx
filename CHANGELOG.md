@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Detector:** `PHONE` no longer masks the seconds and milliseconds of a timestamp (`09:49:08.123`), and `SECRET` no longer masks a subscripted name (`_KEYS: tuple[str, ...]`) or the prefix of a string literal (`r"…"`)
 - **Detector:** `SECRET` masks a value written as a bytes or raw string literal (`SECRET_KEY = b"…"`), which went upstream as it was
+- **Audit:** a new audit trail file is created readable by its owner only, like the log file; an existing file keeps its mode
 
 ## [0.1.15] - 2026-10-03
 

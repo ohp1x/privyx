@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -270,6 +271,18 @@ def test_build_audit_logger_creates_the_directory(tmp_path: Path) -> None:
     audit.close()
 
     assert path.exists()
+
+
+def test_a_new_audit_file_is_owner_only(tmp_path: Path) -> None:
+    """Session ids and the upstream host are nobody else's business."""
+    path = tmp_path / "audit.log"
+    umask = os.umask(0o022)  # open() alone would then create it 0644
+    try:
+        build_audit_logger(Settings(audit=AuditConfig(enabled=True, path=str(path)))).close()
+    finally:
+        os.umask(umask)
+
+    assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_an_unwritable_audit_path_is_a_config_error(tmp_path: Path) -> None:

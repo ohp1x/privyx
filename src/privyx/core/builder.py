@@ -230,6 +230,8 @@ def build_audit_logger(settings: Settings) -> AuditLogger:
     path = Path(os.path.expanduser(settings.audit.path))
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Session ids and the upstream host: a new file is owner-only.
+        path.touch(mode=0o600)
         writer = open(path, "a", encoding="utf-8")
     except OSError as exc:
         raise ConfigError(f"cannot write audit.path {path}: {exc.strerror or exc}") from exc

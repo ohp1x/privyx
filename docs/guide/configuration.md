@@ -239,7 +239,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | Key | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Append PII-safe audit events to `path`. |
-| `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. See [Audit events](../observability/audit-events.md). |
+| `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. It is created with mode `0600`. See [Audit events](../observability/audit-events.md). |
 
 ### `plugins`
 
