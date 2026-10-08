@@ -15,9 +15,14 @@ Usage::
     privyx audit stats|tail [FILE]
     privyx doctor [--config FILE]
     privyx config [--show] [--path]
+    privyx trust
 """
 
 from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
 
 import click
 
@@ -31,12 +36,38 @@ from privyx.cli.commands.mask import mask, unmask
 from privyx.cli.commands.proxy import proxy
 from privyx.cli.commands.run import run
 from privyx.cli.commands.session import session
+from privyx.cli.commands.trust import trust
 
 
 @click.group()
 @click.version_option(version=__version__, prog_name="privyx")
 def cli() -> None:
     """Privyx — AI data privacy gateway."""
+    _adopt_earlier_files()
+
+
+def _adopt_earlier_files() -> None:
+    """Move what earlier versions kept outside ``~/.privyx`` into it.
+
+    The anchor secret, so pseudonyms stay what they were, and the audit trail
+    of ``privyx run``.  A file ``~/.privyx`` already has is never replaced.
+    """
+    home = os.path.expanduser("~")
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    state = os.environ.get("XDG_STATE_HOME") or os.path.join(home, ".local", "state")
+    for earlier, name in (
+        (Path(config, "privyx", "anchor.key"), "anchor.key"),
+        (Path(state, "privyx", "audit.log"), "audit.log"),
+    ):
+        target = Path(home, ".privyx", name)
+        if not earlier.is_file() or target.exists():
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(earlier, target)
+        except OSError:
+            continue  # stays where it was
+        click.echo(f"Moved {earlier} to {target}", err=True)
 
 
 cli.add_command(proxy)
@@ -49,6 +80,7 @@ cli.add_command(session)
 cli.add_command(audit)
 cli.add_command(doctor)
 cli.add_command(config_cmd, name="config")
+cli.add_command(trust)
 
 
 if __name__ == "__main__":

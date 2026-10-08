@@ -68,13 +68,8 @@ def generate_key() -> str:
 
 
 def default_anchor_secret_path() -> Path:
-    """Where a per-user anchor secret is persisted by default.
-
-    ``$XDG_CONFIG_HOME/privyx/anchor.key``, falling back to
-    ``~/.config/privyx/anchor.key``.
-    """
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
-    return Path(base) / "privyx" / "anchor.key"
+    """Where a per-user anchor secret is persisted by default: ``~/.privyx/anchor.key``."""
+    return Path(os.path.expanduser("~"), ".privyx", "anchor.key")
 
 
 def read_or_create_anchor_secret(path: str | Path | None = None) -> str:

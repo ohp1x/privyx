@@ -48,8 +48,8 @@ COPY --from=builder --chown=privyx:privyx /app/.venv /app/.venv
 COPY --chown=privyx:privyx configs/ /app/configs/
 COPY --chown=privyx:privyx plugins/ /app/plugins/
 
-RUN mkdir -p /data /home/privyx/.config/privyx && \
-    chown -R privyx:privyx /data /home/privyx/.config
+RUN mkdir -p /data /home/privyx/.privyx && \
+    chown -R privyx:privyx /data /home/privyx/.privyx
 
 USER privyx
 

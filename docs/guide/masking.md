@@ -149,4 +149,4 @@ With an empty secret there is no anchoring at all, rather than anchoring with a
 guessable key.
 
 Anchoring applies to the `pseudonym` operator. `privyx run` creates a secret in
-`~/.config/privyx/anchor.key` on first use; pass `--no-anchor` to skip that.
+`~/.privyx/anchor.key` on first use; pass `--no-anchor` to skip that.

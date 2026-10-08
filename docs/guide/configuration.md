@@ -2,26 +2,38 @@
 
 ## Where settings come from
 
-Privyx builds its settings from four layers. Each one overrides the one
+Privyx builds its settings from five layers. Each one overrides the one
 before it:
 
 1. Built-in defaults.
-2. A YAML config file, passed with `-c` / `--config` or named by
-   `PRIVYX_CONFIG`.
-3. Environment variables (`PRIVYX_*`).
-4. Command-line flags such as `--port` or `--upstream`.
+2. `~/.privyx/config.yaml`, your own config file.
+3. `privyx.yaml` and then `.privyx/config.yaml` in the working directory, each
+   once you have trusted it.
+4. Environment variables (`PRIVYX_*`).
+5. Command-line flags such as `--port` or `--upstream`.
 
-No config file is read unless you name one. Without `-c` or `PRIVYX_CONFIG`,
-Privyx runs on the built-in defaults plus the environment.
+A file passed with `-c` / `--config` or named by `PRIVYX_CONFIG` is read alone,
+in place of layers 2 and 3. `PRIVYX_NO_DISCOVERY=1` reads no file that was not
+named. `privyx config --path` prints the files in use.
+
+A config file in the working directory can load plugins and choose the
+upstream, and the directory may be a repository someone else wrote. Privyx
+ignores such a file, with a line on stderr, until you run `privyx trust`
+there. What you trust is the file's content: after a change to it, run
+`privyx trust` again.
+
+Besides your config file, `~/.privyx/` holds by default the SQLite vault
+(`privyx.db`), the audit trail (`audit.log`), and the anchor secret of
+`privyx run` (`anchor.key`).
 
 Sections merge key by key, so a file that sets only `vault.type` keeps the
 defaults for the rest of `vault`. A list replaces the default rather than
 extending it. Empty environment variables are ignored, so an unset variable
 never clears a value from the file.
 
-`privyx run` adds its own defaults (a `conversation` session strategy, an
-anchor secret, and an audit trail in `~/.local/state/privyx/audit.log`) just
-above the built-in ones, so your file and environment still override them.
+`privyx run` adds its own defaults (a `conversation` session strategy and an
+anchor secret) just above the built-in ones, so your files and environment
+still override them.
 
 A config with a misspelled setting, an unknown type, an invalid regex, or a
 value of the wrong kind fails at startup, before any request is served. A
@@ -151,7 +163,7 @@ Where sessions and their mappings are stored. See
 | Key | Default | Description |
 |---|---|---|
 | `type` | `memory` | `memory` (lost on restart), `sqlite` (needs `privyx[sqlite]`), `redis` (needs `privyx[redis]`), or a plugin vault. |
-| `dsn` | `sqlite+aiosqlite:///privyx.db` | SQLite database file. A bare path works too. |
+| `dsn` | `sqlite+aiosqlite:///~/.privyx/privyx.db` | SQLite database file. A bare path works too, and `~` is your home directory. |
 | `redis_url` | `redis://localhost:6379/0` | Redis connection URL. A call to Redis gives up after 5 s; query parameters change that, as in `redis://localhost:6379/0?socket_timeout=2&socket_connect_timeout=2`. |
 | `ttl` | unset | Expire a session after this many seconds without a request. Unset keeps sessions until they are deleted or pruned. Must be above `0`. |
 
@@ -227,7 +239,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | Key | Default | Description |
 |---|---|---|
 | `enabled` | `true` | Append PII-safe audit events to `path`. |
-| `path` | `privyx-audit.log` | Audit log file, one JSON object per line. `privyx run` defaults to `$XDG_STATE_HOME/privyx/audit.log` (`~/.local/state/privyx/audit.log`). See [Audit events](../observability/audit-events.md). |
+| `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. See [Audit events](../observability/audit-events.md). |
 
 ### `plugins`
 
@@ -241,6 +253,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | Variable | Sets |
 |---|---|
 | `PRIVYX_CONFIG` | Config file path |
+| `PRIVYX_NO_DISCOVERY` | When true, no config file is read unless it is named |
 | `PRIVYX_HOST`, `PRIVYX_PORT` | `host`, `port` |
 | `PRIVYX_LOG_LEVEL`, `PRIVYX_LOGGING`, `PRIVYX_LOG_FILE` | `log_level`, `logging`, `log_file` |
 | `PRIVYX_UPSTREAM_URL` | `upstream_url` and `provider.base_url` |

@@ -24,7 +24,8 @@ privyx detect -c my.yaml --transform "the text that went out"
 | What you see | Cause | Fix |
 |---|---|---|
 | The value is not in the list | No detector knows it. Names, companies, and project terms have no built-in pattern. | Add a [word list or a pattern](../tutorials/custom-terms.md). |
-| `detect` finds it, the proxy does not | The proxy runs with another configuration. No file is read unless you pass `-c` or set `PRIVYX_CONFIG`. | Start the proxy with the same `-c`; `privyx config --path` prints the file in use, or `defaults`. |
+| `detect` finds it, the proxy does not | The proxy runs with another configuration: another `-c` or `PRIVYX_CONFIG`, or a working directory with config files of its own. | Start both the same way; `privyx config --path` prints the files in use, or `defaults`. |
+| A line `ignoring …/privyx.yaml: not trusted, or changed since` | A config file in the working directory is read only once you have trusted it; until then its settings do not apply. | Run `privyx trust` in that directory. |
 | It appears only with `--no-policy` | The `strict` policy filters it out. | Add the entity type to `policy.allowed`. |
 | It is masked in chat messages but not elsewhere | The request went to a path without a route, such as embeddings, or the value sits in a field Privyx leaves alone, such as `user` or a URL. | See [Paths without a route](proxy.md#paths-without-a-route) and [Limitations](../security/limitations.md#coverage). |
 
@@ -151,7 +152,7 @@ only a fragment that could be the start of a token.
 | `Error: config file not found: my.yaml` | The path given with `-c` or `PRIVYX_CONFIG` does not exist. |
 | ``Error: aiosqlite is required. Install with `pip install privyx[sqlite]`.`` | A setting needs an [extra](installation.md#extras) that is not installed. |
 | `Error: operator type 'encrypt' requires a key; …` | `PRIVYX_ENCRYPT_KEY` is not set. |
-| `Error: cannot write audit.path privyx-audit.log: Permission denied` | The audit log's directory is not writable; set `audit.path` or `PRIVYX_AUDIT_PATH`. |
+| `Error: cannot write audit.path /var/log/privyx/audit.log: Permission denied` | The audit log's directory is not writable; set `audit.path` or `PRIVYX_AUDIT_PATH`. |
 | `Error: Both --ssl-certfile and --ssl-keyfile are required for HTTPS.` | Only one of the two TLS files was given. |
 | `[Errno 98] error while attempting to bind on address ('127.0.0.1', 8000): [errno 98] address already in use` | Another process uses the port; pick one with `--port`. |
 
@@ -168,12 +169,13 @@ only a fragment that could be the start of a token.
 ## `privyx audit` finds no file
 
 ```text
-Error: [Errno 2] No such file or directory: 'privyx-audit.log'
+Error: [Errno 2] No such file or directory: '/home/dana/.privyx/audit.log'
 ```
 
-The audit path is relative to where the proxy runs. Run `privyx audit` in that
-directory, or name the file: `privyx audit stats /path/to/privyx-audit.log`.
-For `privyx run` the file is `~/.local/state/privyx/audit.log`.
+`privyx audit` reads `audit.path`, which is `~/.privyx/audit.log` unless the
+proxy was given another. Pass the same `-c` and `PRIVYX_AUDIT_PATH`, or name
+the file: `privyx audit stats /path/to/audit.log`. Up to version 0.1.15,
+`privyx proxy` wrote `privyx-audit.log` in the directory it ran in.
 
 ## Anthropic rejects a turn after a restart
 

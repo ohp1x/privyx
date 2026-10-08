@@ -27,7 +27,6 @@ import socket
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import Any
 
 import click
@@ -219,10 +218,8 @@ async def _run_target(
     ``privyx run`` is opinionated where the library is neutral: unless the user
     says otherwise it treats one conversation as one session and provisions an
     anchor secret, so aliases are stable across turns and restarts out of the
-    box, and it keeps the audit trail in the user's state directory, not in the
-    project the tool works on.  These are *defaults* (``base_extra``) the
-    user's own config/env still overrides; an explicit ``--session-strategy`` is
-    a hard override (``extra``).
+    box.  These are *defaults* (``base_extra``) the user's own config/env still
+    overrides; an explicit ``--session-strategy`` is a hard override (``extra``).
     ``proxy.mode`` picks the app, as in ``privyx proxy``.
 
     Returns:
@@ -251,8 +248,6 @@ async def _run_target(
         extra["session"] = {"strategy": session_strategy}
     if not no_anchor:
         base_extra["anchor"] = {"secret": read_or_create_anchor_secret()}
-    # The tool runs in the user's project; keep the audit trail out of it.
-    base_extra["audit"] = {"path": str(_default_audit_path())}
 
     settings = load_config(config_path, extra=extra, base_extra=base_extra)
     # The child tool owns the terminal: log lines go to log_file if one is set,
@@ -304,14 +299,6 @@ async def _run_target(
         await close_vault()
         await close_upstream()
         audit.close()
-
-
-def _default_audit_path() -> Path:
-    """``$XDG_STATE_HOME/privyx/audit.log``, falling back to ``~/.local/state``."""
-    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
-        os.path.expanduser("~"), ".local", "state"
-    )
-    return Path(base) / "privyx" / "audit.log"
 
 
 class _Counted:

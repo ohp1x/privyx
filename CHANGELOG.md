@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Configuration:** `~/.privyx/config.yaml` is read without being named, and so are a working directory's `privyx.yaml` and `.privyx/config.yaml` once `privyx trust` has allowed them; `PRIVYX_NO_DISCOVERY=1` turns this off
+
+### Changed
+
+- **Configuration:** the SQLite vault, the audit trail, and the anchor secret default to `~/.privyx/`; the anchor secret and the audit trail of `privyx run` move there on the first run, while a `privyx.db` or `privyx-audit.log` in a working directory stays where it is and is no longer read by default
+- **CLI:** `privyx config --path` prints every config file in use, and `--reload` watches each of them
+
 ## [0.1.15] - 2026-10-03
 
 ### Added

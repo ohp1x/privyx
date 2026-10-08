@@ -158,7 +158,8 @@ No. Detection results are cached by text, so only new text is scanned.
 
 No. Without one, Privyx runs on built-in defaults plus `PRIVYX_*` environment
 variables. A file is needed for word lists, patterns, and a few other
-settings; see [Configuration](configuration.md).
+settings; `~/.privyx/config.yaml` is read on every run. See
+[Configuration](configuration.md).
 
 ### Can I use it without the proxy?
 

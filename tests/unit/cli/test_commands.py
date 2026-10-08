@@ -524,7 +524,7 @@ async def test_run_spawns_target_against_a_live_proxy(
 
 
 async def test_run_provisions_anchor_secret_by_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """By default `privyx run` persists an anchor secret, so aliases stay stable."""
     import sys
@@ -533,7 +533,6 @@ async def test_run_provisions_anchor_secret_by_default(
     pytest.importorskip("fastapi")
 
     monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.delenv("PRIVYX_ANCHOR_SECRET", raising=False)
 
     from privyx.cli.commands.run import Target, _run_target
@@ -557,7 +556,7 @@ async def test_run_provisions_anchor_secret_by_default(
     )
 
     assert code == 0
-    anchor_key = tmp_path / "config" / "privyx" / "anchor.key"
+    anchor_key = home / ".privyx" / "anchor.key"
     assert anchor_key.exists()
     secret = anchor_key.read_text(encoding="utf-8").strip()
     assert len(secret) == 64
@@ -850,9 +849,9 @@ async def test_run_warns_when_no_request_reached_privyx(
 
 
 async def test_run_keeps_the_audit_trail_out_of_the_working_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The tool runs in the user's project, where a privyx-audit.log is litter."""
+    """The tool runs in the user's project, where an audit log is litter."""
     import sys
 
     pytest.importorskip("uvicorn")
@@ -860,7 +859,6 @@ async def test_run_keeps_the_audit_trail_out_of_the_working_directory(
 
     for var in ("PRIVYX_AUDIT_PATH", "PRIVYX_AUDIT_ENABLED", "PRIVYX_CONFIG"):
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
@@ -881,7 +879,98 @@ async def test_run_keeps_the_audit_trail_out_of_the_working_directory(
 
     assert code == 0
     assert list(project.iterdir()) == []
-    assert (tmp_path / "state" / "privyx" / "audit.log").exists()
+    assert (home / ".privyx" / "audit.log").exists()
+
+
+# --------------------------------------------------------------------------
+# ~/.privyx
+
+
+def test_the_default_database_is_in_the_home_directory(
+    runner: CliRunner, home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PRIVYX_VAULT", "sqlite")
+
+    result = runner.invoke(cli, ["session", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert (home / ".privyx" / "privyx.db").exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_audit_stats_reads_the_home_directory_by_default(runner: CliRunner, home: Path) -> None:
+    log = home / ".privyx" / "audit.log"
+    log.parent.mkdir()
+    _write_audit_log(log)
+
+    assert "Requests:   1" in runner.invoke(cli, ["audit", "stats"]).output
+
+
+def test_trust_allows_the_local_config(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    nothing = runner.invoke(cli, ["trust"])
+    assert nothing.exit_code == 1
+    assert "no privyx.yaml or .privyx/config.yaml" in nothing.output
+
+    config = Path.cwd() / "privyx.yaml"
+    config.write_text("port: 9001\n", encoding="utf-8")
+    assert "Host: 127.0.0.1:8000" in runner.invoke(cli, ["config"]).output
+    assert runner.invoke(cli, ["config", "--path"]).output.strip() == "defaults"
+
+    result = runner.invoke(cli, ["trust"])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == f"Trusted {config}"
+    assert "Host: 127.0.0.1:9001" in runner.invoke(cli, ["config"]).output
+    assert runner.invoke(cli, ["config", "--path"]).output.strip() == str(config)
+
+
+@pytest.mark.parametrize("xdg", [False, True], ids=["default directories", "XDG directories"])
+def test_files_from_earlier_locations_move_into_the_home_directory(
+    runner: CliRunner, home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, xdg: bool
+) -> None:
+    from privyx.security.keys import read_or_create_anchor_secret
+
+    config_dir, state_dir = home / ".config", home / ".local" / "state"
+    if xdg:
+        config_dir, state_dir = tmp_path / "xdg-config", tmp_path / "xdg-state"
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_dir))
+        monkeypatch.setenv("XDG_STATE_HOME", str(state_dir))
+    anchor, audit = config_dir / "privyx" / "anchor.key", state_dir / "privyx" / "audit.log"
+    for path in (anchor, audit):
+        path.parent.mkdir(parents=True)
+    anchor.write_text("a" * 64, encoding="utf-8")
+    anchor.chmod(0o600)
+    _write_audit_log(audit)
+
+    result = runner.invoke(cli, ["audit", "stats"])
+
+    assert result.exit_code == 0, result.output
+    assert "Requests:   1" in result.output  # the trail is read where it now is
+    assert f"Moved {anchor} to {home / '.privyx' / 'anchor.key'}" in result.output
+    assert not anchor.exists()
+    assert not audit.exists()
+    assert (home / ".privyx" / "anchor.key").stat().st_mode & 0o777 == 0o600
+    assert read_or_create_anchor_secret() == "a" * 64  # pseudonyms stay what they were
+
+
+def test_a_file_the_home_directory_already_has_is_not_replaced(
+    runner: CliRunner, home: Path
+) -> None:
+    earlier, current = home / ".config" / "privyx" / "anchor.key", home / ".privyx" / "anchor.key"
+    for path, secret in ((earlier, "a" * 64), (current, "b" * 64)):
+        path.parent.mkdir(parents=True)
+        path.write_text(secret, encoding="utf-8")
+
+    result = runner.invoke(cli, ["config"])
+
+    assert result.exit_code == 0, result.output
+    assert "Moved" not in result.output
+    assert earlier.read_text(encoding="utf-8") == "a" * 64
+    assert current.read_text(encoding="utf-8") == "b" * 64
 
 
 # --------------------------------------------------------------------------
@@ -893,6 +982,23 @@ def test_config_show_outputs_settings(runner: CliRunner) -> None:
 
     assert result.exit_code == 0
     assert "detector" in result.output or "vault" in result.output
+
+
+def test_config_path_names_the_files_in_use_or_defaults(
+    runner: CliRunner, home: Path, tmp_path: Path
+) -> None:
+    assert runner.invoke(cli, ["config", "--path"]).output.strip() == "defaults"
+
+    named = tmp_path / "custom.yaml"
+    named.write_text("port: 9000\n", encoding="utf-8")
+    result = runner.invoke(cli, ["config", "--path", "-c", str(named)])
+    assert result.exit_code == 0
+    assert result.output.strip() == str(named)
+
+    home_config = home / ".privyx" / "config.yaml"
+    home_config.parent.mkdir()
+    home_config.write_text("port: 9001\n", encoding="utf-8")
+    assert runner.invoke(cli, ["config", "--path"]).output.strip() == str(home_config)
 
 
 @pytest.mark.parametrize("args", [["config"], ["config", "--show"]])
@@ -945,7 +1051,8 @@ def test_config_show_masks_secrets(
 
 
 def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
-    """The CLI tree: proxy, run, detect, mask, unmask, inspect, session, audit, config, doctor."""
+    """The CLI tree: proxy, run, detect, mask, unmask, inspect, session, audit, config, doctor,
+    trust."""
     result = runner.invoke(cli, ["--help"])
 
     for command in (
@@ -959,6 +1066,7 @@ def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
         "audit",
         "config",
         "doctor",
+        "trust",
     ):
         assert command in result.output
 
@@ -1146,8 +1254,8 @@ def test_proxy_reload_restarts_and_rereads_config(
     config.write_text("port: 9001\n", encoding="utf-8")
     ports: list[int] = []
 
-    async def fake_run_server(settings: object, watch_path: Path | None = None) -> bool:
-        assert watch_path == config
+    async def fake_run_server(settings: object, watch_paths: list[Path] | None = None) -> bool:
+        assert watch_paths == [config]
         ports.append(settings.port)  # type: ignore[attr-defined]
         if len(ports) == 1:
             config.write_text("port: 9002\n", encoding="utf-8")
@@ -1162,10 +1270,49 @@ def test_proxy_reload_restarts_and_rereads_config(
     assert ports == [9001, 9002]
 
 
+def test_proxy_reload_watches_every_config_file_in_use(
+    runner: CliRunner, home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    home_config = home / ".privyx" / "config.yaml"
+    home_config.parent.mkdir()
+    home_config.write_text("port: 9001\n", encoding="utf-8")
+    local = Path.cwd() / "privyx.yaml"
+    local.write_text("log_level: debug\n", encoding="utf-8")
+    assert runner.invoke(cli, ["trust"]).exit_code == 0
+    watched: list[list[Path] | None] = []
+
+    async def fake_run_server(settings: object, watch_paths: list[Path] | None = None) -> bool:
+        watched.append(watch_paths)
+        return False
+
+    monkeypatch.setattr("privyx.cli.commands.proxy._run_server", fake_run_server)
+
+    result = runner.invoke(cli, ["proxy", "--reload"])
+
+    assert result.exit_code == 0, result.output
+    assert watched == [[home_config, local]]
+
+
+def test_reload_notices_a_change_to_any_watched_file(tmp_path: Path) -> None:
+    from privyx.cli.commands.proxy import _mtimes
+
+    paths = [tmp_path / "a.yaml", tmp_path / "b.yaml"]
+    for path in paths:
+        path.write_text("port: 9001\n", encoding="utf-8")
+    before = _mtimes(paths)
+
+    os.utime(paths[1], ns=(1, 1))
+    assert _mtimes(paths) not in (None, before)
+
+    paths[1].unlink()  # between an editor's delete and its write
+    assert _mtimes(paths) is None
+
+
 def test_proxy_ssl_options_applied(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     captured_settings: list[object] = []
 
-    async def fake_run_server(settings: object, watch_path: Path | None = None) -> bool:
+    async def fake_run_server(settings: object, watch_paths: list[Path] | None = None) -> bool:
         captured_settings.append(settings)
         return False
 

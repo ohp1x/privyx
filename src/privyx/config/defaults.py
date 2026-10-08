@@ -13,7 +13,7 @@ DEFAULTS: dict[str, object] = {
     "upstream_url": "",
     "vault": {
         "type": "memory",
-        "dsn": "sqlite+aiosqlite:///privyx.db",
+        "dsn": "sqlite+aiosqlite:///~/.privyx/privyx.db",
         "redis_url": "redis://localhost:6379/0",
         "ttl": None,
     },
@@ -43,7 +43,7 @@ DEFAULTS: dict[str, object] = {
     },
     "audit": {
         "enabled": True,
-        "path": "privyx-audit.log",
+        "path": "~/.privyx/audit.log",
     },
     # Opt-in: no paths means no plugins are loaded.
     "plugins": {"enabled": True, "paths": []},
