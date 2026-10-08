@@ -26,7 +26,7 @@ class VaultConfig(PluggableConfig):
     # build_vault still raises ConfigError for a type that is neither built-in
     # nor registered by a plugin.
     type: str = "memory"
-    dsn: str = "sqlite+aiosqlite:///privyx.db"
+    dsn: str = "sqlite+aiosqlite:///~/.privyx/privyx.db"
     redis_url: str = "redis://localhost:6379/0"
     # Idle expiry in seconds, measured from a session's last transform.  Unset
     # keeps sessions until deleted; 0 is rejected (it would expire every
@@ -218,7 +218,7 @@ class AuditConfig(BaseModel):
     """
 
     enabled: bool = True
-    path: str = "privyx-audit.log"
+    path: str = "~/.privyx/audit.log"
 
 
 class PluginsConfig(BaseModel):

@@ -108,7 +108,7 @@ your machine receives holds `dana@acme.example`.
 
 !!! note "Why these tokens are longer"
 
-    `privyx run` creates an anchor secret in `~/.config/privyx/anchor.key`
+    `privyx run` creates an anchor secret in `~/.privyx/anchor.key`
     the first time it runs, so a token's id is derived from the value instead
     of counted. The same value gets the same token in every turn and after a
     restart, which keeps a long conversation, and the provider's prompt
@@ -116,12 +116,12 @@ your machine receives holds `dana@acme.example`.
 
 ## 3. Check that it works
 
-When you leave the tool, look at the audit trail. `privyx run` keeps it in
-your state directory, not in the project:
+When you leave the tool, look at the audit trail. Privyx keeps it in
+`~/.privyx/`, not in the project:
 
 ```console
-$ privyx audit stats ~/.local/state/privyx/audit.log
-Audit log:  /home/dana/.local/state/privyx/audit.log
+$ privyx audit stats
+Audit log:  /home/dana/.privyx/audit.log
 Period:     2026-10-02T14:34:27 → 2026-10-02T14:34:28
 Events:     13
 Requests:   3
@@ -169,10 +169,10 @@ they matter until you list them. They are also what a coding agent sends
 most often: they are in your home directory's path, your git branch names,
 and your commit log.
 
-Put them in a config file:
+Put them in your config file, which Privyx reads on every run:
 
 ```yaml
-# ~/.config/privyx/config.yaml
+# ~/.privyx/config.yaml
 detector:
   type: regex                 # keeps the built-in patterns
   terms:
@@ -184,7 +184,7 @@ detector:
 Try it before you rely on it:
 
 ```console
-$ privyx detect -c ~/.config/privyx/config.yaml --transform "/home/dwhitfield/acme/bluebird on branch feature/dana-login"
+$ privyx detect --transform "/home/dwhitfield/acme/bluebird on branch feature/dana-login"
      6:16    PERSON            'dwhitfield'
     17:21    ORGANIZATION      'acme'
     22:30    PROJECT           'bluebird'
@@ -193,14 +193,17 @@ $ privyx detect -c ~/.config/privyx/config.yaml --transform "/home/dwhitfield/ac
 /home/<PRIVYX_PERSON_1>/<PRIVYX_ORGANIZATION_2>/<PRIVYX_PROJECT_3> on branch feature/<PRIVYX_PERSON_4>-login
 ```
 
-Then make every run use it:
+Every run uses it from now on:
 
 ```bash
-export PRIVYX_CONFIG=~/.config/privyx/config.yaml    # in your shell profile
 privyx run claude
 ```
 
-or name it once: `privyx run -c ~/.config/privyx/config.yaml claude`.
+A file kept elsewhere is named with `-c`, or with `PRIVYX_CONFIG` in your
+shell profile, and is then read in place of this one. A project can add
+settings of its own in a `privyx.yaml`, which Privyx reads once you have run
+`privyx trust` in that directory; see
+[Configuration](../guide/configuration.md#where-settings-come-from).
 
 Matching ignores case and only hits whole words, so `dana` does not match
 inside `danasaur`. [Your own names and terms](custom-terms.md) goes further:

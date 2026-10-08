@@ -8,6 +8,7 @@ these commands print nothing more than it does.
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections import Counter, deque
 from pathlib import Path
@@ -123,7 +124,7 @@ def _open_log(file: Path | None, config_path: str | None) -> tuple[Path, TextIO]
     from privyx.core.errors import PrivyxError
 
     try:
-        path = file or Path(load_config(config_path).audit.path)
+        path = file or Path(os.path.expanduser(load_config(config_path).audit.path))
         return path, path.open(encoding="utf-8", errors="replace")
     except (PrivyxError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc

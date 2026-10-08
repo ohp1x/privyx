@@ -13,13 +13,11 @@ from privyx.config.redact import redact
 
 @click.command("config")
 @click.option("--show", is_flag=True, help="Show current config as JSON (secrets masked)")
-@click.option("--path", is_flag=True, help="Show config file path")
+@click.option("--path", is_flag=True, help="Show the config files in use")
 @click.option("--config", "-c", "config_path", default=None, help="Config file path")
 def config_cmd(show: bool, path: bool, config_path: str | None) -> None:
     """Inspect configuration."""
-    import os
-
-    from privyx.config.loader import load_config
+    from privyx.config.loader import active_config_paths, load_config
     from privyx.core.errors import PrivyxError
     from privyx.providers.registry import resolve_base_url
 
@@ -31,8 +29,8 @@ def config_cmd(show: bool, path: bool, config_path: str | None) -> None:
     if show:
         click.echo(json.dumps(redact(settings.model_dump(mode="json")), indent=2))
     elif path:
-        cfg_path = config_path or os.environ.get("PRIVYX_CONFIG", "defaults")
-        click.echo(cfg_path)
+        active = active_config_paths(config_path)
+        click.echo("\n".join(str(p) for p in active) or "defaults")
     else:
         click.echo(f"Privyx {__version__}")
         click.echo(f"  Host: {settings.host}:{settings.port}")

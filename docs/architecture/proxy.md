@@ -40,9 +40,9 @@ Neither mode translates between wire schemas. Privyx only knows *where the text
 leaves live* in each one, so an Anthropic client still needs an Anthropic-speaking
 upstream.
 
-`--reload` (development only, off by default) watches the *config file* — the
-one passed with `-c` or named by `PRIVYX_CONFIG`, not the source code — and
-restarts the server when it changes: uvicorn shuts down gracefully, then the
+`--reload` (development only, off by default) watches the *config files* in
+use — the one passed with `-c` or named by `PRIVYX_CONFIG`, or else the ones
+Privyx found, not the source code — and restarts the server when one changes: uvicorn shuts down gracefully, then the
 engine, vault, plugins, and provider are built again from the new settings. It
 is a restart, not a hot swap, so in-flight requests get 5 s to finish (as on
 SIGTERM or Ctrl-C) and the listener is briefly gone, and an in-memory vault starts empty again (a `sqlite`/encrypted

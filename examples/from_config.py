@@ -13,8 +13,9 @@ from privyx.core.builder import build_engine
 
 
 async def main() -> None:
-    # The same layers as the CLI: built-in defaults, a YAML file (pass its
-    # path as the first argument), PRIVYX_* environment variables, then `extra`.
+    # The same layers as the CLI: built-in defaults, the config files (or one
+    # alone: pass its path as the first argument), PRIVYX_* environment
+    # variables, then `extra`.
     settings = load_config(extra={"detector": {"terms": {"PROJECT": ["bluebird"]}}})
     engine, close = await build_engine(settings)
     try:

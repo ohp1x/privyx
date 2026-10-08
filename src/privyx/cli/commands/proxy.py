@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import signal
 import sys
 import time
@@ -34,7 +33,7 @@ SHUTDOWN_GRACE_SECONDS = 5
     "reload_on_change",
     is_flag=True,
     default=False,
-    help="Restart the server when the config file changes (development).",
+    help="Restart the server when a config file changes (development).",
 )
 @click.option("--ssl-certfile", default=None, help="SSL/TLS certificate file path (PEM)")
 @click.option("--ssl-keyfile", default=None, help="SSL/TLS private key file path (PEM)")
@@ -53,7 +52,7 @@ def proxy(
     ssl_ca_certs: str | None = None,
 ) -> None:
     """Start the privacy proxy server."""
-    from privyx.config.loader import load_config
+    from privyx.config.loader import active_config_paths, load_config
     from privyx.core.errors import PrivyxError
 
     extra: dict[str, Any] = {}
@@ -78,19 +77,14 @@ def proxy(
     if tls_extra:
         extra["tls"] = tls_extra
 
-    watch_path: Path | None = None
-    if reload_on_change:
-        resolved = config_path or os.environ.get("PRIVYX_CONFIG")
-        if resolved:
-            watch_path = Path(resolved)
-        else:
-            click.echo("--reload needs a config file; serving without it.", err=True)
-
     try:
         settings = load_config(config_path, extra=extra)
+        watch_paths = active_config_paths(config_path) if reload_on_change else []
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
+    if reload_on_change and not watch_paths:
+        click.echo("--reload needs a config file; serving without it.", err=True)
 
     if (settings.tls.certfile and not settings.tls.keyfile) or (
         settings.tls.keyfile and not settings.tls.certfile
@@ -103,18 +97,18 @@ def proxy(
 
     while True:
         try:
-            if not asyncio.run(_run_server(settings, watch_path)):
+            if not asyncio.run(_run_server(settings, watch_paths)):
                 return
             click.echo("Config changed \u2014 restarting\u2026")
         except PrivyxError as exc:
             # Without --reload this is fatal, as it always was; with it, a config
             # that parses but cannot be built must not kill the dev server.
             click.echo(f"Error: {exc}", err=True)
-            if watch_path is None:
+            if not watch_paths:
                 sys.exit(1)
-            _wait_for_change(watch_path, _mtime(watch_path))
+            _wait_for_change(watch_paths, _mtimes(watch_paths))
 
-        assert watch_path is not None  # only a watcher can ask for a restart
+        assert watch_paths  # only a watcher can ask for a restart
         while True:
             try:
                 settings = load_config(config_path, extra=extra)
@@ -122,32 +116,32 @@ def proxy(
             except PrivyxError as exc:
                 # A half-saved YAML must not kill it either.
                 click.echo(f"Error: {exc}", err=True)
-                _wait_for_change(watch_path, _mtime(watch_path))
+                _wait_for_change(watch_paths, _mtimes(watch_paths))
 
 
-def _mtime(path: Path) -> int | None:
-    """Modification time, or ``None`` while the file is momentarily missing."""
+def _mtimes(paths: list[Path]) -> tuple[int, ...] | None:
+    """Modification times, or ``None`` while a file is momentarily missing."""
     try:
-        return path.stat().st_mtime_ns
+        return tuple(path.stat().st_mtime_ns for path in paths)
     except OSError:
         return None
 
 
-def _wait_for_change(path: Path, last: int | None) -> None:
+def _wait_for_change(paths: list[Path], last: tuple[int, ...] | None) -> None:
     # ponytail: mtime poll, 1s — swap for watchfiles if it ever matters
     while True:
         time.sleep(1.0)
-        now = _mtime(path)
+        now = _mtimes(paths)
         if now is not None and now != last:
             return
 
 
-async def _watch_config(path: Path, event: asyncio.Event) -> None:
-    """Set ``event`` once the config file changes on disk."""
-    last = _mtime(path)
+async def _watch_config(paths: list[Path], event: asyncio.Event) -> None:
+    """Set ``event`` once a config file changes on disk."""
+    last = _mtimes(paths)
     while True:
         await asyncio.sleep(1.0)
-        now = _mtime(path)
+        now = _mtimes(paths)
         if now is not None and now != last:
             event.set()
             return
@@ -183,10 +177,10 @@ async def _serve_until_reload(server: Any, event: asyncio.Event | None) -> None:
             signal.signal(sig, handler)
 
 
-async def _run_server(settings: Any, watch_path: Path | None = None) -> bool:
+async def _run_server(settings: Any, watch_paths: list[Path] | None = None) -> bool:
     """Build the engine from settings, serve the selected app, and release resources.
 
-    Returns ``True`` when the server stopped because the config file changed.
+    Returns ``True`` when the server stopped because a config file changed.
     """
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.observability.logging import configure_logging
@@ -199,10 +193,10 @@ async def _run_server(settings: Any, watch_path: Path | None = None) -> bool:
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
     await hooks.run_startup()
-    reload_event = asyncio.Event() if watch_path is not None else None
+    reload_event = asyncio.Event() if watch_paths else None
     watcher = (
-        asyncio.create_task(_watch_config(watch_path, reload_event))
-        if watch_path is not None and reload_event is not None
+        asyncio.create_task(_watch_config(watch_paths, reload_event))
+        if watch_paths and reload_event is not None
         else None
     )
     try:

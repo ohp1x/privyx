@@ -28,7 +28,7 @@ upstream_url: ""
 # --- Vault ---
 vault:
   type: memory          # memory | sqlite | redis
-  dsn: sqlite+aiosqlite:///privyx.db
+  dsn: sqlite+aiosqlite:///~/.privyx/privyx.db
   redis_url: redis://localhost:6379/0
   # ttl: 604800         # expire sessions idle this many seconds (unset = keep)
 
@@ -137,4 +137,4 @@ provider:
 # Separate from application logs (log_level / logging above).
 audit:
   enabled: true            # or PRIVYX_AUDIT_ENABLED
-  # path: privyx-audit.log # the default (privyx run: ~/.local/state/privyx/audit.log), or PRIVYX_AUDIT_PATH
+  # path: ~/.privyx/audit.log # the default, or PRIVYX_AUDIT_PATH

@@ -87,7 +87,7 @@ Pick the tab that matches what you use.
     When you leave the tool, see what was masked on the way:
 
     ```bash
-    privyx audit stats ~/.local/state/privyx/audit.log
+    privyx audit stats
     ```
 
     The tutorial [Coding agents](../tutorials/coding-agents.md) goes on from
@@ -156,10 +156,8 @@ $ privyx audit tail --no-follow
 `proxy.request`, `transform_ms` is the time masking took; the rest of
 `duration_ms` is mostly the provider.
 
-`privyx proxy` writes the trail to `privyx-audit.log` in the directory it
-runs in, and `privyx run` to `~/.local/state/privyx/audit.log`. Run
-`privyx audit` in the same directory, or name the file:
-`privyx audit tail FILE`.
+The trail is in `~/.privyx/audit.log`, unless `audit.path` names another
+file; then name it too: `privyx audit tail FILE`.
 
 ## What is masked by default
 

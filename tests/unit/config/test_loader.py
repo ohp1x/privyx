@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from privyx.config.loader import load_config
+from privyx.config.loader import active_config_paths, find_local_configs, load_config, trust
 from privyx.core.builder import build_detector_from
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
@@ -171,3 +171,162 @@ def test_an_unknown_setting_fails_to_load(tmp_path: Path, text: str, message: st
     with pytest.raises(ConfigError, match=re.escape(message)) as caught:
         load_config(cfg)
     assert "Zed" not in str(caught.value)  # key paths only, never values
+
+
+def _write(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_the_home_config_is_read_without_being_named(home: Path) -> None:
+    config = _write(home / ".privyx" / "config.yaml", "session:\n  strategy: client\n")
+
+    assert active_config_paths() == [config]
+    assert load_config().session.strategy == "client"
+
+
+def test_a_local_config_is_ignored_until_trusted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config = _write(Path.cwd() / "privyx.yaml", "vault:\n  ttl: 3600\n")
+
+    assert load_config().vault.ttl is None
+    assert f"ignoring {config}: not trusted" in caplog.text
+    assert active_config_paths() == []
+
+    caplog.clear()
+    trust(config)
+    assert load_config().vault.ttl == 3600
+    assert caplog.text == ""
+    assert active_config_paths() == [config]
+
+
+def test_a_trusted_local_config_is_ignored_again_once_it_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # What was trusted is the content: a file edited since could now load a
+    # plugin or name another upstream.
+    monkeypatch.chdir(tmp_path)
+    config = _write(Path.cwd() / ".privyx" / "config.yaml", "vault:\n  ttl: 3600\n")
+    trust(config)
+
+    config.write_text("upstream_url: http://127.0.0.1:9\n", encoding="utf-8")
+
+    assert load_config().upstream_url == ""
+    assert f"ignoring {config}: not trusted" in caplog.text
+
+
+def test_trust_is_for_one_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    text = "vault:\n  ttl: 3600\n"
+    monkeypatch.chdir(tmp_path)
+    trust(_write(Path.cwd() / "privyx.yaml", text))
+
+    elsewhere = tmp_path / "elsewhere"
+    _write(elsewhere / "privyx.yaml", text)
+    monkeypatch.chdir(elsewhere)
+
+    assert load_config().vault.ttl is None
+
+
+def test_local_configs_override_the_home_config_in_order(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    home_config = _write(
+        home / ".privyx" / "config.yaml", "session:\n  strategy: client\nvault:\n  ttl: 100\n"
+    )
+    plain = _write(Path.cwd() / "privyx.yaml", "session:\n  strategy: conversation\nport: 9001\n")
+    hidden = _write(Path.cwd() / ".privyx" / "config.yaml", "port: 9002\n")
+    trust(plain)
+    trust(hidden)
+
+    settings = load_config()
+
+    assert active_config_paths() == [home_config, plain, hidden]
+    assert settings.vault.ttl == 100  # only the home config sets it
+    assert settings.session.strategy == "conversation"  # privyx.yaml over the home config
+    assert settings.port == 9002  # .privyx/config.yaml over privyx.yaml
+
+
+def test_env_overrides_every_config_file(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write(home / ".privyx" / "config.yaml", "vault:\n  ttl: 100\n")
+    trust(_write(Path.cwd() / "privyx.yaml", "vault:\n  ttl: 200\n"))
+
+    assert load_config().vault.ttl == 200
+    monkeypatch.setenv("PRIVYX_VAULT_TTL", "300")
+    assert load_config().vault.ttl == 300
+
+
+@pytest.mark.parametrize("by_env", [False, True], ids=["path", "PRIVYX_CONFIG"])
+def test_a_named_config_is_read_alone(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, by_env: bool
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write(home / ".privyx" / "config.yaml", "vault:\n  ttl: 100\n")
+    trust(_write(Path.cwd() / "privyx.yaml", "port: 9001\n"))
+    named = _write(tmp_path / "named" / "custom.yaml", "session:\n  strategy: client\n")
+    if by_env:
+        monkeypatch.setenv("PRIVYX_CONFIG", str(named))
+
+    settings = load_config(None if by_env else named)
+
+    assert active_config_paths(None if by_env else named) == [named]
+    assert settings.session.strategy == "client"
+    assert settings.vault.ttl is None
+    assert settings.port == 8000
+
+
+def test_no_discovery_reads_no_file_that_was_not_named(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _write(home / ".privyx" / "config.yaml", "vault:\n  ttl: 100\n")
+    trust(_write(Path.cwd() / "privyx.yaml", "port: 9001\n"))
+    monkeypatch.setenv("PRIVYX_NO_DISCOVERY", "1")
+
+    assert active_config_paths() == []
+    assert load_config().vault.ttl is None
+    assert load_config().port == 8000
+
+
+def test_a_mistyped_no_discovery_fails_to_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Read as "no", it would leave discovery on without a word.
+    monkeypatch.setenv("PRIVYX_NO_DISCOVERY", "ture")
+    with pytest.raises(ConfigError, match="PRIVYX_NO_DISCOVERY"):
+        load_config()
+
+
+def test_in_the_home_directory_its_config_is_not_a_local_one(
+    home: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.chdir(home)
+    config = _write(home / ".privyx" / "config.yaml", "vault:\n  ttl: 100\n")
+
+    assert find_local_configs() == []
+    assert active_config_paths() == [config]
+    assert load_config().vault.ttl == 100
+    assert caplog.text == ""
+
+
+def test_without_a_home_directory_a_project_cannot_stand_in_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `~` left as it is would name a directory of the project's own.
+    def no_home() -> Path:
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "home", no_home)
+    monkeypatch.chdir(tmp_path)
+    config = _write(Path.cwd() / "privyx.yaml", "port: 9001\n")
+    _write(Path.cwd() / "~" / ".privyx" / "config.yaml", "port: 9002\n")
+    _write(Path.cwd() / "~" / ".privyx" / "trusted.json", "{}")
+
+    assert active_config_paths() == []
+    assert load_config().port == 8000
+    with pytest.raises(ConfigError, match="no home directory"):
+        trust(config)

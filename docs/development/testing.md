@@ -52,7 +52,7 @@ uv run pytest -n auto             # parallel
 anchor) against a local fake Anthropic API, so nothing needs a key or the
 network. `make e2e` runs both. HOME,
 `CLAUDE_CONFIG_DIR`, and `XDG_CONFIG_HOME` all point into a fresh temp dir, so your
-own `~/.claude` and `~/.config/privyx` are left alone.
+own `~/.claude` and `~/.privyx` are left alone.
 
 The script plants canary values everywhere Claude Code gathers context: the
 prompt, `CLAUDE.md`, the workspace path, the git branch and log, an MCP server's

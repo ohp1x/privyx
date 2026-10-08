@@ -21,8 +21,10 @@ The engine is asynchronous. Call it from `async` code, or wrap a call in
 
 ## Build the engine from configuration
 
-`load_config` reads the same layers as the CLI: the built-in defaults, a YAML
-file, the `PRIVYX_*` environment, and overrides you pass. `build_engine`
+`load_config` reads the same layers as the CLI: the built-in defaults, the
+[config files](../guide/configuration.md#where-settings-come-from) (or one
+alone, if you pass its path), the `PRIVYX_*` environment, and overrides you
+pass. `build_engine`
 assembles the detector, policy, operator, and vault those settings describe.
 
 ```python

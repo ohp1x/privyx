@@ -27,6 +27,11 @@ def _env_bool(key: str) -> bool:
     raise ConfigError(f"PRIVYX_{key} must be 1, true, yes, on, 0, false, no, or off")
 
 
+def discovery_disabled() -> bool:
+    """Whether ``PRIVYX_NO_DISCOVERY`` turns off reading config files not named."""
+    return bool(_env("NO_DISCOVERY")) and _env_bool("NO_DISCOVERY")
+
+
 def env_config() -> dict[str, Any]:
     """Load configuration from environment variables (non-empty only)."""
     cfg: dict[str, Any] = {}

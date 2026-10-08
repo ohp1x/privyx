@@ -8,9 +8,9 @@
 Each agent has its own file next to this one (claude.py, codex.py) and is an
 ``Agent`` from common.py; this file is the run they share.
 
-Everything lives in a fresh temp dir — HOME, the agent's config dir,
-XDG_CONFIG_HOME (so the anchor key too), the workspace, the logs — so the real
-~/.claude, ~/.codex and ~/.config/privyx are never touched.  Without
+Everything lives in a fresh temp dir — HOME (so the anchor key too), the
+agent's config dir, XDG_CONFIG_HOME, the workspace, the logs — so the real
+~/.claude, ~/.codex and ~/.privyx are never touched.  Without
 ``--upstream`` no real credential or network is used.
 
 Canary values are seeded wherever the agent picks up context: the prompt,
@@ -266,7 +266,8 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
 
     root = Path(tempfile.mkdtemp(prefix="privyx-e2e-"))
     home = root / "home"
-    strip = ("ANTHROPIC_", "CLAUDE", "OPENAI_", "CODEX_", "PRIVYX_", "XDG_CONFIG_HOME", "GIT_")
+    strip = ("ANTHROPIC_", "CLAUDE", "OPENAI_", "CODEX_", "PRIVYX_", "GIT_")
+    strip += ("XDG_CONFIG_HOME", "XDG_STATE_HOME")  # Privyx moves earlier files out of both
     env = {k: v for k, v in os.environ.items() if not k.startswith(strip)}
     env.update(
         HOME=str(home),

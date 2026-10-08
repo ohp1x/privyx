@@ -1,8 +1,9 @@
 # CLI reference
 
 Every command that reads configuration takes `-c` / `--config FILE`, which
-defaults to `PRIVYX_CONFIG` and then to the built-in defaults. See
-[Configuration](configuration.md). `privyx --version` prints the version.
+defaults to `PRIVYX_CONFIG`. Without either, Privyx reads
+`~/.privyx/config.yaml` and the trusted config files of the working directory.
+See [Configuration](configuration.md). `privyx --version` prints the version.
 
 ## `privyx proxy`
 
@@ -18,7 +19,7 @@ privyx proxy [-c FILE] [--host HOST] [--port PORT] [-u URL] [--transparent | --g
 | `--port` | Bind port. Default `8000`. |
 | `-u`, `--upstream` | Upstream provider URL. Wins over the config file. |
 | `--transparent` / `--gateway` | Forward every path to the upstream origin, or serve the chat-only gateway. Default: `proxy.mode`, which is `transparent`. |
-| `--reload` | Restart the server when the config file changes. For development; an in-memory vault starts empty after each restart. |
+| `--reload` | Restart the server when a config file in use changes. For development; an in-memory vault starts empty after each restart. |
 | `--ssl-certfile`, `--ssl-keyfile` | Serve HTTPS with this certificate and key (PEM). Both are required. |
 | `--ssl-keyfile-password` | Password for an encrypted key. |
 | `--ssl-ca-certs` | CA bundle (PEM). |
@@ -43,10 +44,7 @@ and forwards any other path unmasked, embeddings for instance;
 file, Privyx sends only its own key and posts to the upstream URL as written,
 which an upstream behind a base path needs. The tool owns the terminal, so
 Privyx writes no log lines to it; they go to `log_file` when one is set, which
-is where to look when a request fails with a `503`. The
-tool usually runs in your project, so the audit trail goes to
-`$XDG_STATE_HOME/privyx/audit.log` (`~/.local/state/privyx/audit.log`) instead
-of the working directory, unless `audit.path` or `PRIVYX_AUDIT_PATH` sets it.
+is where to look when a request fails with a `503`.
 
 ```bash
 privyx run [OPTIONS] TARGET [ARGS]...
@@ -62,7 +60,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--port` | Proxy port. `0` (default) picks a free one. |
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
-| `--no-anchor` | Do not create an anchor secret in `~/.config/privyx/anchor.key`. |
+| `--no-anchor` | Do not create an anchor secret in `~/.privyx/anchor.key`. |
 | `--list` | List the known targets and exit. |
 
 Known targets, and where each gets the proxy's URL:
@@ -156,8 +154,8 @@ privyx session prune --older-than 7d [--dry-run]
 
 ## `privyx audit`
 
-Read the audit trail. `FILE` defaults to `audit.path`; the trail of
-`privyx run` is in `~/.local/state/privyx/audit.log` unless you set one.
+Read the audit trail. `FILE` defaults to `audit.path`, which is
+`~/.privyx/audit.log` unless you set one.
 
 ```bash
 privyx audit stats [FILE] [--since 24h]
@@ -179,8 +177,23 @@ Show the configuration.
 ```bash
 privyx config            # a summary
 privyx config --show     # every setting as JSON, credentials masked
-privyx config --path     # the config file in use, or "defaults"
+privyx config --path     # the config files in use, or "defaults"
 ```
+
+## `privyx trust`
+
+Trust the config files of the working directory: `privyx.yaml` and
+`.privyx/config.yaml`.
+
+```bash
+privyx trust
+```
+
+Such a file can load plugins and choose the upstream, so Privyx reads one only
+after this command, and says so on stderr while it ignores one. Trust is kept
+in `~/.privyx/trusted.json` for the file's path and content: run the command
+again after you change the file. While you are still editing one, pass it with
+`-c`, which needs no trust.
 
 ## `privyx doctor`
 

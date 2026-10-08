@@ -20,6 +20,7 @@ Example::
 from __future__ import annotations
 
 import inspect
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -204,11 +205,12 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
 
 
 def _sqlite_path(dsn: str) -> str:
-    """Accept both a bare path and a SQLAlchemy-style URL."""
+    """Accept both a bare path and a SQLAlchemy-style URL; ``~`` is the home directory."""
     for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
         if dsn.startswith(prefix):
-            return dsn[len(prefix) :]
-    return dsn
+            dsn = dsn[len(prefix) :]
+            break
+    return os.path.expanduser(dsn)
 
 
 def build_audit_logger(settings: Settings) -> AuditLogger:
@@ -225,7 +227,7 @@ def build_audit_logger(settings: Settings) -> AuditLogger:
     """
     if not settings.audit.enabled:
         return AuditLogger(None)
-    path = Path(settings.audit.path)
+    path = Path(os.path.expanduser(settings.audit.path))
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         writer = open(path, "a", encoding="utf-8")

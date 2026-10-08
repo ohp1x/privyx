@@ -22,7 +22,7 @@
   (`logging: text|json`); the JSON formatter serializes with `json.dumps`, so a
   message can never corrupt the record.
 - The audit trail (`observability/audit.py`) is separate: one JSON object per
-  line appended to a dedicated file (`audit.path`, default `privyx-audit.log`).
+  line appended to a dedicated file (`audit.path`, default `~/.privyx/audit.log`).
   Every record shares a versioned envelope (`schema_version`, ISO-8601 `time`,
   epoch `ts`, `event`, `request_id`, `session_id`) so a downstream reader has a
   stable contract, and one `request_id` ties every event of one proxied exchange
