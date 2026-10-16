@@ -35,6 +35,18 @@ def discovery_disabled() -> bool:
 def env_config() -> dict[str, Any]:
     """Load configuration from environment variables (non-empty only)."""
     cfg: dict[str, Any] = {}
+    agents = _env("AGENTS")
+    if agents:
+        try:
+            parsed = json.loads(agents)
+        except json.JSONDecodeError:
+            raise ConfigError("PRIVYX_AGENTS must be a JSON object of agent profiles") from None
+        if not isinstance(parsed, dict):
+            raise ConfigError("PRIVYX_AGENTS must be a JSON object of agent profiles")
+        cfg["agents"] = parsed
+    provider = _env("PROVIDER")
+    if provider:
+        cfg.setdefault("provider", {})["type"] = provider
     vault_type = _env("VAULT")
     if vault_type:
         cfg["vault"] = {"type": vault_type}

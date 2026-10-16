@@ -62,6 +62,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
 | `--no-anchor` | Do not create an anchor secret in `~/.privyx/anchor.key`. |
 | `--list` | List the known targets and exit. |
+| `--dry-run` | Print the launch plan and winning configuration sources, then exit. Opens no port, starts no tool, imports no plugins, and creates no log, vault, or anchor file. Works even if the executable is not installed. |
 
 Known targets, and where each gets the proxy's URL:
 
@@ -85,6 +86,48 @@ calls its provider directly is not masked.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.
+
+You can also define [agent profiles](configuration.md#agents) in your config
+and use their names as `TARGET`. `--list` includes those profiles. Built-in
+profiles keep their defaults for any fields you leave out.
+
+Inspect a plan before launching:
+
+```console
+$ privyx run --dry-run codex
+Profile: codex
+Command: codex -c 'openai_base_url="http://127.0.0.1:<auto>/v1"'
+Adapter: codex
+Proxy: http://127.0.0.1:<auto>/v1 (transparent)
+Provider: openai [defaults]
+Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]
+Routing: tool → http://127.0.0.1:<auto>/v1 → https://api.openai.com
+Session: conversation [run defaults]
+Anchor: auto-provision on launch [run defaults]
+Source command: defaults
+Source base_path: defaults
+Source adapter: defaults
+Source args: defaults
+Source host: defaults
+Source proxy.mode: defaults
+Source run.port: run defaults
+Source arguments: CLI
+Environment injected:
+  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]
+```
+
+`<auto>` means a free port will be chosen on launch; `--port` makes the plan
+use a fixed port. Sources are `defaults`, `run defaults`, a config file's
+absolute path, `environment`, or `CLI`. Inherited fields retain their parent's
+source. The environment section lists proxy URL variables plus masked custom
+values and the source names of `env_from` references. Credential flags, JSON settings,
+config assignments, URL user info, queries and fragments are masked in the
+display; arbitrary free-text arguments are displayed as supplied. The plan
+checks configuration, but does not verify that the agent sends requests
+through the proxy. The same arguments and resolved settings are used when
+you launch without `--dry-run`. Both paths consume the same launch plan,
+including an environment snapshot; binding a free port changes only its
+proxy URL. Missing environment references fail before startup.
 
 ## `privyx detect`
 

@@ -21,11 +21,12 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, get_args, get_origin
 
 import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel
 
+from privyx.config.agents import resolve_profiles
 from privyx.config.defaults import DEFAULTS
 from privyx.config.env import discovery_disabled, env_config
 from privyx.config.schema import PluggableConfig, Settings
@@ -126,7 +127,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         current = result.get(key)
         if isinstance(current, dict) and isinstance(value, dict):
             result[key] = _deep_merge(current, value)
-        elif isinstance(current, list) and isinstance(value, dict):
+        elif key == "detector" and isinstance(current, list) and isinstance(value, dict):
             # A section given as a list (`detector: [...]`) takes a mapping
             # override such as PRIVYX_DETECTOR_CACHE into each item.  Replacing
             # the list would silently drop the detectors it names.
@@ -143,6 +144,8 @@ def load_config(
     *,
     extra: dict[str, Any] | None = None,
     base_extra: dict[str, Any] | None = None,
+    agent: str | None = None,
+    sources: dict[str, str] | None = None,
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
 
@@ -155,8 +158,23 @@ def load_config(
     The YAML files are ``path`` (or ``PRIVYX_CONFIG``) alone when one is named;
     otherwise ``~/.privyx/config.yaml`` and then the working directory's trusted
     ``privyx.yaml`` and ``.privyx/config.yaml``.
+
+    With ``agent``, that profile's provider/upstream are applied within each
+    layer, above that layer's common settings. Later layers still win.
+    ``sources`` optionally receives dotted field paths -> winning layer.
     """
-    merged: dict[str, Any] = _deep_merge(DEFAULTS, base_extra or {})
+    merged: dict[str, Any] = {}
+    origins: dict[str, str] = {}
+    layers: list[tuple[str, dict[str, Any]]] = []
+
+    def apply(data: dict[str, Any], source: str) -> None:
+        nonlocal merged
+        layers.append((source, data))
+        merged = _deep_merge(merged, data)
+        _record_sources(data, source, origins)
+
+    apply(DEFAULTS, "defaults")
+    apply(base_extra or {}, "run defaults")
 
     config_files, untrusted = _config_paths(path)
     for config_file in untrusted:
@@ -165,12 +183,12 @@ def load_config(
             config_file,
         )
     for config_file in config_files:
-        merged = _deep_merge(merged, _load_yaml(config_file))
+        apply(_load_yaml(config_file), str(config_file.resolve()))
 
-    merged = _deep_merge(merged, env_config())
+    apply(env_config(), "environment")
 
     if extra:
-        merged = _deep_merge(merged, extra)
+        apply(extra, "CLI")
 
     # A misspelled key would otherwise be dropped without a word, and the
     # setting it meant to change (a detector's terms, say) silently not apply.
@@ -179,10 +197,69 @@ def load_config(
         plural = "s" if len(unknown) > 1 else ""
         raise ConfigError(f"unknown setting{plural} {', '.join(unknown)}")
 
+    profiles = merged.get("agents")
+    if isinstance(profiles, dict):
+        profiles, inherited_sources = resolve_profiles(profiles, origins)
+        selected = profiles.get(agent) if agent else None
+        # Reapply transport fields at their originating layer, so a late
+        # common environment/CLI override still beats an inherited profile.
+        effective: dict[str, Any] = {}
+        effective_sources: dict[str, str] = {}
+        for source, data in layers:
+            projection = {}
+            if isinstance(selected, dict):
+                for field in ("provider", "upstream"):
+                    if inherited_sources.get(f"agents.{agent}.{field}") == source:
+                        projection[field] = selected[field]
+            layer = _agent_layer(data, agent, projection)
+            effective = _deep_merge(effective, layer)
+            _record_sources(layer, source, effective_sources)
+        effective["agents"] = profiles
+        effective_sources.update(inherited_sources)
+        merged, origins = effective, effective_sources
+
+    if sources is not None:
+        sources.clear()
+        sources.update(origins)
+
     try:
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
+
+
+def _agent_layer(
+    data: dict[str, Any], agent: str | None, profile: dict[str, Any]
+) -> dict[str, Any]:
+    if agent is None:
+        return data
+    overrides: dict[str, Any] = {}
+    provider = data.get("provider")
+    if isinstance(provider, dict) and "base_url" in provider and "upstream_url" not in data:
+        # In a run plan these name the same destination. A later file's common
+        # base URL must be able to override an earlier profile's upstream.
+        overrides["upstream_url"] = provider["base_url"]
+    if "provider" in profile:
+        overrides["provider"] = {"type": profile["provider"]}
+    if "upstream" in profile:
+        overrides["upstream_url"] = profile["upstream"]
+        overrides.setdefault("provider", {})["base_url"] = profile["upstream"]
+    return _deep_merge(data, overrides)
+
+
+def _record_sources(
+    data: dict[str, Any], source: str, sources: dict[str, str], prefix: str = ""
+) -> None:
+    for key, value in data.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict):
+            _record_sources(value, source, sources, path + ".")
+        else:
+            # A replaced list/scalar invalidates any old nested provenance.
+            for old in list(sources):
+                if old.startswith(path + "."):
+                    del sources[old]
+            sources[path] = source
 
 
 def _unknown_keys(model: type[BaseModel], data: Any, path: str = "") -> list[str]:
@@ -211,7 +288,10 @@ def _unknown_keys(model: type[BaseModel], data: Any, path: str = "") -> list[str
         section = _section(fields[name].annotation)
         if section is None:
             continue
-        if isinstance(value, list):
+        if get_origin(fields[name].annotation) is dict and isinstance(value, dict):
+            for entry, item in value.items():
+                unknown += _unknown_keys(section, item, f"{path}{name}.{entry}.")
+        elif isinstance(value, list):
             for i, item in enumerate(value):
                 unknown += _unknown_keys(section, item, f"{path}{name}[{i}].")
         else:
