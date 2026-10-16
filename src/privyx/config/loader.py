@@ -21,7 +21,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, get_args, get_origin
 
 import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel
@@ -143,6 +143,8 @@ def load_config(
     *,
     extra: dict[str, Any] | None = None,
     base_extra: dict[str, Any] | None = None,
+    agent: str | None = None,
+    sources: dict[str, str] | None = None,
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
 
@@ -155,8 +157,24 @@ def load_config(
     The YAML files are ``path`` (or ``PRIVYX_CONFIG``) alone when one is named;
     otherwise ``~/.privyx/config.yaml`` and then the working directory's trusted
     ``privyx.yaml`` and ``.privyx/config.yaml``.
+
+    With ``agent``, that profile's provider/upstream are applied within each
+    layer, above that layer's common settings. Later layers still win.
+    ``sources`` optionally receives dotted field paths -> winning layer.
     """
-    merged: dict[str, Any] = _deep_merge(DEFAULTS, base_extra or {})
+    merged: dict[str, Any] = {}
+    if sources is not None:
+        sources.clear()
+
+    def apply(data: dict[str, Any], source: str) -> None:
+        nonlocal merged
+        layer = _agent_layer(data, agent)
+        merged = _deep_merge(merged, layer)
+        if sources is not None:
+            _record_sources(layer, source, sources)
+
+    apply(DEFAULTS, "defaults")
+    apply(base_extra or {}, "run defaults")
 
     config_files, untrusted = _config_paths(path)
     for config_file in untrusted:
@@ -165,12 +183,12 @@ def load_config(
             config_file,
         )
     for config_file in config_files:
-        merged = _deep_merge(merged, _load_yaml(config_file))
+        apply(_load_yaml(config_file), str(config_file.resolve()))
 
-    merged = _deep_merge(merged, env_config())
+    apply(env_config(), "environment")
 
     if extra:
-        merged = _deep_merge(merged, extra)
+        apply(extra, "CLI")
 
     # A misspelled key would otherwise be dropped without a word, and the
     # setting it meant to change (a detector's terms, say) silently not apply.
@@ -183,6 +201,42 @@ def load_config(
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
+
+
+def _agent_layer(data: dict[str, Any], agent: str | None) -> dict[str, Any]:
+    if agent is None:
+        return data
+    overrides: dict[str, Any] = {}
+    provider = data.get("provider")
+    if isinstance(provider, dict) and "base_url" in provider and "upstream_url" not in data:
+        # In a run plan these name the same destination. A later file's common
+        # base URL must be able to override an earlier profile's upstream.
+        overrides["upstream_url"] = provider["base_url"]
+    profiles = data.get("agents")
+    profile = profiles.get(agent) if isinstance(profiles, dict) and agent else None
+    if not isinstance(profile, dict):
+        return _deep_merge(data, overrides)
+    if "provider" in profile:
+        overrides["provider"] = {"type": profile["provider"]}
+    if "upstream" in profile:
+        overrides["upstream_url"] = profile["upstream"]
+        overrides.setdefault("provider", {})["base_url"] = profile["upstream"]
+    return _deep_merge(data, overrides)
+
+
+def _record_sources(
+    data: dict[str, Any], source: str, sources: dict[str, str], prefix: str = ""
+) -> None:
+    for key, value in data.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict):
+            _record_sources(value, source, sources, path + ".")
+        else:
+            # A replaced list/scalar invalidates any old nested provenance.
+            for old in list(sources):
+                if old.startswith(path + "."):
+                    del sources[old]
+            sources[path] = source
 
 
 def _unknown_keys(model: type[BaseModel], data: Any, path: str = "") -> list[str]:
@@ -211,7 +265,10 @@ def _unknown_keys(model: type[BaseModel], data: Any, path: str = "") -> list[str
         section = _section(fields[name].annotation)
         if section is None:
             continue
-        if isinstance(value, list):
+        if get_origin(fields[name].annotation) is dict and isinstance(value, dict):
+            for entry, item in value.items():
+                unknown += _unknown_keys(section, item, f"{path}{name}.{entry}.")
+        elif isinstance(value, list):
             for i, item in enumerate(value):
                 unknown += _unknown_keys(section, item, f"{path}{name}[{i}].")
         else:

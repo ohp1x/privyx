@@ -81,6 +81,34 @@ The other tools it knows:
     The variable gets the proxy's URL without a path. `privyx run --list`
     shows the tools Privyx knows by name.
 
+### Save a launch profile
+
+For a tool you run with the same settings each time, add a named profile to
+`~/.privyx/config.yaml`:
+
+```yaml
+agents:
+  claude-work:
+    command: claude
+    provider: anthropic
+    upstream: https://router.example.com
+    base_path: ""
+    env_vars: [ANTHROPIC_BASE_URL]
+```
+
+Inspect it, then launch it:
+
+```bash
+privyx run --dry-run claude-work
+privyx run claude-work
+```
+
+The plan shows the command, routing, injected URL variables, and which
+configuration layer supplied each setting. It creates no files and starts
+no process. A project's `privyx.yaml` can override a profile after
+`privyx trust`; environment and CLI overrides still win. See
+[Agent profiles](../guide/configuration.md#agents).
+
 ## 2. Work as usual
 
 Ask the agent to do something that touches sensitive text, for example:

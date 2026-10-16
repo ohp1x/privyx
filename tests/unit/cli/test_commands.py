@@ -596,6 +596,68 @@ def upstream() -> Iterator[tuple[str, Seen]]:
     server.server_close()
 
 
+def test_run_profile_routes_real_child_and_masks_payload(
+    runner: CliRunner, tmp_path: Path, upstream: tuple[str, Seen]
+) -> None:
+    """A YAML profile reaches the real runner, proxy and engine with argv intact."""
+    import sys
+
+    import yaml
+
+    url, seen = upstream
+    config = tmp_path / "profile.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "work": {
+                        "command": sys.executable,
+                        "provider": "anthropic",
+                        "upstream": url,
+                        "base_path": "/v1",
+                        "env_vars": ["PROBE_BASE_URL"],
+                    }
+                },
+                "audit": {"path": str(tmp_path / "audit.log")},
+            }
+        )
+    )
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, sys, urllib.request\n"
+        "assert sys.argv[1:] == ['--token', 'actual-token']\n"
+        "assert os.environ['PROBE_BASE_URL'] == os.environ['EXTRA_BASE_URL']\n"
+        "urllib.request.urlopen(urllib.request.Request(\n"
+        "    os.environ['PROBE_BASE_URL'] + '/messages',\n"
+        '    data=b\'{"messages": [{"role": "user", "content": "alice@example.com"}]}\',\n'
+        "    headers={'content-type': 'application/json'},\n"
+        "), timeout=5).read()\n"
+        "sys.exit(7)\n"
+    )
+    result = runner.invoke(
+        cli,
+        [
+            "run",
+            "-c",
+            str(config),
+            "--no-anchor",
+            "work",
+            "--env-var",
+            "EXTRA_BASE_URL",
+            "--",
+            str(probe),
+            "--token",
+            "actual-token",
+        ],
+    )
+    assert result.exit_code == 7, result.output
+    assert len(seen) == 1
+    assert seen[0][0] == "/v1/messages"
+    assert EMAIL not in seen[0][2]
+    assert "<PRIVYX_EMAIL_" in seen[0][2]
+    assert "actual-token" not in result.output
+
+
 async def test_run_relays_the_tools_own_credential(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, upstream: tuple[str, Seen]
 ) -> None:

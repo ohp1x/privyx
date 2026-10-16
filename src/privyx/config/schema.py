@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -249,8 +251,64 @@ class TLSConfig(BaseModel):
         return bool(self.certfile and self.keyfile)
 
 
+class AgentConfig(BaseModel):
+    """How to launch a tool and point it at the local proxy; never a shell command."""
+
+    command: str = Field(min_length=1)
+    provider: str = Field(default="generic", min_length=1)
+    upstream: str = ""
+    env_vars: list[str] = Field(default_factory=list)
+    base_path: str = ""
+
+    @field_validator("command", "provider")
+    @classmethod
+    def _nonblank(cls, value: str) -> str:
+        if not value.strip() or "\x00" in value:
+            raise ValueError("must be non-blank and contain no NUL")
+        return value
+
+    @field_validator("env_vars")
+    @classmethod
+    def _env_names(cls, values: list[str]) -> list[str]:
+        if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in values):
+            raise ValueError("must contain environment variable names")
+        return list(dict.fromkeys(values))
+
+    @field_validator("base_path")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        if value and (
+            not value.startswith("/")
+            or value.startswith("//")
+            or any(c.isspace() or c in "?#\x00" for c in value)
+        ):
+            raise ValueError("must be empty or an absolute URL path without query or fragment")
+        return value
+
+    @field_validator("upstream")
+    @classmethod
+    def _upstream(cls, value: str) -> str:
+        if value:
+            parts = urlsplit(value)
+            if parts.scheme not in {"http", "https"} or not parts.hostname:
+                raise ValueError("must be an HTTP(S) URL")
+            if any(c.isspace() for c in value) or "\x00" in value:
+                raise ValueError("must be an HTTP(S) URL without whitespace")
+            # Access validates a malformed/out-of-range port too.
+            _ = parts.port
+        return value
+
+
+def _default_agents() -> dict[str, AgentConfig]:
+    from privyx.config.defaults import DEFAULT_AGENTS
+
+    return {name: AgentConfig.model_validate(spec) for name, spec in DEFAULT_AGENTS.items()}
+
+
 class Settings(BaseModel):
     """Top-level Privyx settings."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=0, le=65535)
@@ -274,6 +332,7 @@ class Settings(BaseModel):
     audit: AuditConfig = Field(default_factory=AuditConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     tls: TLSConfig = Field(default_factory=TLSConfig)
+    agents: dict[str, AgentConfig] = Field(default_factory=_default_agents)
 
     @property
     def is_tls(self) -> bool:

@@ -1,6 +1,18 @@
 # Privyx default configuration
 #
-# Precedence: defaults < YAML file < environment variables
+# Precedence: defaults < global YAML < trusted project YAML < environment < CLI
+
+# --- Agent launch profiles (`privyx run NAME`) ---
+# Built-ins (claude, codex, openai, aider) are merged field by field.
+# New profiles need command and env_vars (or a CLI --env-var).
+agents: {}
+# agents:
+#   claude-work:
+#     command: claude
+#     provider: anthropic
+#     upstream: https://router.example.com
+#     base_path: ""
+#     env_vars: [ANTHROPIC_BASE_URL]
 
 # --- Server ---
 host: 127.0.0.1

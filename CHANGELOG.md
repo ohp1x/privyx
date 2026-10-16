@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** named `agents` launch profiles configure command, provider, upstream, proxy environment variables, and base path for `privyx run`; global and trusted project settings merge with presets, environment (`PRIVYX_AGENTS`, `PRIVYX_PROVIDER`), and CLI overrides
+- **CLI:** `privyx run --dry-run NAME` displays the command, routing, injected URL variables, and configuration sources without starting a tool or proxy or creating files
+
+### Security
+
+- **CLI:** launch command displays mask credential options, JSON settings, config assignments, and URL credentials; configuration dumps also mask agent upstream credentials and URL queries/fragments, and validation errors omit input values
+
 ## [0.1.17] - 2026-10-16
 
 ### Added

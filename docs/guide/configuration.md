@@ -48,7 +48,7 @@ Error: unknown detector type: nope
 $ privyx proxy -c broken.yaml
 Error: invalid configuration: 1 validation error for Settings
 vault.ttl
-  Input should be greater than 0 [type=greater_than, input_value=0, input_type=int]
+  Input should be greater than 0 [type=greater_than]
 ```
 
 ## Checking the result
@@ -105,6 +105,61 @@ ships them under `/app/configs`.
 | `logging` | `text` | Console format: `text` lines or `json` objects. |
 | `log_file` | empty | File that also receives third-party logs at `log_level`. At `debug` it holds raw vault rows, which include original values; it is created with mode `0600`. |
 | `upstream_url` | empty | Explicit upstream, the same as `--upstream`. Wins over `provider.base_url`. |
+
+### `agents`
+
+Named launch profiles for `privyx run`. The built-in `claude`, `codex`,
+`openai`, and `aider` profiles can be overridden field by field. New profiles
+need a `command`; give `env_vars` so Privyx knows where to inject its URL.
+
+```yaml
+agents:
+  claude-work:
+    command: claude
+    provider: anthropic
+    upstream: https://router.example.com
+    base_path: ""
+    env_vars: [ANTHROPIC_BASE_URL]
+```
+
+```bash
+privyx run --dry-run claude-work
+privyx run claude-work
+```
+
+| Profile field | Default | Description |
+|---|---|---|
+| `command` | Required for a new profile | Executable name or path, passed directly to a subprocess. Pass arguments after `--`; this field is not a shell command. |
+| `provider` | `generic` | Upstream provider type, such as `openai` or `anthropic`. |
+| `upstream` | empty | HTTP(S) upstream URL. Empty falls back to the provider's default. Transparent mode forwards to its origin; gateway mode uses the full URL. |
+| `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the preset's list; CLI `--env-var` adds names. |
+| `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
+
+Profiles follow the same layers as other settings: preset defaults, global
+file, trusted project files, environment, and CLI. In each layer the selected
+profile's explicit `provider` and `upstream` override the common
+`provider.type` and upstream settings. Later layers win: for example,
+`PRIVYX_UPSTREAM_URL` overrides a file's profile `upstream`, and `--upstream`
+overrides both. In a run plan, a later layer's common `provider.base_url`
+also overrides an earlier profile's upstream. Other commands do not select
+profiles. `privyx config --show` displays profile definitions; `privyx run
+--dry-run NAME` displays the effective launch settings and their sources.
+
+`PRIVYX_AGENTS` accepts a JSON object of partial profile overrides:
+
+```bash
+export PRIVYX_AGENTS='{"claude-work":{"upstream":"https://another.example.com"}}'
+```
+
+Lists replace previous lists. Profile field typos, malformed URLs, invalid
+environment variable names, and invalid types fail at configuration load.
+Project profiles follow `privyx trust`, including renewed trust after a file
+changes. API keys stay in the tool's environment or Privyx's provider settings.
+
+Profiles named `claude`/`codex`, and aliases whose executable basename is
+`claude`/`codex`, retain the existing argument overrides described in the
+[CLI reference](cli.md#privyx-run). The same limitations about custom Codex
+providers and user-supplied Claude settings apply.
 
 ### `provider`
 
@@ -257,6 +312,8 @@ How placeholders look. See [Token format](masking.md#token-format).
 | `PRIVYX_HOST`, `PRIVYX_PORT` | `host`, `port` |
 | `PRIVYX_LOG_LEVEL`, `PRIVYX_LOGGING`, `PRIVYX_LOG_FILE` | `log_level`, `logging`, `log_file` |
 | `PRIVYX_UPSTREAM_URL` | `upstream_url` and `provider.base_url` |
+| `PRIVYX_PROVIDER` | `provider.type`; overrides a file's selected agent provider |
+| `PRIVYX_AGENTS` | JSON object of agent profile overrides, merged field by field |
 | `PRIVYX_API_KEY` | `provider.api_key` |
 | `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`, `PRIVYX_GOOGLE_API_KEY` | `provider.openai_api_key`, … |
 | `PRIVYX_VAULT` | `vault.type` |

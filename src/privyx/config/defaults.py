@@ -2,7 +2,34 @@
 
 from __future__ import annotations
 
+DEFAULT_AGENTS: dict[str, dict[str, object]] = {
+    "claude": {
+        "command": "claude",
+        "provider": "anthropic",
+        "env_vars": ["ANTHROPIC_BASE_URL"],
+    },
+    "codex": {
+        "command": "codex",
+        "provider": "openai",
+        "env_vars": ["OPENAI_BASE_URL"],
+        "base_path": "/v1",
+    },
+    "openai": {
+        "command": "openai",
+        "provider": "openai",
+        "env_vars": ["OPENAI_BASE_URL"],
+        "base_path": "/v1",
+    },
+    "aider": {
+        "command": "aider",
+        "provider": "openai",
+        "env_vars": ["OPENAI_API_BASE", "OPENAI_BASE_URL"],
+        "base_path": "/v1",
+    },
+}
+
 DEFAULTS: dict[str, object] = {
+    "agents": DEFAULT_AGENTS,
     "host": "127.0.0.1",
     "port": 8000,
     "log_level": "info",
