@@ -8,11 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Benchmark:** `make bench-requests` measures cold and cached long-conversation and coding-agent requests against a mock upstream, saves raw samples and reproducibility metadata as JSON, and profiles individual detector patterns and cold requests
 - **CLI:** `doctor` reports masking routes, missing default paths, and unknown-route forwarding; invalid route definitions fail diagnostics
 - **Audit:** unknown routes emit `proxy.passthrough` or `proxy.blocked` decisions without paths, query strings, headers, or payloads; `audit stats` shows both counts, and unmatched request paths are redacted
 
 ### Changed
 
+- **Detector:** built-in `SECRET` detection searches possible credential-name and CLI-flag starts before applying the same regex and value checks; custom patterns keep their original scan behavior
 - **Configuration:** the shipped `strict.yaml` preset refuses unknown routes with `403` instead of forwarding them without body masking
 
 ### Fixed

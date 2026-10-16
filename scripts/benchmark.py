@@ -20,7 +20,8 @@ from typing import Any
 
 import httpx
 
-from privyx.config.loader import load_config
+from privyx.config.defaults import DEFAULTS
+from privyx.config.schema import Settings
 from privyx.core.builder import build_engine
 from privyx.core.context import Context
 from privyx.core.engine import PrivacyEngine
@@ -133,7 +134,8 @@ async def bench_request(kb: int, new_content: bool, n: int = 10) -> tuple[float,
     """
     buf = io.StringIO()
     audit = AuditLogger(buf)
-    engine, close = await build_engine(load_config(None), audit=audit)
+    # Do not let user/project configuration or PRIVYX_* affect the baseline.
+    engine, close = await build_engine(Settings.model_validate(DEFAULTS), audit=audit)
     reply = {"type": "message", "content": [{"type": "text", "text": "ok"}]}
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json=reply))
@@ -146,6 +148,8 @@ async def bench_request(kb: int, new_content: bool, n: int = 10) -> tuple[float,
         await proxy.handle(method="POST", path="v1/messages", headers=headers, body=body)
 
     await send("warmup")
+    if not new_content:
+        await send("same")
     buf.seek(0)
     buf.truncate()
     times = []

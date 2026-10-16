@@ -17,6 +17,9 @@ wheels/
 .coverage
 htmlcov/
 site/
+# Local benchmark results and profiler output
+/benchmarks/
+*.prof
 
 # Runtime / secrets
 *.db
