@@ -34,3 +34,8 @@ SUPPORT_EMAIL=⟦EMAIL:support@acme.example⟧
 JWT_SECRET=⟦SECRET:c2lnbmluZy1rZXktZm9yLXRlc3RzLW9ubHk⟧
 SESSION_SECRET=
 ADMIN_EMAIL=⟦EMAIL:ann@example.com⟧
+
+# Quoted values with spaces, dots, and escapes are one value each.
+EXPORT_PASSWORD="⟦SECRET:two words canary⟧"
+BACKUP_PASSWORD='⟦SECRET:correct.horse.canary⟧'
+QUOTED_SECRET="⟦SECRET:canary\"with-quote⟧"

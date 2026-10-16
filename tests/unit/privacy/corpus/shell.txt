@@ -48,3 +48,10 @@ id,name,email,phone,ssn,card
 1001,Ann Example,⟦EMAIL:ann@example.com⟧,⟦PHONE:+1 555 010 4477⟧,⟦SSN:123-45-6789⟧,⟦CREDIT_CARD:4111111111111111⟧
 1002,Bob Example,⟦EMAIL:bob@acme.example⟧,⟦PHONE:(555) 010-9981⟧,⟦SSN:219-09-9999⟧,⟦CREDIT_CARD:5555555555554444⟧
 1003,Cy Example,⟦EMAIL:cy+billing@acme.example⟧,⟦PHONE:081234567890⟧,,
+
+$ curl --password '⟦SECRET:shell canary with spaces⟧' https://billing.acme.example
+$ redis-server --requirepass ⟦SECRET:redis-cli-canary-247⟧
+$ deploy --api-key ⟦SECRET:deploy-canary-306⟧ --token=⟦SECRET:deploy-token-canary-517⟧
+$ deploy --api-key ${API_KEY}
+$ deploy --token "$ACCESS_TOKEN"
+$ deploy --token --help

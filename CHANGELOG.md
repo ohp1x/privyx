@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Testing:** coding-agent payloads now run through the transparent ASGI proxy in CI, checking masking, text and tool-argument restore, machine metadata, and a PII-safe audit trail for Messages, Responses, and Chat Completions, in batch and streaming replies with ephemeral and conversation sessions. The detection corpus also checks installed defaults as well as `configs/default.yaml`
+
+### Security
+
+- **Detector:** secrets assigned with a simple type annotation (`password: str = "…"`, `apiKey: string = "…"`) or in a Python triple-quoted string were not masked; their whole values are now masked, including multiline strings
+- **Detector:** space-separated CLI credentials (`--password …`, `--api-key …`, Redis `--requirepass …`) are now masked like `--password=…`. Environment references and a following flag are kept. On the expanded detection corpus, `SECRET` precision and recall are both 1.00 (24 labeled values); its previous recall was 0.90
+
 ## [0.1.16] - 2026-10-14
 
 ### Added

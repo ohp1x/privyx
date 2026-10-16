@@ -16,9 +16,12 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 from privyx.config.loader import load_config
 from privyx.core.builder import build_detector_from
 from privyx.core.context import Context
+from privyx.privacy.detector.builtin import RegexDetector
 
 from .test_detector import _ADVERSARIAL
 
@@ -32,7 +35,6 @@ LABEL = re.compile(r"⟦([A-Z_]+):(.*?)⟧", re.DOTALL)
 FLOORS = {
     "API_KEY": (1.0, 0.92),
     "EMAIL": (0.79, 1.0),
-    "SECRET": (1.0, 0.9),
     "URL_CREDENTIAL": (1.0, 0.75),
 }
 
@@ -51,14 +53,18 @@ def _parse(raw: str) -> tuple[str, set[tuple[int, int, str]]]:
     return text + raw[last:], labels
 
 
-async def test_each_entity_type_scores_at_least_its_floor(summary: list[str]) -> None:
+@pytest.mark.parametrize("configured", [False, True], ids=["installed-defaults", "default-yaml"])
+async def test_each_entity_type_scores_at_least_its_floor(
+    summary: list[str], configured: bool
+) -> None:
+    detector = DETECTOR if configured else RegexDetector()
     tp: Counter[str] = Counter()
     fp: Counter[str] = Counter()
     fn: Counter[str] = Counter()
     errors: list[tuple[str, str]] = []
     for path in sorted(CORPUS.glob("*.txt")):
         text, labels = _parse(path.read_text(encoding="utf-8"))
-        detection = (await DETECTOR.detect(text, Context())).merged(text)
+        detection = (await detector.detect(text, Context())).merged(text)
         found = {(span.start, span.end, span.entity_type) for span in detection.spans}
         tp.update(entity for _, _, entity in labels & found)
         for kind, spans, counts in (("fp", found - labels, fp), ("fn", labels - found, fn)):
@@ -80,7 +86,7 @@ async def test_each_entity_type_scores_at_least_its_floor(summary: list[str]) ->
             f"{precision:>11.2f}{recall:>8.2f}"
         )
     table = "\n".join(rows)
-    summary.append(table)
+    summary.append(f"{'default.yaml' if configured else 'installed defaults'}\n{table}")
     details = [message for entity, message in errors if entity in below]
     assert not below, "\n".join([table, *details])
 

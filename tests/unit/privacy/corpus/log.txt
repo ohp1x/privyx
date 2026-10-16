@@ -14,3 +14,5 @@
 2026-09-27T14:02:23.000Z INFO  agent 999.1.2.300 connected
 2026-09-27T14:02:23.500Z INFO  billing 1.4.2+20260927 ready
 2026-09-27T14:02:24.000Z WARN  sms to ⟦PHONE:+62 812-3456-7890⟧ failed, retrying in 5s
+2026-10-16T09:49:08.123+08:00 DEBUG credentials password="⟦SECRET:log-password-canary-918⟧"
+2026-10-16T09:49:08.456+08:00 INFO  token_type=Bearer token_length=32 passwordLength=16

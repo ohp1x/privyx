@@ -76,23 +76,32 @@ URL_CREDENTIAL_PATTERN = (
 )
 
 #: A value assigned to a secret-looking name: ``.env``, shell, YAML, JSON, PHP,
-#: JS/Python, query strings, CLI flags.  Quoted, up to the closing quote, with
-#: or without a string prefix (``b"…"``); unquoted, up to whitespace or a
-#: delimiter, skipping type hints (``password: str``), ``${…}`` references, and
-#: calls (``token = get_token()``).
+#: JS/Python, query strings, CLI flags.  Simple ``str`` / ``string`` annotations
+#: are allowed before an assignment. Quoted, up to the closing quote (including
+#: Python triple quotes), with or without a string prefix (``b"…"``); unquoted,
+#: up to whitespace or a delimiter, skipping type hints (``password: str``),
+#: ``${…}`` references, and calls (``token = get_token()``).
 #: ``_KEY`` must be upper case: ``cache_key`` or ``sort_key`` in code is no
 #: secret.  :func:`_secret_value` drops the rest of what cannot be one.
+#: A whitespace separator needs a CLI flag; quote selection is atomic so an
+#: empty triple-quoted string cannot backtrack into a nonempty single-quoted one.
 SECRET_PATTERN = r"""(?ix)
+(?P<flag> --(?:\w{1,40}-)*?(?:require)? )?
 (?P<name>
     (?: passw(?:or)?d | passphrase | pwd | pass(?![a-z]) | secret(?![a-z]) | token(?![a-z])
       | api[_-]?key | access[_-]?key | private[_-]?key | (?-i:_KEY) | credentials? )
     [\w.-]{0,40}? )
-["']? [ \t]* (?P<sep> => | := | [:=](?!=) ) [ \t]*
-(?: (?:[rubf]|[bf]r|r[bf])? (?P<q>["'`])
+["']? [ \t]* (?: :[ \t]*(?:str|string)[ \t]*(?==) )?
+(?P<sep> => | := | [:=](?!=) | (?(flag)[ \t]+|(?!)) ) [ \t]*
+(?: (?:[rubf]|[bf]r|r[bf])? (?> (?P<triple> \"{3} | '{3} ) | (?P<q>["'`]) )
   | (?! (?:str|string|int|bool|boolean|number|any|none|null|true|false|undefined|optional
            |dict|list)\b
       | \$[{(] ) )
-(?P<value> (?(q) (?:\\.|(?!(?P=q))[^\r\n\\])+ | [^\s"'`,;&#(){}\[\]<>]++(?!\() ) )
+(?P<value>
+    (?(triple) (?:\\[\s\S]|(?!(?P=triple))[^\\])+
+      | (?(q) (?:\\.|(?!(?P=q))[^\r\n\\])+
+          | [^\s"'`,;&#(){}\[\]<>]++(?!\() ) )
+)
 """
 
 #: Built-in entity patterns.  A ``regex`` detector built from config layers its
@@ -160,10 +169,10 @@ def _phone_number(match: re.Match[str]) -> bool:
 
 
 #: Names that describe a secret rather than hold it: ``TOKEN_URL``, ``token_type``,
-#: ``KEY_FILE``, ``passwordLength``.
+#: ``KEY_FILE``, ``passwordLength``, ``API_KEY_PATTERN``.
 _SECRET_METADATA = re.compile(
-    r"(?:[_.-](?i:url|uri|endpoint|path|file|header|name|type|length|prefix)"
-    r"|Url|Uri|Endpoint|Path|File|Header|Name|Type|Length|Prefix)$"
+    r"(?:[_.-](?i:url|uri|endpoint|path|file|header|name|type|length|prefix|pattern|regex)"
+    r"|Url|Uri|Endpoint|Path|File|Header|Name|Type|Length|Prefix|Pattern|Regex)$"
 )
 _IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 _DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
@@ -188,7 +197,10 @@ def _secret_value(match: re.Match[str]) -> bool:
         return False
     if _SECRET_METADATA.search(name):
         return False
-    if match["q"] is not None:
+    # A following flag or a shell variable is not the credential itself.
+    if match["flag"] and value.startswith(("--", "$")):
+        return False
+    if match["q"] is not None or match["triple"] is not None:
         return True
     if _DOTTED_IDENTIFIER.fullmatch(value):
         return False

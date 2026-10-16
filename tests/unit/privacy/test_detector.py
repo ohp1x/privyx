@@ -122,6 +122,57 @@ def test_own_pattern_for_a_builtin_entity_is_used_as_written() -> None:
     assert [s.text for s in detection.spans] == ["1234567812345678"]
 
 
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        ('password: str = "typed-canary-739"', "typed-canary-739"),
+        ("const apiKey: string = 'typed-canary-739';", "typed-canary-739"),
+        ('SECRET_KEY: str = r"raw-canary-739"', "raw-canary-739"),
+        ('password = """single-canary-739"""', "single-canary-739"),
+        ("password = '''first-canary\nsecond-canary'''", "first-canary\nsecond-canary"),
+        ('SECRET_KEY = b"""first-canary\nsecond-canary"""', "first-canary\nsecond-canary"),
+        ('password = """first\\\nsecond"""', "first\\\nsecond"),
+        ('password = """"leading-quote-canary"""', '"leading-quote-canary'),
+        ("curl --password cli-canary-739", "cli-canary-739"),
+        ('curl --password "two words canary"', "two words canary"),
+        ("redis-server --requirepass redis-canary-739", "redis-canary-739"),
+        ("tool --api-key cli-canary-739", "cli-canary-739"),
+        ("tool --db-password cli-canary-739", "cli-canary-739"),
+        ("tool --client-secret cli-canary-739", "cli-canary-739"),
+        ("tool --token=cli-canary-739", "cli-canary-739"),
+    ],
+)
+def test_secret_literals_and_cli_values_are_masked_whole(text: str, secret: str) -> None:
+    detection = RegexDetector().detect_sync(text, Context()).merged(text)
+    assert [(span.entity_type, span.text) for span in detection.spans] == [("SECRET", secret)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "password: str",
+        "token: string;",
+        "_KEYS: tuple[str, ...]",
+        'password: str = os.environ["DB_PASSWORD"]',
+        "const password: string = process.env.DB_PASSWORD;",
+        "api_key: When set, overrides the environment variable.",
+        'password = ""',
+        'password = """"""',
+        "curl --password",
+        "tool --token --help",
+        'tool --token "$ACCESS_TOKEN"',
+        "tool --api-key ${API_KEY}",
+        "parser.add_argument('--password', help='Password for the service')",
+        "token_type: Bearer",
+        'API_KEY_PATTERN = r"""(?x)',
+        'TOKEN_REGEX = r"[a-z]+"',
+        'const passwordPattern: string = "[a-z]+";',
+    ],
+)
+def test_secret_declarations_and_references_are_kept(text: str) -> None:
+    assert not RegexDetector().detect_sync(text, Context())
+
+
 def _fill(unit: str, size: int = 100_000) -> str:
     return (unit * (size // len(unit) + 1))[:size]
 
@@ -147,6 +198,9 @@ _ADVERSARIAL = {
     "escaped newlines": _fill("\\n"),
     "open quote": 'password="' + _fill("x"),
     "assignments": _fill("token="),
+    "triple quote": 'password="""' + _fill("x"),
+    "quoted escapes": 'password="""' + _fill("\\\\"),
+    "cli flags": _fill("--password "),
 }
 
 
