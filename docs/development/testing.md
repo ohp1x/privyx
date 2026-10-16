@@ -73,6 +73,62 @@ uv run pytest tests/property -k stream
 uv run pytest -n auto             # parallel
 ```
 
+## Request performance baseline
+
+For the next v0.1.x performance work, start with reproducible cache misses and
+one measured bottleneck. Run the focused benchmark on an otherwise idle machine:
+
+```bash
+make bench-requests BENCH_ARGS='--iterations 30 --output /tmp/privyx-before.json'
+# Make one change, then repeat on the same machine and Python environment.
+make bench-requests BENCH_ARGS='--iterations 30 --output /tmp/privyx-after.json'
+```
+
+It sends two deterministic synthetic Anthropic Messages workloads through
+`TransparentProxy.handle`: a long conversation and coding-agent tool turns made
+from the labeled detection corpus. `--size-kb 400` targets about 400 KiB of
+content; JSON framing and escaping increase the wire size, recorded as
+`body_bytes`. The mock upstream echoes masked text, and each request must
+restore it exactly. This measures sequential, in-process batch requests; it
+excludes a listening ASGI server, provider latency, and network costs.
+
+The benchmark uses built-in settings with an in-memory vault, ephemeral
+sessions, no anchor, and an in-memory audit writer. It ignores local config
+files and `PRIVYX_*` overrides. Payload construction, cache resets, audit parsing,
+and output checks are outside the request timer. Each case warms the code path
+with one request, then clears the detection cache before every cold sample or
+keeps the exact warmed body for every cached sample. It checks cache misses to
+ensure the selected mode is actually measured; duplicate leaves within a cold
+request can still hit the cache.
+
+JSON output keeps raw request and audit `transform_ms` samples, median p50,
+nearest-rank p95, per-sample cache counters, per-entity detection costs, actual
+payload size and hash, settings, Python/platform information, dependency
+versions, lockfile and harness hashes, and the git revision/dirty diff hash.
+Compare only runs with matching workload hashes, settings, parameters, and
+environments. Use repeated runs: a p95 from 15 or 30 samples is only a local
+diagnostic, and CPU frequency or background work can noticeably move it.
+
+Per-pattern timings scan the same unique leaves as the request walker,
+including validation and span creation. They identify expensive patterns; their
+sum is not the request latency. For call-level profiling, record a separate
+cold request after the timed samples:
+
+```bash
+make bench-requests BENCH_ARGS='--output /tmp/run.json --profile-dir /tmp/privyx-profiles'
+uv run python -c 'import pstats; pstats.Stats("/tmp/privyx-profiles/coding-agent.prof").strip_dirs().sort_stats("tottime").print_stats(20)'
+```
+
+Profiler overhead never enters the reported samples. Keep generated JSON reports,
+profiles, and local result summaries outside the repository, for example in `/tmp`.
+`make bench` retains the broader regex near-miss, many-span, streaming restore,
+and vault diagnostics. Timing thresholds are not CI gates; detection corpus,
+reference-equivalence, and batch/stream restore tests remain the release checks.
+
+After the cold path, measure concurrent p50/p95 proxy overhead and time to the
+first restored chunk, then long-session cache, token mapping, and streaming
+buffer growth. The sequential batch results here do not cover those cases.
+
 ## End-to-end: a real agent (`make e2e`)
 
 `scripts/test-e2e/run.py` runs the real `claude` CLI through `privyx run` (or, with

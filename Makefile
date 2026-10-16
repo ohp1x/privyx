@@ -1,4 +1,4 @@
-.PHONY: install dev test coverage e2e bench lint format check vulns docs run proxy clean
+.PHONY: install dev test coverage e2e bench bench-requests lint format check vulns docs run proxy clean
 
 install:
 	uv sync --all-extras
@@ -21,6 +21,10 @@ e2e:
 # Timing of the request path; numbers vary by machine, so not run in CI.
 bench:
 	uv run python scripts/benchmark.py
+
+# Focused cache-miss/hit baseline; pass e.g. BENCH_ARGS='--output /tmp/baseline.json'.
+bench-requests:
+	uv run python scripts/benchmark_requests.py $(BENCH_ARGS)
 
 lint:
 	uv run ruff check src tests

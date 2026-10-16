@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Span
@@ -249,6 +249,33 @@ _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
 }
 
 
+# Every SECRET match starts with a CLI flag or one of these name prefixes.
+# Explicit initial character classes let re skip unrelated text with its fast
+# charset search; a global IGNORECASE flag disables that optimization. Long s
+# (ſ) must be included because Python's IGNORECASE treats it as s.
+_SECRET_START = re.compile(
+    r"--|[pP](?i:ass|wd|rivate)|[sSſ](?i:ecret)|[tT](?i:oken)"
+    r"|[aA](?i:pi|ccess)|_KEY|[cC](?i:redential)"
+)
+
+
+def _secret_matches(pattern: re.Pattern[str], text: str) -> Iterator[re.Match[str]]:
+    """Run the unchanged SECRET regex only at possible match starts.
+
+    Advance past a full match even when its value check will reject it, just
+    as finditer does. On failure advance only one character: a valid name can
+    start inside a failed candidate (``passpassword=...``).
+    """
+    pos = 0
+    while (candidate := _SECRET_START.search(text, pos)) is not None:
+        match = pattern.match(text, candidate.start())
+        if match is None:
+            pos = candidate.start() + 1
+        else:
+            yield match
+            pos = match.end()
+
+
 def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection:
     """Run each entity's regex over ``text``.
 
@@ -262,8 +289,14 @@ def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection
     detection = Detection()
     for entity, pattern in compiled:
         has_value = "value" in pattern.groupindex
-        check = _CHECKS.get(entity) if pattern.pattern == DEFAULT_PATTERNS.get(entity) else None
-        for match in pattern.finditer(text):
+        builtin = pattern.pattern == DEFAULT_PATTERNS.get(entity)
+        check = _CHECKS.get(entity) if builtin else None
+        matches = (
+            _secret_matches(pattern, text)
+            if builtin and entity == "SECRET"
+            else pattern.finditer(text)
+        )
+        for match in matches:
             if check is not None and not check(match):
                 continue
             group = "value" if has_value and match["value"] is not None else 0
