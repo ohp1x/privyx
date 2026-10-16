@@ -26,7 +26,8 @@ scan — the same class of bug we hit with `reasoning_content` in the prototype.
 compose file, Python and TSX code, `git log`, server logs, a README, and a shell
 session. Every value that should be masked is labeled in place as
 `⟦TYPE:value⟧`, and every value is fake. `test_detection_eval.py` scans the
-files with the detector from `configs/default.yaml` and scores each entity
+files with both the installed defaults and the detector from
+`configs/default.yaml`, and scores each entity
 type: a detection counts only if it masks exactly a labeled value with the
 labeled type. The scores are printed at the end of the test run, and the test
 fails when a type's precision or recall drops below its floor in `FLOORS`.
@@ -35,6 +36,33 @@ When a change improves a type, raise its floor to the new score. Put a new case
 in the file where such text really appears, and split a key-shaped fake with
 `·` (`ghp_·…`): it is dropped when the corpus is read, so secret scanners leave
 the repository alone.
+
+The corpus also covers typed Python and TypeScript assignments, raw and bytes
+string literals, multiline triple-quoted secrets, quoted `.env` values, and
+CLI credentials with or without `=`. Negative samples keep type declarations,
+environment references, timestamps, and a following CLI flag readable.
+
+## Coding-agent payloads in CI
+
+`tests/integration/test_coding_agent_privacy.py` sends synthetic Claude Code,
+Codex, and OpenAI Chat payloads through the transparent ASGI app into a local
+mock upstream. It needs neither an agent CLI nor a provider account, and runs
+with the regular test suite.
+
+Each content surface has a distinct canary: instructions, prompt, tool and
+parameter descriptions, echoed tool arguments, source and log text in tool
+results, and machine metadata (including Codex's header). The upstream checks
+that all ten values were masked, then echoes their tokens as text and tool
+arguments. The client must receive every original value, with no tokens left.
+Streaming replies split tokens and JSON arguments across SSE events and split
+the encoded events across byte chunks.
+
+The matrix covers Messages, Responses, and Chat Completions, batch and streaming
+replies, and ephemeral and conversation sessions. Each case sends two requests
+to exercise cached detection and session reuse, checks stable instructions and
+tool descriptions, and verifies that the audit trail holds no canary values.
+These are synthetic protocol checks; the real-agent harness below also tests
+the installed CLI's behavior.
 
 ## Running
 

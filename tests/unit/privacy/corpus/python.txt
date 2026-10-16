@@ -64,6 +64,19 @@ Vb6Nm1Kc8Hd3Js5Gf0AyQe2Wr5Ty8Uq8Rz2LmXv4Tn7Kp1Wd9Hs3Jc6Fb0Ga5Ye8Nu2
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DATABASES = {"default": {"HOST": "db", "PASSWORD": os.environ.get("DB_PASSWORD", "")}}
 
+# Literal defaults found in a settings module; annotations are not secrets.
+DB_PASSWORD: str = "⟦SECRET:typed-db-canary-739⟧"
+WEBHOOK_SECRET = r"⟦SECRET:raw-webhook-canary-482⟧"
+SIGNING_SECRET = b"⟦SECRET:bytes-signing-canary-815⟧"
+SERVICE_PASSWORD = """⟦SECRET:first-line-canary
+second-line-canary⟧"""
+BACKUP_SECRET = '''⟦SECRET:backup-one-canary
+backup-two-canary⟧'''
+_KEYS: tuple[str, ...] = ("name", "region")
+API_KEY_PATTERN = r"""(?x)
+    [a-z]+  # a pattern, not a key
+"""
+
 
 def invoice_cache_key(invoice_id: str) -> str:
     cache_key = f"invoice:{invoice_id}"

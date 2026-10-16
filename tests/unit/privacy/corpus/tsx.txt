@@ -2,6 +2,8 @@ import { useState } from "react";
 
 const SUPPORT_PHONE = "⟦PHONE:+62 21 5550 1234⟧";
 const MAPS_API_KEY = "⟦API_KEY:AIza·SyZq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0AyB⟧";
+const apiKey: string = "⟦SECRET:typed-client-canary-601⟧";
+const password: string = process.env.DB_PASSWORD;
 
 export function ContactCard({ email }: { email: string }) {
   const [copied, setCopied] = useState(false);
