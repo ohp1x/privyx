@@ -10,7 +10,7 @@ _MASK = "***"
 
 #: Fields whose every value is masked, keys kept: header values carry
 #: credentials, and detector config spells out the very values Privyx hides.
-_MASK_VALUES = frozenset({"headers", "terms", "patterns", "llm_instructions"})
+_MASK_VALUES = frozenset({"headers", "terms", "patterns", "llm_instructions", "env"})
 
 
 def redact(value: Any, name: str = "") -> Any:
@@ -22,6 +22,8 @@ def redact(value: Any, name: str = "") -> Any:
     """
     if name in _MASK_VALUES:
         return _mask_all(value)
+    if name == "args" and isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return redact_argv(value)
     if isinstance(value, dict):
         return {k: redact(v, k) for k, v in value.items()}
     if isinstance(value, list):

@@ -5,11 +5,13 @@ from __future__ import annotations
 DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     "claude": {
         "command": "claude",
+        "adapter": "claude",
         "provider": "anthropic",
         "env_vars": ["ANTHROPIC_BASE_URL"],
     },
     "codex": {
         "command": "codex",
+        "adapter": "codex",
         "provider": "openai",
         "env_vars": ["OPENAI_BASE_URL"],
         "base_path": "/v1",

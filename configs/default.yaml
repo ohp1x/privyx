@@ -4,15 +4,18 @@
 
 # --- Agent launch profiles (`privyx run NAME`) ---
 # Built-ins (claude, codex, openai, aider) are merged field by field.
-# New profiles need command and env_vars (or a CLI --env-var).
+# New profiles need command and env_vars, or inherit them with extends.
 agents: {}
 # agents:
 #   claude-work:
-#     command: claude
-#     provider: anthropic
+#     extends: claude
+#     adapter: claude       # inherited; explicit for wrappers too
 #     upstream: https://router.example.com
-#     base_path: ""
-#     env_vars: [ANTHROPIC_BASE_URL]
+#     args: ["--verbose"]   # replaces inherited args; CLI args follow
+#     env:
+#       MY_CUSTOM_FLAG: "enabled"
+#     env_from:
+#       ANTHROPIC_AUTH_TOKEN: WORK_ANTHROPIC_TOKEN  # source variable in shell
 
 # --- Server ---
 host: 127.0.0.1

@@ -109,6 +109,24 @@ no process. A project's `privyx.yaml` can override a profile after
 `privyx trust`; environment and CLI overrides still win. See
 [Agent profiles](../guide/configuration.md#agents).
 
+To keep the preset's routing settings and add launch defaults, use inheritance:
+
+```yaml
+agents:
+  claude-work:
+    extends: claude
+    args: ["--verbose"]
+    env:
+      MY_CUSTOM_FLAG: "enabled"
+    env_from:
+      ANTHROPIC_AUTH_TOKEN: WORK_ANTHROPIC_TOKEN
+```
+
+Set `WORK_ANTHROPIC_TOKEN` in your shell first. Privyx reads its value only
+when launching or inspecting this profile, and masks it in the preview.
+Arguments after `--` follow the profile's defaults. A wrapper can override
+`command` while keeping the inherited Claude adapter.
+
 ## 2. Work as usual
 
 Ask the agent to do something that touches sensitive text, for example:

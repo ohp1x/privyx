@@ -165,3 +165,175 @@ def test_named_config_ignores_other_profiles(
     settings = load_config(named, agent="codex")
     assert settings.agents["codex"].command == "codex"
     assert settings.agents["codex"].base_path == "/named"
+
+
+def test_inheritance_resolves_final_parent_and_preserves_child_origins(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    global_file = home / ".privyx/config.yaml"
+    global_file.parent.mkdir()
+    global_file.write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "work": {"extends": "claude", "env": {"CHILD": "child", "SHARED": "child"}},
+                    "claude": {"args": ["--verbose"], "env": {"PARENT": "old", "SHARED": "parent"}},
+                }
+            }
+        )
+    )
+    project = tmp_path / "privyx.yaml"
+    project.write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "claude": {
+                        "command": "company-wrapper",
+                        "upstream": "https://project.example",
+                        "env": {"PARENT": "new"},
+                    }
+                }
+            }
+        )
+    )
+    trust(project)
+    sources: dict[str, str] = {}
+    settings = load_config(agent="work", sources=sources)
+    profile = settings.agents["work"]
+    assert profile.command == "company-wrapper"
+    assert profile.adapter == "claude"
+    assert profile.provider == "anthropic"
+    assert profile.env_vars == ["ANTHROPIC_BASE_URL"]
+    assert profile.args == ["--verbose"]
+    assert profile.env == {"PARENT": "new", "SHARED": "child", "CHILD": "child"}
+    assert settings.upstream_url == "https://project.example"
+    assert sources["agents.work.command"] == str(project)
+    assert sources["agents.work.env.PARENT"] == str(project)
+    assert sources["agents.work.env.SHARED"] == str(global_file)
+    monkeypatch.setenv("PRIVYX_UPSTREAM_URL", "https://environment.example")
+    monkeypatch.setenv("PRIVYX_PROVIDER", "openai")
+    assert load_config(agent="work").upstream_url == "https://environment.example"
+    assert load_config(agent="work").provider.type == "openai"
+
+
+def test_child_replaces_lists_and_can_change_env_source(tmp_path: Path) -> None:
+    config = tmp_path / "profiles.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "parent": {
+                        "extends": "claude",
+                        "args": ["--verbose"],
+                        "env": {"SWITCH_TO_REF": "old"},
+                        "env_from": {"SWITCH_TO_VALUE": "OLD_REF"},
+                    },
+                    "child": {
+                        "extends": "parent",
+                        "args": [],
+                        "env_vars": ["CUSTOM_BASE_URL"],
+                        "env": {"SWITCH_TO_VALUE": "new"},
+                        "env_from": {"SWITCH_TO_REF": "NEW_REF"},
+                    },
+                }
+            }
+        )
+    )
+    profile = load_config(config).agents["child"]
+    assert profile.args == []
+    assert profile.env_vars == ["CUSTOM_BASE_URL"]
+    assert profile.env == {"SWITCH_TO_VALUE": "new"}
+    assert profile.env_from == {"SWITCH_TO_REF": "NEW_REF"}
+
+
+@pytest.mark.parametrize(
+    ("profiles", "message"),
+    [
+        ({"a": {"extends": "absent"}}, "extends unknown profile"),
+        ({"a": {"extends": "a"}}, "inheritance cycle"),
+        ({"a": {"extends": "b"}, "b": {"extends": "a"}}, "inheritance cycle"),
+        ({"a": {"extends": []}}, "extends"),
+        ({"a": {"extends": ""}}, "extends"),
+        ({"a": {"extends": "claude", "adapter": "missing"}}, "adapter"),
+        ({"a": {"extends": "claude", "args": "--verbose"}}, "args"),
+        ({"a": {"extends": "claude", "args": ["bad\x00argument"]}}, "args"),
+        ({"a": {"extends": "claude", "env": {"BAD=NAME": "x"}}}, "env"),
+        ({"a": {"extends": "claude", "env": {"FLAG": True}}}, "env"),
+        ({"a": {"extends": "claude", "env": {"FLAG": "bad\x00value"}}}, "env"),
+        ({"a": {"extends": "claude", "env_from": {"FLAG": "BAD=REF"}}}, "env_from"),
+        (
+            {"a": {"extends": "claude", "env": {"SAME": "x"}, "env_from": {"SAME": "REF"}}},
+            "same destination",
+        ),
+    ],
+)
+def test_invalid_inheritance_and_launch_fields_fail(
+    tmp_path: Path, profiles: dict[str, object], message: str
+) -> None:
+    config = tmp_path / "profiles.yaml"
+    config.write_text(yaml.safe_dump({"agents": profiles}))
+    with pytest.raises(ConfigError, match=message):
+        load_config(config)
+
+
+def test_deep_inheritance_chain_does_not_recurse(tmp_path: Path) -> None:
+    profiles = {f"p{i}": {"extends": f"p{i - 1}"} for i in range(1, 1100)}
+    config = tmp_path / "profiles.yaml"
+    config.write_text(yaml.safe_dump({"agents": {"p0": {"extends": "claude"}, **profiles}}))
+    assert load_config(config).agents["p1099"].adapter == "claude"
+
+
+def test_mapping_cannot_silently_override_argument_list_across_layers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "profiles.yaml"
+    config.write_text("agents:\n  claude:\n    args: [--verbose]\n")
+    monkeypatch.setenv("PRIVYX_AGENTS", '{"claude":{"args":{"bad":"shape"}}}')
+    with pytest.raises(ConfigError, match="args"):
+        load_config(config)
+
+
+def test_child_transport_override_survives_a_later_parent_update(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    global_file = home / ".privyx/config.yaml"
+    global_file.parent.mkdir()
+    global_file.write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "work": {
+                        "extends": "claude",
+                        "provider": "openai",
+                        "upstream": "https://child.example",
+                    }
+                }
+            }
+        )
+    )
+    project = tmp_path / "privyx.yaml"
+    project.write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "claude": {
+                        "provider": "generic",
+                        "upstream": "https://parent.example",
+                    }
+                }
+            }
+        )
+    )
+    trust(project)
+    sources: dict[str, str] = {}
+    settings = load_config(agent="work", sources=sources)
+    assert settings.provider.type == "openai"
+    assert settings.upstream_url == "https://child.example"
+    assert sources["upstream_url"] == str(global_file)
+
+    # A later common override still wins over the selected profile's origin.
+    project.write_text("provider:\n  base_url: https://common.example\n")
+    trust(project)
+    assert load_config(agent="work").upstream_url == "https://common.example"

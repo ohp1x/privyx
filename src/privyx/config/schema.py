@@ -6,7 +6,7 @@ import re
 from typing import Any, ClassVar, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 class PluggableConfig(BaseModel):
@@ -259,6 +259,43 @@ class AgentConfig(BaseModel):
     upstream: str = ""
     env_vars: list[str] = Field(default_factory=list)
     base_path: str = ""
+    extends: str | None = None
+    adapter: Literal["auto", "env", "claude", "codex"] = "auto"
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    env_from: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("extends")
+    @classmethod
+    def _parent(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or "\x00" in value):
+            raise ValueError("must name a parent profile or be null")
+        return value
+
+    @field_validator("args")
+    @classmethod
+    def _args(cls, values: list[str]) -> list[str]:
+        if any("\x00" in value for value in values):
+            raise ValueError("arguments must contain no NUL")
+        return values
+
+    @field_validator("env", "env_from")
+    @classmethod
+    def _env_mapping(cls, values: dict[str, str], info: ValidationInfo) -> dict[str, str]:
+        if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) for key in values):
+            raise ValueError("keys must be environment variable names")
+        if info.field_name == "env_from":
+            if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in values.values()):
+                raise ValueError("values must name source environment variables")
+        elif any("\x00" in value for value in values.values()):
+            raise ValueError("environment values must contain no NUL")
+        return values
+
+    @model_validator(mode="after")
+    def _distinct_env(self) -> AgentConfig:
+        if self.env.keys() & self.env_from.keys():
+            raise ValueError("env and env_from must not define the same destination")
+        return self
 
     @field_validator("command", "provider")
     @classmethod

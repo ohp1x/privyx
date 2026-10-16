@@ -19,85 +19,31 @@ both commands behave identically.
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import shlex
 import shutil
 import socket
 import sys
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
-from pathlib import Path
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import click
 from click.core import ParameterSource
 
+from privyx.cli.launch import (
+    AUTO_ANCHOR,
+    LaunchPlan,
+    Target,
+    build_launch_plan,
+    profile_target,
+)
 from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.config.schema import AgentConfig
 
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
 
-_AUTO_ANCHOR = "__privyx_auto_anchor__"
-
-
-@dataclass(frozen=True)
-class Target:
-    """A downstream tool and how to point it at a local proxy.
-
-    Attributes:
-        command: Executable to launch.
-        provider: Provider type the tool expects upstream.
-        env_vars: Environment variables to set to the proxy's base URL.
-        base_path: Appended to the proxy's URL for a tool whose base URL ends
-            in the API version, as the OpenAI SDK's does (``…/v1``).
-        args: Builds the tool's arguments from that URL and the user's own,
-            for a tool whose own config outranks its environment.
-        extra_env: Fixed environment variables the tool needs (e.g. a dummy key
-            when the tool refuses to start without one — the real key is added
-            upstream by the proxy).
-    """
-
-    command: str
-    provider: str
-    env_vars: tuple[str, ...]
-    base_path: str = ""
-    args: Callable[[str, list[str]], list[str]] | None = None
-    extra_env: dict[str, str] = field(default_factory=dict)
-
-
-def _claude_args(base_url: str, argv: list[str]) -> list[str]:
-    # A base URL in Claude Code's settings.json outranks its environment, and
-    # --settings outranks settings.json.
-    return ["--settings", json.dumps({"env": {"ANTHROPIC_BASE_URL": base_url}}), *argv]
-
-
-def _codex_args(base_url: str, argv: list[str]) -> list[str]:
-    # Codex reads its base URL from its config, not from OPENAI_BASE_URL.
-    override = ["-c", f"openai_base_url={json.dumps(base_url)}"]
-    # A -c after a subcommand replaces every -c before it, this one included:
-    # when the user's arguments hold one, the override is said again after
-    # them.  Past a `--` it would be read as an argument.
-    end = argv.index("--") if "--" in argv else len(argv)
-    own = any(arg.startswith(("-c", "--config")) for arg in argv[:end])
-    return [*override, *argv[:end], *(override if own else []), *argv[end:]]
-
-
-def _profile_target(name: str, profile: AgentConfig) -> Target:
-    # Keep the existing CLI overrides for built-ins and aliases of their commands.
-    adapter = name if name in {"claude", "codex"} else Path(profile.command).name
-    return Target(
-        command=profile.command,
-        provider=profile.provider,
-        env_vars=tuple(profile.env_vars),
-        base_path=profile.base_path,
-        args={"claude": _claude_args, "codex": _codex_args}.get(adapter),
-    )
-
-
 TARGETS: dict[str, Target] = {
-    name: _profile_target(name, AgentConfig.model_validate(profile))
+    name: profile_target(name, AgentConfig.model_validate(profile))
     for name, profile in DEFAULT_AGENTS.items()
 }
 
@@ -125,7 +71,7 @@ def _run_settings(
         extra["session"] = {"strategy": session_strategy}
     if not no_anchor:
         # Resolved only when running, so inspection never creates anchor.key.
-        base_extra["anchor"] = {"secret": _AUTO_ANCHOR}
+        base_extra["anchor"] = {"secret": AUTO_ANCHOR}
     return load_config(
         config_path, extra=extra, base_extra=base_extra, agent=agent, sources=sources
     )
@@ -215,29 +161,41 @@ def run(
     assert target is not None
     profile = settings.agents.get(target)
     spec = (
-        _profile_target(target, profile)
+        profile_target(target, profile)
         if profile
         else Target(command=target, provider=settings.provider.type, env_vars=())
     )
     spec = replace(spec, provider=settings.provider.type)
     all_env_vars = tuple(spec.env_vars) + tuple(env_vars)
-    if not all_env_vars:
+    if not all_env_vars and spec.args is None:
         raise click.UsageError(
             f"don't know how to point {target!r} at the proxy; "
             "pass --env-var NAME (see `privyx run --list`)"
         )
 
-    if dry_run:
-        sources["run.port"] = (
-            "CLI"
-            if click.get_current_context().get_parameter_source("port")
-            == ParameterSource.COMMANDLINE
-            else "run defaults"
+    sources["run.port"] = (
+        "CLI"
+        if click.get_current_context().get_parameter_source("port") == ParameterSource.COMMANDLINE
+        else "run defaults"
+    )
+    try:
+        plan = build_launch_plan(
+            spec,
+            list(args),
+            settings,
+            port,
+            all_env_vars,
+            name=target,
+            extra_env_vars=env_vars,
+            sources=sources,
         )
-        _show_plan(target, spec, list(args), settings, port, all_env_vars, env_vars, sources)
+    except PrivyxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if dry_run:
+        _show_plan(plan)
         return
 
-    if shutil.which(spec.command) is None:
+    if shutil.which(plan.command, path=plan.environment.get("PATH")) is None:
         click.echo(f"Error: {spec.command!r} not found on PATH", err=True)
         sys.exit(127)
 
@@ -253,6 +211,7 @@ def run(
                 session_strategy=session_strategy,
                 no_anchor=no_anchor,
                 settings=settings,
+                plan=plan,
             )
         )
     except PrivyxError as exc:
@@ -261,62 +220,30 @@ def run(
     sys.exit(code)
 
 
-def _base_url(host: str, port: int | str, base_path: str) -> str:
-    host = f"[{host}]" if ":" in host else host
-    return f"http://{host}:{port}{base_path}"
-
-
-def _show_plan(
-    name: str,
-    spec: Target,
-    argv: list[str],
-    settings: Settings,
-    port: int,
-    env_vars: tuple[str, ...],
-    extra_env_vars: tuple[str, ...],
-    sources: dict[str, str],
-) -> None:
+def _show_plan(plan: LaunchPlan) -> None:
     from privyx.config.redact import redact, redact_argv
-    from privyx.providers.registry import resolve_base_url, resolve_origin
 
-    base_url = _base_url(settings.host, port or "<auto>", spec.base_path)
-    args = spec.args(base_url, argv) if spec.args else argv
-    upstream = resolve_base_url(settings)
-    route = upstream if settings.proxy.mode == "gateway" else resolve_origin(settings)
-    upstream_key = "upstream_url" if settings.upstream_url else "provider.base_url"
-    upstream_source = (
-        sources.get(upstream_key, "defaults")
-        if (settings.upstream_url or settings.provider.base_url)
-        else f"provider default ({sources.get('provider.type', 'defaults')})"
-    )
-    click.echo(f"Profile: {name}")
-    click.echo(f"Command: {shlex.join(redact_argv([spec.command, *args]))}")
-    click.echo(f"Proxy: {base_url} ({settings.proxy.mode})")
-    click.echo(f"Provider: {settings.provider.type} [{sources.get('provider.type', 'defaults')}]")
-    click.echo(f"Upstream: {redact(upstream, 'upstream_url')} [{upstream_source}]")
-    click.echo(f"Routing: tool → {base_url} → {redact(route, 'upstream_url')}")
-    click.echo(
-        f"Session: {settings.session.strategy} [{sources.get('session.strategy', 'defaults')}]"
-    )
-    anchor = (
-        "auto-provision on launch"
-        if settings.anchor.secret == _AUTO_ANCHOR
-        else ("configured (masked)" if settings.anchor.secret else "disabled")
-    )
-    click.echo(f"Anchor: {anchor} [{sources.get('anchor.secret', 'defaults')}]")
-    prefix = f"agents.{name}."
-    for field_name in ("command", "base_path"):
-        fallback = "CLI" if field_name == "command" and name not in settings.agents else "defaults"
+    sources = plan.sources
+    click.echo(f"Profile: {plan.profile}")
+    click.echo(f"Command: {shlex.join(redact_argv([plan.command, *plan.argv]))}")
+    click.echo(f"Adapter: {plan.target.adapter}")
+    click.echo(f"Proxy: {plan.base_url} ({plan.proxy_mode})")
+    click.echo(f"Provider: {plan.provider} [{sources.get('provider.type', 'defaults')}]")
+    click.echo(f"Upstream: {redact(plan.upstream, 'upstream_url')} [{sources['run.upstream']}]")
+    click.echo(f"Routing: tool → {plan.base_url} → {redact(plan.route, 'upstream_url')}")
+    click.echo(f"Session: {plan.session} [{sources.get('session.strategy', 'defaults')}]")
+    click.echo(f"Anchor: {plan.anchor} [{sources.get('anchor.secret', 'defaults')}]")
+    prefix = f"agents.{plan.profile}."
+    for field_name in ("command", "base_path", "adapter", "args"):
+        fallback = "CLI" if field_name == "command" else "defaults"
         click.echo(f"Source {field_name}: {sources.get(prefix + field_name, fallback)}")
     for path in ("host", "proxy.mode", "run.port"):
         click.echo(f"Source {path}: {sources.get(path, 'defaults')}")
     click.echo("Source arguments: CLI")
     click.echo("Environment injected:")
-    for env_name in dict.fromkeys(env_vars):
-        source = (
-            "CLI" if env_name in extra_env_vars else sources.get(prefix + "env_vars", "defaults")
-        )
-        click.echo(f"  {env_name}={base_url} [{source}]")
+    for key in sorted(plan.injected_env):
+        value = plan.base_url if key in plan.env_vars else "***"
+        click.echo(f"  {key}={value} [{plan.env_sources[key]}]")
 
 
 async def _run_target(
@@ -329,6 +256,7 @@ async def _run_target(
     session_strategy: str | None = None,
     no_anchor: bool = False,
     settings: Settings | None = None,
+    plan: LaunchPlan | None = None,
 ) -> int:
     """Start the proxy, run the tool against it, and tear everything down.
 
@@ -354,7 +282,9 @@ async def _run_target(
 
     if settings is None:
         settings = _run_settings(config_path, spec.provider, upstream, session_strategy, no_anchor)
-    if settings.anchor.secret == _AUTO_ANCHOR:
+    if plan is None:
+        plan = build_launch_plan(spec, argv, settings, port, env_vars)
+    if settings.anchor.secret == AUTO_ANCHOR:
         settings.anchor.secret = read_or_create_anchor_secret()
     # The child tool owns the terminal: log lines go to log_file if one is set,
     # else nowhere, and the audit trail still records every error.
@@ -380,15 +310,14 @@ async def _run_target(
     serve_task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
         await _wait_until_started(server, serve_task)
-        base_url = _base_url(settings.host, bound_port, spec.base_path)
-        argv = spec.args(base_url, argv) if spec.args else argv
+        plan = plan.bind_port(bound_port)
 
         # On stderr: stdout is the tool's, and may be piped into a parser.
         click.echo(f"Privyx proxy → {redact(target, 'url')}", err=True)
-        click.echo(f"Running: {shlex.join(redact_argv([spec.command, *argv]))}", err=True)
-        click.echo(f"  {', '.join(env_vars)} = {base_url}", err=True)
+        click.echo(f"Running: {shlex.join(redact_argv([plan.command, *plan.argv]))}", err=True)
+        click.echo(f"  {', '.join(plan.env_vars)} = {plan.base_url}", err=True)
 
-        code = await _spawn(spec, argv, base_url, env_vars)
+        code = await _spawn(plan)
         if not counted.requests:
             # What a tool that ignores the proxy URL looks like from here.
             click.echo(
@@ -467,18 +396,13 @@ async def _wait_until_started(server: Any, serve_task: asyncio.Task[Any]) -> Non
         await asyncio.sleep(0.02)
 
 
-async def _spawn(spec: Target, argv: list[str], base_url: str, env_vars: tuple[str, ...]) -> int:
+async def _spawn(plan: LaunchPlan) -> int:
     """Run the tool as a child process with the proxy URL injected.
 
     Signals are left to the child: it owns the terminal, so Ctrl-C reaches it
     directly and this process just waits for the exit code.
     """
-    env = dict(os.environ)
-    env.update(spec.extra_env)
-    for name in env_vars:
-        env[name] = base_url
-
-    process = await asyncio.create_subprocess_exec(spec.command, *argv, env=env)
+    process = await asyncio.create_subprocess_exec(plan.command, *plan.argv, env=plan.environment)
     try:
         return await process.wait()
     except asyncio.CancelledError:  # pragma: no cover - interactive only

@@ -110,7 +110,8 @@ ships them under `/app/configs`.
 
 Named launch profiles for `privyx run`. The built-in `claude`, `codex`,
 `openai`, and `aider` profiles can be overridden field by field. New profiles
-need a `command`; give `env_vars` so Privyx knows where to inject its URL.
+need a `command` or can inherit it with `extends`. Give `env_vars` so Privyx
+knows where to inject its URL, or use an adapter that injects a CLI override.
 
 ```yaml
 agents:
@@ -134,6 +135,50 @@ privyx run claude-work
 | `upstream` | empty | HTTP(S) upstream URL. Empty falls back to the provider's default. Transparent mode forwards to its origin; gateway mode uses the full URL. |
 | `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the preset's list; CLI `--env-var` adds names. |
 | `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
+| `extends` | `null` | Parent profile name. Inherits command, transport, adapter, args, and environment settings. Unknown parents and cycles are rejected. |
+| `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`. `auto` detects a Claude/Codex profile or executable name, otherwise uses `env`. The built-in Claude and Codex presets explicitly select their adapters. |
+| `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Arguments are passed without a shell or interpolation. |
+| `env` | `{}` | Destination environment variable name → literal string value. Values must be strings: quote YAML booleans/numbers. Merged by name over the shell environment; values are masked in previews and config dumps. |
+| `env_from` | `{}` | Destination environment variable name → source variable name in the parent shell. Resolve only for the selected launch; a missing source fails before any resource opens. An existing empty source value is allowed. Values are never expanded from profile `env`. |
+
+Use inheritance to avoid copying a preset and reference credentials already
+present in your shell:
+
+```yaml
+agents:
+  claude-work:
+    extends: claude
+    upstream: https://router.example.com
+    args: ["--verbose"]
+    env:
+      MY_CUSTOM_FLAG: "enabled"
+    env_from:
+      ANTHROPIC_AUTH_TOKEN: WORK_ANTHROPIC_TOKEN
+```
+
+Set `WORK_ANTHROPIC_TOKEN` in your shell or secret manager before running
+`privyx run --dry-run claude-work` or `privyx run claude-work`. The reference
+name is visible in the preview; its value is masked. `--list` and `config
+--show` do not resolve references, so unused profiles need no credentials.
+
+Inheritance is resolved after the layers are merged, using the parent's
+final configuration. Explicit child fields win over inherited fields even
+if the parent was updated in a later file. Lists replace; `env` and
+`env_from` merge by destination. A child can change a parent's destination
+from a literal to a reference or the reverse. Defining the same destination
+in both maps of one profile is rejected. Maps merge by key across config
+layers; empty maps do not clear inherited entries.
+
+Child process environment precedence is shell → profile literals/references
+→ injected proxy URLs. Privyx's URL wins even if a profile also defines that
+destination. Custom `PATH` is used to locate the executable. Profile values
+are not exported into Privyx's own process.
+
+For a wrapper whose filename differs from the agent's, keep the adapter
+explicit. For example, a profile with `extends: claude` and
+`command: company-claude-wrapper` inherits `adapter: claude`. Select
+`adapter: env` to disable CLI injection and use only `env_vars`. Tools with
+special protocols may still need a new adapter implementation.
 
 Profiles follow the same layers as other settings: preset defaults, global
 file, trusted project files, environment, and CLI. In each layer the selected
@@ -156,8 +201,7 @@ environment variable names, and invalid types fail at configuration load.
 Project profiles follow `privyx trust`, including renewed trust after a file
 changes. API keys stay in the tool's environment or Privyx's provider settings.
 
-Profiles named `claude`/`codex`, and aliases whose executable basename is
-`claude`/`codex`, retain the existing argument overrides described in the
+Claude/Codex adapters retain the existing argument overrides described in the
 [CLI reference](cli.md#privyx-run). The same limitations about custom Codex
 providers and user-supplied Claude settings apply.
 

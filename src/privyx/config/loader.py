@@ -26,6 +26,7 @@ from typing import Any, get_args, get_origin
 import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel
 
+from privyx.config.agents import resolve_profiles
 from privyx.config.defaults import DEFAULTS
 from privyx.config.env import discovery_disabled, env_config
 from privyx.config.schema import PluggableConfig, Settings
@@ -126,7 +127,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         current = result.get(key)
         if isinstance(current, dict) and isinstance(value, dict):
             result[key] = _deep_merge(current, value)
-        elif isinstance(current, list) and isinstance(value, dict):
+        elif key == "detector" and isinstance(current, list) and isinstance(value, dict):
             # A section given as a list (`detector: [...]`) takes a mapping
             # override such as PRIVYX_DETECTOR_CACHE into each item.  Replacing
             # the list would silently drop the detectors it names.
@@ -163,15 +164,14 @@ def load_config(
     ``sources`` optionally receives dotted field paths -> winning layer.
     """
     merged: dict[str, Any] = {}
-    if sources is not None:
-        sources.clear()
+    origins: dict[str, str] = {}
+    layers: list[tuple[str, dict[str, Any]]] = []
 
     def apply(data: dict[str, Any], source: str) -> None:
         nonlocal merged
-        layer = _agent_layer(data, agent)
-        merged = _deep_merge(merged, layer)
-        if sources is not None:
-            _record_sources(layer, source, sources)
+        layers.append((source, data))
+        merged = _deep_merge(merged, data)
+        _record_sources(data, source, origins)
 
     apply(DEFAULTS, "defaults")
     apply(base_extra or {}, "run defaults")
@@ -197,13 +197,40 @@ def load_config(
         plural = "s" if len(unknown) > 1 else ""
         raise ConfigError(f"unknown setting{plural} {', '.join(unknown)}")
 
+    profiles = merged.get("agents")
+    if isinstance(profiles, dict):
+        profiles, inherited_sources = resolve_profiles(profiles, origins)
+        selected = profiles.get(agent) if agent else None
+        # Reapply transport fields at their originating layer, so a late
+        # common environment/CLI override still beats an inherited profile.
+        effective: dict[str, Any] = {}
+        effective_sources: dict[str, str] = {}
+        for source, data in layers:
+            projection = {}
+            if isinstance(selected, dict):
+                for field in ("provider", "upstream"):
+                    if inherited_sources.get(f"agents.{agent}.{field}") == source:
+                        projection[field] = selected[field]
+            layer = _agent_layer(data, agent, projection)
+            effective = _deep_merge(effective, layer)
+            _record_sources(layer, source, effective_sources)
+        effective["agents"] = profiles
+        effective_sources.update(inherited_sources)
+        merged, origins = effective, effective_sources
+
+    if sources is not None:
+        sources.clear()
+        sources.update(origins)
+
     try:
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
 
 
-def _agent_layer(data: dict[str, Any], agent: str | None) -> dict[str, Any]:
+def _agent_layer(
+    data: dict[str, Any], agent: str | None, profile: dict[str, Any]
+) -> dict[str, Any]:
     if agent is None:
         return data
     overrides: dict[str, Any] = {}
@@ -212,10 +239,6 @@ def _agent_layer(data: dict[str, Any], agent: str | None) -> dict[str, Any]:
         # In a run plan these name the same destination. A later file's common
         # base URL must be able to override an earlier profile's upstream.
         overrides["upstream_url"] = provider["base_url"]
-    profiles = data.get("agents")
-    profile = profiles.get(agent) if isinstance(profiles, dict) and agent else None
-    if not isinstance(profile, dict):
-        return _deep_merge(data, overrides)
     if "provider" in profile:
         overrides["provider"] = {"type": profile["provider"]}
     if "upstream" in profile:

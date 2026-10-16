@@ -97,6 +97,7 @@ Inspect a plan before launching:
 $ privyx run --dry-run codex
 Profile: codex
 Command: codex -c 'openai_base_url="http://127.0.0.1:<auto>/v1"'
+Adapter: codex
 Proxy: http://127.0.0.1:<auto>/v1 (transparent)
 Provider: openai [defaults]
 Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]
@@ -105,6 +106,8 @@ Session: conversation [run defaults]
 Anchor: auto-provision on launch [run defaults]
 Source command: defaults
 Source base_path: defaults
+Source adapter: defaults
+Source args: defaults
 Source host: defaults
 Source proxy.mode: defaults
 Source run.port: run defaults
@@ -115,13 +118,16 @@ Environment injected:
 
 `<auto>` means a free port will be chosen on launch; `--port` makes the plan
 use a fixed port. Sources are `defaults`, `run defaults`, a config file's
-absolute path, `environment`, or `CLI`. The environment section lists only
-the proxy URL variables Privyx sets. Credential flags, JSON settings,
+absolute path, `environment`, or `CLI`. Inherited fields retain their parent's
+source. The environment section lists proxy URL variables plus masked custom
+values and the source names of `env_from` references. Credential flags, JSON settings,
 config assignments, URL user info, queries and fragments are masked in the
 display; arbitrary free-text arguments are displayed as supplied. The plan
 checks configuration, but does not verify that the agent sends requests
 through the proxy. The same arguments and resolved settings are used when
-you launch without `--dry-run`.
+you launch without `--dry-run`. Both paths consume the same launch plan,
+including an environment snapshot; binding a free port changes only its
+proxy URL. Missing environment references fail before startup.
 
 ## `privyx detect`
 

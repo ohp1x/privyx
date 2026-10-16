@@ -10,10 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **CLI:** named `agents` launch profiles configure command, provider, upstream, proxy environment variables, and base path for `privyx run`; global and trusted project settings merge with presets, environment (`PRIVYX_AGENTS`, `PRIVYX_PROVIDER`), and CLI overrides
 - **CLI:** `privyx run --dry-run NAME` displays the command, routing, injected URL variables, and configuration sources without starting a tool or proxy or creating files
+- **CLI:** profiles support `extends`, default `args`, literal `env`, shell references through `env_from`, and explicit `env`/`claude`/`codex` adapters for wrappers. Inheritance rejects missing parents and cycles; missing environment references fail before startup
+- **CLI:** preview and execution share a launch plan with a captured environment and consistent argument ordering; URL injection overrides custom environment values, and custom `PATH` is respected when locating an executable
 
 ### Security
 
 - **CLI:** launch command displays mask credential options, JSON settings, config assignments, and URL credentials; configuration dumps also mask agent upstream credentials and URL queries/fragments, and validation errors omit input values
+- **CLI:** custom environment values are masked in launch previews and configuration dumps; referenced secret values are never printed, and default argument credentials are redacted from configuration dumps
 
 ## [0.1.17] - 2026-10-16
 
