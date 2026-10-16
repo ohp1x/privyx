@@ -16,6 +16,15 @@ from privyx.core.errors import ConfigError
 from privyx.observability.audit import SCHEMA_VERSION, AuditEvent, AuditLogger
 
 
+def test_route_decision_sanitizes_method_and_counts_without_a_file() -> None:
+    audit = AuditLogger(None)
+    audit.route_decision(allowed=True, method="POST /secret-canary")
+    assert audit.stats.events["proxy.passthrough"] == 1
+    metrics = audit.stats.prometheus()
+    assert 'event="proxy.passthrough"} 1' in metrics
+    assert "canary" not in metrics
+
+
 def _lines(buf: io.StringIO) -> list[dict[str, Any]]:
     return [json.loads(line) for line in buf.getvalue().splitlines() if line]
 

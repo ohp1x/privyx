@@ -38,6 +38,7 @@ def doctor(config_path: str | None) -> None:
         ("provider", _check_provider),
         ("proxy", _check_proxy),
         ("streaming", _check_streaming),
+        ("routes", _check_routes),
         ("configuration", _check_configuration),
     ]
     all_ok = True
@@ -229,6 +230,48 @@ def _check_streaming(config_path: str | None) -> tuple[bool, str]:
             await close()
 
     return asyncio.run(_probe())
+
+
+def _check_routes(config_path: str | None) -> tuple[bool, str]:
+    """Describe effective masking coverage and expose unmasked forwarding."""
+    from privyx.config.schema import ProxyConfig
+    from privyx.proxy.schemas import KNOWN_SCHEMAS
+
+    proxy = _settings(config_path).proxy
+    invalid = [
+        path
+        for path, schema in proxy.routes.items()
+        if not path.startswith("/")
+        or path.startswith("//")
+        or any(c.isspace() or c in "?#\x00" for c in path)
+        or schema not in KNOWN_SCHEMAS
+    ]
+    if invalid:
+        return False, "invalid path or unsupported schema in proxy.routes: " + ", ".join(invalid)
+    if not proxy.routes:
+        return False, "no masking routes configured"
+
+    routes = proxy.routes
+    if proxy.mode == "gateway":
+        from privyx.gateway.server import _AUXILIARY_ROUTES
+
+        routes = {p: s for p, s in routes.items() if p not in _AUXILIARY_ROUTES}
+        disposition = "unlisted paths return 404; auxiliary routes are not served"
+    elif proxy.passthrough_unknown:
+        disposition = (
+            "WARNING: unlisted paths pass through WITHOUT body masking; "
+            "set proxy.passthrough_unknown: false to return 403"
+        )
+    else:
+        disposition = "unlisted paths are blocked (403)"
+    if not routes:
+        return False, "no masking routes served in " + proxy.mode + " mode"
+    missing = sorted(ProxyConfig().routes.keys() - routes.keys())
+    coverage = ", ".join(f"{p} ({s})" for p, s in sorted(routes.items())) or "none"
+    return True, (
+        f"{proxy.mode}: {len(routes)} masking route(s): {coverage}; {disposition}; "
+        f"default paths outside coverage: {', '.join(missing) or 'none'}"
+    )
 
 
 def _check_configuration(config_path: str | None) -> tuple[bool, str]:

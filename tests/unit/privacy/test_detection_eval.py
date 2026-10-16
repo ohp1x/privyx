@@ -33,9 +33,7 @@ LABEL = re.compile(r"⟦([A-Z_]+):(.*?)⟧", re.DOTALL)
 #: corpus or the detector last changed them.  Raise a floor when a change
 #: improves the type; a type not listed must score 1.0 on both.
 FLOORS = {
-    "API_KEY": (1.0, 0.92),
-    "EMAIL": (0.79, 1.0),
-    "URL_CREDENTIAL": (1.0, 0.75),
+    "EMAIL": (0.90, 1.0),
 }
 
 

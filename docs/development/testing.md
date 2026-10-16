@@ -23,8 +23,8 @@ scan — the same class of bug we hit with `reasoning_content` in the prototype.
 ## Detection corpus
 
 `tests/unit/privacy/corpus/` holds text an agent typically reads: a `.env`, a
-compose file, Python and TSX code, `git log`, server logs, a README, and a shell
-session. Every value that should be masked is labeled in place as
+compose file, Python and TSX code, `git log`, server logs, a README, a shell
+session, Kubernetes rollout manifests, Terraform plans, and support incidents. Every value that should be masked is labeled in place as
 `⟦TYPE:value⟧`, and every value is fake. `test_detection_eval.py` scans the
 files with both the installed defaults and the detector from
 `configs/default.yaml`, and scores each entity
@@ -77,8 +77,11 @@ uv run pytest -n auto             # parallel
 
 `scripts/test-e2e/run.py` runs the real `claude` CLI through `privyx run` (or, with
 `--transparent`, through `privyx proxy` on its defaults: ephemeral sessions, no
-anchor) against a local fake Anthropic API, so nothing needs a key or the
-network. `make e2e` runs both. HOME,
+anchor) against a local fake Anthropic API. `--agent codex` runs `codex exec` against a
+fake Responses API: MCP lookup, a shell read of `notes.txt`, then an answer
+echoing the masked values. SSE deltas split tokens and arguments across frames.
+Neither scripted run needs a provider key or account. `make e2e` runs both agents
+in both modes. HOME,
 `CLAUDE_CONFIG_DIR`, and `XDG_CONFIG_HOME` all point into a fresh temp dir, so your
 own `~/.claude` and `~/.privyx` are left alone.
 
@@ -98,7 +101,16 @@ The run fails if:
 - `system` or `tools` changes between turns (a prompt-cache miss every turn).
 
 The temp dir is kept after the run: `upstream.jsonl` shows exactly what reached
-the provider. The script needs `claude` on PATH, so it is not part of CI.
+the provider. Install `claude` and `codex` on PATH before running `make e2e`.
+The separate `Agent CLI compatibility` workflow installs the verified baseline
+(Claude Code `2.1.301`, Codex `0.114.0`) and runs all four combinations only
+on manual dispatch. Dispatch inputs can select newer versions, including
+`latest`, before updating the baseline. It reports CLI versions and retains
+synthetic request, audit, and CLI logs for seven days,
+including failed runs. Codex `0.163.0` was also tried locally but did not
+advertise the MCP tool in the expected format; its compatibility remains unverified.
+Ordinary CI continues to run the synthetic protocol tests
+without installing either CLI. A nonzero CLI exit always fails the harness.
 
 ### A real provider (`--upstream`)
 
@@ -124,9 +136,10 @@ declines to give the `Echo:` line is reported as a note, not a failure. Beyond i
 tools, Claude Code may use only the MCP tool and `cat notes.txt`; codex runs in
 its read-only sandbox.
 
-`--agent codex` drives `codex exec` with `CODEX_HOME` in the temp dir. It needs
-`--upstream`, because it has no fake upstream yet, and `system`/`tools` stability
-is not checked for it.
+`--agent codex` drives `codex exec` in its read-only sandbox with `CODEX_HOME`
+in the temp dir. It works with the scripted upstream by default and with a real
+provider via `--upstream`. `system`/`tools` stability is not checked for it, since
+some models send those definitions as input items.
 
 Each agent is one file in `scripts/test-e2e/` that exports an `Agent`
 (`common.py`): how to configure it, launch it, and point it at a proxy, plus,

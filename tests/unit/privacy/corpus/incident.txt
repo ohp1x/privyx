@@ -1,0 +1,14 @@
+# Support incident containing a customer report and an HTTP reproduction.
+Incident INC-2048, opened 2026-10-16T09:49:08.123+08:00
+Contact: ⟦EMAIL:customer+incident@example.test⟧
+Client address: ⟦IP_ADDRESS:10.28.2.48⟧
+Documentation example (not a host): 192.0.2.48
+Phone: ⟦PHONE:+1 555 010 4477⟧
+
+Reproduction:
+curl https://billing.example.test/v1/orders \
+  -H 'Authorization: Bearer ⟦AUTH_TOKEN:incident-access-canary-739⟧' \
+  --api-key '⟦SECRET:incident-key-canary-482⟧'
+
+Observed: HTTP 503 after 30s, retry count 3, order_id=1234567812345678.
+Expected: HTTP 200. Set API_KEY from the environment; never paste a production key.

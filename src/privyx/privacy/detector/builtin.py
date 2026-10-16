@@ -156,6 +156,19 @@ def _host_address(match: re.Match[str]) -> bool:
     )
 
 
+_URL_USERINFO = re.compile(r"""(?i)[a-z][a-z0-9+.-]{0,20}://[^\s:/@"'<>]{0,256}:$""")
+
+
+def _email_address(match: re.Match[str]) -> bool:
+    """A URL password followed by ``@host`` is not an email address.
+
+    URL_CREDENTIAL already captures the password. Treating password@host as an
+    email would merge both spans and mask the hostname too. Keep the hostname
+    visible and classify the password as a credential.
+    """
+    return _URL_USERINFO.search(match.string[max(0, match.start() - 282) : match.start()]) is None
+
+
 def _phone_number(match: re.Match[str]) -> bool:
     """Whether the match reads as a phone number rather than two numbers.
 
@@ -227,6 +240,7 @@ def _named_for(variable: str, name: str) -> bool:
 #: Checks a match of a built-in pattern must pass to count.  They belong to the
 #: built-in pattern: your own pattern for the same entity is used as written.
 _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
+    "EMAIL": _email_address,
     # Timestamps, long IDs, and a `git log` hash next to its date are digit runs too.
     "CREDIT_CARD": _luhn,
     "IP_ADDRESS": _host_address,

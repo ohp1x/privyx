@@ -242,7 +242,9 @@ again after you change the file. While you are still editing one, pass it with
 
 Build every configured component and push a request through it: plugins,
 detector, vault (a real write and read), provider, proxy, and streaming
-restore. Exits with a non-zero status if any check fails.
+restore. The `routes` check lists masking paths, gaps in the default route map,
+and the disposition of unlisted paths. Passthrough prints a warning; invalid
+routes fail. Exits with a non-zero status if any check fails.
 
 ```console
 $ privyx doctor
@@ -254,5 +256,6 @@ Privyx Doctor
   ✓ provider: generic → http://localhost:20128
   ✓ proxy: request transformed, 1 mapping(s) vaulted
   ✓ streaming: pseudonym restored across a split chunk
+  ✓ routes: transparent: 10 masking route(s): ...; WARNING: unlisted paths pass through WITHOUT body masking; set proxy.passthrough_unknown: false to return 403; default paths outside coverage: none
   ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=off
 ```

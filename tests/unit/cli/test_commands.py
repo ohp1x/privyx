@@ -238,6 +238,20 @@ def test_audit_stats_reads_the_configured_path(
     assert "Requests:   1" in runner.invoke(cli, ["audit", "stats"]).output
 
 
+def test_audit_stats_counts_unknown_route_decisions(runner: CliRunner, tmp_path: Path) -> None:
+    from privyx.observability.audit import AuditLogger
+
+    log = tmp_path / "audit.log"
+    with log.open("w") as writer:
+        audit = AuditLogger(writer)
+        audit.route_decision(allowed=True, method="POST")
+        audit.route_decision(allowed=False, method="GET")
+    result = runner.invoke(cli, ["audit", "stats", str(log)])
+    assert result.exit_code == 0
+    assert "Passthrough: 1 (body unmasked)" in result.output
+    assert "Blocked:    1 (unknown route)" in result.output
+
+
 def test_audit_tail_prints_the_last_events_readably(runner: CliRunner, tmp_path: Path) -> None:
     log = tmp_path / "audit.log"
     _write_audit_log(log)
@@ -306,15 +320,24 @@ def test_doctor_all_checks_pass_with_defaults(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["doctor"])
 
     assert result.exit_code == 0
-    checks = ("plugins", "detector", "vault", "provider", "proxy", "streaming", "configuration")
+    checks = (
+        "plugins",
+        "detector",
+        "vault",
+        "provider",
+        "proxy",
+        "streaming",
+        "routes",
+        "configuration",
+    )
     for check in checks:
         assert f"✓ {check}" in result.output
 
 
 def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
-    """context.md lists six checks, plus the plugins check the plugin system adds."""
+    """All component checks plus effective route coverage are visible."""
     result = runner.invoke(cli, ["doctor"])
-    assert result.output.count("✓") + result.output.count("✗") == 7
+    assert result.output.count("✓") + result.output.count("✗") == 8
 
 
 def test_doctor_fails_on_broken_config(runner: CliRunner, tmp_path: Path) -> None:
@@ -332,6 +355,49 @@ def test_doctor_uses_the_configured_vault(runner: CliRunner, sqlite_config: Path
 
     assert result.exit_code == 0
     assert "✓ vault: sqlite" in result.output
+
+
+@pytest.mark.parametrize("passthrough", [False, True])
+def test_doctor_reports_effective_route_coverage(
+    runner: CliRunner, tmp_path: Path, passthrough: bool
+) -> None:
+    config = tmp_path / "routes.yaml"
+    config.write_text(f"proxy:\n  passthrough_unknown: {str(passthrough).lower()}\n")
+    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    assert result.exit_code == 0
+    assert "/v1/responses (responses)" in result.output
+    assert "/v1/messages/count_tokens (anthropic)" in result.output
+    assert ("WITHOUT body masking" if passthrough else "blocked (403)") in result.output
+
+
+def test_doctor_reports_invalid_routes(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "routes.yaml"
+    config.write_text("proxy:\n  routes:\n    missing-slash: unsupported\n")
+    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    assert result.exit_code == 1
+    assert "✗ routes: invalid path or unsupported schema" in result.output
+
+
+def test_doctor_reports_gateway_auxiliary_gaps(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "routes.yaml"
+    config.write_text("proxy:\n  mode: gateway\n")
+    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    assert result.exit_code == 0
+    assert "unlisted paths return 404" in result.output
+    assert "WITHOUT body masking" not in result.output
+    assert "default paths outside coverage: /responses/compact" in result.output
+
+
+@pytest.mark.parametrize("mode", ["transparent", "gateway"])
+def test_doctor_reports_a_replaced_route_map(
+    runner: CliRunner, tmp_path: Path, mode: str
+) -> None:
+    config = tmp_path / "routes.yaml"
+    config.write_text(f"proxy:\n  mode: {mode}\n  routes:\n    /v1/messages: anthropic\n")
+    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    assert result.exit_code == 0
+    assert "1 masking route(s): /v1/messages (anthropic)" in result.output
+    assert "default paths outside coverage: /chat/completions" in result.output
 
 
 # --------------------------------------------------------------------------

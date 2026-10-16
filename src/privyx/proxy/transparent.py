@@ -220,6 +220,8 @@ class TransparentProxy:
                     body=json.dumps({"error": {"message": message}}).encode(),
                 )
             schema = detect_schema(path, self._routes)
+            if schema is None:
+                self._audit.route_decision(allowed=self._passthrough_unknown, method=method)
             if schema is None and not self._passthrough_unknown:
                 message = (
                     f"privyx: /{path.lstrip('/')} is not in proxy.routes "
@@ -344,7 +346,9 @@ class TransparentProxy:
             is_stream = _SSE in resp_content_type
             self._audit.request(
                 method=method,
-                path="/" + path.lstrip("/"),
+                # An unmatched URL may itself contain PII. The route-decision
+                # event exposes the gap without copying a client-supplied path.
+                path="/" + path.lstrip("/") if schema is not None else "[unmatched]",
                 schema=schema,
                 status=response.status_code,
                 session_id=sid,
