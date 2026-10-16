@@ -389,9 +389,7 @@ def test_doctor_reports_gateway_auxiliary_gaps(runner: CliRunner, tmp_path: Path
 
 
 @pytest.mark.parametrize("mode", ["transparent", "gateway"])
-def test_doctor_reports_a_replaced_route_map(
-    runner: CliRunner, tmp_path: Path, mode: str
-) -> None:
+def test_doctor_reports_a_replaced_route_map(runner: CliRunner, tmp_path: Path, mode: str) -> None:
     config = tmp_path / "routes.yaml"
     config.write_text(f"proxy:\n  mode: {mode}\n  routes:\n    /v1/messages: anthropic\n")
     result = runner.invoke(cli, ["doctor", "-c", str(config)])
