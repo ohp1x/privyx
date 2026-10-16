@@ -62,6 +62,8 @@ def stats(file: Path | None, config_path: str | None, since: int | None) -> None
         click.echo(f"Requests:   {events['proxy.request']}")
         click.echo(f"Responses:  {responses}{avg}")
         click.echo(f"Errors:     {events['proxy.error']}{_breakdown(totals.errors)}")
+        click.echo(f"Passthrough: {events['proxy.passthrough']} (body unmasked)")
+        click.echo(f"Blocked:    {events['proxy.blocked']} (unknown route)")
         click.echo(
             f"Sessions:   {events['session.created']} created, {events['session.deleted']} deleted"
         )

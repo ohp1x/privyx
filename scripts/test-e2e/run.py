@@ -3,7 +3,7 @@
     uv run python scripts/test-e2e/run.py                 # `privyx run claude`
     uv run python scripts/test-e2e/run.py --transparent   # `privyx proxy`, its defaults
     uv run python scripts/test-e2e/run.py --upstream https://api.anthropic.com
-    uv run python scripts/test-e2e/run.py --agent codex --upstream https://api.openai.com
+    uv run python scripts/test-e2e/run.py --agent codex
 
 Each agent has its own file next to this one (claude.py, codex.py) and is an
 ``Agent`` from common.py; this file is the run they share.
@@ -32,7 +32,7 @@ recorded, then relayed with the credential taken from the environment
 (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN; CODEX_API_KEY for codex), and
 ``--model`` picks the model.  A real model writes the loop itself, so the checks
 of the scripted loop give way to one that the provider accepted every turn.  An
-agent without a fake upstream, codex for now, needs ``--upstream``.
+agent with a fake upstream can run without a provider account.
 
 The temp dir is kept for inspection.
 """
@@ -258,6 +258,7 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
     global REAL, FAKE
     agent = AGENTS[name]
     REAL, FAKE = real.rstrip("/"), agent.fake
+    RECORDS.clear()
     if not REAL and not FAKE:
         raise SystemExit(f"{name} has no fake upstream here; it needs --upstream")
     creds = {k: os.environ[k] for k in agent.creds if k in os.environ}
@@ -341,6 +342,8 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
         failed |= not ok
         print(f"{'ok  ' if ok else 'FAIL'}  {what}: {detail}")
 
+    check(proc.returncode == 0, "CLI exited successfully", str(proc.returncode))
+
     # A model may write a token without its < >, or its id alone: either counts
     # as a missed restore.  A counter id is too short to tell from other text.
     issued = TOKEN.findall(json.dumps([r["body"] for r in RECORDS]))
@@ -358,7 +361,7 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
     else:
         check(bool(args) and not leftover(args), "MCP tool args restored", args or "(never called)")
     # The last one: an agent that prints its transcript shows the prompt first.
-    echo = next((ln for ln in reversed(out.splitlines()) if "Echo:" in ln), "")
+    echo = next((ln for ln in reversed(out.splitlines()) if ln.lstrip().startswith("Echo:")), "")
     answered = all(v in echo for v in (PERSON, ORG, EMAIL, IP))
     if REAL and not answered and not leftover(out):
         print("note  final answer: no token left in it, but no Echo line with the four values")

@@ -1,0 +1,32 @@
+# Deployment manifest and kubectl output read while diagnosing a failed rollout.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: billing-credentials
+type: Opaque
+stringData:
+  DB_PASSWORD: "⟦SECRET:rollout-db-canary-841⟧"
+  WEBHOOK_SECRET: '⟦SECRET:rollout-hook-canary-372⟧'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/acme/billing:1.4.2
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: billing-credentials
+                  key: DB_PASSWORD
+
+$ kubectl get endpoints billing
+NAME      ENDPOINTS             AGE
+billing   ⟦IP_ADDRESS:10.42.7.19⟧:8080   12m
+# Escalate to ⟦EMAIL:oncall@example.test⟧; deployment revision 12, request timeout 30s.

@@ -70,12 +70,28 @@ The upstream returned response headers (time to first byte).
 
 | field | type | notes |
 |---|---|---|
-| `method` / `path` / `schema` | string | Request line and matched wire schema (`openai` / `anthropic` / `null`). |
+| `method` / `path` / `schema` | string | Request line and matched wire schema (`openai` / `anthropic` / `responses` / `null`). Unmatched paths are recorded as `[unmatched]`, never the raw URL. |
 | `status` | int | Upstream HTTP status. |
 | `stream` | bool | Whether the response is an SSE stream. |
 | `duration_ms` | float | Time to the upstream response **headers** (not the whole stream). |
 | `transform_ms` | float | The part of `duration_ms` spent masking the request (detection, pseudonymization, and the session's vault read and write); the rest is mostly the upstream. Absent when no body was masked (a path outside `proxy.routes`, a body that is not JSON). |
 | `upstream` | string | Upstream host. |
+
+### `proxy.passthrough` / `proxy.blocked`
+An unknown route was allowed without body masking or refused with `403`.
+Emitted at classification, before reading its body or contacting upstream, so
+an upstream failure does not hide the decision. `body_masked: false` describes
+the body; machine metadata headers can still be masked on allowed requests.
+
+| field | type | notes |
+|---|---|---|
+| `method` | string | Standard HTTP method, or `OTHER` for an unrecognized method. |
+| `reason` | string | `unknown_route`. |
+| `body_masked` | bool | Always `false`. |
+
+No path, query, body, headers, credentials, or original values are recorded.
+Use `request_id` to correlate later events. `privyx audit stats` displays the
+passthrough and blocked counts; `/metrics` counts both event types.
 
 ### `proxy.response`
 The response was fully delivered to the client, or the client disconnected

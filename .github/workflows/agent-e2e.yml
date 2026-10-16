@@ -1,0 +1,67 @@
+name: Agent CLI compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      codex_version:
+        description: Codex CLI version (use latest to probe a new release)
+        default: "0.114.0"
+        type: string
+      claude_version:
+        description: Claude Code version (use latest to probe a new release)
+        default: "2.1.301"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  agent-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [claude, codex]
+        mode: [run, transparent]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - run: uv sync --locked
+      # Keep a verified baseline; manual dispatch can probe newer releases.
+      - name: Install and report CLI version
+        env:
+          AGENT: ${{ matrix.agent }}
+          CODEX_VERSION: ${{ inputs.codex_version || '0.114.0' }}
+          CLAUDE_VERSION: ${{ inputs.claude_version || '2.1.301' }}
+        run: |
+          if [ "$AGENT" = codex ]; then
+            npm install --global "@openai/codex@$CODEX_VERSION"
+          else
+            npm install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
+          fi
+          "$AGENT" --version
+      - name: Check masking and restoration with a real CLI
+        env:
+          AGENT: ${{ matrix.agent }}
+          MODE: ${{ matrix.mode }}
+        run: |
+          args=(--agent "$AGENT")
+          if [ "$MODE" = transparent ]; then args+=(--transparent); fi
+          uv run python scripts/test-e2e/run.py "${args[@]}"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: agent-e2e-${{ matrix.agent }}-${{ matrix.mode }}
+          path: |
+            /tmp/privyx-e2e-*/agent.out
+            /tmp/privyx-e2e-*/upstream.jsonl
+            /tmp/privyx-e2e-*/audit.log
+            /tmp/privyx-e2e-*/mcp-calls.jsonl
+            /tmp/privyx-e2e-*/proxy.log
+          retention-days: 7

@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** `doctor` reports masking routes, missing default paths, and unknown-route forwarding; invalid route definitions fail diagnostics
+- **Audit:** unknown routes emit `proxy.passthrough` or `proxy.blocked` decisions without paths, query strings, headers, or payloads; `audit stats` shows both counts, and unmatched request paths are redacted
+
+### Changed
+
+- **Configuration:** the shipped `strict.yaml` preset refuses unknown routes with `403` instead of forwarding them without body masking
+
+### Fixed
+
+- **Detector:** URL passwords followed by a hostname are no longer misclassified as email addresses; URL credential and API key recall on the expanded corpus reach 1.00, with email precision 0.90
+
 ## [0.1.18] - 2026-10-16
 
 ### Added

@@ -144,6 +144,24 @@ proxy:
   passthrough_unknown: false
 ```
 
+The shipped `configs/strict.yaml` preset enables this setting. Start it with
+`privyx proxy -c configs/strict.yaml` or use it with `privyx run`. This also blocks
+unlisted metadata and file endpoints, including `/v1/models`; add a route only
+when its body uses a supported masking schema. Route coverage does not imply
+that every field or entity is detected; see [Limitations](../security/limitations.md).
+
+`privyx doctor -c configs/strict.yaml` lists effective masking routes and reports
+whether other paths are blocked or forwarded without body masking. It also
+shows default paths missing from a custom route map. A permissive configuration
+prints a warning while keeping the check successful; an empty map, malformed
+path, or unsupported schema fails the check.
+
+Unknown-route decisions emit `proxy.passthrough` or `proxy.blocked` audit events,
+even if the upstream later fails. These contain no path, query, headers, or body.
+`privyx audit stats` counts them, and `/metrics` includes them under
+`privyx_audit_events_total`. For unmatched requests the later `proxy.request`
+event uses `[unmatched]` as its path.
+
 ```console
 $ curl -s http://localhost:8000/v1/embeddings -d '{"model": "text-embedding-3-small", "input": "ann@example.com"}'
 {"error": {"message": "privyx: /v1/embeddings is not in proxy.routes and proxy.passthrough_unknown is false"}}

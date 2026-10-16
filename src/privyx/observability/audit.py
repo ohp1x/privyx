@@ -74,6 +74,8 @@ class AuditEventType(StrEnum):
     PROXY_REQUEST = "proxy.request"
     PROXY_RESPONSE = "proxy.response"
     PROXY_ERROR = "proxy.error"
+    PROXY_PASSTHROUGH = "proxy.passthrough"
+    PROXY_BLOCKED = "proxy.blocked"
 
 
 def _iso(ts: float) -> str:
@@ -359,6 +361,23 @@ class AuditLogger:
             session_id=session_id,
             request_id=request_id,
             transformations=transformations,
+        )
+
+    def route_decision(self, *, allowed: bool, method: str) -> None:
+        """An unknown route was allowed or blocked, without recording its URL.
+
+        Paths, query strings, headers and bodies can all hold secrets. Only the
+        decision and an HTTP method from a fixed vocabulary enter this event.
+        The active request scope supplies correlation with later events.
+        """
+        safe_method = method.upper()
+        if safe_method not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}:
+            safe_method = "OTHER"
+        self.emit(
+            AuditEventType.PROXY_PASSTHROUGH if allowed else AuditEventType.PROXY_BLOCKED,
+            method=safe_method,
+            reason="unknown_route",
+            body_masked=False,
         )
 
     def request(
