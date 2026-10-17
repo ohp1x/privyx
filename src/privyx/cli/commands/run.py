@@ -168,9 +168,20 @@ def run(
     spec = replace(spec, provider=settings.provider.type)
     all_env_vars = tuple(spec.env_vars) + tuple(env_vars)
     if not all_env_vars and spec.args is None:
+        import difflib
+        import re
+
+        base = re.split(r"[:-]", target, maxsplit=1)[0]
+        near = (
+            [base]
+            if base != target and base in settings.agents
+            else difflib.get_close_matches(target, list(settings.agents), n=1)
+        )
+        hint = f" (did you mean {near[0]!r}?)" if near else ""
         raise click.UsageError(
-            f"don't know how to point {target!r} at the proxy; "
-            "pass --env-var NAME (see `privyx run --list`)"
+            f"no agent profile {target!r}{hint}; define it under `agents` "
+            "or, to launch a tool directly, pass --env-var NAME "
+            "(see `privyx run --list`)"
         )
 
     sources["run.port"] = (

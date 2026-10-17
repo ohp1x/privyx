@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** an agent profile named `base:variant` inherits from `base` without repeating `extends`, so one tool can keep several endpoints or tokens; `privyx run` now names an unknown profile and suggests its base
+
 ## [0.1.19] - 2026-10-17
 
 ### Added

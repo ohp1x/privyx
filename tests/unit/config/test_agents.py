@@ -116,6 +116,36 @@ def test_changed_project_profile_loses_trust(
     assert load_config(agent="codex").agents["codex"].command == "codex"
 
 
+def test_colon_profile_inherits_its_base(tmp_path: Path) -> None:
+    config = tmp_path / "named.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "agents": {
+                    "claude:work": {"upstream": "https://work.example"},
+                    "claude:work-fast": {
+                        "extends": "claude:work",
+                        "args": ["--fast"],
+                    },
+                    "foo:bar": {"command": "foo-tool"},
+                }
+            }
+        )
+    )
+    # claude:work has neither command nor extends, yet becomes a claude variant.
+    work = load_config(config, agent="claude:work").agents["claude:work"]
+    assert work.command == "claude"
+    assert work.adapter == "claude"
+    assert work.upstream == "https://work.example"
+    # An explicit extends is kept as written, including one naming a : profile.
+    fast = load_config(config, agent="claude:work-fast").agents["claude:work-fast"]
+    assert fast.command == "claude"
+    assert fast.upstream == "https://work.example"
+    assert fast.args == ["--fast"]
+    # An unknown base is no one's variant: the profile stands on its own.
+    assert load_config(config, agent="foo:bar").agents["foo:bar"].command == "foo-tool"
+
+
 @pytest.mark.parametrize(
     ("profile", "message"),
     [

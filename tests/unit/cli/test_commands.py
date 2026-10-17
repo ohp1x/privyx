@@ -428,7 +428,15 @@ def test_run_unknown_target_without_env_var_is_a_usage_error(runner: CliRunner) 
     result = runner.invoke(cli, ["run", "some-tool"])
 
     assert result.exit_code != 0
+    assert "no agent profile 'some-tool'" in result.output
     assert "--env-var" in result.output
+
+
+def test_run_unknown_target_suggests_a_near_profile(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["run", "claude-discovery"])
+
+    assert result.exit_code != 0
+    assert "did you mean 'claude'?" in result.output
 
 
 def test_run_rejects_a_port_out_of_range(runner: CliRunner) -> None:
