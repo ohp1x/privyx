@@ -161,6 +161,24 @@ Set `WORK_ANTHROPIC_TOKEN` in your shell or secret manager before running
 name is visible in the preview; its value is masked. `--list` and `config
 --show` do not resolve references, so unused profiles need no credentials.
 
+A profile named `base:variant` is a variant of `base` when it sets no
+`extends` of its own and `base` is itself a profile: it inherits as if it
+said `extends: base`. Several endpoints or tokens for one tool then need no
+boilerplate, and `privyx run base` still launches the plain `base`:
+
+```yaml
+agents:
+  claude:work:
+    upstream: https://router.example.com
+    env_from: {ANTHROPIC_AUTH_TOKEN: WORK_ANTHROPIC_TOKEN}
+  claude:home:
+    upstream: https://home.example.com
+```
+
+Run them with `privyx run claude:work`. An explicit `extends` is always kept
+as written, and may name another `:` profile (`extends: claude:work`). A
+`base:variant` whose `base` is not a profile stands on its own.
+
 Inheritance is resolved after the layers are merged, using the parent's
 final configuration. Explicit child fields win over inherited fields even
 if the parent was updated in a later file. Lists replace; `env` and

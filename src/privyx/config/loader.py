@@ -199,6 +199,7 @@ def load_config(
 
     profiles = merged.get("agents")
     if isinstance(profiles, dict):
+        _apply_colon_inheritance(profiles)
         profiles, inherited_sources = resolve_profiles(profiles, origins)
         selected = profiles.get(agent) if agent else None
         # Reapply transport fields at their originating layer, so a late
@@ -226,6 +227,22 @@ def load_config(
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
+
+
+def _apply_colon_inheritance(profiles: dict[str, Any]) -> None:
+    """Make ``agent:profile`` a variant of ``agent`` when it says nothing else.
+
+    A profile named ``base:variant`` with no explicit ``extends`` and a ``base``
+    that is itself a profile inherits from it, so a one-line ``claude:work``
+    needs no ``command`` or ``extends``. An explicit ``extends`` is left as the
+    user wrote it, including one naming another ``:`` profile.
+    """
+    for name, profile in profiles.items():
+        if not isinstance(profile, dict) or ":" not in name:
+            continue
+        base = name.split(":", 1)[0]
+        if base in profiles and not profile.get("extends"):
+            profile["extends"] = base
 
 
 def _agent_layer(
