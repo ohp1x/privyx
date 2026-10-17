@@ -119,6 +119,7 @@ Privyx adds the `anthropic-version` header when the request has none.
 privyx run claude      # Claude Code
 privyx run codex       # Codex
 privyx run aider       # aider
+privyx run pi          # pi
 ```
 
 For a long-running proxy that several terminals share, start it once and set

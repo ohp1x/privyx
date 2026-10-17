@@ -40,7 +40,7 @@ pip install privyx
 it, and stops the proxy when the tool exits:
 
 ```bash
-privyx run claude        # Claude Code; also: codex, aider
+privyx run claude        # Claude Code; also: codex, aider, pi
 ```
 
 **With an application or any other client.** Start the proxy, then change the

@@ -72,6 +72,18 @@ Known targets, and where each gets the proxy's URL:
 | `codex` | `openai` | `-c openai_base_url=…/v1` (codex does not read `OPENAI_BASE_URL`), said again after your arguments when they hold a `-c` of their own, and `OPENAI_BASE_URL` |
 | `openai` | `openai` | `OPENAI_BASE_URL`, ending in `/v1` as the OpenAI SDK expects |
 | `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
+| `pi` | `anthropic` | `-e` with an extension Privyx ships, which sets the `baseUrl` of the pi provider named in `PRIVYX_PI_PROVIDER` (`anthropic`) to `PRIVYX_PI_BASE_URL` |
+
+pi has no base-URL variable or flag; the extension changes its provider for
+this run only, never `models.json`. Only that one provider goes through
+Privyx, so pi refuses a model of any other provider at startup, puts the
+previous model back when `/model` picks one, and does not send a prompt to
+it. For another provider, set `PRIVYX_PI_PROVIDER` and the upstream in a
+profile (`pi:deepseek` in [Coding agents](../tutorials/coding-agents.md)).
+The provider's base URL must have no path of its own, since the
+transparent proxy keeps only the upstream's origin: groq, openrouter, and
+other providers under a base path call paths outside `proxy.routes`, which
+are forwarded unmasked.
 
 Claude Code keeps only the last `--settings`: one of your own, after `--`,
 replaces Privyx's. Codex drops every `-c` given before a subcommand once one

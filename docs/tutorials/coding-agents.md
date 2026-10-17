@@ -1,5 +1,5 @@
 ---
-description: Run Claude Code, Codex, or aider through Privyx so that the secrets and personal data they read from your project are masked before they reach the provider.
+description: Run Claude Code, Codex, aider, or pi through Privyx so that the secrets and personal data they read from your project are masked before they reach the provider.
 ---
 
 # Coding agents
@@ -11,7 +11,7 @@ internal git remote. This tutorial runs the agent through Privyx, so those
 values are masked on the way out and restored on the way back.
 
 **You need:** Privyx [installed](../guide/installation.md), and Claude Code,
-Codex, or aider working on its own. **Time:** ten minutes.
+Codex, aider, or pi working on its own. **Time:** ten minutes.
 
 ## 1. Start the tool through Privyx
 
@@ -68,6 +68,32 @@ The other tools it knows:
 
     Privyx sets `OPENAI_API_BASE` and `OPENAI_BASE_URL` for it, both ending
     in `/v1`.
+
+=== "pi"
+
+    ```bash
+    privyx run pi
+    ```
+
+    pi reads no base-URL variable, so Privyx loads a small extension
+    (`pi -e`) that points pi's `anthropic` provider at the proxy for this
+    run. Your `models.json` is not changed. Another pi provider needs a
+    profile naming it and its upstream:
+
+    ```yaml
+    agents:
+      pi:deepseek:
+        provider: openai
+        upstream: https://api.deepseek.com
+        env: {PRIVYX_PI_PROVIDER: deepseek}
+    ```
+
+    ```bash
+    privyx run pi:deepseek -- --provider deepseek
+    ```
+
+    A model from any other pi provider would bypass Privyx, so pi refuses
+    it: at startup, and when you switch to it with `/model`.
 
 === "Another tool"
 

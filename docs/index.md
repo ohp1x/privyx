@@ -25,7 +25,7 @@ only thing that changes in your client is its base URL.
 
     ```bash
     pip install privyx
-    privyx run claude        # or: codex, aider
+    privyx run claude        # or: codex, aider, pi
     ```
 
     Claude Code starts as usual, with its traffic going through Privyx.
