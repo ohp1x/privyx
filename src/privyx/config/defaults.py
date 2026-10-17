@@ -28,6 +28,13 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "env_vars": ["OPENAI_API_BASE", "OPENAI_BASE_URL"],
         "base_path": "/v1",
     },
+    "pi": {
+        "command": "pi",
+        "adapter": "pi",
+        "provider": "anthropic",
+        "env_vars": ["PRIVYX_PI_BASE_URL"],
+        "env": {"PRIVYX_PI_PROVIDER": "anthropic"},
+    },
 }
 
 DEFAULTS: dict[str, object] = {

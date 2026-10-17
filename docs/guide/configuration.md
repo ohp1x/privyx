@@ -109,7 +109,7 @@ ships them under `/app/configs`.
 ### `agents`
 
 Named launch profiles for `privyx run`. The built-in `claude`, `codex`,
-`openai`, and `aider` profiles can be overridden field by field. New profiles
+`openai`, `aider`, and `pi` profiles can be overridden field by field. New profiles
 need a `command` or can inherit it with `extends`. Give `env_vars` so Privyx
 knows where to inject its URL, or use an adapter that injects a CLI override.
 
@@ -136,7 +136,7 @@ privyx run claude-work
 | `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the preset's list; CLI `--env-var` adds names. |
 | `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
 | `extends` | `null` | Parent profile name. Inherits command, transport, adapter, args, and environment settings. Unknown parents and cycles are rejected. |
-| `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`. `auto` detects a Claude/Codex profile or executable name, otherwise uses `env`. The built-in Claude and Codex presets explicitly select their adapters. |
+| `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`; `pi` also injects `-e` with Privyx's pi extension. `auto` detects a Claude/Codex/pi profile or executable name, otherwise uses `env`. The built-in Claude, Codex, and pi presets explicitly select their adapters. |
 | `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Arguments are passed without a shell or interpolation. |
 | `env` | `{}` | Destination environment variable name → literal string value. Values must be strings: quote YAML booleans/numbers. Merged by name over the shell environment; values are masked in previews and config dumps. |
 | `env_from` | `{}` | Destination environment variable name → source variable name in the parent shell. Resolve only for the selected launch; a missing source fails before any resource opens. An existing empty source value is allowed. Values are never expanded from profile `env`. |

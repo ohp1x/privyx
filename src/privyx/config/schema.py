@@ -260,7 +260,7 @@ class AgentConfig(BaseModel):
     env_vars: list[str] = Field(default_factory=list)
     base_path: str = ""
     extends: str | None = None
-    adapter: Literal["auto", "env", "claude", "codex"] = "auto"
+    adapter: Literal["auto", "env", "claude", "codex", "pi"] = "auto"
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     env_from: dict[str, str] = Field(default_factory=dict)

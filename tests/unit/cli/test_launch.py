@@ -183,3 +183,63 @@ def test_cli_finds_command_using_profile_path(tmp_path: Path) -> None:
     )
     result = CliRunner().invoke(cli, ["run", "--no-anchor", "-c", str(config), "work"])
     assert result.exit_code == 9, result.output
+
+
+def test_pi_adapter_loads_the_shipped_extension_before_user_args() -> None:
+    target = profile_target("pi", AgentConfig(command="pi", adapter="pi"))
+    plan = build_launch_plan(target, ["--model", "x"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
+    assert plan.argv[0] == "-e" and Path(plan.argv[1]).is_file()
+    assert plan.argv[2:] == ["--model", "x"]
+    assert plan.environment["PRIVYX_PI_BASE_URL"] == "http://127.0.0.1:1234"
+
+
+# The extension's guards, run in node against a stand-in for pi's API.
+_PI_GUARDS = """
+const ext = (await import(process.argv[1])).default;
+const handlers = {}, registered = [], selected = [];
+const pi = {
+  registerProvider: (name, config) => registered.push([name, config.baseUrl]),
+  on: (event, handler) => { handlers[event] = handler; },
+  setModel: async (model) => { selected.push(model.id); return true; },
+};
+ext(pi);
+const proxy = { provider: "anthropic", id: "a", baseUrl: process.env.PRIVYX_PI_BASE_URL };
+const other = { provider: "deepseek", id: "d", baseUrl: "https://api.deepseek.com" };
+const notes = [];
+const ctx = (model) => ({ model, ui: { notify: (m) => notes.push(m) } });
+await handlers.model_select({ model: other, previousModel: proxy }, ctx(other));
+const allowed = handlers.input({}, ctx(proxy)).action;
+const blocked = handlers.input({}, ctx(other)).action;
+const blockedExit = process.exitCode;
+process.exitCode = 0;
+const payload = { registered, selected, allowed, blocked, blockedExit, notes: notes.length };
+console.log(JSON.stringify(payload));
+"""
+
+
+def test_pi_extension_keeps_every_model_on_the_proxy(tmp_path: Path) -> None:
+    import json
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    extension = profile_target("pi", AgentConfig(command="pi", adapter="pi"))
+    path = build_launch_plan(extension, [], Settings(), 1, ()).argv[1]
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", _PI_GUARDS, Path(path).as_uri()],
+        env={"PRIVYX_PI_PROVIDER": "anthropic", "PRIVYX_PI_BASE_URL": "http://127.0.0.1:1"},
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=tmp_path,
+    )
+    assert json.loads(result.stdout) == {
+        "registered": [["anthropic", "http://127.0.0.1:1"]],
+        "selected": ["a"],  # switching away put the proxied model back
+        "allowed": "continue",
+        "blocked": "handled",  # a prompt never reaches a model outside the proxy
+        "blockedExit": 1,
+        "notes": 2,
+    }

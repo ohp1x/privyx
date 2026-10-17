@@ -72,6 +72,7 @@ Pick the tab that matches what you use.
     privyx run claude            # Claude Code
     privyx run codex             # Codex
     privyx run aider             # aider
+    privyx run pi                # pi
     ```
 
     ```console

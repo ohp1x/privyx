@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **CLI:** an agent profile named `base:variant` inherits from `base` without repeating `extends`, so one tool can keep several endpoints or tokens; `privyx run` now names an unknown profile and suggests its base
+- **CLI:** `privyx run pi` launches pi through Privyx with a one-run extension, without changing its `models.json`
 
 ## [0.1.19] - 2026-10-17
 

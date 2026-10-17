@@ -65,6 +65,7 @@ def test_dry_run_is_side_effect_free(
         ("codex", "openai_base_url="),
         ("aider", "OPENAI_API_BASE"),
         ("openai", "OPENAI_BASE_URL"),
+        ("pi", "PRIVYX_PI_BASE_URL"),
     ],
 )
 def test_dry_run_preserves_builtin_wiring(name: str, override: str) -> None:

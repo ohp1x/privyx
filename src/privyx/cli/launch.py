@@ -30,9 +30,15 @@ def codex_args(base_url: str, argv: list[str]) -> list[str]:
     return [*override, *argv[:end], *(override if own else []), *argv[end:]]
 
 
+def pi_args(base_url: str, argv: list[str]) -> list[str]:
+    # pi reads no base-URL variable; the extension takes PRIVYX_PI_BASE_URL.
+    return ["-e", str(Path(__file__).with_name("pi_extension.js")), *argv]
+
+
 ADAPTERS: dict[str, Callable[[str, list[str]], list[str]]] = {
     "claude": claude_args,
     "codex": codex_args,
+    "pi": pi_args,
 }
 
 
