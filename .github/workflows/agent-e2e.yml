@@ -54,7 +54,7 @@ jobs:
           args=(--agent "$AGENT")
           if [ "$MODE" = transparent ]; then args+=(--transparent); fi
           uv run python scripts/test-e2e/run.py "${args[@]}"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: agent-e2e-${{ matrix.agent }}-${{ matrix.mode }}
