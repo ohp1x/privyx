@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-10-31
+
 ### Added
 
 - **CLI:** an agent profile named `base:variant` inherits from `base` without repeating `extends`, so one tool can keep several endpoints or tokens; `privyx run` now names an unknown profile and suggests its base
@@ -419,7 +421,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/ohp1x/privyx/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/ohp1x/privyx/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/ohp1x/privyx/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/ohp1x/privyx/compare/v0.1.16...v0.1.17
