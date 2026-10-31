@@ -7,9 +7,11 @@ import os
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 
+from privyx.cli.codex import provider_names
 from privyx.config.schema import AgentConfig, Settings
 from privyx.core.errors import ConfigError
 from privyx.providers.registry import resolve_base_url, resolve_origin
@@ -22,8 +24,13 @@ def claude_args(base_url: str, argv: list[str]) -> list[str]:
     return ["--settings", json.dumps({"env": {"ANTHROPIC_BASE_URL": base_url}}), *argv]
 
 
-def codex_args(base_url: str, argv: list[str]) -> list[str]:
+def codex_args(base_url: str, argv: list[str], *, providers: tuple[str, ...] = ()) -> list[str]:
     override = ["-c", f"openai_base_url={json.dumps(base_url)}"]
+    for provider in providers:
+        override += [
+            "-c",
+            f"model_providers.{provider}.base_url={json.dumps(base_url)}",
+        ]
     # Codex drops -c before a subcommand once another -c follows it.
     end = argv.index("--") if "--" in argv else len(argv)
     own = any(arg.startswith(("-c", "--config")) for arg in argv[:end])
@@ -155,6 +162,11 @@ def build_launch_plan(
         custom[destination] = inherited[reference]
         origin = provenance.get(prefix + "env_from." + destination, "profile")
         env_sources[destination] = f"{origin}; env_from {reference}"
+    if spec.args is codex_args:
+        # Bind discovery to the same environment/argv snapshot as execution;
+        # binding a real port must not reread Codex config or change auth.
+        providers = provider_names({**inherited, **custom}, [*spec.default_args, *argv])
+        spec = replace(spec, args=partial(codex_args, providers=providers))
     for key in env_vars:
         env_sources[key] = (
             "CLI" if key in extra_env_vars else provenance.get(prefix + "env_vars", "defaults")

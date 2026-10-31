@@ -29,4 +29,5 @@ def home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPat
     path = tmp_path_factory.mktemp("home")
     for var in _HOME_VARS:
         monkeypatch.setenv(var, str(path))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
     return path

@@ -56,9 +56,10 @@ The other tools it knows:
       OPENAI_BASE_URL = http://127.0.0.1:43407/v1
     ```
 
-    This covers Codex's built-in `openai` provider. With a `model_provider`
-    of your own in Codex's config, Codex does not go through Privyx; see
-    [Check that it works](#3-check-that-it-works).
+    This covers Codex's built-in `openai` provider and custom providers such as
+    a company router. Privyx overrides the custom providers' base URLs while
+    preserving their headers and authentication settings. The overrides apply
+    only to this launch; your Codex config files are unchanged.
 
 === "aider"
 
@@ -223,8 +224,9 @@ Two things to look for:
     Warning: no request from claude reached Privyx; if it called its provider, it did so directly, without masking.
     ```
 
-    That happens when the tool's own configuration outranks what `privyx run`
-    sets: a `model_provider` of your own in Codex, or a `--settings` of your
+    Opening the tool and exiting without sending a prompt also produces this
+    warning. If a new answer was generated, check whether the tool's own
+    configuration outranks what `privyx run` sets, such as a `--settings` of your
     own after `--` for Claude Code. If your Claude Code settings point
     `ANTHROPIC_BASE_URL` at a router or another proxy, give that URL to
     Privyx instead, as `privyx run -u URL claude`: Privyx then sits in front

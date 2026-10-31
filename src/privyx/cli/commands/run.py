@@ -19,11 +19,15 @@ both commands behave identically.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import shlex
 import shutil
 import socket
 import sys
+from contextlib import nullcontext
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -36,6 +40,7 @@ from privyx.cli.launch import (
     build_launch_plan,
     profile_target,
 )
+from privyx.cli.native import can_exec_agent, exec_agent, wait_for_agent_exit
 from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.config.schema import AgentConfig
 
@@ -211,6 +216,25 @@ def run(
         sys.exit(127)
 
     try:
+        if can_exec_agent():
+
+            async def serve(ready: socket.socket, parent: int) -> int:
+                return await _run_target(
+                    spec=spec,
+                    argv=list(args),
+                    config_path=config_path,
+                    upstream=upstream,
+                    port=port,
+                    env_vars=all_env_vars,
+                    session_strategy=session_strategy,
+                    no_anchor=no_anchor,
+                    settings=settings,
+                    plan=plan,
+                    ready=ready,
+                    parent=parent,
+                )
+
+            exec_agent(plan, serve, _show_running)
         code = asyncio.run(
             _run_target(
                 spec=spec,
@@ -229,6 +253,15 @@ def run(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     sys.exit(code)
+
+
+def _show_running(plan: LaunchPlan) -> None:
+    from privyx.config.redact import redact, redact_argv
+
+    click.echo(f"Privyx proxy → {redact(plan.route, 'url')}", err=True)
+    click.echo(f"Running: {shlex.join(redact_argv([plan.command, *plan.argv]))}", err=True)
+    click.echo(f"  {', '.join(plan.env_vars)} = {plan.base_url}", err=True)
+    _set_terminal_title(plan.profile)
 
 
 def _show_plan(plan: LaunchPlan) -> None:
@@ -268,6 +301,8 @@ async def _run_target(
     no_anchor: bool = False,
     settings: Settings | None = None,
     plan: LaunchPlan | None = None,
+    ready: socket.socket | None = None,
+    parent: int | None = None,
 ) -> int:
     """Start the proxy, run the tool against it, and tear everything down.
 
@@ -282,13 +317,12 @@ async def _run_target(
         The tool's exit code.
     """
     from privyx.cli.commands.proxy import build_transparent_proxy
-    from privyx.config.redact import redact, redact_argv
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.gateway.server import Gateway
     from privyx.gateway.transparent import create_transparent_app
     from privyx.observability.logging import configure_logging
     from privyx.plugins.loader import load_plugins
-    from privyx.providers.registry import build_provider, resolve_base_url, resolve_origin
+    from privyx.providers.registry import build_provider
     from privyx.security.keys import read_or_create_anchor_secret
 
     if settings is None:
@@ -309,26 +343,32 @@ async def _run_target(
     if settings.proxy.mode == "gateway":
         provider = build_provider(settings)
         app = Gateway(engine=engine, provider=provider, settings=settings, audit=audit).app
-        close_upstream, target = provider.close, resolve_base_url(settings)
+        close_upstream = provider.close
     else:
         proxy = build_transparent_proxy(settings, engine, audit)
         app = create_transparent_app(engine, proxy, settings)
-        close_upstream, target = proxy.close, resolve_origin(settings)
+        close_upstream = proxy.close
     await hooks.run_startup()
 
     counted = _Counted(app)
     server = _make_server(counted, settings, bound_port)
+    if parent is not None:
+        # The worker handles SIGTERM itself; uvicorn must not re-raise it during cleanup.
+        server.capture_signals = nullcontext
     serve_task = asyncio.create_task(server.serve(sockets=[sock]))
     try:
         await _wait_until_started(server, serve_task)
         plan = plan.bind_port(bound_port)
 
         # On stderr: stdout is the tool's, and may be piped into a parser.
-        click.echo(f"Privyx proxy → {redact(target, 'url')}", err=True)
-        click.echo(f"Running: {shlex.join(redact_argv([plan.command, *plan.argv]))}", err=True)
-        click.echo(f"  {', '.join(plan.env_vars)} = {plan.base_url}", err=True)
-
-        code = await _spawn(plan)
+        if ready is not None and parent is not None:
+            ready.sendall(json.dumps({"port": bound_port}).encode() + b"\n")
+            ready.close()
+            await wait_for_agent_exit(parent)
+            code = 0
+        else:
+            _show_running(plan)
+            code = await _spawn(plan)
         if not counted.requests:
             # What a tool that ignores the proxy URL looks like from here.
             click.echo(
@@ -405,6 +445,22 @@ async def _wait_until_started(server: Any, serve_task: asyncio.Task[Any]) -> Non
             await serve_task  # re-raise the startup failure
             raise RuntimeError("proxy exited before it finished starting")
         await asyncio.sleep(0.02)
+
+
+def _set_terminal_title(name: str) -> None:
+    """Give terminals a title when the child does not set one of its own."""
+    stream = sys.stderr
+    if not stream.isatty() or os.environ.get("TERM") == "dumb":
+        return
+
+    # Shell preexec hooks may have named the tab after privyx or uv. Set a
+    # fallback once so the agent can replace it with its own dynamic title.
+    # Terminals configured to show only the process name may ignore this.
+    # Never put control characters in OSC data, or include arguments that might
+    # contain secrets.
+    title = "".join(char for char in Path(name).name if char.isprintable())
+    stream.write(f"\033]0;{title}\007")
+    stream.flush()
 
 
 async def _spawn(plan: LaunchPlan) -> int:

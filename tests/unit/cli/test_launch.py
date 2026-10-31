@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -9,12 +10,73 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from privyx.cli.commands.run import _show_plan, _spawn
+from privyx.cli.commands.run import TARGETS, _set_terminal_title, _show_plan, _show_running, _spawn
 from privyx.cli.launch import build_launch_plan, profile_target
 from privyx.cli.main import cli
 from privyx.config.loader import load_config
 from privyx.config.schema import AgentConfig, Settings
 from privyx.core.errors import ConfigError
+
+
+@pytest.mark.parametrize("agent", [*TARGETS, "work"])
+async def test_announcement_sets_agent_title_before_launch_and_allows_child_updates(
+    monkeypatch: pytest.MonkeyPatch, agent: str
+) -> None:
+    # A custom profile may run a Python wrapper; its title should name the profile.
+    target = TARGETS.get(agent) or profile_target(agent, AgentConfig(command="python3"))
+    plan = build_launch_plan(target, [], Settings(), 1234, target.env_vars, name=agent)
+    terminal = io.StringIO()
+    monkeypatch.setattr(terminal, "isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr", terminal)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setattr("click.echo", lambda *args, **kwargs: None)
+
+    async def wait() -> int:
+        assert terminal.getvalue() == f"\033]0;{agent}\007"
+        terminal.write("\033]0;Agent's own session title\007")
+        return 7
+
+    process = AsyncMock()
+    process.wait.side_effect = wait
+    spawn = AsyncMock(return_value=process)
+    monkeypatch.setattr("asyncio.create_subprocess_exec", spawn)
+
+    _show_running(plan)
+    assert await _spawn(plan) == 7
+    spawn.assert_awaited_once_with(plan.command, *plan.argv, env=plan.environment)
+    assert terminal.getvalue() == f"\033]0;{agent}\007\033]0;Agent's own session title\007"
+
+
+@pytest.mark.parametrize(("tty", "term"), [(False, "xterm-256color"), (True, "dumb")])
+async def test_announcement_leaves_redirected_and_dumb_output_free_of_title_sequences(
+    monkeypatch: pytest.MonkeyPatch, tty: bool, term: str
+) -> None:
+    plan = build_launch_plan(TARGETS["codex"], [], Settings(), 1234, ())
+    terminal = io.StringIO()
+    monkeypatch.setattr(terminal, "isatty", lambda: tty)
+    monkeypatch.setattr("sys.stderr", terminal)
+    monkeypatch.setenv("TERM", term)
+    monkeypatch.setattr("click.echo", lambda *args, **kwargs: None)
+    process = AsyncMock()
+    process.wait.return_value = 0
+    monkeypatch.setattr("asyncio.create_subprocess_exec", AsyncMock(return_value=process))
+
+    _show_running(plan)
+    assert await _spawn(plan) == 0
+    assert terminal.getvalue() == ""
+
+
+def test_terminal_title_strips_path_and_control_characters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    terminal = io.StringIO()
+    monkeypatch.setattr(terminal, "isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr", terminal)
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+    _set_terminal_title("/tools/codex\007\033\n\r\x7f\x9c")
+
+    assert terminal.getvalue() == "\033]0;codex\007"
 
 
 def test_explicit_adapter_supports_wrapper_and_env_can_disable_it() -> None:
