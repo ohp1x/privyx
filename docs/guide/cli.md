@@ -264,6 +264,7 @@ Privyx Doctor
 =============
   ✓ plugins: no plugin paths configured
   ✓ detector: regex: 1 span(s) ['EMAIL']
+  ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok
   ✓ provider: generic → http://localhost:20128
   ✓ proxy: request transformed, 1 mapping(s) vaulted

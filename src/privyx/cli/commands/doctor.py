@@ -34,6 +34,7 @@ def doctor(config_path: str | None) -> None:
         # can see plugin-provided types.
         ("plugins", _check_plugins),
         ("detector", _check_detector),
+        ("permissions", _check_permissions),
         ("vault", _check_vault),
         ("provider", _check_provider),
         ("proxy", _check_proxy),
@@ -100,6 +101,65 @@ def _check_detector(config_path: str | None) -> tuple[bool, str]:
         return (False, "configured detector found nothing in a known-PII sample")
     types = sorted({span.entity_type for span in result.spans})
     return (True, f"{settings.detector_type}: {len(result.spans)} span(s) {types}")
+
+
+def _check_permissions(config_path: str | None) -> tuple[bool, str]:
+    """Sensitive files (.db, audit log, anchor.key) must be owner-only (0600)."""
+    import os
+    from pathlib import Path
+
+    if os.name != "posix":
+        return (True, "skipped: non-posix platform")
+
+    from privyx.core.builder import _sqlite_path
+    from privyx.security.keys import default_anchor_secret_path
+
+    settings = _settings(config_path)
+
+    candidates: list[Path] = [
+        default_anchor_secret_path(),
+        Path("anchor.key"),
+        Path("privyx-audit.log"),
+        Path("privyx.db"),
+        Path("privyx.db-wal"),
+        Path("privyx.db-shm"),
+    ]
+    if settings.vault.type == "sqlite":
+        db_path = _sqlite_path(settings.vault.dsn)
+        if db_path != ":memory:":
+            candidates.extend([Path(db_path), Path(f"{db_path}-wal"), Path(f"{db_path}-shm")])
+    if settings.audit.path:
+        candidates.append(Path(os.path.expanduser(settings.audit.path)))
+
+    seen: set[Path] = set()
+    insecure: list[str] = []
+    checked = 0
+
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+
+        try:
+            if not path.is_file():
+                continue
+            mode = path.stat().st_mode
+        except OSError:
+            continue
+
+        checked += 1
+        if mode & 0o077 != 0:
+            insecure.append(f"{path} ({oct(mode & 0o777)}): run 'chmod 600 {path}'")
+
+    if insecure:
+        return (False, f"insecure file permissions: {'; '.join(insecure)}")
+    if checked:
+        return (True, f"{checked} sensitive file(s) owner-only (0600)")
+    return (True, "sensitive files owner-only (0600)")
 
 
 def _check_vault(config_path: str | None) -> tuple[bool, str]:

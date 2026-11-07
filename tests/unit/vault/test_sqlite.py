@@ -114,7 +114,7 @@ async def test_new_files_are_owner_only(tmp_path: Path) -> None:
     assert modes == {"privyx.db": 0o600, "privyx.db-wal": 0o600, "privyx.db-shm": 0o600}
 
 
-async def test_an_existing_file_keeps_its_mode(tmp_path: Path) -> None:
+async def test_an_existing_file_is_tightened_to_owner_only(tmp_path: Path) -> None:
     path = tmp_path / "privyx.db"
     path.touch()
     path.chmod(0o644)
@@ -122,4 +122,4 @@ async def test_an_existing_file_keeps_its_mode(tmp_path: Path) -> None:
     await vault.connect()
     await vault.close()
 
-    assert path.stat().st_mode & 0o777 == 0o644
+    assert path.stat().st_mode & 0o777 == 0o600

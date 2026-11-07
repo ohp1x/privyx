@@ -323,6 +323,7 @@ def test_doctor_all_checks_pass_with_defaults(runner: CliRunner) -> None:
     checks = (
         "plugins",
         "detector",
+        "permissions",
         "vault",
         "provider",
         "proxy",
@@ -337,7 +338,7 @@ def test_doctor_all_checks_pass_with_defaults(runner: CliRunner) -> None:
 def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
     """All component checks plus effective route coverage are visible."""
     result = runner.invoke(cli, ["doctor"])
-    assert result.output.count("✓") + result.output.count("✗") == 8
+    assert result.output.count("✓") + result.output.count("✗") == 9
 
 
 def test_doctor_fails_on_broken_config(runner: CliRunner, tmp_path: Path) -> None:
@@ -355,6 +356,20 @@ def test_doctor_uses_the_configured_vault(runner: CliRunner, sqlite_config: Path
 
     assert result.exit_code == 0
     assert "✓ vault: sqlite" in result.output
+
+
+def test_doctor_detects_insecure_file_permissions(runner: CliRunner, tmp_path: Path) -> None:
+    db = tmp_path / "privyx.db"
+    db.touch()
+    db.chmod(0o644)
+    config = tmp_path / "c.yaml"
+    config.write_text(f"vault:\n  type: sqlite\n  dsn: {db}\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+
+    assert result.exit_code == 1
+    assert "✗ permissions" in result.output
+    assert "chmod 600" in result.output
 
 
 @pytest.mark.parametrize("passthrough", [False, True])

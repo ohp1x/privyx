@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -76,10 +77,20 @@ class SQLiteVault(BaseVault):
             # creates the -wal and -shm files with the database file's mode.
             with contextlib.suppress(OSError):  # it exists, or connect() says why not
                 Path(self._dsn).touch(mode=0o600, exist_ok=False)  # noqa: ASYNC240 - once per connect
+            if os.name == "posix":
+                with contextlib.suppress(OSError):
+                    os.chmod(self._dsn, 0o600)
+                for ext in ("-wal", "-shm"):
+                    with contextlib.suppress(OSError):
+                        os.chmod(f"{self._dsn}{ext}", 0o600)
         try:
             self._db = await aiosqlite.connect(self._dsn)
             await self._db.executescript(_PRAGMAS + _SCHEMA)
             await self._db.commit()
+            if os.name == "posix" and self._dsn != ":memory:":
+                for ext in ("-wal", "-shm"):
+                    with contextlib.suppress(OSError):
+                        os.chmod(f"{self._dsn}{ext}", 0o600)
         except sqlite3.Error as exc:
             # An open connection's thread would keep the process from exiting.
             await self.close()
