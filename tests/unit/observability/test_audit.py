@@ -294,6 +294,15 @@ def test_a_new_audit_file_is_owner_only(tmp_path: Path) -> None:
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_an_existing_audit_file_is_tightened_to_owner_only(tmp_path: Path) -> None:
+    path = tmp_path / "audit.log"
+    path.touch()
+    path.chmod(0o644)
+    build_audit_logger(Settings(audit=AuditConfig(enabled=True, path=str(path)))).close()
+
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
 def test_an_unwritable_audit_path_is_a_config_error(tmp_path: Path) -> None:
     (tmp_path / "file").write_text("")  # a file where a directory is needed
     settings = Settings(audit=AuditConfig(enabled=True, path=str(tmp_path / "file" / "audit.log")))
