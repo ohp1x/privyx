@@ -193,6 +193,68 @@ def test_pi_adapter_loads_the_shipped_extension_before_user_args() -> None:
     assert plan.environment["PRIVYX_PI_BASE_URL"] == "http://127.0.0.1:1234"
 
 
+def test_pi_provider_defaults_to_anthropic() -> None:
+    target = profile_target("pi", Settings().agents["pi"])
+    plan = build_launch_plan(target, ["--model", "x"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
+    assert plan.environment["PRIVYX_PI_PROVIDER"] == "anthropic"
+
+
+def test_pi_provider_syncs_with_overridden_target_provider() -> None:
+    target = profile_target("pi", AgentConfig(command="pi", adapter="pi", provider="openai"))
+    plan = build_launch_plan(
+        target,
+        ["--model", "x"],
+        Settings(),
+        1234,
+        ("PRIVYX_PI_BASE_URL",),
+        sources={"provider.type": "CLI"},
+    )
+    assert plan.environment["PRIVYX_PI_PROVIDER"] == "openai"
+    assert plan.env_sources["PRIVYX_PI_PROVIDER"] == "CLI"
+
+
+def test_pi_derived_profile_inherits_effective_provider() -> None:
+    target = profile_target(
+        "pi:deepseek",
+        AgentConfig(command="pi", adapter="pi", provider="openai"),
+    )
+    plan = build_launch_plan(
+        target,
+        ["--model", "x"],
+        Settings(),
+        1234,
+        ("PRIVYX_PI_BASE_URL",),
+    )
+    assert plan.environment["PRIVYX_PI_PROVIDER"] == "openai"
+
+
+def test_pi_provider_preserves_explicit_environment_override() -> None:
+    target = profile_target(
+        "pi:deepseek",
+        AgentConfig(
+            command="pi",
+            adapter="pi",
+            provider="openai",
+            env={"PRIVYX_PI_PROVIDER": "deepseek"},
+        ),
+    )
+    plan = build_launch_plan(
+        target,
+        ["--model", "x"],
+        Settings(),
+        1234,
+        ("PRIVYX_PI_BASE_URL",),
+    )
+    assert plan.environment["PRIVYX_PI_PROVIDER"] == "deepseek"
+
+
+def test_cli_run_override_provider_pi_updates_environment(home: Path) -> None:
+    result = CliRunner().invoke(cli, ["run", "--dry-run", "-p", "openai", "pi"])
+    assert result.exit_code == 0, result.output
+    assert "Provider: openai [CLI]" in result.output
+    assert "PRIVYX_PI_PROVIDER=*** [CLI]" in result.output
+
+
 # The extension's guards, run in node against a stand-in for pi's API.
 _PI_GUARDS = """
 const ext = (await import(process.argv[1])).default;

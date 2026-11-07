@@ -146,6 +146,9 @@ def build_launch_plan(
     provenance = dict(sources or {})
     prefix = f"agents.{name}."
     env_sources = {key: provenance.get(prefix + "env." + key, "profile") for key in custom}
+    if spec.adapter == "pi" and "PRIVYX_PI_PROVIDER" not in custom:
+        custom["PRIVYX_PI_PROVIDER"] = spec.provider
+        env_sources["PRIVYX_PI_PROVIDER"] = provenance.get("provider.type", "defaults")
     for destination, reference in spec.env_from.items():
         if reference not in inherited:
             raise ConfigError(

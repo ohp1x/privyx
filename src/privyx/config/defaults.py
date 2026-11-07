@@ -33,7 +33,6 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "adapter": "pi",
         "provider": "anthropic",
         "env_vars": ["PRIVYX_PI_BASE_URL"],
-        "env": {"PRIVYX_PI_PROVIDER": "anthropic"},
     },
 }
 
