@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-11-07
+
+### Fixed
+
+- **Security:** SQLite vault database files (`.db`, `-wal`, `-shm`) and audit log files now automatically tighten permissions to owner-only (`0600`) upon opening on POSIX systems, ensuring pre-existing or umask-created world-readable files are locked down
+- **CLI:** `privyx doctor` now checks sensitive file permissions (`.db`, audit log, and `anchor.key`), flagging any files readable by group or others with a recommendation to run `chmod 600`
+- **Proxy:** transparent proxy now supports the HTTP `HEAD` method across catch-all routing without rejecting requests with `405 Method Not Allowed`, returning upstream headers and status with an empty body
+- **CLI:** synchronize `PRIVYX_PI_PROVIDER` dynamically with the effective provider in `build_launch_plan` for `pi` agent instead of locking it to `anthropic`, enabling provider overrides (`privyx run -p openai pi`) and derived profiles while preserving explicit user environment overrides
+
 ## [0.1.20] - 2026-10-31
 
 ### Added
@@ -421,7 +430,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.20...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.21...HEAD
+[0.1.21]: https://github.com/ohp1x/privyx/compare/v0.1.20...v0.1.21
 [0.1.20]: https://github.com/ohp1x/privyx/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/ohp1x/privyx/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/ohp1x/privyx/compare/v0.1.17...v0.1.18
