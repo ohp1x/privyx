@@ -343,7 +343,7 @@ class TransparentProxy:
             resp_headers = filter_response_headers(response.headers)
             resp_headers["x-privyx-session"] = sid
 
-            is_stream = _SSE in resp_content_type
+            is_stream = _SSE in resp_content_type and method.upper() != "HEAD"
             self._audit.request(
                 method=method,
                 # An unmatched URL may itself contain PII. The route-decision
@@ -358,6 +358,17 @@ class TransparentProxy:
                 request_id=req_id,
                 transform_ms=transform_ms,
             )
+
+            if method.upper() == "HEAD":
+                await response.aclose()
+                if "content-length" in response.headers:
+                    resp_headers["content-length"] = response.headers["content-length"]
+                return ProxyResponse(
+                    status_code=response.status_code,
+                    headers=resp_headers,
+                    media_type=resp_content_type or None,
+                    body=b"",
+                )
 
             if is_stream:
                 try:

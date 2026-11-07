@@ -55,6 +55,10 @@ def _mock_client(capture: list[httpx.Request] | None = None) -> httpx.AsyncClien
         body = json.loads(request.content) if request.content else {}
 
         if path == "/v1/chat/completions":
+            if request.method == "HEAD":
+                return httpx.Response(
+                    200, headers={"content-type": "application/json", "content-length": "20"}
+                )
             content = body["messages"][-1]["content"]
             if body.get("stream"):
                 frames = (
@@ -774,3 +778,20 @@ async def test_default_strategy_is_ephemeral_and_audited() -> None:
     created = [r for r in records if r["event"] == "session.created"]
     assert len(created) == 2
     assert {r["source"] for r in created} == {"ephemeral"}
+
+
+async def test_head_method_returns_empty_body() -> None:
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    response = await proxy.handle(
+        method="HEAD",
+        path="/v1/chat/completions",
+        headers={},
+        body=b"",
+    )
+    assert response.status_code == 200
+    assert response.body == b""
+    assert response.stream is None
+    assert response.headers.get("content-length") == "20"
+    assert len(capture) == 1
+    assert capture[0].method == "HEAD"

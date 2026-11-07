@@ -18,7 +18,7 @@ from privyx.config.schema import Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.proxy.transparent import TransparentProxy
 
-_CATCH_ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+_CATCH_ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
 
 
 def create_transparent_app(
