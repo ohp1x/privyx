@@ -51,6 +51,11 @@ def _upstream(seen: list[bytes] | None = None) -> httpx.AsyncClient:
         if request.url.path == "/v1/responses":
             return _responses_reply(body)
         if request.url.path == "/v1/chat/completions":
+            if request.method == "HEAD":
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "application/json", "content-length": "42"},
+                )
             content = body["messages"][-1]["content"]
             if body.get("stream"):
                 frames = (
@@ -354,3 +359,33 @@ async def test_responses_stream_round_trip() -> None:
     assert "".join(deltas) == f"mail {EMAIL}"
     assert events[-1]["type"] == "response.completed"
     assert events[-1]["response"]["output"][0]["content"][0]["text"] == f"mail {EMAIL}"
+
+
+def test_head_request_with_test_client() -> None:
+    from starlette.testclient import TestClient
+
+    app = _app()
+    client = TestClient(app)
+
+    response = client.head("/v1/models")
+    assert response.status_code == 200
+    assert response.content == b""
+    assert "x-privyx-session" in response.headers
+
+    chat_resp = client.head("/v1/chat/completions")
+    assert chat_resp.status_code == 200
+    assert chat_resp.content == b""
+    assert chat_resp.headers.get("content-length") == "42"
+
+
+async def test_head_request_returns_upstream_status_with_empty_body() -> None:
+    async with _client(_app()) as client:
+        response = await client.head("/v1/models")
+        assert response.status_code == 200
+        assert response.content == b""
+        assert "x-privyx-session" in response.headers
+
+        chat_resp = await client.head("/v1/chat/completions")
+        assert chat_resp.status_code == 200
+        assert chat_resp.content == b""
+        assert chat_resp.headers.get("content-length") == "42"
