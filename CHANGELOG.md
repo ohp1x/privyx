@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Config:** a config file can pull in other files with `include`, globs allowed; its own settings win over the files it includes, and trusting it covers them
 - **Config:** a published JSON Schema of the config file, also printed by `privyx config --schema`, gives editors completion and typo checks
 - **Config:** a credential setting can name a 1Password item (`op://`) or a keychain entry (`keychain://`, with `privyx[keychain]`) instead of holding the secret
+- **Detection:** a custom pattern that can backtrack catastrophically, such as `(\d+)+`, logs a warning at startup
 
 ### Fixed
 
