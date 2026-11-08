@@ -44,6 +44,7 @@ dev = [
     "mypy>=1.10",
     "jsonschema>=4.18",
 ]
+keychain = ["keyring>=24"]
 
 [dependency-groups]
 # MkDocs 2.0 drops the plugin and theme system Material is built on.

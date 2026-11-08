@@ -86,6 +86,31 @@ vault.ttl
   Input should be greater than 0 [type=greater_than]
 ```
 
+## Secrets from a password manager
+
+A credential setting can name where the secret is kept instead of holding it:
+
+```yaml
+provider:
+  api_key: op://Private/Anthropic/credential   # 1Password, read with `op read`
+anchor:
+  secret: keychain://privyx/anchor              # the system keychain
+```
+
+- `op://vault/item/field` runs the [1Password CLI](https://developer.1password.com/docs/cli/)
+  (`op read`), which must be installed and signed in.
+- `keychain://service/account` reads the macOS Keychain, the Windows Credential
+  Manager, or the Secret Service on Linux. It needs `privyx[keychain]`; store
+  the entry with `keyring set privyx anchor`.
+
+References resolve only in credential settings: those whose name ends in
+`api_key`, `key`, `secret`, `password`, or `token`, and every value under
+`headers` and an agent's `env`. These are the settings `privyx config --show`
+masks, so a resolved secret is never printed. A reference anywhere else fails
+at startup. The secret is read each time the config loads and kept in memory
+only; a missing entry or a failed `op read` stops startup with the setting's
+name.
+
 ## Checking the result
 
 ```bash
