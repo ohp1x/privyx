@@ -388,7 +388,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 | `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
 | `term_variants` | `false` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
 | `context` | `{}` | `regex`, `yaml`: entity → words, one of which must be within five words of a match for it to count. |
-| `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`, `HIGH_ENTROPY`. |
+| `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`, `HIGH_ENTROPY`, `ASSIGNED_SECRET`. |
 | `entropy_threshold` | `3.0` | `HIGH_ENTROPY`: bits per character a string needs. |
 | `cache` | `true` | Reuse detections for text seen before. `true`/`false`, or `{enabled, max_size}` (`max_size` defaults to `10000`). An entry keeps a digest of the text and what was found in it, not the text. |
 | `language` | `en` | `presidio`: language of the text. |
