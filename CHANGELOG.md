@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.27] - 2026-11-09
+
 ### Added
 
 - **Masking:** `operator.type: partial` hides most of a value and keeps a little context, such as `a****@example.com` or `**** **** **** 1234`, and restores it in replies
@@ -502,7 +504,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.26...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.27...HEAD
+[0.1.27]: https://github.com/ohp1x/privyx/compare/v0.1.26...v0.1.27
 [0.1.26]: https://github.com/ohp1x/privyx/compare/v0.1.25...v0.1.26
 [0.1.25]: https://github.com/ohp1x/privyx/compare/v0.1.24...v0.1.25
 [0.1.24]: https://github.com/ohp1x/privyx/compare/v0.1.23...v0.1.24
