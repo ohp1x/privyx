@@ -235,6 +235,23 @@ privyx session prune --older-than 7d [--dry-run]
 | `prune` | `--older-than` | Required. Delete sessions idle at least this long: `30m`, `12h`, `7d`, `2w`. |
 | `prune` | `--dry-run` | List what would be deleted and delete nothing. |
 
+## `privyx inspect`
+
+Look into what Privyx does with a request, a pattern, or a token.
+
+```bash
+privyx inspect routes                     # which paths are masked, and with which schema
+privyx inspect regex EMPLOYEE_ID          # a configured entity's pattern
+privyx inspect regex '\bEMP-\d{6}\b'      # or a pattern you are writing
+privyx inspect token '<PRIVYX_EMAIL_1>'   # the session a token belongs to
+```
+
+| Command | Option | Description |
+|---|---|---|
+| `routes` | | The serving mode, the upstream, each path in `proxy.routes` with its wire schema, and what happens to any other path. |
+| `regex` | | Whether the pattern can backtrack catastrophically, and how fast it scans ordinary text. A configured entity name, built-in ones included, stands for its pattern. The timing stops after 5 seconds and reports the pattern as stalled, which also catches backtracking the static check misses. |
+| `token` | `--reveal` | The token's type, namespace, and id, then each session that holds it, with its creation, last activity, and expiry. The original value is masked unless `--reveal` is given. |
+
 `privyx inspect session SESSION_ID` is an older name for `privyx session show`.
 
 ## `privyx audit`
