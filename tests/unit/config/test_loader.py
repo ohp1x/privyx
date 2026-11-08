@@ -392,3 +392,77 @@ def test_an_error_never_shows_a_variable_value(
     with pytest.raises(ConfigError) as exc:
         load_config(cfg)
     assert "proj-abc123" not in str(exc.value)
+
+
+def test_include_merges_files_below_the_including_one(tmp_path: Path) -> None:
+    (tmp_path / "privyx.d").mkdir()
+    (tmp_path / "privyx.d" / "10-vault.yaml").write_text("vault:\n  ttl: 60\n", encoding="utf-8")
+    (tmp_path / "privyx.d" / "20-vault.yaml").write_text(
+        "vault:\n  ttl: 120\n  type: memory\n", encoding="utf-8"
+    )
+    (tmp_path / "terms.yaml").write_text(
+        "detector:\n  terms:\n    PROJECT: [bluebird]\n", encoding="utf-8"
+    )
+    cfg = _yaml(
+        tmp_path,
+        "include: ['./privyx.d/*.yaml', terms.yaml]\nsession:\n  strategy: client\n"
+        "vault:\n  ttl: 300\n",
+    )
+    sources: dict[str, str] = {}
+    settings = load_config(cfg, sources=sources)
+    assert settings.vault.ttl == 300  # the including file wins
+    assert settings.vault.type == "memory"  # the later include wins over the earlier
+    assert settings.detector.terms == {"PROJECT": ["bluebird"]}  # type: ignore[union-attr]
+    assert sources["detector.terms.PROJECT"] == str((tmp_path / "terms.yaml").resolve())
+    assert active_config_paths(cfg) == [
+        tmp_path / "privyx.d" / "10-vault.yaml",
+        tmp_path / "privyx.d" / "20-vault.yaml",
+        tmp_path / "terms.yaml",
+        cfg,
+    ]
+
+
+def test_a_glob_may_match_nothing(tmp_path: Path) -> None:
+    cfg = _yaml(tmp_path, "include: ['privyx.d/*.yaml']\n")
+    assert load_config(cfg).port == load_config().port
+
+
+def test_a_missing_included_file_fails(tmp_path: Path) -> None:
+    cfg = _yaml(tmp_path, "include: [gone.yaml]\n")
+    with pytest.raises(ConfigError, match="gone.yaml"):
+        load_config(cfg)
+
+
+def test_an_included_file_cannot_include(tmp_path: Path) -> None:
+    (tmp_path / "a.yaml").write_text("include: [b.yaml]\n", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("port: 9000\n", encoding="utf-8")
+    cfg = _yaml(tmp_path, "include: [a.yaml]\n")
+    with pytest.raises(ConfigError, match="cannot include files itself"):
+        load_config(cfg)
+
+
+def test_an_included_file_is_interpolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEST_PORT", "9200")
+    (tmp_path / "port.yaml").write_text("port: ${TEST_PORT}\n", encoding="utf-8")
+    assert load_config(_yaml(tmp_path, "include: [port.yaml]\n")).port == 9200
+
+
+def test_trust_covers_included_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    project = tmp_path / "project"
+    (project / "privyx.d").mkdir(parents=True)
+    monkeypatch.chdir(project)
+    (project / "privyx.yaml").write_text("include: ['privyx.d/*.yaml']\n", encoding="utf-8")
+    (project / "privyx.d" / "port.yaml").write_text("port: 9300\n", encoding="utf-8")
+    trust(project / "privyx.yaml")
+    assert load_config().port == 9300
+
+    (project / "privyx.d" / "port.yaml").write_text("port: 9301\n", encoding="utf-8")
+    assert load_config().port != 9301  # changed since trusted: not read
+    trust(project / "privyx.yaml")
+    assert load_config().port == 9301
+
+    (project / "privyx.d" / "upstream.yaml").write_text(
+        "upstream_url: https://evil.test\n", encoding="utf-8"
+    )
+    assert load_config().upstream_url != "https://evil.test"  # a new match needs trust too

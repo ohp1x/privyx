@@ -10,12 +10,13 @@ Precedence (low → high):
     6. Caller overrides such as command-line flags (``extra``)
 
 A file named with ``--config`` or ``PRIVYX_CONFIG`` is read alone, in place of
-3 and 4.
+3 and 4.  The files a config file names in ``include`` come just below it.
 """
 
 from __future__ import annotations
 
 import difflib
+import glob
 import hashlib
 import json
 import logging
@@ -62,11 +63,26 @@ def find_local_configs() -> list[Path]:
     ]
 
 
-def _fingerprint(path: Path) -> str:
+def _read_bytes(path: Path) -> bytes:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return path.read_bytes()
     except OSError as exc:
         raise ConfigError(f"cannot read config file {path}: {exc.strerror or exc}") from exc
+
+
+def _fingerprint(path: Path) -> str:
+    """SHA-256 of ``path`` and of every file it includes, so trust covers them all.
+
+    A file with no ``include`` hashes to the SHA-256 of its content alone.
+    """
+    digest = hashlib.sha256(_read_bytes(path))
+    try:
+        included = _included(path, _read_yaml(path))
+    except ConfigError:
+        included = []  # a broken file is reported when it is loaded
+    for file in included:
+        digest.update(b"\0" + str(file).encode() + b"\0" + _read_bytes(file))
+    return digest.hexdigest()
 
 
 def _trusted() -> dict[str, str]:
@@ -118,8 +134,11 @@ def _config_paths(path: str | Path | None) -> tuple[list[Path], list[Path]]:
 
 
 def active_config_paths(path: str | Path | None = None) -> list[Path]:
-    """The config files :func:`load_config` reads for ``path``, low → high precedence."""
-    return _config_paths(path)[0]
+    """The config files :func:`load_config` reads for ``path``, low → high precedence.
+
+    Each file comes after the files it includes.
+    """
+    return [file for config in _config_paths(path)[0] for file, _ in _config_layers(config)]
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -184,7 +203,8 @@ def load_config(
             config_file,
         )
     for config_file in config_files:
-        apply(_load_yaml(config_file), str(config_file.resolve()))
+        for file, data in _config_layers(config_file):
+            apply(data, str(file.resolve()))
 
     apply(env_config(), "environment")
 
@@ -328,7 +348,49 @@ def _section(annotation: Any) -> type[BaseModel] | None:
     return None
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+def _config_layers(path: Path) -> list[tuple[Path, dict[str, Any]]]:
+    """``path``'s included files, then ``path`` itself, each as read, low → high precedence.
+
+    An included file cannot include others: one level keeps the merge order
+    plain to see, and leaves no include loop to detect.
+    """
+    data = _read_yaml(path)
+    layers = []
+    for file in _included(path, data):
+        included = _read_yaml(file)
+        if "include" in included:
+            raise ConfigError(f"{file} is included by {path}, so it cannot include files itself")
+        layers.append((file, _interpolate(included, file)))
+    data.pop("include", None)
+    layers.append((path, _interpolate(data, path)))
+    return layers
+
+
+def _included(path: Path, data: dict[str, Any]) -> list[Path]:
+    """The files named by ``path``'s ``include``, in order, relative to its directory.
+
+    A glob's matches are sorted by name, and a glob may match nothing (an empty
+    ``privyx.d/``); a plain path must exist.  Paths are taken as written, not
+    interpolated, so the files that trust covers are the files that are read.
+    """
+    entries = data.get("include", [])
+    if isinstance(entries, str):
+        entries = [entries]
+    if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+        raise ConfigError(f"'include' in {path} must be a list of file paths or globs")
+    files: list[Path] = []
+    for entry in entries:
+        target = path.parent / Path(entry).expanduser()
+        if glob.escape(entry) != entry:
+            files += sorted(Path(m) for m in glob.glob(str(target)) if Path(m).is_file())
+        elif target.is_file():
+            files.append(target)
+        else:
+            raise ConfigError(f"config file not found: {target} (included by {path})")
+    return files
+
+
+def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"config file not found: {path}")
     with path.open("r", encoding="utf-8") as fh:
@@ -340,8 +402,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         raise ConfigError(f"config file must contain a mapping: {path}")
-    interpolated: dict[str, Any] = _interpolate(data, path)
-    return interpolated
+    return data
 
 
 #: ``$${`` (a literal ``${``), ``${NAME}``, ``${NAME:-default}``, or any other
