@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import string
 
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from privyx.core.session import Session
 from privyx.privacy.operator.base import restore
 from privyx.streaming.deanonymizer import TokenStreamProcessor
-from privyx.token.codec import FormatCodec
+from privyx.token.codec import CompactCodec, FormatCodec
 
 CODEC = FormatCodec.default()
 
@@ -152,3 +153,70 @@ def test_a_flush_ends_the_text_and_what_came_before_it_is_no_context() -> None:
     second = processor.feed("PRIVYX_EMAIL_1") + processor.flush()
 
     assert (first, second) == ("query", "alice@example.com")
+
+
+#: A compact codec's session: tokens of both forms, as after ``token.compact``
+#: was turned on mid-session.
+COMPACT = CompactCodec(CODEC)
+COMPACT_KNOWN = {
+    **KNOWN,
+    "<E~5>": "bob@example.com",
+    "<CC~0123456789ABCDEF>": "5500 0000 0000 0004",  # an anchor's id
+}
+COMPACT_PIECES = st.lists(
+    st.one_of(
+        FILLER,
+        st.sampled_from(
+            [*TOKENS, *BARE, *ALONE, "<E~5>", "<E~6>", "<CC~0123456789ABCDEF>", "0123456789ABCDEF"]
+        ),
+        st.just("~"),
+    ),
+    min_size=1,
+    max_size=12,
+)
+
+
+@given(pieces=COMPACT_PIECES, sizes=CHUNK_SIZES)
+@SETTINGS
+def test_compact_stream_equals_batch(pieces: list[str], sizes: list[int]) -> None:
+    text = "".join(pieces)
+    session = Session()
+    for pseudo, original in COMPACT_KNOWN.items():
+        session.put(pseudo, original)
+    batch = restore(text, session, COMPACT).text
+    processor = TokenStreamProcessor(COMPACT, COMPACT_KNOWN.get, COMPACT.ids(COMPACT_KNOWN))
+    stream = "".join([processor.feed(c) for c in _chunk(text, sizes)] + [processor.flush()])
+    assert stream == batch
+
+
+#: Configured formats that overlap compact tokens, either way round, with a
+#: session holding a token of each form.
+OVERLAPS = {
+    "<{type}~{id}>!": {"<EMAIL~1>!": "ana@example.com", "<E~2>": "bob@example.com"},
+    "<{type}~{id}": {"<EMAIL~1": "ana@example.com", "<E~2>": "bob@example.com"},
+}
+OVERLAP_PIECES = st.lists(
+    st.one_of(
+        FILLER,
+        st.sampled_from(["<EMAIL~1>!", "<EMAIL~1>", "<EMAIL~1", "<E~2>", "<E~2>!", "<E~2", "!"]),
+    ),
+    min_size=1,
+    max_size=12,
+)
+
+
+@pytest.mark.parametrize("fmt", list(OVERLAPS))
+@given(pieces=OVERLAP_PIECES, sizes=CHUNK_SIZES)
+@SETTINGS
+def test_compact_overlapping_format_stream_equals_batch(
+    fmt: str, pieces: list[str], sizes: list[int]
+) -> None:
+    codec, known = CompactCodec(FormatCodec(fmt)), OVERLAPS[fmt]
+    text = "".join(pieces)
+    session = Session()
+    for pseudo, original in known.items():
+        session.put(pseudo, original)
+    batch = restore(text, session, codec).text
+    processor = TokenStreamProcessor(codec, known.get, codec.ids(known))
+    stream = "".join([processor.feed(c) for c in _chunk(text, sizes)] + [processor.flush()])
+    assert stream == batch

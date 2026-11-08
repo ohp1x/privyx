@@ -441,6 +441,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 |---|---|---|
 | `namespace` | `PRIVYX` | Fills `{namespace}` in `format`. |
 | `format` | `<{namespace}_{type}_{id}>` | Placeholder template. Must contain `{type}` and `{id}`. |
+| `compact` | `false` | Issue short tokens such as `<E~1>`. Tokens in `format` are still restored. See [Compact tokens](masking.md#compact-tokens). |
 
 ### `audit`
 

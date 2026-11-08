@@ -46,7 +46,7 @@ from privyx.privacy.operator.redact import RedactOperator
 from privyx.privacy.policy.base import Policy
 from privyx.privacy.policy.loader import build_policy
 from privyx.security.keys import load_key
-from privyx.token.codec import FormatCodec, TokenCodec
+from privyx.token.codec import CompactCodec, FormatCodec, TokenCodec
 from privyx.vault.base import Vault
 from privyx.vault.memory import MemoryVault
 
@@ -95,7 +95,8 @@ def build_codec(settings: Settings) -> TokenCodec:
         TokenFormatError: If ``token.format`` is unusable (a ``ConfigError``, so
             an invalid syntax fails at startup rather than on the first request).
     """
-    return FormatCodec(settings.token.format, settings.token.namespace)
+    codec = FormatCodec(settings.token.format, settings.token.namespace)
+    return CompactCodec(codec) if settings.token.compact else codec
 
 
 def build_operator(

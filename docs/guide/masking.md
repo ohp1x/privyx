@@ -175,6 +175,22 @@ it is never looked for on its own.
 
 Any other change to a token is left as written.
 
+### Compact tokens
+
+In a long conversation the same placeholders come back on every turn. Set
+`token.compact` and they are issued short:
+
+```yaml
+token:
+  compact: true             # <E~1> instead of <PRIVYX_EMAIL_1>
+```
+
+The entity type is cut to the initials of its words (`EMAIL` is `E`,
+`CREDIT_CARD` is `CC`) and the id stays. Tokens in `token.format` are still
+restored, so a session that issued them before the switch keeps working. A
+compact token has no bare form; its id alone is restored under the same rules
+as above.
+
 ## Anchors
 
 By default a `pseudonym` token is a counter within its session:

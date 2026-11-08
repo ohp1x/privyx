@@ -690,6 +690,19 @@
           "default": "<{namespace}_{type}_{id}>",
           "title": "Format",
           "type": "string"
+        },
+        "compact": {
+          "title": "Compact",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
         }
       },
       "title": "TokenConfig",

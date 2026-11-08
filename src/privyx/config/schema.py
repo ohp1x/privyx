@@ -149,6 +149,8 @@ class TokenConfig(BaseModel):
 
     namespace: str = "PRIVYX"
     format: str = "<{namespace}_{type}_{id}>"
+    #: Issue short ``<E~1>`` tokens instead; ``format`` tokens still restore.
+    compact: bool = False
 
 
 class ProviderConfig(PluggableConfig):
