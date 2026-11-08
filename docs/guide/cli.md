@@ -263,6 +263,7 @@ Show the configuration.
 privyx config            # a summary
 privyx config --show     # every setting as JSON, credentials masked
 privyx config --path     # the config files in use, or "defaults"
+privyx config --schema   # the JSON Schema of a config file
 ```
 
 ## `privyx trust`
