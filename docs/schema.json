@@ -194,6 +194,19 @@
           "title": "Terms",
           "type": "object"
         },
+        "term_variants": {
+          "title": "Term Variants",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
         "context": {
           "additionalProperties": {
             "items": {

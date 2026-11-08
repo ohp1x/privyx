@@ -84,6 +84,7 @@ detector:
   #   PERSON:       [ann, bob]
   #   ORGANIZATION: [acme, initech]
   #   URL:          ["https://git.internal.example/team"]
+  # term_variants: false     # true: "Acme Corp" also matches acme-corp, acme_corp, ...
   # Opt-in built-ins: wallets and national IDs (checked by checksum or structure).
   # enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE,
   #          UK_NHS, IN_AADHAAR]

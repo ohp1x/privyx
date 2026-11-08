@@ -273,6 +273,32 @@ async def test_terms_match_a_url_verbatim() -> None:
     assert found == {"URL": [url]}
 
 
+@pytest.mark.parametrize("term", ["AcmeCorp", "Acme Corp", "acme-corp", "ACME_CORP"])
+@pytest.mark.asyncio
+async def test_terms_match_their_other_spellings(term: str) -> None:
+    text = "acmecorp, Acme Corp, acme-corp, ACME_CORP, acmeCorp, acme.corp"
+    found = await _detect_terms(text, terms={"ORG": [term]}, term_variants=True)
+    assert found == {"ORG": text.split(", ")}
+
+
+@pytest.mark.asyncio
+async def test_terms_match_only_as_written_without_term_variants() -> None:
+    text = "Acme Corp, acmecorp, acme-corp, acme_corp"
+    found = await _detect_terms(text, terms={"ORG": ["Acme Corp"]})
+    assert found == {"ORG": ["Acme Corp"]}
+
+
+@pytest.mark.asyncio
+async def test_terms_split_only_into_words_of_two_letters_or_more() -> None:
+    # "iPhone" is no "i phone"; a URL keeps its own spelling.
+    found = await _detect_terms(
+        "i phone, i-phone, git-internal.example/team",
+        terms={"PRODUCT": ["iPhone"], "URL": ["git.internal.example/team"]},
+        term_variants=True,
+    )
+    assert found == {}
+
+
 @pytest.mark.asyncio
 async def test_terms_keep_the_builtin_patterns() -> None:
     found = await _detect_terms("ann at a@example.com", terms={"PERSON": ["ann"]})

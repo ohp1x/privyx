@@ -146,6 +146,22 @@ Matching ignores case. Longer terms are tried first, so a compound term wins
 over a shorter term inside it. A term only matches as a whole word: `ann` does
 not match inside `annual`.
 
+With `term_variants: true`, a term of several words also matches its other
+spellings: `Acme Corp` or `AcmeCorp` matches `acmecorp`, `acme-corp`,
+`acme_corp`, `ACME_CORP`, and `acme.corp`:
+
+```yaml
+detector:
+  type: regex
+  term_variants: true
+  terms:
+    ORGANIZATION: [Acme Corp]
+```
+
+A word is split at a case change only when each part keeps two letters, so
+`iPhone` stays one word. A term with other characters, such as a
+URL, matches only as written.
+
 `terms` and `patterns` can be used together. If both name the same entity, the
 `patterns` regex wins.
 
