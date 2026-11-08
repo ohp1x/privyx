@@ -121,13 +121,15 @@ def _enabled(config: dict[str, Any]) -> dict[str, str]:
 
 
 def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[str, Any]:
-    """The ``context`` of a regex or yaml detector."""
+    """The ``context`` and ``entropy_threshold`` of a regex or yaml detector."""
     context = config.get("context") or {}
     unknown = sorted(set(context) - patterns.keys())
     if unknown:
         # Context only narrows an entity; one the detector lacks is a typo.
         raise ConfigError(f"detector 'context' names entities it does not detect: {unknown}")
     options: dict[str, Any] = {"context": context}
+    if config.get("entropy_threshold") is not None:
+        options["entropy_threshold"] = float(config["entropy_threshold"])
     return options
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
+import string
 
 import pytest
 
@@ -151,3 +153,40 @@ def test_context_for_an_entity_the_detector_lacks_is_rejected() -> None:
 def test_enable_rejects_an_unknown_entity() -> None:
     with pytest.raises(ConfigError, match="MRNN"):
         build_detector({"type": "regex", "enable": ["MRNN"]})
+
+
+_KEY = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(40))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "token q8Rz2LmXv4Tn7Kp1Wd9Hs3Jc in the log",
+        "YW5uOmh1bnRlcjJyb2Nrcw==",
+    ],
+)
+def test_high_entropy_strings_are_masked_when_enabled(text: str) -> None:
+    value = text.split()[1] if " " in text else text
+    assert _found(text) == []
+    assert _found(text, enable=["HIGH_ENTROPY"]) == [("HIGH_ENTROPY", value)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "commit 3f2a9b1c4d5e6f708192a3b4c5d6e7f8091a2b3c",
+        "id 123e4567-e89b-12d3-a456-426614174000",
+        "OAuth2AuthorizationCode getUserById2Async ISO8601DateFormatter",
+        "IMG_20240101_123456 k8sDeploymentConfig1",
+        "token <PRIVYX_EMAIL_ff8d9819fc0e> here",
+        "aA1aA1aA1aA1aA1aA1aA1",  # random-looking classes, little entropy
+    ],
+)
+def test_hashes_uuids_and_identifiers_are_not_high_entropy(text: str) -> None:
+    assert _found(text, enable=["HIGH_ENTROPY"]) == []
+
+
+def test_entropy_threshold_is_configurable() -> None:
+    text = f"key {_KEY}"
+    assert _found(text, enable=["HIGH_ENTROPY"]) == [("HIGH_ENTROPY", _KEY)]
+    assert _found(text, enable=["HIGH_ENTROPY"], entropy_threshold=7.0) == []

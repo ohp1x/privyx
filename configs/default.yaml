@@ -85,9 +85,11 @@ detector:
   #   ORGANIZATION: [acme, initech]
   #   URL:          ["https://git.internal.example/team"]
   # term_variants: false     # true: "Acme Corp" also matches acme-corp, acme_corp, ...
-  # Opt-in built-ins: wallets and national IDs (checked by checksum or structure).
+  # Opt-in built-ins: wallets and national IDs (checked by checksum or
+  # structure), then detectors that also catch more of what is not sensitive.
   # enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE,
-  #          UK_NHS, IN_AADHAAR]
+  #          UK_NHS, IN_AADHAAR, HIGH_ENTROPY]
+  # entropy_threshold: 3.0   # HIGH_ENTROPY: bits per character
   # An entity counts only with one of its words within five words of the match.
   # context:
   #   EMPLOYEE_ID: [employee, nip]

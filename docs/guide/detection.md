@@ -35,12 +35,14 @@ Names and anything specific to you need more configuration.
 ## Opt-in detectors
 
 These are off until a `regex` or `yaml` detector lists them under `enable`,
-so turning them on is your choice rather than a side effect of an upgrade:
+so turning them on is your choice rather than a side effect of an upgrade.
+`HIGH_ENTROPY` also catches more of what is not sensitive:
 
 ```yaml
 detector:
   type: regex
-  enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP]
+  enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, HIGH_ENTROPY]
+  entropy_threshold: 3.0     # HIGH_ENTROPY: bits per character
 ```
 
 | Entity | Matches |
@@ -53,6 +55,7 @@ detector:
 | `ES_NIF`, `ES_NIE` | Spanish DNI and NIE with a correct check letter |
 | `UK_NHS` | UK NHS numbers with a correct check digit, next to `nhs` |
 | `IN_AADHAAR` | Indian Aadhaar numbers with a correct check digit, next to `aadhaar` |
+| `HIGH_ENTROPY` | Strings of 16 to 512 characters that mix upper case, lower case, and digits at random, such as a key without a known prefix. Hex (git hashes, UUIDs) and identifiers made of words (`OAuth2AuthorizationCode`) are left alone. Raise `entropy_threshold` to mask fewer |
 
 ## Context words
 
