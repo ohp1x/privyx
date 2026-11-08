@@ -618,6 +618,19 @@
           ],
           "default": null,
           "title": "Max Connections"
+        },
+        "dlp_check": {
+          "title": "Dlp Check",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
         }
       },
       "title": "ProxyConfig",

@@ -54,6 +54,9 @@ class PrivacyEngine:
         audit: Optional audit logger for PII-safe privacy events (session
             created, transform, restore).  Defaults to a disabled no-op logger,
             so the engine stays transport-agnostic and testable without a file.
+        dlp_check: Ask transports to check a masked request for the values it
+            masked before sending it on
+            (:func:`privyx.proxy.schemas.find_leaks`).
     """
 
     def __init__(
@@ -64,6 +67,7 @@ class PrivacyEngine:
         vault: Vault | None = None,
         codec: TokenCodec | None = None,
         audit: AuditLogger | None = None,
+        dlp_check: bool = False,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -79,6 +83,7 @@ class PrivacyEngine:
         self._vault = vault
         self._codec = codec or FormatCodec.default()
         self._audit = audit or AuditLogger(None)
+        self.dlp_check = dlp_check
         # One lock per live session id; an entry disappears once nobody holds it.
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 

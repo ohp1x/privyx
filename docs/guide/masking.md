@@ -218,3 +218,22 @@ guessable key.
 
 Anchoring applies to the `pseudonym` operator. `privyx run` creates a secret in
 `~/.privyx/anchor.key` on first use; pass `--no-anchor` to skip that.
+
+## Leak check
+
+A value is masked where it is detected. The same value can also reach the
+provider somewhere Privyx does not mask: a field outside the conversation, a
+URL, a message `name`, a request header, or a thinking block sent back with its
+signature (which must stay as the provider wrote it). With `proxy.dlp_check`
+set, the proxy looks for every value a request masked in all of that request as
+it will be sent, and refuses the request with `422` if one is still there:
+
+```yaml
+proxy:
+  dlp_check: true
+```
+
+The check covers values that were detected somewhere in the request, not
+values no detector found. The credential headers (`Authorization`,
+`x-api-key`, `api-key`, `x-goog-api-key`) are not checked. A value that starts or ends with a letter or digit
+must stand as a whole word to count (`Bob` is not found in `Bobby`).

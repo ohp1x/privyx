@@ -34,11 +34,11 @@ from privyx.proxy.session import resolve_session_id
 from privyx.proxy.streaming import AuditedStream
 from privyx.proxy.transparent import (
     INVALID_BODY,
-    SCAN_FAILED_BODY,
     TOKEN_IDS_BODY,
     VAULT_UNAVAILABLE_BODY,
     log_scan_failure,
     log_vault_failure,
+    scan_failure,
     upstream_failure,
 )
 from privyx.streaming.adapters.registry import build_stream_adapter
@@ -180,7 +180,8 @@ class Gateway:
                         duration_ms=_elapsed_ms(start),
                     )
                     log_scan_failure(exc)
-                    return JSONResponse(SCAN_FAILED_BODY, status_code=503)
+                    status, error = scan_failure(exc)
+                    return JSONResponse(error, status_code=status)
 
                 transform_ms = _elapsed_ms(transform_start)
                 self._audit.set_session(session_id)

@@ -221,6 +221,8 @@ class ProxyConfig(BaseModel):
     timeout: float = Field(default=300.0, gt=0)  # seconds between bytes, read or write
     connect_timeout: float = Field(default=10.0, gt=0)
     max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
+    #: Refuse a masked request that still holds, anywhere, a value it masked.
+    dlp_check: bool = False
 
 
 class AuditConfig(BaseModel):

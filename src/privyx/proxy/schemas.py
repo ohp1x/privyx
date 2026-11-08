@@ -39,11 +39,13 @@ for every event it does not restore delta by delta.
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Generator, Mapping
+import re
+from collections.abc import Awaitable, Callable, Generator, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any
 
 from privyx.core.engine import PrivacyEngine
+from privyx.core.errors import LeakError
 from privyx.core.session import Session
 
 #: The schemas whose request/response bodies this module knows how to walk.
@@ -86,6 +88,12 @@ METADATA_KEYS: frozenset[str] = frozenset({"safeguards", "client_metadata"})
 
 #: Request headers that carry the same: Codex repeats its turn metadata in one.
 MASKED_HEADERS: frozenset[str] = frozenset({"x-codex-turn-metadata"})
+
+#: Request headers that carry the upstream credential: ``proxy.dlp_check`` does
+#: not look in them, as a key the user pasted into a prompt is also sent there.
+AUTH_HEADERS: frozenset[str] = frozenset(
+    {"authorization", "x-api-key", "api-key", "x-goog-api-key", "proxy-authorization"}
+)
 
 #: Query parameter names used for authentication (never masked).
 AUTH_QUERY_PARAMS: frozenset[str] = frozenset({"key", "api_key", "api-key", "access_token"})
@@ -185,13 +193,17 @@ async def transform_request(
         return _PREFIX_KEYS.index(key) if key in _PREFIX_KEYS else len(_PREFIX_KEYS)
 
     rebuilt: dict[str, Any] = {}
+    masked: set[str] = set()  # what this request masked, for engine.dlp_check
     scope: AbstractAsyncContextManager[Session] = (
         engine.session_scope(session_id) if session is None else nullcontext(session)
     )
     async with scope as held:
 
         async def transform(text: str) -> str:
-            return (await engine.transform(text, session=held, persist=False)).text
+            result = await engine.transform(text, session=held, persist=False)
+            if engine.dlp_check:
+                masked.update(t.original for t in result.transformations)
+            return result.text
 
         async def metadata(text: str) -> str:
             return await transform(_unescaped(text))
@@ -213,8 +225,54 @@ async def transform_request(
             for idx, (name, val) in enumerate(list(params)):
                 if name.lower() not in AUTH_QUERY_PARAMS:
                     params[idx] = (name, await metadata(val))
-    _pin_thinking(rebuilt.get("messages"))
+        # Checked as it will be sent: signed thinking text is put back first.
+        _pin_thinking(rebuilt.get("messages"))
+        if masked:
+            sent = [
+                rebuilt,
+                [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
+            ]
+            sent += [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS]
+            leaks = find_leaks(sent, masked)
+            if leaks:
+                raise LeakError(f"{leaks} masked value(s) still in the request")
     return {key: rebuilt[key] for key in payload}
+
+
+def find_leaks(value: Any, masked: set[str]) -> int:
+    """How many of the ``masked`` values are still in ``value``'s strings.
+
+    The check behind ``proxy.dlp_check``: a value masked in one place of a
+    request but sent as is in another (a field that is not walked, a URL, a
+    header, signed thinking text) is found here, and the request is refused.  Keys count as strings,
+    and a value that starts or ends with a letter or digit must stand as a
+    whole word there (``Bob`` is not found in ``Bobby``).
+    """
+    sent = "\0".join(_strings(value))
+    # A plain substring search first: most values are not there at all.
+    words = sorted((w for w in masked if w in sent), key=len, reverse=True)
+    if not words:
+        return 0
+    pattern = re.compile("|".join(_whole(word) for word in words))  # the longest first
+    return len(set(pattern.findall(sent)))
+
+
+def _whole(word: str) -> str:
+    left = r"(?<!\w)" if word[0].isalnum() else ""
+    right = r"(?!\w)" if word[-1].isalnum() else ""
+    return f"{left}{re.escape(word)}{right}"
+
+
+def _strings(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _strings(key)
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
 
 
 def _unescaped(text: str) -> str:
