@@ -308,6 +308,20 @@ def _assigned_value(match: re.Match[str]) -> bool:
     return has_letter and (has_digit or bool(_SYMBOL.search(value)))
 
 
+# --- Medical (opt-in) -------------------------------------------------------
+
+#: A medical record number after its label (English or Indonesian).
+MRN_PATTERN = r"""(?x)
+(?i: \b (?: mrn | medical[ \t]+record(?:[ \t]+(?:number|no\.?))? | no\.?[ \t]*rm
+           | nomor[ \t]+rekam[ \t]+medis | rekam[ \t]+medis ) )
+[ \t]* [:#=]? [ \t]*
+(?P<value> (?:[A-Z]{1,4}-?)? \d{5,12} ) \b
+"""
+
+#: An ICD-10 code (``E11.9``, ``J45.909``, ``S72.001A``, ``U07.1``); see :data:`CONTEXT`.
+ICD10_PATTERN = r"\b[A-Z]\d[0-9AB](?:\.[0-9A-Z]{1,4})?\b"
+
+
 # --- Registry ---------------------------------------------------------------
 
 #: Off unless a detector lists them under ``enable``.  Each ID pattern starts
@@ -325,6 +339,8 @@ OPTIONAL_PATTERNS: dict[str, str] = {
     "IN_AADHAAR": r"[2-9](?<!\d[2-9])(?<!\d[ -][2-9])\d{3}([ -]?)\d{4}\1\d{4}(?![\d-])",
     "HIGH_ENTROPY": HIGH_ENTROPY_PATTERN,
     "ASSIGNED_SECRET": ASSIGNMENT_PATTERN,
+    "MRN": MRN_PATTERN,
+    "ICD10": ICD10_PATTERN,
 }
 
 CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
@@ -346,4 +362,5 @@ CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
 CONTEXT: dict[str, frozenset[str]] = {
     "UK_NHS": frozenset({"nhs", "national health service"}),
     "IN_AADHAAR": frozenset({"aadhaar", "aadhar", "uid", "uidai"}),
+    "ICD10": frozenset({"icd", "icd10", "diagnosis", "diagnoses", "diagnosed", "diagnosa", "dx"}),
 }

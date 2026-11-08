@@ -88,7 +88,7 @@ detector:
   # Opt-in built-ins: wallets and national IDs (checked by checksum or
   # structure), then detectors that also catch more of what is not sensitive.
   # enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE,
-  #          UK_NHS, IN_AADHAAR, HIGH_ENTROPY, ASSIGNED_SECRET]
+  #          UK_NHS, IN_AADHAAR, HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10]
   # entropy_threshold: 3.0   # HIGH_ENTROPY: bits per character
   # An entity counts only with one of its words within five words of the match.
   # context:

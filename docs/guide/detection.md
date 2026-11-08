@@ -36,7 +36,8 @@ Names and anything specific to you need more configuration.
 
 These are off until a `regex` or `yaml` detector lists them under `enable`,
 so turning them on is your choice rather than a side effect of an upgrade.
-`HIGH_ENTROPY` and `ASSIGNED_SECRET` also catch more of what is not sensitive:
+`HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, and `ICD10` also catch more of what
+is not sensitive:
 
 ```yaml
 detector:
@@ -57,6 +58,8 @@ detector:
 | `IN_AADHAAR` | Indian Aadhaar numbers with a correct check digit, next to `aadhaar` |
 | `HIGH_ENTROPY` | Strings of 16 to 512 characters that mix upper case, lower case, and digits at random, such as a key without a known prefix. Hex (git hashes, UUIDs) and identifiers made of words (`OAuth2AuthorizationCode`) are left alone. Raise `entropy_threshold` to mask fewer |
 | `ASSIGNED_SECRET` | A value of 12 characters or more with letters and digits or symbols, assigned to any name in `.env`, YAML, JSON, or code (`FOO_BAR="…"`). Not words, numbers, paths, URLs, hosts, dates, versions, variables, or values of names such as `*_id`, `*_url`, `model`, or `version` |
+| `MRN` | A medical record number after its label: `MRN`, `medical record number`, `No. RM`, `nomor rekam medis` |
+| `ICD10` | ICD-10 diagnosis codes (`E11.9`, `S72.001A`, `U07.1`) next to a word such as `diagnosis`, `dx`, or `icd` |
 
 ## Context words
 
@@ -74,8 +77,8 @@ detector:
 ```
 
 Words are matched whole and ignoring case; an entry may be a phrase. For a
-built-in entity, the list replaces its own words (`UK_NHS` and `IN_AADHAAR` have some) or adds the
-requirement to one without them. `context` for
+built-in entity, the list replaces its own words (`UK_NHS`, `IN_AADHAAR`, and
+`ICD10` have some) or adds the requirement to one without them. `context` for
 an entity the detector does not detect stops Privyx at startup. The `presidio`
 detector weighs context words on its own and ignores this setting.
 

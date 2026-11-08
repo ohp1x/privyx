@@ -12,6 +12,7 @@ from privyx.core.context import Context
 from privyx.core.errors import ConfigError
 from privyx.privacy.detector.catalog import _BASE58
 from privyx.privacy.detector.yaml import build_detector
+from privyx.privacy.policy.strict import StrictPolicy
 
 #: The wallet and national-ID entities, turned on for every test below.
 CATALOG = [
@@ -227,3 +228,31 @@ def test_assigned_values_are_masked_when_enabled(text: str, value: str) -> None:
 )
 def test_assigned_values_that_cannot_be_secrets_are_kept(text: str) -> None:
     assert [e for e, _ in _found(text, enable=["ASSIGNED_SECRET"])] in ([], ["EMAIL"])
+
+
+@pytest.mark.parametrize(
+    ("text", "entity", "value"),
+    [
+        ("Patient MRN: 00123456", "MRN", "00123456"),
+        ("medical record number #AB-1234567", "MRN", "AB-1234567"),
+        ("No. RM 0012345", "MRN", "0012345"),
+        ("Diagnosis: E11.9 (type 2 diabetes)", "ICD10", "E11.9"),
+        ("ICD-10 code S72.001A", "ICD10", "S72.001A"),
+        ("Diagnosis: U07.1", "ICD10", "U07.1"),
+    ],
+)
+def test_medical_identifiers_are_masked_when_enabled(text: str, entity: str, value: str) -> None:
+    assert _found(text) == []
+    assert _found(text, enable=["MRN", "ICD10"]) == [(entity, value)]
+
+
+@pytest.mark.parametrize("text", ["see section A12 of the manual", "error E11.9 in build", "MRN"])
+def test_medical_look_alikes_are_kept(text: str) -> None:
+    assert _found(text, enable=["MRN", "ICD10"]) == []
+
+
+def test_strict_policy_keeps_an_enabled_opt_in_entity() -> None:
+    detector = build_detector({"type": "regex", "cache": False, "enable": ["MRN"]})
+    detection = detector.detect_sync("MRN 00123456", Context())  # type: ignore[attr-defined]
+    kept = StrictPolicy()._decide_sync(detection, Context())
+    assert [s.entity_type for s in kept.spans] == ["MRN"]
