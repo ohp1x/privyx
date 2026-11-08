@@ -386,6 +386,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 | `type` | `regex` | `regex`, `yaml`, `presidio`, `llm`, or a plugin detector. |
 | `patterns` | `{}` | Entity → regular expression. |
 | `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
+| `term_variants` | `false` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
 | `context` | `{}` | `regex`, `yaml`: entity → words, one of which must be within five words of a match for it to count. |
 | `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`. |
 | `cache` | `true` | Reuse detections for text seen before. `true`/`false`, or `{enabled, max_size}` (`max_size` defaults to `10000`). An entry keeps a digest of the text and what was found in it, not the text. |

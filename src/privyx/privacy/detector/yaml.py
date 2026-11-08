@@ -234,10 +234,11 @@ def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
     if not isinstance(patterns, dict):
         raise ConfigError("detector 'patterns' must be a mapping of entity -> regex")
     compiled = {str(k): str(v) for k, v in patterns.items()}
-    return {**_terms_to_patterns(config.get("terms", {})), **compiled}
+    terms = _terms_to_patterns(config.get("terms", {}), bool(config.get("term_variants")))
+    return {**terms, **compiled}
 
 
-def _terms_to_patterns(terms: Any) -> dict[str, str]:
+def _terms_to_patterns(terms: Any, variants: bool = False) -> dict[str, str]:
     """Compile literal term lists into one case-insensitive regex per entity.
 
     Matching is case-insensitive via an inline ``(?i:...)`` group rather than a
@@ -247,7 +248,8 @@ def _terms_to_patterns(terms: Any) -> dict[str, str]:
     Terms are ordered longest-first so a compound term wins over a substring of
     itself, and each one gets word boundaries only on the sides where it ends in
     a word character — that keeps ``ann`` out of ``annual`` while still matching
-    a URL that ends in ``/``.
+    a URL that ends in ``/``.  With ``variants``, a term of several words also
+    matches its other spellings (:func:`_variants`).
     """
     if not isinstance(terms, dict):
         raise ConfigError("detector 'terms' must be a mapping of entity -> list of strings")
@@ -260,6 +262,8 @@ def _terms_to_patterns(terms: Any) -> dict[str, str]:
                 f"got {type(values).__name__}"
             )
         cleaned = {str(v).strip() for v in values}
+        if variants:
+            cleaned = {variant for term in cleaned for variant in _variants(term)}
         cleaned.discard("")
         if not cleaned:
             # An empty alternation would match the empty string everywhere.
@@ -270,6 +274,32 @@ def _terms_to_patterns(terms: Any) -> dict[str, str]:
         alternatives = [_bounded(term) for term in ordered]
         patterns[str(entity)] = "(?i:" + "|".join(alternatives) + ")"
     return patterns
+
+
+#: A term written as words split by spaces, dots, dashes, or underscores.
+_WORDS = re.compile(r"[^\W_]+(?:[ ._-]+[^\W_]+)*")
+_CAMEL = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
+
+
+def _variants(term: str) -> set[str]:
+    """``term`` and its other spellings: ``Acme Corp`` also as ``acmecorp``,
+    ``acme-corp``, ``acme_corp``, and ``acme.corp``.
+
+    Words are split at separators and at case changes (``AcmeCorp``) when each
+    part keeps two characters or more.  Matching ignores case, so this covers
+    ``ACME_CORP`` and ``acmeCorp`` too.  A term with other characters (a URL,
+    an email) is kept as written.
+    """
+    if not _WORDS.fullmatch(term):
+        return {term}
+    words: list[str] = []
+    for word in re.split(r"[ ._-]+", term):
+        parts = _CAMEL.findall(word)
+        split = "".join(parts) == word and all(len(part) > 1 for part in parts)
+        words += parts if split else [word]
+    if len(words) < 2:
+        return {term}
+    return {term} | {sep.join(words) for sep in ("", " ", "-", "_", ".")}
 
 
 def _bounded(term: str) -> str:
