@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
@@ -339,4 +340,44 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         raise ConfigError(f"config file must contain a mapping: {path}")
-    return data
+    interpolated: dict[str, Any] = _interpolate(data, path)
+    return interpolated
+
+
+#: ``$${`` (a literal ``${``), ``${NAME}``, ``${NAME:-default}``, or any other
+#: ``${`` -- the last one a malformed reference.
+_REFERENCE = re.compile(r"\$\$\{|\$\{(?:([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\})?")
+
+
+def _interpolate(value: Any, path: Path) -> Any:
+    """Replace ``${NAME}`` and ``${NAME:-default}`` in every string value with the environment.
+
+    ``${NAME:-default}`` takes the default when ``NAME`` is unset or empty, as in
+    a shell.  An unset ``${NAME}`` with no default is an error: a missing key
+    would otherwise reach the upstream as an empty string.  ``$${`` writes a
+    literal ``${``.  Keys are left as written.
+    """
+    if isinstance(value, dict):
+        return {key: _interpolate(item, path) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_interpolate(item, path) for item in value]
+    if not isinstance(value, str) or "${" not in value:
+        return value
+
+    def substitute(match: re.Match[str]) -> str:
+        if match.group(0) == "$${":
+            return "${"
+        name, default = match.group(1), match.group(2)
+        if name is None:
+            raise ConfigError(
+                f"malformed variable reference in {path}: use ${{NAME}} or "
+                "${NAME:-default}, or $${ for a literal ${"
+            )
+        found = os.environ.get(name)
+        if default is not None:
+            return found or default
+        if found is None:
+            raise ConfigError(f"{path} uses ${{{name}}}, but {name} is not set")
+        return found
+
+    return _REFERENCE.sub(substitute, value)
