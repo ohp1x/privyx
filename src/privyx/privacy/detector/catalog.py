@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Collection
+from datetime import date
 from hashlib import sha256
 
 #: How many words on each side :func:`near` looks at, as Presidio does.
@@ -97,17 +98,143 @@ def _wallet(match: re.Match[str]) -> bool:
     )
 
 
+# --- National IDs -----------------------------------------------------------
+
+#: Province codes of an Indonesian NIK (Kemendagri).
+_NIK_PROVINCES = frozenset(
+    [*range(11, 20), 21, *range(31, 37), 51, 52, 53, *range(61, 66), *range(71, 77), 81, 82]
+    + [*range(91, 97)]
+)
+
+
+def _real_date(year: int, month: int, day: int) -> bool:
+    try:
+        date(year, month, day)
+    except ValueError:
+        return False
+    return True
+
+
+def _nik(match: re.Match[str]) -> bool:
+    """Indonesian NIK: province, regency, district, birth date (+40 for women), serial."""
+    nik = match[0]
+    day = int(nik[6:8])
+    return (
+        int(nik[:2]) in _NIK_PROVINCES
+        and nik[2:4] != "00"
+        and nik[4:6] != "00"
+        and _real_date(2000, int(nik[8:10]), day - 40 if day > 40 else day)
+        and nik[12:] != "0000"
+    )
+
+
+def _npwp(match: re.Match[str]) -> bool:
+    """Indonesian NPWP: the dotted form as written; 15 bare digits next to ``npwp``."""
+    return "." in match[0] or near(match.string, match.start(), match.end(), {"npwp"})
+
+
+def _nric_fin(match: re.Match[str]) -> bool:
+    """Singapore NRIC/FIN: weighted digit sum picks the final letter."""
+    value = match[0]
+    total = sum(int(d) * w for d, w in zip(value[1:8], (2, 7, 6, 5, 4, 3, 2), strict=True))
+    total += 4 if value[0] in "TG" else 0
+    letters = "JZIHGFEDCBA" if value[0] in "ST" else "XWUTRQPNMLK"
+    return letters[total % 11] == value[8]
+
+
+def _mykad(match: re.Match[str]) -> bool:
+    """Malaysian MyKad: ``YYMMDD-PB-###G`` with a real birth date."""
+    value = match[0]
+    return _real_date(2000, int(value[2:4]), int(value[4:6])) and value[7:9] != "00"
+
+
+_DNI_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE"
+
+
+def _dni(match: re.Match[str]) -> bool:
+    """Spanish DNI (NIF of a person): eight digits and a mod-23 letter."""
+    value = match[0].replace("-", "")
+    return _DNI_LETTERS[int(value[:8]) % 23] == value[8]
+
+
+def _nie(match: re.Match[str]) -> bool:
+    """Spanish NIE: X, Y, or Z (0, 1, 2), seven digits, and a mod-23 letter."""
+    value = match[0].replace("-", "")
+    return _DNI_LETTERS[int(str("XYZ".index(value[0])) + value[1:8]) % 23] == value[8]
+
+
+def _nhs(match: re.Match[str]) -> bool:
+    """UK NHS number: mod-11 check digit."""
+    digits = [int(char) for char in match[0] if char.isdigit()]
+    check = 11 - sum(d * w for d, w in zip(digits[:9], range(10, 1, -1), strict=True)) % 11
+    return (0 if check == 11 else check) == digits[9]
+
+
+_VERHOEFF_D = [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
+    [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
+    [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+    [4, 0, 1, 2, 3, 9, 5, 6, 7, 8],
+    [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+    [6, 5, 9, 8, 7, 1, 0, 4, 3, 2],
+    [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
+    [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
+    [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+]
+_VERHOEFF_P = [
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
+    [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+    [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+    [9, 4, 5, 3, 1, 2, 6, 8, 7, 0],
+    [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+    [2, 7, 9, 3, 8, 0, 6, 4, 1, 5],
+    [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
+]
+
+
+def _aadhaar(match: re.Match[str]) -> bool:
+    """Indian Aadhaar: Verhoeff check digit."""
+    check = 0
+    digits = [int(char) for char in match[0] if char.isdigit()]
+    for i, digit in enumerate(reversed(digits)):
+        check = _VERHOEFF_D[check][_VERHOEFF_P[i % 8][digit]]
+    return check == 0
+
+
 # --- Registry ---------------------------------------------------------------
 
-#: Off unless a detector lists them under ``enable``.
+#: Off unless a detector lists them under ``enable``.  Each ID pattern starts
+#: with a digit or letter, its left boundary checked after it: a pattern starting
+#: with a lookbehind is tried at every position, which made it 3-5 times slower.
 OPTIONAL_PATTERNS: dict[str, str] = {
     "CRYPTO_WALLET": WALLET_PATTERN,
+    "ID_NIK": r"\d(?<![\d.-]\d)\d{15}(?![\d.-])",
+    "ID_NPWP": r"\d(?<![\d.]\d)(?:\d\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3}|\d{14})(?![\d.-])",
+    "SG_NRIC_FIN": r"[STFG](?<!\w[STFG])\d{7}[A-Z]\b",
+    "MY_NRIC": r"\d(?<![\d-]\d)\d{5}-\d{2}-\d{4}(?![\d-])",
+    "ES_NIF": r"\d(?<!\w\d)\d{7}-?[A-Z]\b",
+    "ES_NIE": r"[XYZ](?<!\w[XYZ])-?\d{7}-?[A-Z]\b",
+    "UK_NHS": r"\d(?<!\d\d)(?<!\d[ -]\d)\d{2}([ -]?)\d{3}\1\d{4}(?![\d-])",
+    "IN_AADHAAR": r"[2-9](?<!\d[2-9])(?<!\d[ -][2-9])\d{3}([ -]?)\d{4}\1\d{4}(?![\d-])",
 }
 
 CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "CRYPTO_WALLET": _wallet,
+    "ID_NIK": _nik,
+    "ID_NPWP": _npwp,
+    "SG_NRIC_FIN": _nric_fin,
+    "MY_NRIC": _mykad,
+    "ES_NIF": _dni,
+    "ES_NIE": _nie,
+    "UK_NHS": _nhs,
+    "IN_AADHAAR": _aadhaar,
 }
 
 #: Words one of which must be near a match: the number alone says too little.
 #: A detector's own ``context`` for the entity replaces these.
-CONTEXT: dict[str, frozenset[str]] = {}
+CONTEXT: dict[str, frozenset[str]] = {
+    "UK_NHS": frozenset({"nhs", "national health service"}),
+    "IN_AADHAAR": frozenset({"aadhaar", "aadhar", "uid", "uidai"}),
+}
