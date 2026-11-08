@@ -190,3 +190,40 @@ def test_entropy_threshold_is_configurable() -> None:
     text = f"key {_KEY}"
     assert _found(text, enable=["HIGH_ENTROPY"]) == [("HIGH_ENTROPY", _KEY)]
     assert _found(text, enable=["HIGH_ENTROPY"], entropy_threshold=7.0) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ('FOO_BAR_XYZ="hunter2hunter2"', "hunter2hunter2"),
+        ("export WEIRD_THING=Zq7Xw2Lp9Rt4", "Zq7Xw2Lp9Rt4"),
+        ('const opaque = "mail-Pass-4821"', "mail-Pass-4821"),
+        ('{"blob": "a8f!kd93@ld0q"}', "a8f!kd93@ld0q"),
+        ("  shared: c2lnbmluZy1rZXk=", "c2lnbmluZy1rZXk="),
+    ],
+)
+def test_assigned_values_are_masked_when_enabled(text: str, value: str) -> None:
+    assert _found(text) == []
+    assert _found(text, enable=["ASSIGNED_SECRET"]) == [("ASSIGNED_SECRET", value)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'title = "internationalization"',  # a word
+        "enabled = false",
+        'path = "/usr/local/lib/python3.12"',
+        'endpoint = "https://api.example.com/v1"',
+        'host: "db1.internal.example"',
+        'image = "billing/1.4.2"',
+        'started = "2026-01-15T09:30:00Z"',
+        'model = "claude-opus-5-5"',
+        "commit_sha = 3f2a9b1c4d5e6f708192a3b4c5d6e7f8091a2b3c",
+        "user_id = usr_12345abcdef",
+        "pattern = ICD10_PATTERN",  # a variable
+        "port = 123456789012",
+        'contact = "ana@example.com"',
+    ],
+)
+def test_assigned_values_that_cannot_be_secrets_are_kept(text: str) -> None:
+    assert [e for e, _ in _found(text, enable=["ASSIGNED_SECRET"])] in ([], ["EMAIL"])

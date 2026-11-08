@@ -254,6 +254,60 @@ def high_entropy(threshold: float) -> Callable[[re.Match[str]], bool]:
     return check
 
 
+# --- Assignment heuristic (opt-in) ------------------------------------------
+
+#: Any name assigned a value of 12 to 256 characters, in env, YAML, JSON, or code.
+ASSIGNMENT_PATTERN = r"""(?x)
+(?<![\w.-]) (?P<name> [A-Za-z_][\w.-]{0,63}+ ) ["']? [ \t]*
+(?: := | => | [:=](?![=:]) ) [ \t]*
+(?: (?P<q>["'`]) | (?![$(\[{]) )
+(?P<value> [^\s"'`,;(){}\[\]<>=]{12,256}+ ={0,2} )
+(?(q) (?P=q) | (?![^\s,;)}\]]) )
+"""
+
+#: Names that hold an identifier, a hash, or a location rather than a secret.
+_NOT_A_SECRET_NAME = re.compile(
+    r"(?i)(?:^|[_.-]|(?<=[a-z])(?=[A-Z]))"
+    r"(?:id|ids|uuid|guid|sha|hash|digest|checksum|commit|version|ref|branch|tag|name|"
+    r"url|uri|host|hostname|domain|path|dir|file|image|region|zone|email|mail|session|"
+    r"model|provider|engine|format|mode|level|env|environment|stage|locale|lang|"
+    r"language|label|title|type|kind|status|state|pattern|regex|date|time|timestamp)$"
+)
+_DOTTED = re.compile(r"[\w-]+(?:\.[\w-]+)+")
+_DATE_OR_VERSION = re.compile(r"\d{4}-\d{2}-\d{2}|(?:^|[/@v-])\d+(?:\.\d+)+$")
+_SYMBOL = re.compile(r"[!#$%^&*+=?~@]")
+_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+
+
+def _wordy(value: str) -> bool:
+    """Whether ``value`` reads as words: ``ICD10_PATTERN``, ``getUserById2``."""
+    chunks = _CHUNK.findall(value)
+    return bool(chunks) and sum(map(len, chunks)) / len(chunks) > _MAX_CHUNK
+
+
+def _assigned_value(match: re.Match[str]) -> bool:
+    """Whether the assigned value can be a secret.
+
+    Not a word or identifier without digits, an unquoted name (a variable), a
+    number, a boolean, a path or URL, a dotted name (host, module), a date or
+    version, or a hash, ID, or model by the name it is assigned to.
+    """
+    name, value = match["name"], match["value"]
+    if _NOT_A_SECRET_NAME.search(name):
+        return False
+    if not match["q"] and _IDENTIFIER.fullmatch(value) and _wordy(value):
+        return False
+    if value.startswith(("/", "~", "./", "../", "$")) or "://" in value or "\\" in value:
+        return False
+    if _DOTTED.fullmatch(value) or _DATE_OR_VERSION.search(value):
+        return False
+    if "@" in value and "." in value.rpartition("@")[2]:
+        return False
+    has_letter = any(c.isalpha() for c in value)
+    has_digit = any(c.isdigit() for c in value)
+    return has_letter and (has_digit or bool(_SYMBOL.search(value)))
+
+
 # --- Registry ---------------------------------------------------------------
 
 #: Off unless a detector lists them under ``enable``.  Each ID pattern starts
@@ -270,6 +324,7 @@ OPTIONAL_PATTERNS: dict[str, str] = {
     "UK_NHS": r"\d(?<!\d\d)(?<!\d[ -]\d)\d{2}([ -]?)\d{3}\1\d{4}(?![\d-])",
     "IN_AADHAAR": r"[2-9](?<!\d[2-9])(?<!\d[ -][2-9])\d{3}([ -]?)\d{4}\1\d{4}(?![\d-])",
     "HIGH_ENTROPY": HIGH_ENTROPY_PATTERN,
+    "ASSIGNED_SECRET": ASSIGNMENT_PATTERN,
 }
 
 CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
@@ -283,6 +338,7 @@ CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "UK_NHS": _nhs,
     "IN_AADHAAR": _aadhaar,
     "HIGH_ENTROPY": high_entropy(ENTROPY_THRESHOLD),
+    "ASSIGNED_SECRET": _assigned_value,
 }
 
 #: Words one of which must be near a match: the number alone says too little.

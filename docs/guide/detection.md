@@ -36,7 +36,7 @@ Names and anything specific to you need more configuration.
 
 These are off until a `regex` or `yaml` detector lists them under `enable`,
 so turning them on is your choice rather than a side effect of an upgrade.
-`HIGH_ENTROPY` also catches more of what is not sensitive:
+`HIGH_ENTROPY` and `ASSIGNED_SECRET` also catch more of what is not sensitive:
 
 ```yaml
 detector:
@@ -56,6 +56,7 @@ detector:
 | `UK_NHS` | UK NHS numbers with a correct check digit, next to `nhs` |
 | `IN_AADHAAR` | Indian Aadhaar numbers with a correct check digit, next to `aadhaar` |
 | `HIGH_ENTROPY` | Strings of 16 to 512 characters that mix upper case, lower case, and digits at random, such as a key without a known prefix. Hex (git hashes, UUIDs) and identifiers made of words (`OAuth2AuthorizationCode`) are left alone. Raise `entropy_threshold` to mask fewer |
+| `ASSIGNED_SECRET` | A value of 12 characters or more with letters and digits or symbols, assigned to any name in `.env`, YAML, JSON, or code (`FOO_BAR="…"`). Not words, numbers, paths, URLs, hosts, dates, versions, variables, or values of names such as `*_id`, `*_url`, `model`, or `version` |
 
 ## Context words
 

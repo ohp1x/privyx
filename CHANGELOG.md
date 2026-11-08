@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Detection:** `detector.enable` turns on national IDs that are masked when their checksum or structure checks out: Indonesian NIK and NPWP, Singapore NRIC/FIN, Malaysian MyKad, Spanish DNI and NIE, UK NHS, and Indian Aadhaar numbers
 - **Detection:** `detector.term_variants: true` makes a `terms` entry of several words match its other spellings, so `Acme Corp` masks `acme-corp`, `acme_corp`, `ACME_CORP`, and `acme.corp`
 - **Detection:** `detector.enable: [HIGH_ENTROPY]` masks random-looking strings such as keys without a known prefix, with `entropy_threshold` to tune it
+- **Detection:** `detector.enable: [ASSIGNED_SECRET]` masks a random-looking value assigned to any name in `.env`, YAML, JSON, or code
 
 ## [0.1.25] - 2026-11-08
 
