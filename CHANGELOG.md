@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** run interactive coding agents directly via POSIX exec while supervising the background proxy
+
 ### Fixed
 
 - **CLI:** `privyx run codex` routes a custom Codex `model_provider` through the proxy instead of letting it bypass masking
