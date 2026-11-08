@@ -228,9 +228,10 @@ several instances can run behind a load balancer when they share a Redis
 vault. Any instance can serve any request of a session.
 
 Give all instances the same anchor secret (or `encrypt` key). Tokens are then
-derived from the value. Without one, tokens are numbered per session, and two
-instances that mask the same session at the same moment could hand out the
-same number. See [Scaling](../architecture/scaling.md).
+derived from the value. Without one, tokens are numbered per session, and an
+instance holds a Redis lock on the session while it masks a request, so two
+instances never hand out the same number; requests of one session then wait
+for each other. See [Scaling](../architecture/scaling.md).
 
 One piece of state is per process: the text of Anthropic `thinking` blocks,
 which Privyx remembers so that an echoed block still matches its signature.

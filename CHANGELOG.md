@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Streaming:** restoring a stream skips text that cannot begin a token, cutting the per-chunk overhead by more than half
 - **Vault:** SQLite reads through memory-mapped I/O with a larger page cache
 
+### Fixed
+
+- **Vault:** instances sharing a Redis vault without an anchor lock a session while masking it, so they no longer give two values the same token
+
 ## [0.1.23] - 2026-11-08
 
 ### Added
