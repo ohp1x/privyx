@@ -1006,6 +1006,8 @@ async def test_run_warns_when_no_request_reached_privyx(
     assert code == 0
     warned = "Warning: no request from" in capsys.readouterr().err
     assert warned is (requests == 0)
+    recorded = '"event": "run.unproxied"' in (tmp_path / "audit.log").read_text()
+    assert recorded is (requests == 0)
 
 
 async def test_run_keeps_the_audit_trail_out_of_the_working_directory(

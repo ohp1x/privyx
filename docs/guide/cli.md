@@ -46,6 +46,29 @@ which an upstream behind a base path needs. The tool owns the terminal, so
 Privyx writes no log lines to it; they go to `log_file` when one is set, which
 is where to look when a request fails with a `503`.
 
+In an interactive POSIX terminal, Privyx starts the proxy in a separate process
+and replaces the launcher with the tool. The tool keeps terminal input and job
+control, including Ctrl-C and Ctrl-Z. The proxy stops after the tool exits;
+its warnings then follow the shell's prompt, on a line of their own.
+Without a controlling terminal, or on other platforms, Privyx supervises the
+tool as a subprocess.
+
+Privyx sends the agent profile name as the initial terminal title before launch;
+the agent can replace it with its own session title. To let VS Code detect the
+agent's process without changing editor settings, run `privyx run codex` from
+the activated environment, or `.venv/bin/privyx run codex`.
+
+With `uv run`, `uv` remains the foreground process group leader, so VS Code
+tabs configured to show only the process name can still show the wrapper.
+If you prefer to keep `uv run`, you can display the emitted title by setting
+this in VS Code's user or workspace settings:
+
+```json
+{
+  "terminal.integrated.tabs.title": "${sequence}"
+}
+```
+
 ```bash
 privyx run [OPTIONS] TARGET [ARGS]...
 privyx run claude
@@ -99,7 +122,9 @@ profile, and `-c` overrides; a provider set only in a project's
 `ANTHROPIC_BASE_URL` at a router or another proxy, give that URL to
 `privyx run` as `--upstream`: Privyx now takes that place and forwards to its
 own upstream. If the tool exits without having sent Privyx a single request,
-`privyx run` warns: a tool that calls its provider directly is not masked.
+`privyx run` warns and records a
+[`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
+tool that calls its provider directly is not masked.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.
