@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Vault:** instances sharing a Redis vault without an anchor lock a session while masking it, so they no longer give two values the same token
 
+### Security
+
+- **Proxy:** `/v1/embeddings` and the legacy `/v1/completions` (including `suffix`) are masked instead of forwarded as sent; the `strict` preset now forwards them masked instead of refusing them
+- **Proxy:** an embeddings or completions request that sends token ids instead of text is refused with a `400`, since its content cannot be scanned
+
 ## [0.1.23] - 2026-11-08
 
 ### Added

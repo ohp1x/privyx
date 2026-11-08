@@ -64,10 +64,9 @@ completions API, a path Privyx does not mask.
 
 ## Good to know
 
-- **Embeddings are not masked.** Building an index sends your documents to
-  `/v1/embeddings`, which Privyx forwards as sent. Mask the documents first
-  with [`privyx mask`](../tutorials/mask-files.md), embed with a local model,
-  or refuse the path with
-  [`proxy.passthrough_unknown: false`](../guide/proxy.md#paths-without-a-route).
+- **Embeddings are masked.** Building an index sends your documents to
+  `/v1/embeddings`, so the index holds vectors of the masked text. Use an
+  anchor so a value gets the same token in the documents and in later
+  queries; see [Embeddings](../guide/proxy.md#embeddings).
 - **Retrieved context is masked.** What a query engine puts into the prompt
   goes through the chat endpoint, like any other message.

@@ -28,9 +28,10 @@ Streaming, tool calls, and the Responses API are shown in
 [Coding agents](../tutorials/coding-agents.md).
 
 Privyx pseudonymizes the request, forwards to OpenAI, and deanonymizes the
-streaming or batch response — including tool-call arguments. `/v1/chat/completions`
-and the Responses API (below) are routed; `/v1/embeddings` and the legacy
-`/v1/completions` are forwarded verbatim.
+streaming or batch response — including tool-call arguments. `/v1/chat/completions`,
+the legacy `/v1/completions`, `/v1/embeddings`, and the Responses API (below)
+are routed. Embeddings are masked but not restored; see
+[Embeddings](../guide/proxy.md#embeddings).
 
 ## Configuration
 

@@ -193,7 +193,7 @@ session:
 
 ```yaml
 proxy:
-  passthrough_unknown: false   # 403 for embeddings and every other unrouted path
+  passthrough_unknown: false   # 403 for file uploads and every other unrouted path
 ```
 
 ### Names without a list

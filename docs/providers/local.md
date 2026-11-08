@@ -35,9 +35,9 @@ print(reply.choices[0].message.content)
 
 For another server, replace the upstream with its address.
 
-Masked: `/v1/chat/completions` and `/v1/responses`. Forwarded as sent:
-`/v1/embeddings`, the legacy `/v1/completions`, and Ollama's native API under
-`/api/`. A client that uses the native API, as the `ollama` command itself
+Masked: `/v1/chat/completions`, `/v1/responses`, the legacy
+`/v1/completions`, and `/v1/embeddings`. Forwarded as sent: Ollama's native
+API under `/api/`. A client that uses the native API, as the `ollama` command itself
 does, is not masked.
 
 ## A local model as the detector

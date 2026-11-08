@@ -47,13 +47,14 @@ from privyx.core.engine import PrivacyEngine
 from privyx.core.session import Session
 
 #: The schemas whose request/response bodies this module knows how to walk.
-KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic", "responses"})
+KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic", "responses", "embeddings"})
 
 #: Top-level request keys that carry conversation content.  ``messages`` and
 #: ``system`` (Chat, Anthropic); ``input``, ``instructions``, and ``prompt``
-#: (template variables) for Responses; ``prediction`` (Chat predicted output).
+#: (template variables) for Responses; ``prediction`` (Chat predicted output);
+#: ``prompt`` and ``suffix`` (legacy completions); ``input`` (embeddings).
 CONTENT_KEYS: frozenset[str] = frozenset(
-    {"messages", "system", "input", "instructions", "prompt", "prediction"}
+    {"messages", "system", "input", "instructions", "prompt", "suffix", "prediction"}
 )
 
 #: Keys whose value is structural or opaque — skipped with their whole subtree.
@@ -128,6 +129,23 @@ def detect_schema(path: str, routes: dict[str, str]) -> str | None:
     if schema is None and normalized.startswith("/v1/v1/"):
         schema = routes.get(normalized[3:])
     return schema
+
+
+def has_token_ids(payload: dict[str, Any]) -> bool:
+    """Whether ``input`` or ``prompt`` holds token ids instead of text.
+
+    Embeddings and legacy completions accept ``[1, 2]`` or ``[[1, 2]]``.  Only
+    text is scanned, and the upstream decodes the ids back to the original, so
+    such a request must be refused rather than forwarded.
+    """
+    for key in ("input", "prompt"):
+        value = payload.get(key)
+        for item in value if isinstance(value, list) else []:
+            if isinstance(item, int) or (
+                isinstance(item, list) and any(isinstance(i, int) for i in item)
+            ):
+                return True
+    return False
 
 
 async def transform_request(

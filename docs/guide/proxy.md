@@ -78,7 +78,9 @@ Three things differ from transparent mode:
 - The client's own key is not relayed. Privyx sends the key it was given, or
   none.
 - Every served path posts to the same URL, so list in `proxy.routes` only the
-  paths that URL can answer. The token-counting and compaction paths are
+  paths that URL can answer. Embeddings and the legacy completions API are the
+  exception: they post beside it, so `…/v1/chat/completions` sends them to
+  `…/v1/embeddings` and `…/v1/completions`. The token-counting and compaction paths are
   never served in this mode: forwarding one to a chat endpoint would turn a
   count into a billed completion.
 - Anything else, such as `GET /v1/models`, gets a `404`.
@@ -94,12 +96,15 @@ is masked only when its path is in this map. The default:
 | Path | Schema | API |
 |---|---|---|
 | `/v1/chat/completions` | `openai` | OpenAI Chat Completions |
+| `/v1/completions` | `openai` | OpenAI legacy completions |
+| `/v1/embeddings` | `embeddings` | OpenAI embeddings |
 | `/v1/messages` | `anthropic` | Anthropic Messages |
 | `/v1/messages/count_tokens` | `anthropic` | Anthropic token counting |
 | `/v1/responses` | `responses` | OpenAI Responses |
 | `/v1/responses/input_tokens` | `responses` | Responses token counting |
 | `/v1/responses/compact` | `responses` | Responses compaction |
-| `/chat/completions` | `openai` | |
+| `/chat/completions`, `/completions` | `openai` | |
+| `/embeddings` | `embeddings` | |
 | `/responses`, `/responses/input_tokens`, `/responses/compact` | `responses` | |
 
 The path is matched exactly, without its query string, so
@@ -109,6 +114,28 @@ The last two rows are what an OpenAI client calls when its base URL lacks the
 `/v1` it expects (`OPENAI_BASE_URL=http://localhost:8000`). They are masked
 like the others and forwarded to the same path, which the provider may not
 serve; set the base URL with `/v1`.
+
+### Embeddings
+
+An embeddings request has its `input` masked like a chat message, and its
+reply, which holds only vectors, is returned as is. The vectors are therefore
+those of the masked text: `ana@example.com` is embedded as its token. Two
+things follow for a vector store:
+
+- Without an [anchor](masking.md#anchors), tokens are numbered per session,
+  so documents embedded in one session and a query in another can give the
+  same value different tokens, or one token to different values. With an
+  anchor, a value gets the same token everywhere.
+- A store built from unmasked text before this route existed does not match
+  queries embedded through Privyx now.
+
+An `input` (or a legacy completions `prompt`) of token ids, such as
+`[[101, 2023]]`, is refused with a `400`: Privyx scans text, and the provider
+would decode the ids back to the original. Send the text instead.
+
+To send embeddings unmasked instead, give `proxy.routes` without the
+`embeddings` paths; they are then forwarded as sent, or refused with
+`proxy.passthrough_unknown: false`.
 
 ### Adding a route
 
@@ -123,7 +150,7 @@ proxy:
 
 `routes` **replaces** the default map rather than extending it. List the
 default paths as well if the same proxy also serves them. Add a route only
-for a path whose body really has one of the three formats.
+for a path whose body really has one of the formats above.
 
 ### Paths without a route
 
@@ -132,9 +159,8 @@ client sent it. That keeps `GET /v1/models`, file uploads, and the rest of a
 provider's API working, and it means that **nothing in those requests is
 masked**. The common ones:
 
-- `/v1/embeddings`
-- the legacy `/v1/completions`
 - Gemini's native `generateContent`
+- batch and file uploads
 - reads of stored objects, such as `GET /v1/responses/{id}`
 
 To close that gap, refuse them instead:
@@ -163,8 +189,8 @@ even if the upstream later fails. These contain no path, query, headers, or body
 event uses `[unmatched]` as its path.
 
 ```console
-$ curl -s http://localhost:8000/v1/embeddings -d '{"model": "text-embedding-3-small", "input": "ann@example.com"}'
-{"error": {"message": "privyx: /v1/embeddings is not in proxy.routes and proxy.passthrough_unknown is false"}}
+$ curl -s http://localhost:8000/v1/files -d '{"purpose": "batch"}'
+{"error": {"message": "privyx: /v1/files is not in proxy.routes and proxy.passthrough_unknown is false"}}
 ```
 
 The answer is a `403`, for harmless paths such as `GET /v1/models` too.
