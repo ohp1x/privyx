@@ -188,6 +188,7 @@ content and leaves the request's settings alone:
 | Responses `input` and `prompt` variables | Ids, roles, types, signatures |
 | Tool and parameter descriptions | URLs, base64 data, images, files |
 | What the client reports about its machine: Claude Code's `safeguards`, Codex's `client_metadata` and `x-codex-turn-metadata` header | Every other request header |
+| Query parameter values (on every path, routed or not) | Auth query parameters (`key`, `api_key`, `api-key`, `access_token`) |
 
 Inside the masked parts, a field Privyx does not know is masked, not passed
 through: a field a provider adds later is covered from the start. The exact

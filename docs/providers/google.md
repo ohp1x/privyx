@@ -80,7 +80,8 @@ client = OpenAI(
 
 ## Not covered
 
-Forwarded verbatim in transparent mode — keep PII out of them, or set
+Forwarded verbatim in transparent mode (native endpoints still get their query
+values masked, except `key`) — keep PII out of them, or set
 `proxy.passthrough_unknown: false` to answer them (and every other unrouted
 path, including `/v1beta/openai/models`) with a 403 instead:
 

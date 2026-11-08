@@ -380,6 +380,72 @@ async def test_codex_turn_metadata_header_is_masked_without_a_body(path: str) ->
     assert capture[0].content == b""
 
 
+@pytest.mark.parametrize("path", ["v1/responses", "v1/models"], ids=["routed", "unrouted"])
+async def test_query_params_are_masked_in_forwarded_request(path: str) -> None:
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    query = [("user", EMAIL), ("limit", "10")]
+    await proxy.handle(
+        method="GET",
+        path=path,
+        headers={},
+        body=b"",
+        query_params=query,
+    )
+
+    sent_req = capture[0]
+    sent_params = dict(sent_req.url.params)
+    assert EMAIL not in sent_params["user"]
+    assert sent_params["user"].startswith("<PRIVYX_EMAIL_")
+    assert sent_params["limit"] == "10"
+
+
+async def test_query_params_masked_with_body_in_same_session() -> None:
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    query = [("user", EMAIL)]
+    body = {"messages": [{"role": "user", "content": f"hello {EMAIL}"}]}
+    await proxy.handle(
+        method="POST",
+        path="v1/chat/completions",
+        headers={"content-type": "application/json"},
+        body=json.dumps(body).encode(),
+        query_params=query,
+    )
+
+    sent_req = capture[0]
+    sent_params = dict(sent_req.url.params)
+    sent_body = json.loads(sent_req.content.decode())
+
+    token = sent_params["user"]
+    assert token.startswith("<PRIVYX_EMAIL_")
+    assert sent_body["messages"][0]["content"] == f"hello {token}"
+
+
+async def test_auth_query_params_are_not_masked() -> None:
+    # Native Gemini endpoints send ?key=AIza... which must be forwarded unchanged.
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+
+    api_key = "AIza" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW"
+    query = [("key", api_key), ("q", EMAIL)]
+    await proxy.handle(
+        method="POST",
+        path="v1beta/models/gemini-pro:generateContent",
+        headers={"content-type": "application/json"},
+        body=b"{}",
+        query_params=query,
+    )
+
+    sent_req = capture[0]
+    sent_params = dict(sent_req.url.params)
+    assert sent_params["key"] == api_key
+    assert EMAIL not in sent_params["q"]
+    assert sent_params["q"].startswith("<PRIVYX_EMAIL_")
+
+
 class _BrokenDetector:
     name = "broken"
 
