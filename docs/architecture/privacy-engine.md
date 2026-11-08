@@ -57,6 +57,7 @@ they differ in the substitution and its reversibility.
 | `encrypt` | a codec token whose id is a keyed digest; the vault holds AES-256-GCM ciphertext | yes (vault, decrypted with the key) | codec syntax |
 | `redact` | a fixed string (`[REDACTED]`) | no | — |
 | `faker` | a *realistic* fake of the same kind (fake email, name, …) | yes (vault) | exact substituted values |
+| `fpe` | a format-valid value from a reserved range (`example.invalid`, `10.0.0.0/8`, a Luhn-valid test card) | yes (vault) | exact substituted values |
 | `partial` | the value with most of it masked (`a****@example.com`) | yes (vault) | exact substituted values |
 
 ### Faker
@@ -86,8 +87,8 @@ operator:
   seed: 1234      # optional; makes the same value fake identically across runs
 ```
 
-`partial` shares this half of `faker` (`LiteralOperator`); it differs
-only in what it substitutes, and needs no extra.
+`fpe` and `partial` share this half of `faker` (`LiteralOperator`); they differ
+only in what they substitute, and need no extra.
 
 ## Session Lifecycle
 

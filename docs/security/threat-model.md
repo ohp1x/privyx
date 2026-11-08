@@ -81,7 +81,7 @@ Client ──► [Privyx] ──► Provider
   when two values are equal, and the length and timing of the conversation.
 - **Key rotation for active sessions.**
 - **Encryption at rest for the default operators** (`pseudonym`, `hash`,
-  `faker`, `partial`). Use `operator.type: encrypt` where this matters.
+  `faker`, `fpe`, `partial`). Use `operator.type: encrypt` where this matters.
 
 Report a suspected vulnerability privately; see the
 [security policy](https://github.com/ohp1x/privyx/security/policy).

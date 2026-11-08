@@ -1,6 +1,6 @@
-"""Property tests: ``partial`` restores the same in a stream as in a batch.
+"""Property tests: ``partial`` and ``fpe`` restore the same in a stream as in a batch.
 
-It substitutes ordinary text, like ``faker``, so a stream is reversed by
+Both substitute ordinary text, like ``faker``, so a stream is reversed by
 matching the exact substitutes (:class:`StreamingDeanonymizer`).  Whatever the
 chunk framing, that must equal the operator's own batch restore, and, since
 their substitutes do not occur in the filler, give back the original text.
@@ -19,6 +19,7 @@ from privyx.core.context import Context
 from privyx.core.session import Session
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.faker import LiteralOperator
+from privyx.privacy.operator.fpe import FPEOperator
 from privyx.privacy.operator.partial import PartialOperator
 from privyx.privacy.policy.default import DefaultPolicy
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
@@ -63,7 +64,7 @@ def _mask(operator: LiteralOperator, text: str) -> tuple[str, Session]:
 
 
 @pytest.mark.parametrize(
-    "operator", [PartialOperator()], ids=["partial"]
+    "operator", [PartialOperator(), FPEOperator(seed=13)], ids=["partial", "fpe"]
 )
 @given(text=PROSE, sizes=CHUNK_SIZES)
 @SETTINGS

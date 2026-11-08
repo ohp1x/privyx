@@ -38,6 +38,7 @@ from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.operator.base import Operator
 from privyx.privacy.operator.encrypt import EncryptOperator
 from privyx.privacy.operator.faker import FakerOperator
+from privyx.privacy.operator.fpe import FPEOperator
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.partial import PartialOperator
 from privyx.privacy.operator.pseudonym import PseudonymOperator
@@ -76,6 +77,7 @@ def _operator_registry() -> Registry[Operator]:
         lambda cfg: FakerOperator(locale=cfg.get("locale") or None, seed=cfg.get("seed")),
     )
     registry.register("partial", lambda cfg: PartialOperator())
+    registry.register("fpe", lambda cfg: FPEOperator(seed=cfg.get("seed")))
     registry.register(
         "encrypt",
         lambda cfg: EncryptOperator(key=load_key(cfg.get("key", "")), codec=cfg.get(_CODEC_KEY)),
