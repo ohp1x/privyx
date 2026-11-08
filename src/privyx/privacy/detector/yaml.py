@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Iterator
 from typing import Any
 
 from privyx.core.errors import ConfigError
@@ -19,6 +21,8 @@ from privyx.privacy.detector.cache import CachedDetector
 #: Entity names must round-trip through a token, so they follow the codec's
 #: ``type`` grammar (see :mod:`privyx.token.codec`).
 _ENTITY_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
+
+_log = logging.getLogger("privyx")
 
 
 def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
@@ -120,6 +124,78 @@ def _validate(patterns: dict[str, str]) -> None:
             re.compile(pattern)
         except re.error as exc:
             raise ConfigError(f"invalid regex for entity {entity!r}: {exc}") from exc
+        if backtracks(pattern):
+            # A warning, not an error: the same config was accepted before.
+            _log.warning(
+                "the regex for entity %r has a repeated group that repeats itself, like "
+                "(a+)+, so a crafted input can stall the proxy; make the inner "
+                "quantifier possessive (a++) or rewrite it",
+                entity,
+            )
+
+
+def backtracks(pattern: str) -> bool:
+    """Whether ``pattern`` can backtrack catastrophically (ReDoS).
+
+    Flags an unbounded repeat whose body is itself, apart from parts that may
+    match nothing, an unbounded repeat: ``(a+)+``, ``(\\w+\\s?)*``,
+    ``(a+|b)+``.  Such a body can split one run of text in exponentially many
+    ways, all tried before a match fails.  ``(?:[a-z]+\\.)+`` is fine: the
+    ``\\.`` fixes where each round ends.  Overlapping alternatives such as
+    ``(a|a)+`` are not detected.
+    """
+    # The regex parser of the stdlib, so the check sees what `re` compiles.
+    from re import _constants as sre  # type: ignore[attr-defined]
+    from re import _parser  # type: ignore[attr-defined]
+
+    def width(item: tuple[Any, Any], body: Any) -> int:
+        return int(_parser.SubPattern(body.state, [item]).getwidth()[0])
+
+    def flat(body: Any) -> Iterator[tuple[Any, Any]]:
+        for op, av in body:
+            if op is sre.SUBPATTERN:
+                yield from flat(av[3])
+            else:
+                yield op, av
+
+    def ambiguous(body: Any) -> bool:
+        items = list(flat(body))
+        for i, (op, av) in enumerate(items):
+            if any(width(other, body) for j, other in enumerate(items) if j != i):
+                continue
+            if op in (sre.MAX_REPEAT, sre.MIN_REPEAT) and av[1] == sre.MAXREPEAT:
+                return True
+            if op is sre.BRANCH and any(ambiguous(branch) for branch in av[1]):
+                return True
+        return False
+
+    def walk(body: Any) -> bool:
+        for op, av in body:
+            if op in (sre.MAX_REPEAT, sre.MIN_REPEAT):
+                if av[1] == sre.MAXREPEAT and ambiguous(av[2]):
+                    return True
+                children = [av[2]]
+            elif op is sre.POSSESSIVE_REPEAT:
+                # It gives nothing back once done, but what it repeats can
+                # still backtrack while it runs: (?:(a+)+b)++.
+                children = [av[2]]
+            elif op is sre.SUBPATTERN:
+                children = [av[3]]
+            elif op is sre.ATOMIC_GROUP:
+                children = [av]  # same: (?>(a+)+b)
+            elif op is sre.BRANCH:
+                children = av[1]
+            elif op in (sre.ASSERT, sre.ASSERT_NOT):
+                children = [av[1]]
+            elif op is sre.GROUPREF_EXISTS:
+                children = [branch for branch in av[1:] if branch is not None]
+            else:
+                continue
+            if any(walk(child) for child in children):
+                return True
+        return False
+
+    return walk(_parser.parse(pattern))
 
 
 def _patterns_from(config: dict[str, Any]) -> dict[str, str]:

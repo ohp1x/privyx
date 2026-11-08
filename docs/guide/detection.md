@@ -80,6 +80,10 @@ detector:
   masks the password and leaves `PASSWORD=` for the model to read.
 - In YAML, write patterns in single quotes or a `|` block so backslashes stay
   as they are. Inside double quotes, every backslash must be doubled.
+- A pattern with a repeat inside a repeat, such as `(\d+)+` or `(\w+\s?)*`,
+  logs a warning at startup: on a crafted input it can backtrack for minutes
+  and stall the proxy. Make the inner quantifier possessive (`(\d++)+`) or
+  drop the outer one. The check misses alternatives that overlap, like `(a|a)+`.
 
 ## Word lists
 
