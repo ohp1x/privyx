@@ -19,11 +19,13 @@ both commands behave identically.
 from __future__ import annotations
 
 import asyncio
+import os
 import shlex
 import shutil
 import socket
 import sys
 from dataclasses import replace
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -34,6 +36,7 @@ from privyx.cli.launch import (
     LaunchPlan,
     Target,
     build_launch_plan,
+    codex_args,
     profile_target,
 )
 from privyx.config.defaults import DEFAULT_AGENTS
@@ -190,6 +193,8 @@ def run(
         else "run defaults"
     )
     try:
+        if spec.adapter == "codex":
+            spec = _route_codex_provider(spec, list(args), settings, sources)
         plan = build_launch_plan(
             spec,
             list(args),
@@ -229,6 +234,45 @@ def run(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     sys.exit(code)
+
+
+def _route_codex_provider(
+    spec: Target, argv: list[str], settings: Settings, sources: dict[str, str]
+) -> Target:
+    """Point a custom Codex provider at the proxy, and the proxy at that provider.
+
+    Without this, a ``model_provider`` of the user's own reaches its endpoint
+    directly, unmasked. The upstream follows the provider unless one is set
+    explicitly; Privyx's own key, when configured, must not reach that host.
+
+    Raises:
+        ConfigError: If the Codex config cannot be read or routed.
+    """
+    from urllib.parse import urlsplit
+
+    from privyx.cli.codex import custom_provider
+    from privyx.core.errors import ConfigError
+    from privyx.providers.registry import resolve_api_key
+
+    found = custom_provider({**os.environ, **spec.extra_env}, [*spec.default_args, *argv])
+    if found is None:
+        return spec
+    name, base_url = found
+    explicit = settings.upstream_url or settings.provider.base_url
+    if settings.proxy.mode == "transparent" and not explicit:
+        if resolve_api_key(settings):
+            raise ConfigError(
+                f"Codex provider {name!r} would receive Privyx's own API key; "
+                "pass its URL as --upstream to confirm"
+            )
+        if urlsplit(base_url).path.rstrip("/") != spec.base_path:
+            raise ConfigError(
+                f"cannot route Codex provider {name!r}: Privyx forwards Codex requests "
+                f"under {spec.base_path}, and its base_url is {base_url}"
+            )
+        settings.upstream_url = base_url
+        sources["upstream_url"] = f"Codex config (model_providers.{name})"
+    return replace(spec, args=partial(codex_args, provider=name))
 
 
 def _show_plan(plan: LaunchPlan) -> None:

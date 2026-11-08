@@ -69,7 +69,7 @@ Known targets, and where each gets the proxy's URL:
 | Target | Provider | Proxy URL passed as |
 |---|---|---|
 | `claude` | `anthropic` | `ANTHROPIC_BASE_URL`, and the same variable in `--settings`, which outranks a base URL in Claude Code's own `settings.json` |
-| `codex` | `openai` | `-c openai_base_url=…/v1` (codex does not read `OPENAI_BASE_URL`), said again after your arguments when they hold a `-c` of their own, and `OPENAI_BASE_URL` |
+| `codex` | `openai` | `-c openai_base_url=…/v1` (codex does not read `OPENAI_BASE_URL`) and, for a custom provider, `-c model_providers.<id>.base_url=…/v1`, said again after your arguments when they hold a `-c` of their own, and `OPENAI_BASE_URL` |
 | `openai` | `openai` | `OPENAI_BASE_URL`, ending in `/v1` as the OpenAI SDK expects |
 | `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
 | `pi` | `anthropic` | `-e` with an extension Privyx ships, which sets the `baseUrl` of the pi provider named in `PRIVYX_PI_PROVIDER` (`anthropic`) to `PRIVYX_PI_BASE_URL` |
@@ -89,12 +89,17 @@ Claude Code keeps only the last `--settings`: one of your own, after `--`,
 replaces Privyx's. Codex drops every `-c` given before a subcommand once one
 follows it (`exec -c …`), which is why Privyx repeats its own after your
 arguments. `openai_base_url` applies to codex's built-in `openai`
-provider: with a `model_provider` of your own in codex's config, codex does
-not reach Privyx. If your Claude Code settings point `ANTHROPIC_BASE_URL` at a
-router or another proxy, give that URL to `privyx run` as `--upstream`: Privyx
-now takes that place and forwards to its own upstream. If the tool exits
-without having sent Privyx a single request, `privyx run` warns: a tool that
-calls its provider directly is not masked.
+provider. When codex's config selects a `model_provider` of your own, Privyx
+also points that provider's `base_url` at the proxy, for this launch only; the
+provider keeps its headers and authentication. Unless you set an upstream,
+Privyx forwards to the provider's own `base_url`, which must end in `/v1`.
+Privyx reads `/etc/codex/config.toml`, `$CODEX_HOME/config.toml`, a `-p`
+profile, and `-c` overrides; a provider set only in a project's
+`.codex/config.toml` is not detected. If your Claude Code settings point
+`ANTHROPIC_BASE_URL` at a router or another proxy, give that URL to
+`privyx run` as `--upstream`: Privyx now takes that place and forwards to its
+own upstream. If the tool exits without having sent Privyx a single request,
+`privyx run` warns: a tool that calls its provider directly is not masked.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.

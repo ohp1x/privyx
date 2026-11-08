@@ -22,8 +22,11 @@ def claude_args(base_url: str, argv: list[str]) -> list[str]:
     return ["--settings", json.dumps({"env": {"ANTHROPIC_BASE_URL": base_url}}), *argv]
 
 
-def codex_args(base_url: str, argv: list[str]) -> list[str]:
+def codex_args(base_url: str, argv: list[str], provider: str | None = None) -> list[str]:
     override = ["-c", f"openai_base_url={json.dumps(base_url)}"]
+    if provider:
+        # Only the URL changes: the provider keeps its own headers and auth.
+        override += ["-c", f"model_providers.{provider}.base_url={json.dumps(base_url)}"]
     # Codex drops -c before a subcommand once another -c follows it.
     end = argv.index("--") if "--" in argv else len(argv)
     own = any(arg.startswith(("-c", "--config")) for arg in argv[:end])
