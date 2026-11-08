@@ -64,13 +64,14 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
     dtype = config.get("type", "regex")
     patterns = _patterns_from(config)
     detector: Detector
-    if dtype == "regex":
-        combined = {**DEFAULT_PATTERNS, **patterns}
+    if dtype in ("regex", "yaml"):
+        combined = dict(patterns)
+        if dtype == "regex":
+            combined = {**DEFAULT_PATTERNS, **combined}
         _validate(combined)
-        detector = RegexDetector(combined)
-    elif dtype == "yaml":
-        _validate(patterns)
-        detector = YamlDetector(patterns)
+        options = _pattern_options(config, combined)
+        cls = RegexDetector if dtype == "regex" else YamlDetector
+        detector = cls(combined, **options)
     elif dtype == "presidio":
         from privyx.privacy.detector.presidio import PresidioDetector
 
@@ -104,6 +105,17 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
             max_size = 10000 if isinstance(cache, bool) else cache.get("max_size", 10000)
             return CachedDetector(detector, max_size=max_size)
     return detector
+
+
+def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[str, Any]:
+    """The ``context`` of a regex or yaml detector."""
+    context = config.get("context") or {}
+    unknown = sorted(set(context) - patterns.keys())
+    if unknown:
+        # Context only narrows an entity; one the detector lacks is a typo.
+        raise ConfigError(f"detector 'context' names entities it does not detect: {unknown}")
+    options: dict[str, Any] = {"context": context}
+    return options
 
 
 def _validate(patterns: dict[str, str]) -> None:

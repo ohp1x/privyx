@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Detection:** `detector.context` makes an entity count only when one of its words is within five words of the match
+
 ## [0.1.25] - 2026-11-08
 
 ### Added

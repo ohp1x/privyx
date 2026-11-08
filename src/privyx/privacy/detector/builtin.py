@@ -9,9 +9,11 @@ import asyncio
 import ipaddress
 import re
 from collections.abc import Callable, Iterator
+from typing import Any
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Span
+from privyx.privacy.detector import catalog
 from privyx.privacy.detector.base import BaseDetector, Detector
 
 #: The phone pattern accepts an optional ``+<country>`` prefix and 2-3 groups
@@ -304,28 +306,44 @@ def _secret_matches(pattern: re.Pattern[str], text: str) -> Iterator[re.Match[st
             pos = match.end()
 
 
-def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection:
+Check = Callable[[re.Match[str]], bool]
+
+
+def _builtin(entity: str, pattern: str) -> bool:
+    return pattern == DEFAULT_PATTERNS.get(entity)
+
+
+def _check_for(entity: str, pattern: re.Pattern[str], checks: dict[str, Check]) -> Check | None:
+    """The check a match of ``pattern`` must pass: its built-in entity's, if it is one.
+
+    A custom ``SECRET`` pattern with ``name`` and ``value`` groups keeps the
+    built-in check too, so ``password: str`` stays unmasked.
+    """
+    if _builtin(entity, pattern.pattern) or (
+        entity == "SECRET" and {"name", "value"} <= pattern.groupindex.keys()
+    ):
+        return checks.get(entity)
+    return None
+
+
+def _detect(
+    compiled: list[tuple[str, re.Pattern[str], Check | None, frozenset[str] | None]], text: str
+) -> Detection:
     """Run each entity's regex over ``text``.
 
     A pattern with a ``value`` group marks only that group, so
     ``DB_PASSWORD=(?P<value>\\S+)`` hides the secret but leaves the variable
     name for the model to read.  A match whose ``value`` group did not take part
     (another alternative matched) marks the whole match; an empty span marks
-    nothing.  A built-in pattern's match must also pass its entity's check in
-    :data:`_CHECKS`.
+    nothing.  A match must pass its entity's check, if it has one, and have one
+    of its context words nearby, if it has any.
     """
     detection = Detection()
-    for entity, pattern in compiled:
+    for entity, pattern, check, context in compiled:
         has_value = "value" in pattern.groupindex
-        builtin = pattern.pattern == DEFAULT_PATTERNS.get(entity)
-        check = (
-            _CHECKS.get(entity)
-            if (builtin or (entity == "SECRET" and "name" in pattern.groupindex and has_value))
-            else None
-        )
         matches = (
             _secret_matches(pattern, text)
-            if builtin and entity == "SECRET"
+            if entity == "SECRET" and pattern.pattern == SECRET_PATTERN
             else pattern.finditer(text)
         )
         for match in matches:
@@ -333,26 +351,55 @@ def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection
                 continue
             group = "value" if has_value and match["value"] is not None else 0
             start, end = match.span(group)
-            if start < end:
-                detection.add(start, end, entity, match[group])
+            if start >= end:
+                continue
+            if context and not catalog.near(text, start, end, context):
+                continue
+            detection.add(start, end, entity, match[group])
     return detection
 
 
-class RegexDetector(BaseDetector):
-    """Detect entities with a set of named regular expressions."""
+class _PatternDetector(BaseDetector):
+    """Entity → regex detection, shared by the ``regex`` and ``yaml`` detectors.
 
-    name = "regex"
+    Args:
+        patterns: Entity → regex.
+        context: Entity → words (lower case, phrases allowed), one of which must
+            be within five words of a match for it to count.  Replaces the
+            built-in context words of that entity.
+    """
 
-    def __init__(self, patterns: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        patterns: dict[str, str],
+        *,
+        context: dict[str, list[str]] | None = None,
+    ) -> None:
         super().__init__()
-        patterns = patterns or dict(DEFAULT_PATTERNS)
-        self._compiled = [(name, re.compile(pattern)) for name, pattern in patterns.items()]
+        checks = _CHECKS
+        words = {entity: frozenset(w.lower() for w in v) for entity, v in (context or {}).items()}
+        self._compiled = []
+        for entity, raw in patterns.items():
+            pattern = re.compile(raw)
+            default = catalog.CONTEXT.get(entity, frozenset()) if _builtin(entity, raw) else None
+            self._compiled.append(
+                (entity, pattern, _check_for(entity, pattern, checks), words.get(entity, default))
+            )
 
     def detect_sync(self, text: str, context: Context) -> Detection:
         return _detect(self._compiled, text)
 
 
-class YamlDetector(BaseDetector):
+class RegexDetector(_PatternDetector):
+    """Detect entities with a set of named regular expressions (the built-ins by default)."""
+
+    name = "regex"
+
+    def __init__(self, patterns: dict[str, str] | None = None, **options: Any) -> None:
+        super().__init__(patterns or dict(DEFAULT_PATTERNS), **options)
+
+
+class YamlDetector(_PatternDetector):
     """Composite detector configured from YAML (entity -> regex list).
 
     Example config:
@@ -368,13 +415,8 @@ class YamlDetector(BaseDetector):
 
     name = "yaml"
 
-    def __init__(self, rules: dict[str, str] | None = None) -> None:
-        super().__init__()
-        self._rules = rules or {}
-        self._compiled = [(entity, re.compile(pattern)) for entity, pattern in self._rules.items()]
-
-    def detect_sync(self, text: str, context: Context) -> Detection:
-        return _detect(self._compiled, text)
+    def __init__(self, rules: dict[str, str] | None = None, **options: Any) -> None:
+        super().__init__(rules or {}, **options)
 
 
 class CompositeDetector:
