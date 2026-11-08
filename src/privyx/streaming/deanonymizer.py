@@ -15,8 +15,8 @@ right:
 - Else if a complete token starts here, emit its replacement and skip past it.
 - Else emit the single character.
 
-On :meth:`flush`, resolve any held-back text: a complete token becomes its
-replacement; anything else is emitted verbatim.
+On :meth:`flush`, scan any held-back tail like the rest of the text, without
+holding anything back.
 
 Because each chunk is scanned from the start (pending + chunk), a held-back tail
 that turns out NOT to continue is re-resolved correctly on the next scan.
@@ -66,14 +66,8 @@ class _BufferedStream:
 
     def flush(self) -> str:
         """Flush any pending buffered text at end of stream."""
-        if not self._pending:
-            return ""
-        match = self._recognizer.match_at(self._pending, 0)
-        if match is not None and len(match[0]) == len(self._pending):
-            out = match[1]
-        else:
-            out = self._pending
-        self._before = self._pending = ""  # the next text starts afresh
+        out = self._scan("", final=True)
+        self._before = ""  # the next text starts afresh
         return out
 
     def _scan(self, chunk: str, final: bool) -> str:
@@ -134,10 +128,3 @@ class TokenStreamProcessor(_BufferedStream):
         ids: TokenIds | None = None,
     ) -> None:
         super().__init__(CodecRecognizer(codec, resolve, ids))
-
-    def flush(self) -> str:
-        # Scanned once more, nothing held back: text held as the start of a full
-        # token (``<PRIVYX_EMAIL_1`` with no ``>``) may hold a bare one.
-        out = self._scan("", final=True)
-        self._before = ""  # the next text starts afresh
-        return out
