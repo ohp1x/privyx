@@ -260,7 +260,7 @@ async def test_unrouted_path_refused_without_passthrough() -> None:
         passthrough_unknown=False,
     )
 
-    refused = await _post_json(proxy, "v1/embeddings", {"input": f"mail {EMAIL}"})
+    refused = await _post_json(proxy, "v1/files", {"purpose": "fine-tune"})
     routed = await _post_json(
         proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": EMAIL}]}
     )

@@ -53,6 +53,26 @@ def _upstream_client() -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         body = json.loads(request.content)
+        if request.url.path.endswith("embeddings"):
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [{"object": "embedding", "embedding": [0.1, -0.2, 0.3], "index": 0}],
+                    "model": body.get("model", ""),
+                },
+            )
+        if request.url.path.endswith("/completions") and not request.url.path.endswith(
+            "/chat/completions"
+        ):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "cmpl-test",
+                    "object": "text_completion",
+                    "choices": [{"text": body.get("prompt", ""), "index": 0}],
+                },
+            )
         text = body["messages"][-1]["content"]
         return httpx.Response(200, json={"content": [{"type": "text", "text": text}]})
 
@@ -263,14 +283,18 @@ async def test_routes_come_from_config() -> None:
     client, gateway = _client(_engine())
     assert gateway.routes == {
         "/v1/chat/completions": "openai",
+        "/v1/completions": "openai",
+        "/v1/embeddings": "embeddings",
         "/v1/messages": "anthropic",
         "/v1/responses": "responses",
         "/chat/completions": "openai",
+        "/completions": "openai",
+        "/embeddings": "embeddings",
         "/responses": "responses",
     }
     async with client:
         assert (await client.get("/health")).json() == {"status": "ok"}
-        assert (await client.post("/v1/embeddings", json={})).status_code == 404
+        assert (await client.post("/v1/unknown_route", json={})).status_code == 404
         # Never forwarded to the chat endpoint as a billed completion.
         for path in ("/v1/messages/count_tokens", "/responses/input_tokens", "/responses/compact"):
             assert (await client.post(path, json={})).status_code == 404
@@ -460,4 +484,157 @@ async def test_a_body_that_is_not_a_json_object_is_a_400(body: bytes) -> None:
 
     assert response.status_code == 400
     assert response.json()["error"]["type"] == "privyx_invalid_request"
+    assert not seen
+
+
+@pytest.mark.parametrize("path", ["/v1/embeddings", "/embeddings"])
+async def test_gateway_embeddings_masked_without_restore(path: str) -> None:
+    seen.clear()
+    client, _ = _client(_engine())
+    async with client:
+        response = await client.post(
+            path,
+            json={"model": "text-embedding-3-small", "input": f"Embed {EMAIL}"},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["object"] == "list"
+    assert data["data"][0]["embedding"] == [0.1, -0.2, 0.3]
+
+    assert len(seen) == 1
+    forwarded = json.loads(seen[0].content)
+    assert forwarded["input"] != f"Embed {EMAIL}"
+    assert EMAIL not in forwarded["input"]
+    assert "<PRIVYX_EMAIL_" in forwarded["input"]
+
+
+@pytest.mark.parametrize("path", ["/v1/completions", "/completions"])
+async def test_gateway_legacy_completions_masked_and_restored(path: str) -> None:
+    seen.clear()
+    client, _ = _client(_engine())
+    async with client:
+        response = await client.post(
+            path,
+            json={"model": "gpt-3.5-turbo-instruct", "prompt": f"Write to {EMAIL}"},
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["choices"][0]["text"] == f"Write to {EMAIL}"
+
+    assert len(seen) == 1
+    forwarded = json.loads(seen[0].content)
+    assert forwarded["prompt"] != f"Write to {EMAIL}"
+    assert EMAIL not in forwarded["prompt"]
+    assert "<PRIVYX_EMAIL_" in forwarded["prompt"]
+
+
+async def test_gateway_azure_deployment_preserves_path_and_query() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if request.url.path.endswith("embeddings"):
+            return httpx.Response(200, json={"object": "list", "data": [{"embedding": [0.1]}]})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    azure_url = (
+        "https://my-res.openai.azure.com/openai/deployments/gpt4/chat/completions"
+        "?api-version=2024-02-15-preview"
+    )
+    provider = GenericProvider(
+        base_url=azure_url, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    gateway = Gateway(engine=_engine(), provider=provider, settings=Settings())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
+    ) as client:
+        r1 = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": f"contact {EMAIL}"}]},
+        )
+        assert r1.status_code == 200
+        assert str(captured[-1].url) == azure_url
+
+        r2 = await client.post(
+            "/v1/embeddings",
+            json={"input": f"embed {EMAIL}"},
+        )
+        assert r2.status_code == 200
+        expected_embed_url = (
+            "https://my-res.openai.azure.com/openai/deployments/gpt4/embeddings"
+            "?api-version=2024-02-15-preview"
+        )
+        assert str(captured[-1].url) == expected_embed_url
+
+
+async def test_gateway_custom_route_preserves_configured_base_url() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    custom_url = "https://custom-host.com/custom-endpoint?api-version=1"
+    provider = GenericProvider(
+        base_url=custom_url, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    settings = Settings(proxy={"routes": {"/my-chat": "openai"}})
+    gateway = Gateway(engine=_engine(), provider=provider, settings=settings)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
+    ) as client:
+        r = await client.post(
+            "/my-chat",
+            json={"messages": [{"role": "user", "content": f"contact {EMAIL}"}]},
+        )
+        assert r.status_code == 200
+        assert str(captured[-1].url) == custom_url
+
+
+async def test_gateway_openai_completions_does_not_route_to_chat() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"choices": [{"text": "restored"}]})
+
+    chat_url = "https://api.openai.com/v1/chat/completions"
+    provider = GenericProvider(
+        base_url=chat_url, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    gateway = Gateway(engine=_engine(), provider=provider, settings=Settings())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
+    ) as client:
+        r = await client.post(
+            "/completions",
+            json={"model": "gpt-3.5-turbo-instruct", "prompt": f"test {EMAIL}"},
+        )
+        assert r.status_code == 200
+        assert str(captured[-1].url) == "https://api.openai.com/v1/completions"
+
+
+async def test_gateway_legacy_completions_suffix_is_masked() -> None:
+    seen.clear()
+    client, _ = _client(_engine())
+    async with client:
+        response = await client.post(
+            "/v1/completions", json={"prompt": "Dear", "suffix": f"Reply to {EMAIL}"}
+        )
+    assert response.status_code == 200
+    forwarded = json.loads(seen[0].content)
+    assert EMAIL not in forwarded["suffix"] and "<PRIVYX_EMAIL_" in forwarded["suffix"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [("/v1/embeddings", {"input": [[101, 102]]}), ("/v1/completions", {"prompt": [101]})],
+)
+async def test_gateway_token_ids_are_refused(path: str, body: dict[str, Any]) -> None:
+    seen.clear()
+    client, _ = _client(_engine())
+    async with client:
+        response = await client.post(path, json=body)
+    assert response.status_code == 400
+    assert "token ids" in response.json()["error"]["message"]
     assert not seen

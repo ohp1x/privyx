@@ -41,7 +41,7 @@ provider:
   headers: {}
 
 # Only routes with a configured masking schema may reach the upstream.
-# Unlisted endpoints (including models, files, and embeddings) return 403.
+# Unlisted endpoints (including models and files) return 403.
 proxy:
   mode: transparent
   passthrough_unknown: false

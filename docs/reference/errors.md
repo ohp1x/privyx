@@ -21,7 +21,7 @@ The body is `{"error": {"type": …, "message": …}}`:
 
 | Status | `error.type` | When | Forwarded? |
 |---|---|---|---|
-| `400` | `privyx_invalid_request` | The body of a request on a masked path is not a JSON object: it is compressed, form-encoded, or not JSON. Privyx cannot mask it. | No |
+| `400` | `privyx_invalid_request` | The body of a request on a masked path is not a JSON object: it is compressed, form-encoded, or not JSON. Or an embeddings or legacy completions request sends token ids instead of text. Privyx cannot mask either. | No |
 | `502` | `privyx_upstream_unreachable` | No response from the upstream: the connection was refused or dropped. A connection that could not be opened was retried twice first, 0.5 s and 1 s apart. | Possibly |
 | `503` | `privyx_scan_failed` | Masking the request failed, for example because the [LLM detector](../guide/detection.md#llm-detector) timed out or a detector plugin raised. | No |
 | `503` | `privyx_vault_unavailable` | The session vault failed: Redis is down or has not answered for 5 s, or a SQLite call failed. | No, or the reply was not returned |
@@ -41,7 +41,7 @@ Privyx closes the connection instead.
 
 | Status | Body | When |
 |---|---|---|
-| `403` | `{"error": {"message": "privyx: /v1/embeddings is not in proxy.routes and proxy.passthrough_unknown is false"}}` | Transparent mode, a path without a route, and [`proxy.passthrough_unknown: false`](../guide/proxy.md#paths-without-a-route). |
+| `403` | `{"error": {"message": "privyx: /v1/files is not in proxy.routes and proxy.passthrough_unknown is false"}}` | Transparent mode, a path without a route, and [`proxy.passthrough_unknown: false`](../guide/proxy.md#paths-without-a-route). |
 | `404` | `{"detail":"Not Found"}` | Gateway mode, a path that is not served. |
 | `426` | `{"error": {"message": "privyx: WebSocket is not supported; use HTTP"}}` | A WebSocket upgrade. Privyx cannot relay one, so it could not mask its frames. |
 

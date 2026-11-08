@@ -82,5 +82,6 @@ export OPENAI_BASE_URL=http://localhost:8000/v1
   where the AI SDK runs: your route handlers or server actions, not the
   browser. In production, use the address of a
   [shared gateway](../tutorials/team-gateway.md).
-- **Embeddings are not masked.** `embed` and `embedMany` call
-  `/v1/embeddings`, which Privyx forwards as sent.
+- **Embeddings are masked.** `embed` and `embedMany` call `/v1/embeddings`,
+  so the vectors are those of the masked text; see
+  [Embeddings](../guide/proxy.md#embeddings).

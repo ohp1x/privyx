@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -56,6 +57,14 @@ def upstream_client(
     )
 
 
+#: The endpoints a base URL may end in.  ``chat/completions`` comes before
+#: ``completions``, which it also ends in.
+_ENDPOINTS = ("chat/completions", "completions", "embeddings", "messages", "responses")
+
+#: Client paths that go to their own endpoint; every other path posts to the base URL.
+_OWN_ENDPOINT = frozenset({"completions", "embeddings"})
+
+
 class GenericProvider(BaseProvider):
     """HTTP passthrough provider.
 
@@ -101,8 +110,27 @@ class GenericProvider(BaseProvider):
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
-    async def send(self, payload: Any, session_id: str | None = None) -> Any:
-        url = self._base_url
+    def _resolve_url(self, path: str | None) -> str:
+        """The base URL, or for embeddings and legacy completions their endpoint beside it.
+
+        ``…/v1/chat/completions`` becomes ``…/v1/embeddings``; a base URL with no
+        endpoint at its end (``…/v1``) gets the endpoint appended.
+        """
+        wanted = (path or "").strip("/").removeprefix("v1/")
+        if wanted not in _OWN_ENDPOINT:
+            return self._base_url
+        parts = urlsplit(self._base_url)
+        prefix = parts.path.rstrip("/")
+        for endpoint in _ENDPOINTS:
+            if prefix.endswith(f"/{endpoint}"):
+                prefix = prefix.removesuffix(f"/{endpoint}")
+                break
+        return urlunsplit(parts._replace(path=f"{prefix}/{wanted}"))
+
+    async def send(
+        self, payload: Any, session_id: str | None = None, *, path: str | None = None
+    ) -> Any:
+        url = self._resolve_url(path)
         try:
             response = await self._client.post(
                 url,
@@ -118,7 +146,7 @@ class GenericProvider(BaseProvider):
             return response.text
 
     async def stream(
-        self, payload: Any, session_id: str | None = None
+        self, payload: Any, session_id: str | None = None, *, path: str | None = None
     ) -> AsyncGenerator[str, None]:
         """Yield raw upstream text with its SSE framing intact.
 
@@ -127,7 +155,7 @@ class GenericProvider(BaseProvider):
         event ends.  Callers reassemble events with
         :class:`~privyx.streaming.sse.SSEDecoder`.
         """
-        url = self._base_url
+        url = self._resolve_url(path)
         try:
             async with self._client.stream(
                 "POST",

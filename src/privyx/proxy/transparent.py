@@ -49,6 +49,7 @@ from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import (
     MASKED_HEADERS,
     detect_schema,
+    has_token_ids,
     restore_response,
     transform_request,
 )
@@ -80,6 +81,16 @@ INVALID_BODY = {
         "type": "privyx_invalid_request",
         "message": "the request body is not a JSON object, so privyx could not mask it "
         "and did not forward it",
+    }
+}
+
+#: Body of the 400 returned when a routed request sends token ids instead of
+#: text (embeddings, legacy completions): Privyx cannot scan them.
+TOKEN_IDS_BODY = {
+    "error": {
+        "type": "privyx_invalid_request",
+        "message": "the request sends token ids instead of text, so privyx could not "
+        "mask it and did not forward it; send the text instead",
     }
 }
 
@@ -249,6 +260,10 @@ class TransparentProxy:
                     return ProxyResponse(
                         status_code=400, media_type=_JSON, body=json.dumps(INVALID_BODY).encode()
                     )
+                if isinstance(payload, dict) and has_token_ids(payload):
+                    return ProxyResponse(
+                        status_code=400, media_type=_JSON, body=json.dumps(TOKEN_IDS_BODY).encode()
+                    )
             elif not isinstance(body, bytes) and not (
                 _ci_get(headers, "content-length") or _ci_get(headers, "transfer-encoding")
             ):
@@ -405,7 +420,14 @@ class TransparentProxy:
                 )
             if schema and _JSON in resp_content_type:
                 return await self._batch_response(
-                    response, resp_headers, resp_content_type, sid, ephemeral, req_id, start
+                    response,
+                    resp_headers,
+                    resp_content_type,
+                    sid,
+                    ephemeral,
+                    req_id,
+                    start,
+                    schema=schema,
                 )
             defer_cleanup = True  # as for a stream
             return self._relayed_response(
@@ -621,13 +643,17 @@ class TransparentProxy:
         ephemeral: Session | None,
         request_id: str,
         start: float,
+        schema: str | None = None,
     ) -> ProxyResponse:
         data = await response.aread()
         await response.aclose()
-        payload = _loads(data)
-        if isinstance(payload, dict):
-            restored = await restore_response(payload, self._engine, session_id, session=ephemeral)
-            data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
+        if schema != "embeddings":
+            payload = _loads(data)
+            if isinstance(payload, dict):
+                restored = await restore_response(
+                    payload, self._engine, session_id, session=ephemeral
+                )
+                data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
         restored_n = self._audit.flush_restore()
         self._audit.response(
             status=response.status_code,

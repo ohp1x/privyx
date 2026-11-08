@@ -38,7 +38,7 @@ the tool exits. The exit code is the tool's. The proxy follows `proxy.mode`,
 like `privyx proxy`. The transparent proxy (the default) relays the tool's own
 key or login unless Privyx has a key of its own
 ([Configuration](configuration.md)). It masks the chat paths in `proxy.routes`
-and forwards any other path unmasked, embeddings for instance;
+and forwards any other path unmasked, file uploads for instance;
 `proxy.passthrough_unknown: false` answers those with `403` instead. With
 `proxy.mode: gateway` in the config
 file, Privyx sends only its own key and posts to the upstream URL as written,

@@ -102,7 +102,7 @@ async def test_strict_preset_blocks_unknown_body_without_reading_or_forwarding()
                 passthrough_unknown=settings.proxy.passthrough_unknown,
             )
             result = await proxy.handle(
-                method="POST", path="v1/embeddings", headers={}, body=unread_body()
+                method="POST", path="v1/files", headers={}, body=unread_body()
             )
             assert result.status_code == 403
     finally:

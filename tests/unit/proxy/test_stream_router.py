@@ -220,6 +220,138 @@ def test_openai_legacy_function_call_buffered_and_restored() -> None:
     assert json.loads(calls[0]["arguments"])["to"] == ORIG
 
 
+def test_legacy_completions_finish_frame_forwarded() -> None:
+    router = _router(OpenAIStreamAdapter(), {TOKEN: ORIG})
+    frames = [
+        _openai_frame(
+            {
+                "id": "cmpl-1",
+                "object": "text_completion",
+                "choices": [{"text": "Hello ", "index": 0}],
+            }
+        ),
+        _openai_frame(
+            {
+                "id": "cmpl-1",
+                "object": "text_completion",
+                "choices": [{"text": TOKEN, "index": 0}],
+            }
+        ),
+        _openai_frame(
+            {
+                "id": "cmpl-1",
+                "object": "text_completion",
+                "choices": [{"text": "", "index": 0, "finish_reason": "stop"}],
+            }
+        ),
+        "data: [DONE]\n\n",
+    ]
+    out = _run(router, "".join(frames))
+    events = _events(out)
+    finish_events = [ev for ev in events if ev["choices"][0].get("finish_reason") == "stop"]
+    assert len(finish_events) == 1
+    assert finish_events[0]["choices"][0]["finish_reason"] == "stop"
+    assert "delta" not in finish_events[0]["choices"][0]
+    assert ORIG in out
+
+
+def test_legacy_completions_flush_tail_uses_choices_text() -> None:
+    router = _router(OpenAIStreamAdapter(), {TOKEN: ORIG})
+    part1 = TOKEN[:8]
+    part2 = TOKEN[8:]
+    frame1 = _openai_frame(
+        {
+            "id": "cmpl-1",
+            "object": "text_completion",
+            "choices": [{"text": f"Contact {part1}", "index": 0}],
+        }
+    )
+    frame2 = _openai_frame(
+        {
+            "id": "cmpl-1",
+            "object": "text_completion",
+            "choices": [{"text": part2, "index": 0}],
+        }
+    )
+    out1 = "".join(router.feed(frame1))
+    out2 = "".join(router.feed(frame2))
+    flushed = "".join(router.flush())
+    combined = out1 + out2 + flushed
+    events = _events(combined)
+    assert ORIG in combined
+    for ev in events:
+        assert "text" in ev["choices"][0]
+        assert "delta" not in ev["choices"][0]
+
+
+def test_legacy_completions_multiple_choices_isolated() -> None:
+    router = _router(OpenAIStreamAdapter(), {TOKEN: ORIG})
+    part1 = TOKEN[:8]
+    part2 = TOKEN[8:]
+    frame1 = _openai_frame(
+        {
+            "id": "cmpl-multi",
+            "object": "text_completion",
+            "choices": [
+                {"text": f"Choice0: {part1}", "index": 0},
+                {"text": "Choice1: regular text", "index": 1},
+            ],
+        }
+    )
+    frame2 = _openai_frame(
+        {
+            "id": "cmpl-multi",
+            "object": "text_completion",
+            "choices": [
+                {"text": f"{part2} end0", "index": 0, "finish_reason": "stop"},
+                {"text": " more1", "index": 1, "finish_reason": "stop"},
+            ],
+        }
+    )
+    out1 = "".join(router.feed(frame1))
+    out2 = "".join(router.feed(frame2))
+    flushed = "".join(router.flush())
+    combined = out1 + out2 + flushed
+    events = _events(combined)
+
+    choice1_texts = [
+        c["text"] for ev in events for c in ev.get("choices", []) if c.get("index") == 1
+    ]
+    full_choice1 = "".join(choice1_texts)
+    assert ORIG not in full_choice1
+    assert "regular text more1" in full_choice1
+
+    choice0_texts = [
+        c["text"] for ev in events for c in ev.get("choices", []) if c.get("index") == 0
+    ]
+    full_choice0 = "".join(choice0_texts)
+    assert ORIG in full_choice0
+    assert TOKEN not in full_choice0
+
+
+def test_legacy_completions_flush_does_not_repeat_other_choices() -> None:
+    router = _router(OpenAIStreamAdapter(), {TOKEN: ORIG})
+    part1 = TOKEN[:8]
+    frame = _openai_frame(
+        {
+            "id": "cmpl-multi",
+            "object": "text_completion",
+            "choices": [
+                {"text": f"C0: {part1}", "index": 0},
+                {"text": "C1: unique_text_done", "index": 1},
+            ],
+        }
+    )
+    router.feed(frame)
+    flushed_frames = router.flush()
+    flushed_events = [json.loads(ev.data) for ev in SSEDecoder().feed("".join(flushed_frames))]
+    assert len(flushed_events) == 1
+    # Flushed frame must only contain Choice 0
+    assert len(flushed_events[0]["choices"]) == 1
+    assert flushed_events[0]["choices"][0]["index"] == 0
+    assert "unique_text_done" not in flushed_events[0]["choices"][0]["text"]
+
+
 # --------------------------------------------------------------------------
 # Anthropic
 
@@ -576,3 +708,17 @@ def test_select_processor_factory_picks_recognizer_by_operator() -> None:
 
     assert isinstance(literal(), StreamingDeanonymizer)
     assert isinstance(token(), TokenStreamProcessor)
+
+
+def test_a_held_back_chat_tail_keeps_the_rest_of_its_choice() -> None:
+    router = _router(OpenAIStreamAdapter(), {TOKEN: ORIG})
+    choice = {
+        "index": 1,
+        "delta": {"content": "hi " + TOKEN[:6]},
+        "logprobs": None,
+        "finish_reason": None,
+    }
+
+    events = _events(_run(router, _openai_frame({"id": "c1", "choices": [choice]})))
+
+    assert events[-1]["choices"] == [{**choice, "delta": {"content": TOKEN[:6]}}]

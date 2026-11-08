@@ -70,6 +70,24 @@ def _upstream(seen: list[bytes] | None = None) -> httpx.AsyncClient:
                 json={"choices": [{"message": {"content": content}}]},
                 headers={"x-request-id": "req-42"},
             )
+        if request.url.path in ("/v1/embeddings", "/embeddings"):
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [{"object": "embedding", "embedding": [0.1, -0.2, 0.3], "index": 0}],
+                    "model": body.get("model", ""),
+                },
+            )
+        if request.url.path in ("/v1/completions", "/completions"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "cmpl-test",
+                    "object": "text_completion",
+                    "choices": [{"text": body.get("prompt", ""), "index": 0}],
+                },
+            )
         if request.url.path == "/v1/models":
             return httpx.Response(200, json={"data": [{"id": "m <PRIVYX_EMAIL_9>"}]})
         return httpx.Response(404, json={"error": "nope"})
@@ -389,3 +407,75 @@ async def test_head_request_returns_upstream_status_with_empty_body() -> None:
         assert chat_resp.status_code == 200
         assert chat_resp.content == b""
         assert chat_resp.headers.get("content-length") == "42"
+
+
+@pytest.mark.parametrize("path", ["/v1/embeddings", "/embeddings"])
+async def test_transparent_embeddings_masked_without_restore(path: str) -> None:
+    seen: list[bytes] = []
+    app = _app(seen)
+    async with _client(app) as client:
+        response = await client.post(
+            path,
+            json={"model": "text-embedding-3-small", "input": f"Please vectorize {EMAIL}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["object"] == "list"
+        assert data["data"][0]["embedding"] == [0.1, -0.2, 0.3]
+
+        # Upstream must receive the masked text, NOT the raw email!
+        assert len(seen) == 1
+        forwarded = json.loads(seen[0])
+        assert forwarded["input"] != f"Please vectorize {EMAIL}"
+        assert EMAIL not in forwarded["input"]
+        assert "<PRIVYX_EMAIL_" in forwarded["input"]
+
+
+@pytest.mark.parametrize("path", ["/v1/completions", "/completions"])
+async def test_transparent_legacy_completions_masked_and_restored(path: str) -> None:
+    seen: list[bytes] = []
+    app = _app(seen)
+    async with _client(app) as client:
+        response = await client.post(
+            path,
+            json={"model": "gpt-3.5-turbo-instruct", "prompt": f"Write message to {EMAIL}"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # Response choices[0].text is restored to original email
+        assert data["choices"][0]["text"] == f"Write message to {EMAIL}"
+
+        # Upstream must receive masked prompt
+        assert len(seen) == 1
+        forwarded = json.loads(seen[0])
+        assert forwarded["prompt"] != f"Write message to {EMAIL}"
+        assert EMAIL not in forwarded["prompt"]
+        assert "<PRIVYX_EMAIL_" in forwarded["prompt"]
+
+
+async def test_transparent_legacy_completions_suffix_is_masked() -> None:
+    seen: list[bytes] = []
+    async with _client(_app(seen)) as client:
+        response = await client.post(
+            "/v1/completions", json={"prompt": "Dear", "suffix": f"Reply to {EMAIL}"}
+        )
+    assert response.status_code == 200
+    forwarded = json.loads(seen[0])
+    assert EMAIL not in forwarded["suffix"] and "<PRIVYX_EMAIL_" in forwarded["suffix"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/v1/embeddings", {"input": [101, 102]}),
+        ("/v1/embeddings", {"input": [[101, 102], [103]]}),
+        ("/v1/completions", {"prompt": [101, 102]}),
+    ],
+)
+async def test_transparent_token_ids_are_refused(path: str, body: dict[str, Any]) -> None:
+    seen: list[bytes] = []
+    async with _client(_app(seen)) as client:
+        response = await client.post(path, json=body)
+    assert response.status_code == 400
+    assert "token ids" in response.json()["error"]["message"]
+    assert not seen

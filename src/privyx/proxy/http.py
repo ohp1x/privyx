@@ -16,6 +16,7 @@ transparent proxy share exactly one implementation of each.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -45,6 +46,9 @@ class HTTPProxy:
         self._engine = engine
         self._provider = provider
         self._adapter = stream_adapter or SSEStreamAdapter()
+        # The client's path, for a provider that can aim it (the generic one does);
+        # a plugin's send(payload) keeps posting to its own endpoint.
+        self._takes_path = "path" in inspect.signature(provider.send).parameters
 
     async def process_request(
         self,
@@ -70,8 +74,10 @@ class HTTPProxy:
         transformed = await transform_request(payload, self._engine, stored.session_id)
         return transformed, stored.session_id
 
-    async def send_batch(self, payload: dict[str, Any]) -> Any:
+    async def send_batch(self, payload: dict[str, Any], path: str | None = None) -> Any:
         """Forward a batch (non-streaming) request to the upstream provider."""
+        if self._takes_path:
+            return await self._provider.send(payload, path=path)  # type: ignore[call-arg]
         return await self._provider.send(payload)
 
     async def process_response(
@@ -92,6 +98,7 @@ class HTTPProxy:
         session_id: str,
         *,
         session: Session | None = None,
+        path: str | None = None,
     ) -> AsyncGenerator[Any, None]:
         """Forward a streaming request, deanonymizing each SSE chunk.
 
@@ -114,7 +121,12 @@ class HTTPProxy:
             ),
         )
 
-        async for raw_chunk in self._provider.stream(payload):
+        stream = (
+            self._provider.stream(payload, path=path)  # type: ignore[call-arg]
+            if self._takes_path
+            else self._provider.stream(payload)
+        )
+        async for raw_chunk in stream:
             for out in router.feed(raw_chunk):
                 yield out
         for out in router.flush():

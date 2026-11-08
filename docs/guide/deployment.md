@@ -248,7 +248,7 @@ its thinking. Session affinity at the load balancer avoids that.
 - A persistent vault has a `vault.ttl` and is protected like the data it
   mirrors.
 - `proxy.passthrough_unknown: false`, unless clients need unmasked paths such
-  as embeddings.
+  as file uploads.
 - Your own names and terms are in the detector; see
   [Your own names and terms](../tutorials/custom-terms.md).
 - Someone reads `privyx audit stats`, or a dashboard on `/metrics`.

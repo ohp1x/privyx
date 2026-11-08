@@ -66,11 +66,12 @@ export ANTHROPIC_BASE_URL=http://localhost:8000
 - **Tools and agents.** Tool-call arguments are restored before LangChain runs
   the tool, so your tools receive real values, and their results are masked
   again on the next request.
-- **Embeddings are not masked.** `OpenAIEmbeddings` calls `/v1/embeddings`,
-  which Privyx forwards as sent. If a vector store must not hold original
-  values at the provider, mask the text first with
-  [`privyx mask`](../tutorials/mask-files.md), or refuse the path with
-  [`proxy.passthrough_unknown: false`](../guide/proxy.md#paths-without-a-route).
+- **Embeddings are masked.** `OpenAIEmbeddings` calls `/v1/embeddings`, so
+  the vectors are those of the masked text. Use an anchor so a value gets the
+  same token in every session; see
+  [Embeddings](../guide/proxy.md#embeddings). By default it sends token ids,
+  which Privyx refuses with a `400`; pass `check_embedding_ctx_length=False`
+  so it sends the text.
 - **One mapping per conversation.** Pass a session id with
   `default_headers={"x-privyx-session": "..."}`; see
   [One mapping per user or conversation](../tutorials/sdk-app.md#6-one-mapping-per-user-or-conversation).

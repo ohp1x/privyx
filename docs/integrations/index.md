@@ -58,7 +58,8 @@ does not know by default. Without it, that path is forwarded unmasked; see
 
 Whatever the client, Privyx masks chat requests in the three formats it
 knows and restores their replies, streamed or not, including tool-call
-arguments. It does not mask embeddings, images, or other API paths; see
+arguments. Embeddings are masked too, and returned as is. It does not mask
+images or other API paths; see
 [Limitations](../security/limitations.md).
 
 ## Check an integration

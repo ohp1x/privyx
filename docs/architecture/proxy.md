@@ -14,14 +14,15 @@ up HTTPS, or look up an error, see [Proxy modes and routes](../guide/proxy.md),
   forwarded to the upstream **origin**; the routed paths (see
   [Routes](#routes)) are pseudonymized on the way out and restored on the way
   back, batch or streaming, with no client-side change. Every other path
-  (models, embeddings, files, …) is forwarded verbatim, and streamed both ways,
+  (models, files, …) is forwarded verbatim, and streamed both ways,
   so a large upload or download is never held in memory. "Transparent" here means
   *drop-in* — it is an HTTP reverse proxy, not a network-level MITM/SOCKS proxy.
 - **`gateway`** — Privyx's *own* endpoints, all forwarded to the single upstream
   endpoint from `provider.base_url` (`resolve_base_url`), used **verbatim**: the
   incoming path is not echoed upstream. Which paths are served, and the wire
   schema each speaks, comes from the same `proxy.routes` map (see
-  [Routes](#routes)). Every served path posts to that one endpoint, so the
+  [Routes](#routes)). Every served path posts to that one endpoint (embeddings
+  and legacy completions post beside it, `…/v1/embeddings`), so the
   token-counting and compaction routes (`/v1/messages/count_tokens`,
   `/v1/responses/input_tokens`, `/v1/responses/compact`, and the last two
   without `/v1`) are left unserved —
@@ -34,7 +35,7 @@ Pick `gateway` when the upstream endpoint carries a **base path** —
 OpenRouter prefix. Transparent mode cannot express one: `resolve_origin` strips
 `base_url` back to `scheme://host` and appends the client's path. Pick
 `transparent` when the client's paths must be mirrored, or when non-chat paths
-(models, embeddings, files) have to reach the upstream too.
+(models, files) have to reach the upstream too.
 
 Neither mode translates between wire schemas. Privyx only knows *where the text
 leaves live* in each one, so an Anthropic client still needs an Anthropic-speaking

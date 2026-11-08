@@ -29,11 +29,13 @@ from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
+from privyx.proxy.schemas import has_token_ids
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.streaming import AuditedStream
 from privyx.proxy.transparent import (
     INVALID_BODY,
     SCAN_FAILED_BODY,
+    TOKEN_IDS_BODY,
     VAULT_UNAVAILABLE_BODY,
     log_scan_failure,
     log_vault_failure,
@@ -141,6 +143,8 @@ class Gateway:
                     payload = None
                 if not isinstance(payload, dict):
                     return JSONResponse(INVALID_BODY, status_code=400)
+                if has_token_ids(payload):
+                    return JSONResponse(TOKEN_IDS_BODY, status_code=400)
                 session_id, source = resolve_session_id(
                     self._session_strategy,
                     header_value=request.headers.get("x-privyx-session"),
@@ -194,7 +198,9 @@ class Gateway:
                 )
 
                 if is_stream:
-                    frames = proxy.process_stream(transformed, session_id, session=ephemeral)
+                    frames = proxy.process_stream(
+                        transformed, session_id, session=ephemeral, path=path
+                    )
                     # Pull the first frame before committing to a 200, so an
                     # upstream error status reaches the client as itself.
                     try:
@@ -225,10 +231,13 @@ class Gateway:
                     )
 
                 try:
-                    response = await proxy.send_batch(transformed)
-                    deanonymized = await proxy.process_response(
-                        response, session_id, session=ephemeral
-                    )
+                    response = await proxy.send_batch(transformed, path=path)
+                    if schema == "embeddings":
+                        deanonymized = response
+                    else:
+                        deanonymized = await proxy.process_response(
+                            response, session_id, session=ephemeral
+                        )
                 except VaultError:
                     raise  # restoring failed, not the upstream: answered below
                 except Exception as exc:

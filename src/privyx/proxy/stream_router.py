@@ -251,6 +251,34 @@ class StreamRouter:
             # Tools closed by a separate finish chunk carrying no tool_calls.
             return self._flush_openai_tools() + self._passthrough(event)
 
+        is_legacy = any(isinstance(c, dict) and "text" in c and "delta" not in c for c in choices)
+        if is_legacy:
+            new_choices = []
+            has_output = False
+            for c in choices:
+                if not isinstance(c, dict) or "text" not in c:
+                    new_choices.append(c)
+                    continue
+                c_idx = c.get("index", 0)
+                field_key = f"text_{c_idx}"
+                processor = self._oa_fields.get(field_key)
+                if processor is None:
+                    processor = self._oa_fields[field_key] = self._make_processor()
+                self._oa_templates[field_key] = payload
+                c_finishing = bool(c.get("finish_reason"))
+                text_val = c.get("text", "")
+                text = processor.feed(text_val) + (processor.flush() if c_finishing else "")
+                new_c = copy.deepcopy(c)
+                new_c["text"] = text
+                if text or c_finishing:
+                    has_output = True
+                new_choices.append(new_c)
+            if has_output:
+                new = copy.deepcopy(payload)
+                new["choices"] = new_choices
+                return [_reframe(event, new)]
+            return []
+
         fields = [f for f in _OA_TEXT_FIELDS if isinstance(delta.get(f), str) and delta[f]]
         if not fields:
             return self._passthrough(event)  # role-only / usage / finish
@@ -321,8 +349,20 @@ class StreamRouter:
     def _openai_field_frame(self, field: str, text: str) -> str:
         """``text`` as the only delta field of ``field``'s latest chunk."""
         new = copy.deepcopy(self._oa_templates[field])
-        new["choices"][0]["delta"] = {field: text}
-        return SSEEvent(data=json.dumps(new, separators=(",", ":"))).to_str()
+        if field.startswith("text_"):
+            choice_idx = int(field.split("_", 1)[1])
+            target_choice: dict[str, Any] | None = None
+            for c in new.get("choices", []):
+                if isinstance(c, dict) and c.get("index") == choice_idx:
+                    target_choice = copy.deepcopy(c)
+                    break
+            if target_choice is None:
+                target_choice = {"index": choice_idx}
+            target_choice["text"] = text
+            new["choices"] = [target_choice]
+        else:
+            new["choices"][0]["delta"] = {field: text}
+        return SSEEvent(data=_dumps(new)).to_str()
 
     @staticmethod
     def _openai_finish_frame(payload: dict[str, Any]) -> str:

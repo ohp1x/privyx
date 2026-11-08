@@ -27,7 +27,7 @@ privyx detect -c my.yaml --transform "the text that went out"
 | `detect` finds it, the proxy does not | The proxy runs with another configuration: another `-c` or `PRIVYX_CONFIG`, or a working directory with config files of its own. | Start both the same way; `privyx config --path` prints the files in use, or `defaults`. |
 | A line `ignoring …/privyx.yaml: not trusted, or changed since` | A config file in the working directory is read only once you have trusted it; until then its settings do not apply. | Run `privyx trust` in that directory. |
 | It appears only with `--no-policy` | The `strict` policy filters it out. | Add the entity type to `policy.allowed`. |
-| It is masked in chat messages but not elsewhere | The request went to a path without a route, such as embeddings, or the value sits in a field Privyx leaves alone, such as `user` or a URL. | See [Paths without a route](proxy.md#paths-without-a-route) and [Limitations](../security/limitations.md#coverage). |
+| It is masked in chat messages but not elsewhere | The request went to a path without a route, such as a file upload, or the value sits in a field Privyx leaves alone, such as `user` or a URL. | See [Paths without a route](proxy.md#paths-without-a-route) and [Limitations](../security/limitations.md#coverage). |
 
 ## The tool does not go through Privyx
 
@@ -113,6 +113,10 @@ curl http://localhost:8000/v1/chat/completions \
 ```
 
 A compressed request body causes the same answer.
+
+An embeddings or legacy completions request that sends token ids instead of
+text is refused the same way, since Privyx cannot scan ids. LangChain's
+`OpenAIEmbeddings` does that by default; pass `check_embedding_ctx_length=False`.
 
 ## The provider answers 401
 

@@ -387,3 +387,27 @@ async def test_send_batch_forwards_payload() -> None:
 
     assert result == {"ok": True}
     assert provider.sent == [{"model": "x"}]
+
+
+async def test_a_type_error_inside_send_is_not_retried() -> None:
+    """A provider that takes ``path`` gets it; a failure inside its send is not resent."""
+
+    class Failing(FakeProvider):
+        async def send(
+            self, payload: Any, session_id: str | None = None, *, path: str | None = None
+        ) -> Any:
+            self.sent.append(path)
+            raise TypeError("broke after the request went out")
+
+    provider = Failing([])
+    with pytest.raises(TypeError):
+        await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/embeddings")
+
+    assert provider.sent == ["/v1/embeddings"]
+
+
+async def test_a_provider_without_path_keeps_its_own_endpoint() -> None:
+    provider = FakeProvider([], batch={"ok": True})
+    assert await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/embeddings") == {
+        "ok": True
+    }
