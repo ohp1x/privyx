@@ -64,3 +64,42 @@ def test_anthropic_adapter_extracts_text_delta() -> None:
         data='{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hi"}}'
     )
     assert adapter.extract_delta(event) == "Hi"
+
+
+def test_sse_decoder_incremental_chunks() -> None:
+    from privyx.streaming.sse import SSEDecoder
+
+    decoder = SSEDecoder()
+    e1 = decoder.feed("data: hel")
+    assert e1 == []
+    e2 = decoder.feed("lo\n\n")
+    assert len(e2) == 1
+    assert e2[0].data == "hello"
+
+
+def test_utf8_multibyte_split_across_stream_chunks() -> None:
+    import json
+
+    from privyx.proxy.stream_router import StreamRouter
+    from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+    from privyx.token.codec import FormatCodec
+
+    router = StreamRouter(FormatCodec.default(), lambda tok: None, OpenAIStreamAdapter())
+    # 4-byte UTF-8 character (emoji 🌟 \U0001F31F: bytes f0 9f 8c 9f)
+    text = "Halo 🌟 dunia"
+    payload = json.dumps({"choices": [{"delta": {"content": text}}]}, ensure_ascii=False)
+    sse_bytes = f"data: {payload}\n\n".encode()
+
+    # Split right in the middle of the 4-byte UTF-8 emoji
+    emoji_bytes = "🌟".encode()
+    emoji_idx = sse_bytes.find(emoji_bytes)
+    assert emoji_idx != -1
+    cut = emoji_idx + 2
+    part1 = sse_bytes[:cut]
+    part2 = sse_bytes[cut:]
+
+    frames1 = router.feed(part1)
+    frames2 = router.feed(part2)
+    flushed = router.flush()
+    all_frames = "".join(frames1 + frames2 + flushed)
+    assert "Halo 🌟 dunia" in all_frames

@@ -74,10 +74,20 @@ class _BufferedStream:
         text = self._before + self._pending + chunk
         self._pending = ""
         recognizer = self._recognizer
+        find_candidate = getattr(recognizer, "find_candidate", None)
         out: list[str] = []
         i = len(self._before)
         n = len(text)
         while i < n:
+            if find_candidate is not None:
+                cand = find_candidate(text, i)
+                if cand == -1:
+                    out.append(text[i:])
+                    i = n
+                    break
+                if cand > i:
+                    out.append(text[i:cand])
+                    i = cand
             if not final:
                 prefix_len = recognizer.longest_prefix_len(text, i)
                 if prefix_len > 0 and i + prefix_len == n:

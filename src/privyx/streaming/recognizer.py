@@ -21,7 +21,8 @@ Two recognizers implement that contract:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Iterable
 from typing import Protocol, runtime_checkable
 
 from privyx.streaming.trie import PseudonymTrie
@@ -38,17 +39,34 @@ class Recognizer(Protocol):
         """Return ``(matched_text, replacement)`` for a token at ``pos``, else ``None``."""
         ...
 
+    def find_candidate(self, text: str, pos: int) -> int:
+        """Return the lowest index >= pos of a candidate token prefix, or -1."""
+        ...
+
+
+def _any_of(chars: Iterable[str]) -> re.Pattern[str] | None:
+    """A pattern finding the next of ``chars``, or ``None`` when there are none."""
+    body = "".join(re.escape(c) for c in chars)
+    return re.compile(f"[{body}]") if body else None
+
+
+def _next(pattern: re.Pattern[str] | None, text: str, pos: int) -> int:
+    match = pattern.search(text, pos) if pattern else None
+    return match.start() if match else -1
+
 
 class TrieRecognizer:
     """Recognize the exact pseudonym strings a session has issued."""
 
     def __init__(self, mapping: dict[str, str] | None = None) -> None:
         self._trie = PseudonymTrie()
+        self._start: re.Pattern[str] | None = None
         if mapping:
-            self._trie.update(mapping)
+            self.update(mapping)
 
     def update(self, mapping: dict[str, str]) -> None:
         self._trie.update(mapping)
+        self._start = _any_of(self._trie._root.children)
 
     def longest_prefix_len(self, text: str, pos: int) -> int:
         return self._trie.longest_prefix_len(text, pos)
@@ -56,6 +74,9 @@ class TrieRecognizer:
     def match_at(self, text: str, pos: int) -> tuple[str, str] | None:
         # The trie only holds known pseudonyms, so a match is always resolvable.
         return self._trie.match_at(text, pos)
+
+    def find_candidate(self, text: str, pos: int) -> int:
+        return _next(self._start, text, pos)
 
 
 class CodecRecognizer:
@@ -85,6 +106,10 @@ class CodecRecognizer:
         # a codec that does not know those forms (a plugin's) keeps to full tokens.
         self._at = getattr(codec, "restorable_at", None)
         self._prefix_len = getattr(codec, "restorable_prefix_len", None)
+        start_chars = getattr(codec, "start_chars", None)
+        chars = start_chars(ids) if start_chars else None
+        # None: any character may begin a token, so nothing is skipped.
+        self._start = None if chars is None else _any_of(chars)
 
     def longest_prefix_len(self, text: str, pos: int) -> int:
         if self._prefix_len is None:
@@ -104,3 +129,6 @@ class CodecRecognizer:
         written = text[pos:end]
         original = self._resolve(token)
         return (written, written if original is None else original)
+
+    def find_candidate(self, text: str, pos: int) -> int:
+        return pos if self._start is None else _next(self._start, text, pos)

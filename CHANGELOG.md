@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Streaming:** restoring a stream skips text that cannot begin a token, cutting the per-chunk overhead by more than half
+
 ## [0.1.23] - 2026-11-08
 
 ### Added
