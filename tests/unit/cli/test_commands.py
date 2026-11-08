@@ -7,6 +7,7 @@ that quietly hardcodes its own detector or vault and ignores ``--config``.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
@@ -151,6 +152,16 @@ def test_detect_explain_names_an_opt_in_entity(runner: CliRunner, tmp_path: Path
 
     assert result.exit_code == 0, result.output
     assert "found by  regex: built-in pattern CRYPTO_WALLET" in result.output
+
+
+def test_detect_explain_names_a_decoded_finding(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text("detector:\n  type: regex\n  decode: true\n", encoding="utf-8")
+    hidden = base64.b64encode(EMAIL.encode()).decode()
+    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), f"blob {hidden}"])
+
+    assert result.exit_code == 0, result.output
+    assert "found by  regex: built-in pattern EMAIL, once joined or decoded" in result.output
 
 
 def test_detect_explain_without_policy_masks_everything(runner: CliRunner) -> None:

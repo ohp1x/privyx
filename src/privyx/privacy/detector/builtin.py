@@ -13,7 +13,7 @@ from typing import Any
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Span
-from privyx.privacy.detector import catalog
+from privyx.privacy.detector import catalog, decode
 from privyx.privacy.detector.base import BaseDetector, Detector
 
 #: The phone pattern accepts an optional ``+<country>`` prefix and 2-3 groups
@@ -372,6 +372,8 @@ class _PatternDetector(BaseDetector):
             be within five words of a match for it to count.  Replaces the
             built-in context words of that entity.
         entropy_threshold: Bits per character ``HIGH_ENTROPY`` needs.
+        decode: Also find values split into string literals or encoded
+            (:func:`privyx.privacy.detector.decode.hidden`).
     """
 
     def __init__(
@@ -380,8 +382,10 @@ class _PatternDetector(BaseDetector):
         *,
         context: dict[str, list[str]] | None = None,
         entropy_threshold: float = catalog.ENTROPY_THRESHOLD,
+        decode: bool = False,
     ) -> None:
         super().__init__()
+        self._decode = decode
         checks = {**_CHECKS, "HIGH_ENTROPY": catalog.high_entropy(entropy_threshold)}
         words = {entity: frozenset(w.lower() for w in v) for entity, v in (context or {}).items()}
         self._compiled = []
@@ -393,7 +397,10 @@ class _PatternDetector(BaseDetector):
             )
 
     def detect_sync(self, text: str, context: Context) -> Detection:
-        return _detect(self._compiled, text)
+        detection = _detect(self._compiled, text)
+        if self._decode:
+            detection.spans += decode.hidden(text, lambda t: _detect(self._compiled, t)).spans
+        return detection
 
 
 class RegexDetector(_PatternDetector):

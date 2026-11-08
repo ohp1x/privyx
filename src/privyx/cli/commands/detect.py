@@ -111,8 +111,17 @@ async def _explain(text: str, settings: Settings, apply_policy: bool, context: C
     found: list[tuple[Span, str]] = []
     for i, section in enumerate(sections, 1):
         label = section.type if len(sections) == 1 else f"#{i} {section.type}"
-        detection = await build_detector(section.model_dump()).detect(text, context)
-        found += [(s, f"{label}: {_origin(section, s.entity_type)}") for s in detection.spans]
+        config = section.model_dump()
+        detection = await build_detector(config).detect(text, context)
+        plain = detection
+        if section.decode:
+            plain = await build_detector({**config, "decode": False}).detect(text, context)
+        direct = {(s.start, s.end, s.entity_type) for s in plain.spans}
+        for s in detection.spans:
+            reason = f"{label}: {_origin(section, s.entity_type)}"
+            if (s.start, s.end, s.entity_type) not in direct:
+                reason += ", once joined or decoded"
+            found.append((s, reason))
 
     raw = Detection([span for span, _ in found])
     shown = raw.merged(text).spans

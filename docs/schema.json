@@ -238,6 +238,19 @@
             }
           ]
         },
+        "decode": {
+          "title": "Decode",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
         "cache": {
           "anyOf": [
             {

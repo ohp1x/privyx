@@ -82,6 +82,22 @@ built-in entity, the list replaces its own words (`UK_NHS`, `IN_AADHAAR`, and
 an entity the detector does not detect stops Privyx at startup. The `presidio`
 detector weighs context words on its own and ignores this setting.
 
+## Hidden values
+
+An agent that is kept from sending a secret may split or encode it. With
+`decode: true`, a `regex` or `yaml` detector also looks inside:
+
+- string literals joined by `+`, `.`, or `..`, and `chr(…)` calls:
+  `'s' + 'k' + '-' + …`;
+- Base64 (standard and URL-safe) and hex, up to two levels deep;
+- URL escapes: `ana%40example.com`.
+
+What it finds there masks the whole expression or blob, under the entity found
+inside (`API_KEY`, `EMAIL`). URL-escaped text is the exception: only the value
+itself is masked. Blobs over 64 KiB are not decoded, and a scan decodes at most
+1,000,000 characters in all, so the cost stays bounded; it is still extra work on
+every request, which is why it is off by default.
+
 ## Secrets
 
 Most built-in secret patterns match a recognizable shape, such as a vendor
