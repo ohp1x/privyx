@@ -31,6 +31,24 @@ defaults for the rest of `vault`. A list replaces the default rather than
 extending it. Empty environment variables are ignored, so an unset variable
 never clears a value from the file.
 
+A config file can be split with `include`, a list of files or globs relative
+to the file that names them:
+
+```yaml
+# privyx.yaml
+include:
+  - ./privyx.d/*.yaml     # matched files in name order; matching none is fine
+  - ./team-terms.yaml     # a plain path must exist
+session:
+  strategy: conversation
+```
+
+The included files merge in the order listed, and the including file's own
+settings go on top of them. An included file cannot have an `include` of its
+own. Trusting a file covers the files it includes: after a change to any of
+them, or a new file matching a glob, run `privyx trust` again.
+`privyx config --path` lists each included file before the file that names it.
+
 A value in a config file can read an environment variable, so the file
 itself holds no credential and one file serves several machines:
 
