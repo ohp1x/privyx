@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Config:** values in a config file can read environment variables with `${NAME}` and `${NAME:-default}`; an unset variable without a default fails at startup
+
 ### Fixed
 
 - **Proxy:** `/docs`, `/redoc`, and `/openapi.json` are no longer served by Privyx; the transparent proxy forwards them to the upstream like any other path

@@ -330,3 +330,65 @@ def test_without_a_home_directory_a_project_cannot_stand_in_for_it(
     assert load_config().port == 8000
     with pytest.raises(ConfigError, match="no home directory"):
         trust(config)
+
+
+def _yaml(tmp_path: Path, text: str) -> Path:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(text, encoding="utf-8")
+    return cfg
+
+
+def test_yaml_values_read_environment_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_REDIS_HOST", "cache.internal")
+    monkeypatch.delenv("TEST_REDIS_PORT", raising=False)
+    monkeypatch.setenv("TEST_PORT", "9100")
+    cfg = _yaml(
+        tmp_path,
+        "port: ${TEST_PORT}\n"
+        "vault:\n  redis_url: redis://${TEST_REDIS_HOST}:${TEST_REDIS_PORT:-6379}/0\n",
+    )
+    settings = load_config(cfg)
+    assert settings.port == 9100
+    assert settings.vault.redis_url == "redis://cache.internal:6379/0"
+
+
+def test_an_empty_variable_takes_the_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_STRATEGY", "")
+    cfg = _yaml(tmp_path, "session:\n  strategy: ${TEST_STRATEGY:-client}\n")
+    assert load_config(cfg).session.strategy == "client"
+
+
+def test_an_unset_variable_without_default_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TEST_MISSING_KEY", raising=False)
+    cfg = _yaml(tmp_path, "provider:\n  api_key: ${TEST_MISSING_KEY}\n")
+    with pytest.raises(ConfigError, match=r"\$\{TEST_MISSING_KEY\}.*not set"):
+        load_config(cfg)
+
+
+@pytest.mark.parametrize("value", ["${1BAD}", "${UNCLOSED", "${}"])
+def test_a_malformed_reference_fails(tmp_path: Path, value: str) -> None:
+    cfg = _yaml(tmp_path, f"provider:\n  api_key: '{value}'\n")
+    with pytest.raises(ConfigError, match="malformed variable reference"):
+        load_config(cfg)
+
+
+def test_a_doubled_dollar_keeps_a_literal_reference(tmp_path: Path) -> None:
+    cfg = _yaml(tmp_path, "detector:\n  terms:\n    PROJECT: ['$${NOT_A_VAR}']\n")
+    settings = load_config(cfg)
+    assert settings.detector.terms == {"PROJECT": ["${NOT_A_VAR}"]}  # type: ignore[union-attr]
+
+
+def test_an_error_never_shows_a_variable_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_SECRET_PORT", "sk-" + "proj-abc123")
+    cfg = _yaml(tmp_path, "port: ${TEST_SECRET_PORT}\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(cfg)
+    assert "proj-abc123" not in str(exc.value)

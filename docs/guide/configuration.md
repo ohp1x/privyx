@@ -31,6 +31,23 @@ defaults for the rest of `vault`. A list replaces the default rather than
 extending it. Empty environment variables are ignored, so an unset variable
 never clears a value from the file.
 
+A value in a config file can read an environment variable, so the file
+itself holds no credential and one file serves several machines:
+
+```yaml
+provider:
+  api_key: ${ANTHROPIC_API_KEY}
+vault:
+  redis_url: redis://${REDIS_HOST:-localhost}:6379/0
+port: ${PROXY_PORT:-8080}
+```
+
+`${NAME:-default}` takes the default when `NAME` is unset or empty. A
+`${NAME}` with no default whose variable is not set fails at startup, so a
+missing key never reaches the upstream as an empty string. Write `$${` for a
+literal `${`. Any variable can be named, not only `PRIVYX_*` ones, and only
+values are read this way, never keys.
+
 `privyx run` adds its own defaults (a `conversation` session strategy and an
 anchor secret) just above the built-in ones, so your files and environment
 still override them.
