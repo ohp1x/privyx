@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Config:** a credential setting can name a 1Password item (`op://`) or a keychain entry (`keychain://`, with `privyx[keychain]`) instead of holding the secret
 - **Detection:** a custom pattern that can backtrack catastrophically, such as `(\d+)+`, logs a warning at startup
 - **CLI:** `privyx inspect routes`, `inspect regex`, and `inspect token` show which paths are masked, whether a pattern is safe and fast, and which session a token belongs to
+- **CLI:** `privyx detect --explain` shows which detector and rule found each span and whether the policy masks it
 
 ### Fixed
 
