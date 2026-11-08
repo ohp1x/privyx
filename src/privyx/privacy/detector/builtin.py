@@ -371,6 +371,7 @@ class _PatternDetector(BaseDetector):
         context: Entity → words (lower case, phrases allowed), one of which must
             be within five words of a match for it to count.  Replaces the
             built-in context words of that entity.
+        entropy_threshold: Bits per character ``HIGH_ENTROPY`` needs.
     """
 
     def __init__(
@@ -378,9 +379,10 @@ class _PatternDetector(BaseDetector):
         patterns: dict[str, str],
         *,
         context: dict[str, list[str]] | None = None,
+        entropy_threshold: float = catalog.ENTROPY_THRESHOLD,
     ) -> None:
         super().__init__()
-        checks = _CHECKS
+        checks = {**_CHECKS, "HIGH_ENTROPY": catalog.high_entropy(entropy_threshold)}
         words = {entity: frozenset(w.lower() for w in v) for entity, v in (context or {}).items()}
         self._compiled = []
         for entity, raw in patterns.items():

@@ -7,7 +7,9 @@ Each entity here is a regex plus a check its match must pass, like ``_luhn`` for
 
 from __future__ import annotations
 
+import math
 import re
+from collections import Counter
 from collections.abc import Callable, Collection
 from datetime import date
 from hashlib import sha256
@@ -203,6 +205,55 @@ def _aadhaar(match: re.Match[str]) -> bool:
     return check == 0
 
 
+# --- High entropy (opt-in) --------------------------------------------------
+
+#: Bits per character a random-looking string needs; ``entropy_threshold`` overrides it.
+#: A random 16-character key scores about 3.75 (its 16 characters cap it at 4).
+ENTROPY_THRESHOLD = 3.0
+
+#: Runs of 16 to 512 key characters, Base64 padding included.  Longer runs
+#: (images, archives) and Privyx tokens (``<PRIVYX_EMAIL_…>``) are left out.
+HIGH_ENTROPY_PATTERN = r"(?<![<\w+/-])[A-Za-z0-9+/_-]{16,512}+={0,2}(?![\w+/=-])"
+
+_HEX = re.compile(r"[0-9a-fA-F-]+")
+#: The words of an identifier: ``get``, ``User``, ``HTTP``, ``2``.
+_CHUNK = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
+
+#: Longest average word an identifier-looking string may have to count as
+#: random.  ``getUserById2Async`` averages 2.8; 95% of random 16-character
+#: keys average 2.7 or less, longer ones less still.
+_MAX_CHUNK = 2.75
+
+
+def shannon(value: str) -> float:
+    """Shannon entropy of ``value`` in bits per character."""
+    counts = Counter(value).values()
+    return -sum(n / len(value) * math.log2(n / len(value)) for n in counts)
+
+
+def high_entropy(threshold: float) -> Callable[[re.Match[str]], bool]:
+    """A check passing random-looking strings: upper case, lower case, and digits
+    mixed so that no words show, at ``threshold`` bits per character or more.
+
+    Hex (git and other hashes, UUIDs, colors) is left out: most hex in text is a
+    public hash.  Identifiers such as ``OAuth2AuthorizationCode`` are left out
+    by their words, which entropy alone cannot tell from a key this short.
+    """
+
+    def check(match: re.Match[str]) -> bool:
+        value = match[0].rstrip("=")
+        if not (
+            any(c.isupper() for c in value)
+            and any(c.islower() for c in value)
+            and any(c.isdigit() for c in value)
+        ) or _HEX.fullmatch(value):
+            return False
+        chunks = _CHUNK.findall(value)
+        return sum(map(len, chunks)) / len(chunks) <= _MAX_CHUNK and shannon(value) >= threshold
+
+    return check
+
+
 # --- Registry ---------------------------------------------------------------
 
 #: Off unless a detector lists them under ``enable``.  Each ID pattern starts
@@ -218,6 +269,7 @@ OPTIONAL_PATTERNS: dict[str, str] = {
     "ES_NIE": r"[XYZ](?<!\w[XYZ])-?\d{7}-?[A-Z]\b",
     "UK_NHS": r"\d(?<!\d\d)(?<!\d[ -]\d)\d{2}([ -]?)\d{3}\1\d{4}(?![\d-])",
     "IN_AADHAAR": r"[2-9](?<!\d[2-9])(?<!\d[ -][2-9])\d{3}([ -]?)\d{4}\1\d{4}(?![\d-])",
+    "HIGH_ENTROPY": HIGH_ENTROPY_PATTERN,
 }
 
 CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
@@ -230,6 +282,7 @@ CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "ES_NIE": _nie,
     "UK_NHS": _nhs,
     "IN_AADHAAR": _aadhaar,
+    "HIGH_ENTROPY": high_entropy(ENTROPY_THRESHOLD),
 }
 
 #: Words one of which must be near a match: the number alone says too little.

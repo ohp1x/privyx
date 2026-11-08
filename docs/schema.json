@@ -224,6 +224,20 @@
           "title": "Enable",
           "type": "array"
         },
+        "entropy_threshold": {
+          "title": "Entropy Threshold",
+          "anyOf": [
+            {
+              "default": 3.0,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
         "cache": {
           "anyOf": [
             {
