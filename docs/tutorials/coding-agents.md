@@ -56,9 +56,10 @@ The other tools it knows:
       OPENAI_BASE_URL = http://127.0.0.1:43407/v1
     ```
 
-    This covers Codex's built-in `openai` provider. With a `model_provider`
-    of your own in Codex's config, Codex does not go through Privyx; see
-    [Check that it works](#3-check-that-it-works).
+    This covers Codex's built-in `openai` provider and a `model_provider` of
+    your own, such as a company router: Privyx points that provider at the
+    proxy for this launch and forwards to the provider's own `base_url`. Your
+    Codex config files are unchanged.
 
 === "aider"
 
@@ -224,11 +225,11 @@ Two things to look for:
     ```
 
     That happens when the tool's own configuration outranks what `privyx run`
-    sets: a `model_provider` of your own in Codex, or a `--settings` of your
-    own after `--` for Claude Code. If your Claude Code settings point
-    `ANTHROPIC_BASE_URL` at a router or another proxy, give that URL to
-    Privyx instead, as `privyx run -u URL claude`: Privyx then sits in front
-    of it.
+    sets: a `model_provider` set only in a project's `.codex/config.toml`,
+    or a `--settings` of your own after `--` for Claude Code. If your Claude
+    Code settings point `ANTHROPIC_BASE_URL` at a router or another proxy,
+    give that URL to Privyx instead, as `privyx run -u URL claude`: Privyx
+    then sits in front of it.
 
 - **The entity types you expect.** Emails, keys, and IP addresses show up
   without configuration. Names do not; that is the next step.

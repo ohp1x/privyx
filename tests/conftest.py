@@ -19,7 +19,13 @@ _HOME_VARS = ("HOME", "USERPROFILE")
 _session_home = tempfile.mkdtemp(prefix="privyx-tests-")
 for _var in _HOME_VARS:
     os.environ[_var] = _session_home
-for _var in ("PRIVYX_CONFIG", "PRIVYX_NO_DISCOVERY", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
+for _var in (
+    "PRIVYX_CONFIG",
+    "PRIVYX_NO_DISCOVERY",
+    "XDG_CONFIG_HOME",
+    "XDG_STATE_HOME",
+    "CODEX_HOME",
+):
     os.environ.pop(_var, None)
 
 
