@@ -181,27 +181,19 @@ class FakerOperator(BaseOperator):
 def _restore_literal(text: str, mapping: dict[str, str]) -> TransformResult:
     """Replace substituted values in ``text`` with their originals.
 
-    This is the streaming hold-back scan
-    (:class:`~privyx.streaming.deanonymizer._BufferedStream`) fed a single chunk:
-    emit the longest known value at each position, but hold back a trailing run
-    that is only a *viable prefix* of a value and resolve it at the end only if it
-    is a complete value.  Because single-chunk and multi-chunk feeds of that
-    algorithm agree, the batch result here equals the streamed result for any
-    chunking — including adversarial overlaps like values ``a`` and ``aaa`` in the
-    text ``aa`` — which a plain greedy longest-match would get wrong.  A trie is
-    reused (rather than the codec) because a fake value has no token syntax.
+    Scans ``text`` for pseudonyms in ``mapping``, matching the longest known
+    value at each position.  Because the hold-back scan in
+    :class:`~privyx.streaming.deanonymizer.StreamingDeanonymizer` drains any
+    held tail the same way at the end of a stream, batch and streaming results
+    agree.  A trie is reused (rather than the codec) because a fake value has no
+    token syntax.
     """
     trie = PseudonymTrie()
     trie.update(mapping)
     out: list[str] = []
     transforms: list[Transformation] = []
     i, n = 0, len(text)
-    pending_start: int | None = None
     while i < n:
-        prefix_len = trie.longest_prefix_len(text, i)
-        if prefix_len > 0 and i + prefix_len == n:
-            pending_start = i  # a viable prefix reaching the end; decide at flush
-            break
         match = trie.match_at(text, i)
         if match is not None:
             matched, original = match
@@ -211,17 +203,5 @@ def _restore_literal(text: str, mapping: dict[str, str]) -> TransformResult:
             continue
         out.append(text[i])
         i += 1
-
-    if pending_start is not None:
-        pending = text[pending_start:]
-        match = trie.match_at(pending, 0)
-        if match is not None and len(match[0]) == len(pending):
-            matched, original = match
-            out.append(original)
-            transforms.append(
-                Transformation(pending_start, pending_start + len(matched), matched, original)
-            )
-        else:
-            out.append(pending)
 
     return TransformResult(text="".join(out), transformations=transforms)
