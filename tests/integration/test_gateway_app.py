@@ -638,3 +638,10 @@ async def test_gateway_token_ids_are_refused(path: str, body: dict[str, Any]) ->
     assert response.status_code == 400
     assert "token ids" in response.json()["error"]["message"]
     assert not seen
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+async def test_no_api_docs_are_served(path: str) -> None:
+    client, _ = _client(_engine())
+    async with client:
+        assert (await client.get(path)).status_code == 404

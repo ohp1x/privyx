@@ -333,6 +333,13 @@ async def test_unrouted_path_passthrough_through_app() -> None:
     assert response.json()["data"][0]["id"] == "m <PRIVYX_EMAIL_9>"
 
 
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+async def test_api_docs_paths_go_to_the_upstream(path: str) -> None:
+    async with _client(_app()) as client:
+        response = await client.get(path)
+    assert response.json() == {"error": "nope"}  # the upstream's answer, not Swagger
+
+
 async def test_count_tokens_is_pseudonymized() -> None:
     seen: list[bytes] = []
     async with _client(_app(seen)) as client:
