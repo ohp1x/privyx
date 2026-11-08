@@ -1,4 +1,4 @@
-"""The redis vault against a real Redis: atomic create, TTL, list, reconnect.
+"""The redis vault against a real Redis: atomic create, TTL, list, reconnect, lock.
 
 Runs only when ``PRIVYX_TEST_REDIS_URL`` is set (CI starts a Redis service);
 each test uses its own session ids and deletes them, so a shared Redis is safe.
@@ -13,8 +13,12 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
+from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import VaultError
 from privyx.core.session import Session
+from privyx.privacy.detector.builtin import RegexDetector
+from privyx.privacy.operator.pseudonym import PseudonymOperator
+from privyx.privacy.policy.default import DefaultPolicy
 from privyx.vault.redis import RedisVault, redis_client
 
 URL = os.environ.get("PRIVYX_TEST_REDIS_URL", "")
@@ -90,3 +94,66 @@ async def test_recovers_when_redis_drops_the_connection(
     stored = await vault.get(session.session_id)
 
     assert stored is not None and stored.session_id == session.session_id
+
+
+def _engine(vault: RedisVault) -> PrivacyEngine:
+    """An engine without an anchor: its counter tokens need the Redis lock."""
+    return PrivacyEngine(
+        detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
+    )
+
+
+async def test_two_replicas_on_one_session_mint_different_tokens(
+    vault: RedisVault, new_id: Callable[[], str]
+) -> None:
+    session_id = new_id()
+
+    async def request(engine: PrivacyEngine, text: str) -> str:
+        async with engine.session_scope(session_id) as session:
+            await asyncio.sleep(0.02)  # both have read the session before either saves
+            return (await engine.transform(text, session=session, persist=False)).text
+
+    first, second = await asyncio.gather(
+        request(_engine(vault), "mail ana@example.com"),
+        request(_engine(vault), "mail bob@example.com"),
+    )
+
+    assert first.split()[1] != second.split()[1]
+    stored = await vault.get(session_id)
+    assert stored is not None and len(stored.mapping) == 2
+
+
+async def test_a_held_lock_is_renewed(vault: RedisVault, new_id: Callable[[], str]) -> None:
+    session_id = new_id()
+    async with vault.lock(session_id, ttl=1):
+        await asyncio.sleep(1.2)  # past the 1 s ttl: only renewal keeps it
+        assert await vault._client.get(f"privyx:lock:{session_id}") is not None
+    assert await vault._client.get(f"privyx:lock:{session_id}") is None  # released
+
+
+async def test_a_save_after_the_lock_expired_is_refused(
+    vault: RedisVault, new_id: Callable[[], str]
+) -> None:
+    session = Session(session_id=new_id())
+    session.put("<PRIVYX_EMAIL_1>", "ana@example.com")
+    await vault.create(session)
+    # The lock expired and another process holds it now.
+    await vault._client.set(f"privyx:lock:{session.session_id}", "other", ex=10)
+
+    session.put("<PRIVYX_EMAIL_1>", "bob@example.com")
+    with pytest.raises(VaultError, match="lock expired"):
+        await vault.save(session, lock_token="mine")
+
+    stored = await vault.get(session.session_id)
+    assert stored is not None and stored.get("<PRIVYX_EMAIL_1>") == "ana@example.com"
+    await vault._client.delete(f"privyx:lock:{session.session_id}")
+
+
+async def test_waiting_too_long_for_the_lock_raises(
+    vault: RedisVault, new_id: Callable[[], str]
+) -> None:
+    session_id = new_id()
+    async with vault.lock(session_id):
+        with pytest.raises(VaultError, match="timed out"):
+            async with vault.lock(session_id, wait=0.1):
+                pass

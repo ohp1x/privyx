@@ -5,9 +5,13 @@ Requires the optional ``redis`` extra.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
+import time
+import uuid
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
 from redis.asyncio import Redis, from_url
@@ -21,6 +25,27 @@ from privyx.core.session import Session
 from privyx.vault.base import BaseVault
 
 _KEY_PREFIX = "privyx:session:"
+_LOCK_PREFIX = "privyx:lock:"  # outside _KEY_PREFIX, so list_sessions never sees a lock
+
+# Each checks the lock still holds this token: a holder whose lock expired must
+# not renew, release, or save over the next holder's.
+_SAVE_LOCKED = """
+if redis.call('get', KEYS[2]) ~= ARGV[1] then return 0 end
+if ARGV[3] == '' then
+    redis.call('set', KEYS[1], ARGV[2])
+else
+    redis.call('set', KEYS[1], ARGV[2], 'EX', ARGV[3])
+end
+return 1
+"""
+_RENEW = """
+if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) end
+return 0
+"""
+_RELEASE = """
+if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end
+return 0
+"""
 
 
 def redis_client(url: str) -> Redis:
@@ -94,8 +119,61 @@ class RedisVault(BaseVault):
         except (json.JSONDecodeError, KeyError) as exc:
             raise VaultError(f"corrupt session record: {session_id}") from exc
 
-    async def save(self, session: Session) -> None:
-        await self._write(session)
+    async def save(self, session: Session, *, lock_token: str | None = None) -> None:
+        """Write ``session``; with ``lock_token``, only while :meth:`lock` still holds it."""
+        if lock_token is None:
+            await self._write(session)
+            return
+        sid = session.session_id
+        data = json.dumps(session.to_dict())
+        with _errors():
+            saved = await self._client.eval(
+                _SAVE_LOCKED,
+                2,
+                self._key(sid),
+                _LOCK_PREFIX + sid,
+                lock_token,
+                data,
+                self._ttl or "",
+            )
+        if not saved:
+            raise VaultError(f"session lock expired before saving: {sid}")
+
+    @asynccontextmanager
+    async def lock(self, session_id: str, ttl: int = 10, wait: float = 10.0) -> AsyncIterator[str]:
+        """Hold ``session_id`` across processes sharing this Redis (``SET NX EX``).
+
+        Yields the token :meth:`save` checks.  The lock is renewed every
+        ``ttl / 3`` seconds while held, so a slow transform keeps it; a process
+        that dies lets it expire after ``ttl``.  Waiting longer than ``wait``
+        seconds for it raises :class:`VaultError`.
+        """
+        key = _LOCK_PREFIX + session_id
+        token = uuid.uuid4().hex
+        deadline = time.monotonic() + wait
+        while True:
+            with _errors():
+                if await self._client.set(key, token, ex=ttl, nx=True):
+                    break
+            if time.monotonic() >= deadline:
+                raise VaultError(f"timed out waiting for the session lock: {session_id}")
+            await asyncio.sleep(0.05)
+
+        async def renew() -> None:
+            while True:
+                await asyncio.sleep(ttl / 3)
+                # A missed renewal is not fatal: save still checks the token.
+                with contextlib.suppress(RedisError):
+                    await self._client.eval(_RENEW, 1, key, token, ttl)
+
+        renewer = asyncio.create_task(renew())
+        try:
+            yield token
+        finally:
+            renewer.cancel()
+            await asyncio.gather(renewer, return_exceptions=True)
+            with contextlib.suppress(RedisError):  # unreleased, it expires after ttl
+                await self._client.eval(_RELEASE, 1, key, token)
 
     async def delete(self, session_id: str) -> None:
         with _errors():

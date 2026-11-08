@@ -34,5 +34,9 @@ session's idle time restarts with each request that uses it.
 - Request/response bodies are processed in-memory; no cross-instance state.
 - A sticky session's mapping lives in the vault — any instance can serve any
   session.
+- Without an anchor, tokens are counters, so an instance masking a request
+  holds the session's Redis lock (`SET NX EX`, renewed while held) until it
+  has saved the mapping. With an anchor no lock is taken: the token comes from
+  the value.
 - Streaming deanonymizers are per-connection; the mapping is the request's own
   (ephemeral) or loaded from the vault at stream start.

@@ -168,16 +168,26 @@ class PrivacyEngine:
         the same counter pseudonym for different values and overwriting each
         other's mapping on save.
         """
-        # In-process lock only: replicas sharing a redis vault can still
-        # race — use an anchor (value-derived pseudonyms) or a redis lock there.
+        # The in-process lock covers one process.  Replicas sharing a Redis vault
+        # also take its lock, unless an anchor makes pseudonyms value-derived:
+        # then two replicas mint the same token for a value anyway.
         lock = self._locks.get(session_id)
         if lock is None:
             lock = self._locks[session_id] = asyncio.Lock()
+        vault: Any = self._vault
+        shared = hasattr(vault, "lock") and getattr(self._operator, "_anchor", None) is None
         async with lock:
-            session = await self.get_or_create_session(session_id)
-            yield session
-            session.touch()
-            await self._vault.save(session)
+            if shared:
+                async with vault.lock(session_id) as token:
+                    session = await self.get_or_create_session(session_id)
+                    yield session
+                    session.touch()
+                    await vault.save(session, lock_token=token)
+            else:
+                session = await self.get_or_create_session(session_id)
+                yield session
+                session.touch()
+                await vault.save(session)
 
     async def transform(
         self,

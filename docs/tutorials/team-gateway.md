@@ -255,7 +255,8 @@ the token like everything else.
   balancer can share the same Redis: a conversation's session is found by
   whichever instance receives the next turn. Give them all the same
   `PRIVYX_ANCHOR_SECRET` or `PRIVYX_ENCRYPT_KEY`, so that tokens come from
-  the value and not from a counter two instances could advance at once.
+  the value. Without one, an instance locks the session in Redis while it
+  masks a request, and requests of one conversation wait for each other.
 - **Secrets.** `.env` now holds the provider key and the anchor secret or
   encryption key. Keep it readable by its owner only, and out of version
   control.
