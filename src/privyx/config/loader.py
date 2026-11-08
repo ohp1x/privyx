@@ -33,6 +33,7 @@ from privyx.config.defaults import DEFAULTS
 from privyx.config.env import discovery_disabled, env_config
 from privyx.config.schema import PluggableConfig, Settings
 from privyx.core.errors import ConfigError
+from privyx.security.secrets import resolve_secrets
 
 _log = logging.getLogger("privyx")
 
@@ -244,6 +245,7 @@ def load_config(
         sources.clear()
         sources.update(origins)
 
+    merged = resolve_secrets(merged)
     try:
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError

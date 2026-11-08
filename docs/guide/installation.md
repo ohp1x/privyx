@@ -59,6 +59,7 @@ setup.
 | `providers` | OpenAI and Anthropic SDKs | the [`llm` detector](detection.md#llm-detector) |
 | `faker` | Faker | the [`faker` operator](masking.md#faker) |
 | `crypto` | cryptography | the [`encrypt` operator](masking.md#encrypt) |
+| `keychain` | keyring | [`keychain://` secrets](configuration.md#secrets-from-a-password-manager) |
 
 Combine them as needed:
 
