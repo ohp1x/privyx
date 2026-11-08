@@ -63,16 +63,16 @@ class _NameFindingClient:
 
 
 async def test_parses_a_well_formed_response_into_spans() -> None:
-    text = "mail <PRDE_EMAIL_3AC4F8DAD86FFF16>"
-    start = text.index("<PRDE_EMAIL_3AC4F8DAD86FFF16>")
-    end = start + len("<PRDE_EMAIL_3AC4F8DAD86FFF16>")
-    client = _FakeLLMClient(f'[[{start}, {end}, "EMAIL", "<PRDE_EMAIL_3AC4F8DAD86FFF16>"]]')
+    text = "mail ana@example.com"
+    start = text.index("ana@example.com")
+    end = start + len("ana@example.com")
+    client = _FakeLLMClient(f'[[{start}, {end}, "EMAIL", "ana@example.com"]]')
     detector = LLMDetector(client=client)
 
     detection = await detector.detect(text, Context())
 
     spans = [(s.entity_type, s.text) for s in detection.spans]
-    assert spans == [("EMAIL", "<PRDE_EMAIL_3AC4F8DAD86FFF16>")]
+    assert spans == [("EMAIL", "ana@example.com")]
 
 
 async def test_the_scanned_text_reaches_the_client_prompt() -> None:
