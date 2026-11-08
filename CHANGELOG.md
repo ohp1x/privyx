@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Masking:** `operator.type: partial` hides most of a value and keeps a little context, such as `a****@example.com` or `**** **** **** 1234`, and restores it in replies
+
 ## [0.1.26] - 2026-11-08
 
 ### Added

@@ -69,41 +69,20 @@ _PROVIDER_METHODS: dict[str, str] = {
 }
 
 
-class FakerOperator(BaseOperator):
-    """Replace detected spans with realistic fake values of the same kind.
+class LiteralOperator(BaseOperator):
+    """Replace detected spans with plain-text substitutes, restored by exact match.
 
-    Each unique original maps to a consistent fake via the session's ``reverse``
-    mapping, exactly like :class:`PseudonymOperator` — so the same value reads the
-    same way throughout a conversation.  The fake is derived deterministically
-    from the value (and the optional ``seed``), so a given original also fakes
-    identically across sessions and runs, which keeps the operator testable.
-
-    Args:
-        locale: Faker locale (e.g. ``en_US``, ``id_ID``); Faker's default when
-            omitted.
-        seed: Optional salt mixed into the per-value seed.  Two deployments with
-            different seeds fake the same value differently; the same seed
-            reproduces the same fakes.
-
-    Raises:
-        ConfigError: If the ``faker`` package is not installed.
+    The shared half of :class:`FakerOperator` and the other operators whose
+    output is ordinary text rather than a codec token.  Each unique original
+    maps to one substitute via the session's ``reverse`` mapping, exactly like
+    :class:`PseudonymOperator`, so the same value reads the same way throughout
+    a conversation.  A subclass only says what the substitute is
+    (:meth:`_fake_for`).
     """
 
-    name = "faker"
     #: This operator's output is plain text, so a stream is reversed by matching
     #: the exact substituted values (a trie), not the codec token syntax.
     stream_restore = "literal"
-
-    def __init__(self, locale: str | None = None, seed: int | None = None) -> None:
-        try:
-            from faker import Faker
-        except ImportError as exc:  # pragma: no cover - optional dep
-            raise ConfigError(
-                "operator type 'faker' requires the 'faker' extra; install with "
-                "`pip install privyx[faker]` (or `uv sync --all-extras`)"
-            ) from exc
-        self._faker = Faker(locale) if locale else Faker()
-        self._seed = seed
 
     async def pseudonymize(
         self,
@@ -161,6 +140,44 @@ class FakerOperator(BaseOperator):
             if existing is None or existing == original:
                 return fake
         return f"{fake}-{len(session.mapping) + 1}"
+
+    def _fake_for(self, entity_type: str, original: str, salt: int = 0) -> str:
+        """The substitute for ``original``; a new ``salt`` must give a new one."""
+        raise NotImplementedError
+
+
+class FakerOperator(LiteralOperator):
+    """Replace detected spans with realistic fake values of the same kind.
+
+    Each unique original maps to a consistent fake via the session's ``reverse``
+    mapping, exactly like :class:`PseudonymOperator` — so the same value reads the
+    same way throughout a conversation.  The fake is derived deterministically
+    from the value (and the optional ``seed``), so a given original also fakes
+    identically across sessions and runs, which keeps the operator testable.
+
+    Args:
+        locale: Faker locale (e.g. ``en_US``, ``id_ID``); Faker's default when
+            omitted.
+        seed: Optional salt mixed into the per-value seed.  Two deployments with
+            different seeds fake the same value differently; the same seed
+            reproduces the same fakes.
+
+    Raises:
+        ConfigError: If the ``faker`` package is not installed.
+    """
+
+    name = "faker"
+
+    def __init__(self, locale: str | None = None, seed: int | None = None) -> None:
+        try:
+            from faker import Faker
+        except ImportError as exc:  # pragma: no cover - optional dep
+            raise ConfigError(
+                "operator type 'faker' requires the 'faker' extra; install with "
+                "`pip install privyx[faker]` (or `uv sync --all-extras`)"
+            ) from exc
+        self._faker = Faker(locale) if locale else Faker()
+        self._seed = seed
 
     def _fake_for(self, entity_type: str, original: str, salt: int = 0) -> str:
         """Deterministically fake ``original`` for ``entity_type``.

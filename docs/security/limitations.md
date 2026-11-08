@@ -44,9 +44,9 @@ parts that carry conversation content.
 |---|---|
 | A token the model rewrote is not restored: translated, split by a space, or wrapped in other characters. Two departures are tolerated, a token without its outer delimiters and a long id on its own. | Pick a [token format](../guide/masking.md#token-format) your model reproduces reliably. |
 | `logprobs` token strings are not restored, so a client that asks for them can see fragments of a token. | Do not request `logprobs` through Privyx. |
-| The `redact` operator cannot be restored at all, and `faker` restores by matching its fake values, which the model may also write by coincidence. | Use `pseudonym` when exact reversal matters. |
+| The `redact` operator cannot be restored at all, and `faker` and `partial` restore by matching their substitutes, which the model may also write by coincidence. | Use `pseudonym` when exact reversal matters. |
 | A tool that the provider runs for the model, such as web search or code execution, receives tokens. A search for a masked name searches for the token. | Leave unmasked what such a tool must see, with the [`strict` policy](../guide/detection.md#policy). |
-| The model cannot reason about what it cannot see. It can pass a masked email address along; it cannot tell you its domain. | Mask less with the `strict` policy, or use the [`faker`](../guide/masking.md#faker) operator so the model sees a plausible stand-in. |
+| The model cannot reason about what it cannot see. It can pass a masked email address along; it cannot tell you its domain. | Mask less with the `strict` policy, or use the [`faker`](../guide/masking.md#faker) operator so the model sees a plausible stand-in, or [`partial`](../guide/masking.md#partial) so it sees part of the value. |
 
 ## What the provider still learns
 

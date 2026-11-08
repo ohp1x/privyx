@@ -419,7 +419,7 @@ What a detected value becomes. See [Masking](masking.md).
 
 | Key | Default | Description |
 |---|---|---|
-| `type` | `pseudonym` | `pseudonym`, `hash`, `encrypt`, `faker`, `redact`, or a plugin operator. |
+| `type` | `pseudonym` | `pseudonym`, `hash`, `encrypt`, `faker`, `partial`, `redact`, or a plugin operator. |
 | `token` | `[REDACTED]` | `redact`: replacement text. |
 | `length` | `12` | `hash`: hex characters of the digest kept in the token. |
 | `locale` | empty | `faker`: Faker locale such as `en_US`. Empty uses Faker's default. |
