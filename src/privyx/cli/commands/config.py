@@ -14,9 +14,15 @@ from privyx.config.redact import redact
 @click.command("config")
 @click.option("--show", is_flag=True, help="Show current config as JSON (secrets masked)")
 @click.option("--path", is_flag=True, help="Show the config files in use")
+@click.option("--schema", is_flag=True, help="Print the JSON Schema of a config file")
 @click.option("--config", "-c", "config_path", default=None, help="Config file path")
-def config_cmd(show: bool, path: bool, config_path: str | None) -> None:
+def config_cmd(show: bool, path: bool, schema: bool, config_path: str | None) -> None:
     """Inspect configuration."""
+    if schema:
+        from privyx.config.schema import json_schema
+
+        click.echo(json.dumps(json_schema(), indent=2))
+        return
     from privyx.config.loader import active_config_paths, load_config
     from privyx.core.errors import PrivyxError
     from privyx.providers.registry import resolve_base_url

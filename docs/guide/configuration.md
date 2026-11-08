@@ -94,6 +94,32 @@ privyx config --show -c my.yaml # every setting as JSON, credentials masked
 privyx doctor -c my.yaml        # build each component and run a request through it
 ```
 
+## Editor support
+
+Privyx publishes a [JSON Schema](https://ohp1x.github.io/privyx/schema.json)
+of the config file, so an editor can complete setting names, show what a
+section holds, and flag a misspelled key as you type. `privyx config --schema`
+prints the same schema for the installed version.
+
+With the YAML language server, used by the
+[YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)
+for VS Code and by `yamlls` in Neovim, put this line at the top of the file:
+
+```yaml
+# yaml-language-server: $schema=https://ohp1x.github.io/privyx/schema.json
+```
+
+Or map the schema to the file names once, in VS Code's `settings.json`:
+
+```json
+"yaml.schemas": {
+  "https://ohp1x.github.io/privyx/schema.json": ["privyx.yaml", ".privyx/config.yaml", "privyx.d/*.yaml"]
+}
+```
+
+The published schema follows the latest release; to match an older install,
+save `privyx config --schema` to a file and point the comment at its path.
+
 ## Example
 
 ```yaml

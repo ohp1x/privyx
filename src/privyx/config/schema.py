@@ -392,3 +392,42 @@ class Settings(BaseModel):
         """Build Settings from a (possibly partial) config dict."""
         merged = data
         return cls(**merged)
+
+
+#: Where the published copy of :func:`json_schema` is served (``docs/schema.json``).
+SCHEMA_URL = "https://ohp1x.github.io/privyx/schema.json"
+
+
+def json_schema() -> dict[str, Any]:
+    """The JSON Schema of a config file, for editors that complete and check YAML.
+
+    A section that is not pluggable takes no other keys, as in
+    :func:`~privyx.config.loader.load_config`; a pluggable one takes any, since
+    a plugin type has options of its own.
+    """
+    schema = Settings.model_json_schema()
+    schema["properties"]["include"] = {
+        "description": "Config files or globs to merge below this one, relative to it.",
+        "anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
+    }
+    for section in [schema, *schema["$defs"].values()]:
+        section.setdefault("additionalProperties", False)
+    # A profile may take its command from the profile it extends.
+    schema["$defs"]["AgentConfig"].pop("required", None)
+    _allow_references(schema)
+    return {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": SCHEMA_URL, **schema}
+
+
+def _allow_references(node: Any) -> None:
+    """Let a number, boolean, or enum be a ``${NAME}`` reference, which the loader resolves."""
+    if isinstance(node, list):
+        for item in node:
+            _allow_references(item)
+    elif isinstance(node, dict):
+        restricted = "enum" in node or "const" in node
+        if restricted or node.get("type") in ("integer", "number", "boolean"):
+            value = {k: node.pop(k) for k in list(node) if k not in ("title", "description")}
+            node["anyOf"] = [value, {"type": "string", "pattern": r"\$\{"}]
+        else:
+            for item in node.values():
+                _allow_references(item)

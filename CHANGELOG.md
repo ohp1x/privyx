@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Config:** values in a config file can read environment variables with `${NAME}` and `${NAME:-default}`; an unset variable without a default fails at startup
 - **Config:** a config file can pull in other files with `include`, globs allowed; its own settings win over the files it includes, and trusting it covers them
+- **Config:** a published JSON Schema of the config file, also printed by `privyx config --schema`, gives editors completion and typo checks
 
 ### Fixed
 

@@ -1,0 +1,800 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ohp1x.github.io/privyx/schema.json",
+  "$defs": {
+    "AgentConfig": {
+      "description": "How to launch a tool and point it at the local proxy; never a shell command.",
+      "properties": {
+        "command": {
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "provider": {
+          "default": "generic",
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "upstream": {
+          "default": "",
+          "title": "Upstream",
+          "type": "string"
+        },
+        "env_vars": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Vars",
+          "type": "array"
+        },
+        "base_path": {
+          "default": "",
+          "title": "Base Path",
+          "type": "string"
+        },
+        "extends": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extends"
+        },
+        "adapter": {
+          "title": "Adapter",
+          "anyOf": [
+            {
+              "default": "auto",
+              "enum": [
+                "auto",
+                "env",
+                "claude",
+                "codex",
+                "pi"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Env",
+          "type": "object"
+        },
+        "env_from": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Env From",
+          "type": "object"
+        }
+      },
+      "title": "AgentConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "AnchorConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "default": "hmac",
+          "title": "Type",
+          "type": "string"
+        },
+        "secret": {
+          "default": "",
+          "title": "Secret",
+          "type": "string"
+        }
+      },
+      "title": "AnchorConfig",
+      "type": "object"
+    },
+    "AuditConfig": {
+      "description": "PII-safe audit trail.\n\nEvents (session created, transform, restore, proxy request) are appended as\nJSON lines to ``path``.  The trail records counts and entity *types*, never\npayload content; see :mod:`privyx.observability.audit`.",
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "path": {
+          "default": "~/.privyx/audit.log",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "title": "AuditConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "DetectorCacheConfig": {
+      "description": "Configuration for turn/detection caching.\n\nCaches entity detections for previously seen text spans, avoiding\nredundant regex or NLP scans across conversation turns.",
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "max_size": {
+          "title": "Max Size",
+          "anyOf": [
+            {
+              "default": 10000,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "title": "DetectorCacheConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "DetectorConfig": {
+      "additionalProperties": true,
+      "description": "Detector selection and its rules.\n\n``patterns`` and ``terms`` are complementary and may both be set: the first\nis entity -> regex, the second entity -> a list of literal strings that\nPrivyx escapes and compiles for you (case-insensitively).  They are merged\ninto one pattern map; a hand-written ``patterns`` entry wins over a ``terms``\nentry for the same entity.",
+      "properties": {
+        "type": {
+          "default": "regex",
+          "title": "Type",
+          "type": "string"
+        },
+        "patterns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Patterns",
+          "type": "object"
+        },
+        "terms": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Terms",
+          "type": "object"
+        },
+        "cache": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DetectorCacheConfig"
+            },
+            {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            }
+          ],
+          "title": "Cache"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "entities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "score_threshold": {
+          "title": "Score Threshold",
+          "anyOf": [
+            {
+              "default": 0.35,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "llm_provider": {
+          "default": "openai",
+          "title": "Llm Provider",
+          "type": "string"
+        },
+        "llm_model": {
+          "default": "",
+          "title": "Llm Model",
+          "type": "string"
+        },
+        "llm_api_key": {
+          "default": "",
+          "title": "Llm Api Key",
+          "type": "string"
+        },
+        "llm_instructions": {
+          "default": "",
+          "title": "Llm Instructions",
+          "type": "string"
+        },
+        "llm_timeout": {
+          "title": "Llm Timeout",
+          "anyOf": [
+            {
+              "default": 30.0,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "llm_max_chars": {
+          "title": "Llm Max Chars",
+          "anyOf": [
+            {
+              "default": 4000,
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "llm_fallback_on_error": {
+          "title": "Llm Fallback On Error",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "title": "DetectorConfig",
+      "type": "object"
+    },
+    "OperatorConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "default": "pseudonym",
+          "title": "Type",
+          "type": "string"
+        },
+        "token": {
+          "default": "[REDACTED]",
+          "title": "Token",
+          "type": "string"
+        },
+        "length": {
+          "title": "Length",
+          "anyOf": [
+            {
+              "default": 12,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "locale": {
+          "default": "",
+          "title": "Locale",
+          "type": "string"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        },
+        "key": {
+          "default": "",
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "title": "OperatorConfig",
+      "type": "object"
+    },
+    "PluginsConfig": {
+      "description": "Local plugin discovery.\n\nOpt-in: nothing is loaded unless ``paths`` lists a directory or a ``.py``\nfile.  Each path is imported and scanned for concrete subclasses of the\nPrivyx component base classes, which are registered under their ``name`` and\nbecome selectable as a component ``type``.  Discovery is local to this\ndeployment \u2014 there is no third-party entry-point mechanism.  Set\n``enabled: false`` to skip loading even when paths are configured.",
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "title": "PluginsConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "PolicyConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "default": "default",
+          "title": "Type",
+          "type": "string"
+        },
+        "allowed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed",
+          "type": "array"
+        }
+      },
+      "title": "PolicyConfig",
+      "type": "object"
+    },
+    "ProviderConfig": {
+      "additionalProperties": true,
+      "description": "Provider transport settings.\n\n``base_url`` defaults to empty rather than to a URL: an empty value lets\nthe provider registry fall back to the endpoint that provider type is\ndocumented to use (``api.openai.com`` for ``openai``, and so on).  A\nnon-empty default here would silently override every such fallback.",
+      "properties": {
+        "type": {
+          "default": "generic",
+          "title": "Type",
+          "type": "string"
+        },
+        "base_url": {
+          "default": "",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "api_key": {
+          "default": "",
+          "title": "Api Key",
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Headers",
+          "type": "object"
+        },
+        "openai_api_key": {
+          "default": "",
+          "title": "Openai Api Key",
+          "type": "string"
+        },
+        "anthropic_api_key": {
+          "default": "",
+          "title": "Anthropic Api Key",
+          "type": "string"
+        },
+        "google_api_key": {
+          "default": "",
+          "title": "Google Api Key",
+          "type": "string"
+        }
+      },
+      "title": "ProviderConfig",
+      "type": "object"
+    },
+    "ProxyConfig": {
+      "description": "Proxy serving mode.\n\n``mode`` selects which app :command:`privyx proxy` serves:\n\n- ``gateway`` \u2014 the narrow, chat-only gateway (``/v1/chat/completions``),\n  OpenAI schema only.\n- ``transparent`` \u2014 a drop-in reverse proxy.  Point a client's\n  ``OPENAI_BASE_URL`` / ``ANTHROPIC_BASE_URL`` at Privyx and every path is\n  forwarded to the upstream origin; chat paths are pseudonymized on the way\n  out and restored on the way back, all without client-side changes.\n\n``routes`` maps a request path to the wire schema used to transform it.\nIn transparent mode, paths not listed are forwarded verbatim when\n``passthrough_unknown`` is set (the default) and refused with 403 when it is\nnot.  The gateway serves only the listed paths either way.",
+      "properties": {
+        "mode": {
+          "title": "Mode",
+          "anyOf": [
+            {
+              "default": "transparent",
+              "enum": [
+                "gateway",
+                "transparent"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "routes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Routes",
+          "type": "object"
+        },
+        "forward_client_auth": {
+          "title": "Forward Client Auth",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "passthrough_unknown": {
+          "title": "Passthrough Unknown",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "timeout": {
+          "title": "Timeout",
+          "anyOf": [
+            {
+              "default": 300.0,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "connect_timeout": {
+          "title": "Connect Timeout",
+          "anyOf": [
+            {
+              "default": 10.0,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "max_connections": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Connections"
+        }
+      },
+      "title": "ProxyConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "SessionConfig": {
+      "description": "How a session is identified when the client sends no ``x-privyx-session``.\n\nAn explicit ``x-privyx-session`` header always wins.  Absent one, ``strategy``\ndecides the fallback:\n\n- ``ephemeral`` (default) \u2014 a fresh session per request.  Nothing is shared\n  between requests, so two callers' pseudonym maps can never collide, but a\n  multi-turn conversation is re-tokenized from scratch every turn and shows up\n  as many sessions.\n- ``client`` \u2014 a stable session derived from the client credential\n  (``Authorization`` / ``x-api-key``): one API key \u2192 one reused session.\n  Simple, but every conversation under that key shares one pseudonym map.\n- ``conversation`` \u2014 a stable session derived from the credential *and* the\n  first user message, so one conversation \u2192 one reused session while different\n  conversations (even under the same key) stay isolated.\n\nBoth derived strategies fall back to ``ephemeral`` when their signal is absent\n(e.g. a request carries no credential).",
+      "properties": {
+        "strategy": {
+          "title": "Strategy",
+          "anyOf": [
+            {
+              "default": "ephemeral",
+              "enum": [
+                "ephemeral",
+                "client",
+                "conversation"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "title": "SessionConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "TLSConfig": {
+      "description": "TLS/SSL server configuration for HTTPS termination.",
+      "properties": {
+        "certfile": {
+          "default": "",
+          "title": "Certfile",
+          "type": "string"
+        },
+        "keyfile": {
+          "default": "",
+          "title": "Keyfile",
+          "type": "string"
+        },
+        "keyfile_password": {
+          "default": "",
+          "title": "Keyfile Password",
+          "type": "string"
+        },
+        "ca_certs": {
+          "default": "",
+          "title": "Ca Certs",
+          "type": "string"
+        }
+      },
+      "title": "TLSConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "TokenConfig": {
+      "description": "How placeholder tokens are serialized in text.\n\n``format`` must contain ``{type}`` and ``{id}``; ``{namespace}`` is optional.\nAdjacent placeholders need a delimiter between them.  The default reproduces\nthe historical ``<PRIVYX_EMAIL_1>`` syntax; alternatives include\n``[[{namespace}:{type}:{id}]]`` and ``<{namespace}:{type}:{id}>``.",
+      "properties": {
+        "namespace": {
+          "default": "PRIVYX",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "format": {
+          "default": "<{namespace}_{type}_{id}>",
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "title": "TokenConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "VaultConfig": {
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "default": "memory",
+          "title": "Type",
+          "type": "string"
+        },
+        "dsn": {
+          "default": "sqlite+aiosqlite:///~/.privyx/privyx.db",
+          "title": "Dsn",
+          "type": "string"
+        },
+        "redis_url": {
+          "default": "redis://localhost:6379/0",
+          "title": "Redis Url",
+          "type": "string"
+        },
+        "ttl": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttl"
+        }
+      },
+      "title": "VaultConfig",
+      "type": "object"
+    }
+  },
+  "description": "Top-level Privyx settings.",
+  "properties": {
+    "host": {
+      "default": "127.0.0.1",
+      "title": "Host",
+      "type": "string"
+    },
+    "port": {
+      "title": "Port",
+      "anyOf": [
+        {
+          "default": 8000,
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "string",
+          "pattern": "\\$\\{"
+        }
+      ]
+    },
+    "log_level": {
+      "default": "info",
+      "title": "Log Level",
+      "type": "string"
+    },
+    "logging": {
+      "default": "text",
+      "title": "Logging",
+      "type": "string"
+    },
+    "log_file": {
+      "default": "",
+      "title": "Log File",
+      "type": "string"
+    },
+    "upstream_url": {
+      "default": "",
+      "title": "Upstream Url",
+      "type": "string"
+    },
+    "vault": {
+      "$ref": "#/$defs/VaultConfig"
+    },
+    "detector": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DetectorConfig"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/DetectorConfig"
+          },
+          "type": "array"
+        }
+      ],
+      "title": "Detector"
+    },
+    "policy": {
+      "$ref": "#/$defs/PolicyConfig"
+    },
+    "operator": {
+      "$ref": "#/$defs/OperatorConfig"
+    },
+    "anchor": {
+      "$ref": "#/$defs/AnchorConfig"
+    },
+    "session": {
+      "$ref": "#/$defs/SessionConfig"
+    },
+    "token": {
+      "$ref": "#/$defs/TokenConfig"
+    },
+    "provider": {
+      "$ref": "#/$defs/ProviderConfig"
+    },
+    "proxy": {
+      "$ref": "#/$defs/ProxyConfig"
+    },
+    "audit": {
+      "$ref": "#/$defs/AuditConfig"
+    },
+    "plugins": {
+      "$ref": "#/$defs/PluginsConfig"
+    },
+    "tls": {
+      "$ref": "#/$defs/TLSConfig"
+    },
+    "agents": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentConfig"
+      },
+      "title": "Agents",
+      "type": "object"
+    },
+    "include": {
+      "description": "Config files or globs to merge below this one, relative to it.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    }
+  },
+  "title": "Settings",
+  "type": "object",
+  "additionalProperties": false
+}
