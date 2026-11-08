@@ -343,3 +343,26 @@ async def test_detector_list_collapses_exact_duplicates() -> None:
 def test_empty_detector_list_raises_config_error() -> None:
     with pytest.raises(ConfigError, match="must not be empty"):
         build_detector([])
+
+
+def test_custom_secret_pattern_retains_heuristic_checks() -> None:
+    custom_secret_pattern = (
+        r"(?i)(?P<name>[a-z_]+)\s*(?P<sep>[:=])\s*(?P<q>['\"]?)(?P<value>[^\s'\";]+)(?P=q)"
+    )
+    detector = RegexDetector(patterns={"SECRET": custom_secret_pattern})
+
+    # Legitimate secret should still be detected
+    valid_text = 'my_secret = "super-secret-123"'
+    detection = detector.detect_sync(valid_text, Context())
+    assert len(detection.spans) == 1
+    assert detection.spans[0].text == "super-secret-123"
+
+    # False positives like TOKEN_URL or password: str should be filtered out by _secret_value
+    fp_text1 = 'TOKEN_URL = "https://example.com/oauth/token"'
+    assert len(detector.detect_sync(fp_text1, Context()).spans) == 0
+
+    fp_text2 = "password: str"
+    assert len(detector.detect_sync(fp_text2, Context()).spans) == 0
+
+    fp_text3 = "api_key = api_key"
+    assert len(detector.detect_sync(fp_text3, Context()).spans) == 0
