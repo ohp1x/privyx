@@ -33,7 +33,10 @@ def create_transparent_app(
         proxy: The transparent proxy that runs the per-request pipeline.
         settings: Validated settings (metadata only).
     """
-    app = FastAPI(title="Privyx (transparent)", version="0.1.0")
+    # No Swagger UI or OpenAPI document: those paths belong to the upstream.
+    app = FastAPI(
+        title="Privyx (transparent)", docs_url=None, redoc_url=None, openapi_url=None
+    )
 
     # Registered before the catch-all so GET /health and /metrics are answered here.
     @app.get("/health")

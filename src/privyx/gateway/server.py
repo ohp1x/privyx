@@ -96,7 +96,8 @@ class Gateway:
             )
             for schema in set(self._routes.values())
         }
-        self._app = FastAPI(title="Privyx", version="0.1.0")
+        # No Swagger UI or OpenAPI document: a privacy proxy has no API to browse.
+        self._app = FastAPI(title="Privyx", docs_url=None, redoc_url=None, openapi_url=None)
         self._register_routes()
 
     @property
