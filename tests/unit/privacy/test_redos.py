@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from privyx.privacy.detector.builtin import DEFAULT_PATTERNS
+from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, OPTIONAL_PATTERNS
 from privyx.privacy.detector.yaml import backtracks, build_detector
 
 
@@ -36,7 +36,8 @@ def test_safe_patterns_pass(pattern: str) -> None:
 
 
 def test_no_builtin_pattern_is_flagged() -> None:
-    assert [name for name, pattern in DEFAULT_PATTERNS.items() if backtracks(pattern)] == []
+    builtins = {**DEFAULT_PATTERNS, **OPTIONAL_PATTERNS}
+    assert [name for name, pattern in builtins.items() if backtracks(pattern)] == []
 
 
 def test_a_risky_custom_pattern_warns_but_still_builds(caplog: pytest.LogCaptureFixture) -> None:

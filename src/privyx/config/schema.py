@@ -63,6 +63,7 @@ class DetectorConfig(PluggableConfig):
     terms: dict[str, list[str]] = Field(default_factory=dict)
     # regex/yaml: entity -> words, one of which must be near a match
     context: dict[str, list[str]] = Field(default_factory=dict)
+    enable: list[str] = Field(default_factory=list)  # regex/yaml: opt-in built-in entities
     cache: DetectorCacheConfig | bool = Field(default_factory=DetectorCacheConfig)
     language: str = "en"  # presidio detector
     model: str = ""  # presidio detector: spaCy model (empty → {language}_core_web_sm)

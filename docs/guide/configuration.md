@@ -387,6 +387,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 | `patterns` | `{}` | Entity → regular expression. |
 | `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
 | `context` | `{}` | `regex`, `yaml`: entity → words, one of which must be within five words of a match for it to count. |
+| `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `CRYPTO_WALLET`. |
 | `cache` | `true` | Reuse detections for text seen before. `true`/`false`, or `{enabled, max_size}` (`max_size` defaults to `10000`). An entry keeps a digest of the text and what was found in it, not the text. |
 | `language` | `en` | `presidio`: language of the text. |
 | `model` | empty | `presidio`: spaCy model. Empty uses `{language}_core_web_sm`. |
@@ -407,7 +408,7 @@ Which detections are masked. See [Policy](detection.md#policy).
 | Key | Default | Description |
 |---|---|---|
 | `type` | `default` | `default` masks everything detected; `strict` masks only the `allowed` entities; or a plugin policy. |
-| `allowed` | `[]` | `strict`: entity types to mask. Empty means every built-in entity. |
+| `allowed` | `[]` | `strict`: entity types to mask. Empty means every built-in entity, opt-in ones included. |
 
 ### `operator`
 

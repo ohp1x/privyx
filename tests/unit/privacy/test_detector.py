@@ -9,7 +9,12 @@ import pytest
 
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
-from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector, YamlDetector
+from privyx.privacy.detector.builtin import (
+    DEFAULT_PATTERNS,
+    OPTIONAL_PATTERNS,
+    RegexDetector,
+    YamlDetector,
+)
 from privyx.privacy.detector.yaml import build_detector
 
 
@@ -208,7 +213,7 @@ def test_builtin_patterns_stay_linear_on_adversarial_input() -> None:
     # Each takes ~20 ms at most here; the unbounded EMAIL pattern took ~8 s on
     # several of these inputs and froze the event loop for that long.
     slow = []
-    for entity, pattern in DEFAULT_PATTERNS.items():
+    for entity, pattern in {**DEFAULT_PATTERNS, **OPTIONAL_PATTERNS}.items():
         compiled = re.compile(pattern)
         for shape, text in _ADVERSARIAL.items():
             start = time.perf_counter()

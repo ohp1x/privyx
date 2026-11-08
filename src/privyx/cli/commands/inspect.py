@@ -167,7 +167,7 @@ def _configured_patterns(config_path: str | None) -> dict[str, str]:
     """Entity → regex of every regex/yaml detector configured, built-ins included."""
     from privyx.core.errors import PrivyxError
     from privyx.privacy.detector.builtin import DEFAULT_PATTERNS
-    from privyx.privacy.detector.yaml import _patterns_from
+    from privyx.privacy.detector.yaml import _enabled, _patterns_from
 
     settings = _load(config_path)
     sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
@@ -176,7 +176,7 @@ def _configured_patterns(config_path: str | None) -> dict[str, str]:
         if section.type not in ("regex", "yaml"):
             continue
         try:
-            own = _patterns_from(section.model_dump())
+            own = {**_enabled(section.model_dump()), **_patterns_from(section.model_dump())}
         except PrivyxError as exc:
             click.echo(f"Error: {exc}", err=True)
             sys.exit(1)

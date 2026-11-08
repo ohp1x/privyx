@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Detection:** `detector.context` makes an entity count only when one of its words is within five words of the match
+- **Detection:** `detector.enable: [CRYPTO_WALLET]` masks Bitcoin, EVM, and Solana wallet addresses; Bitcoin addresses need a valid checksum and Solana ones a word such as `wallet` nearby
 
 ## [0.1.25] - 2026-11-08
 

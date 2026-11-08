@@ -32,6 +32,21 @@ With no configuration, the `regex` detector finds:
 
 Names and anything specific to you need more configuration.
 
+## Opt-in detectors
+
+These are off until a `regex` or `yaml` detector lists them under `enable`,
+so turning them on is your choice rather than a side effect of an upgrade:
+
+```yaml
+detector:
+  type: regex
+  enable: [CRYPTO_WALLET]
+```
+
+| Entity | Matches |
+|---|---|
+| `CRYPTO_WALLET` | Bitcoin addresses (`1…`, `3…`, `bc1…`) with a valid checksum, EVM addresses (`0x` and 40 hex digits), and Solana addresses next to a word such as `wallet` or `solana` |
+
 ## Context words
 
 `context` makes an entity count only when one of its words is within five
@@ -219,7 +234,7 @@ The policy filters what the detector found.
 - `default` masks every detection.
 - `strict` masks only the entity types in `allowed`, and leaves the rest in
   the text, built-in secret types included. An empty `allowed` means every
-  built-in entity.
+  built-in entity, opt-in ones included.
 
 ```yaml
 policy:
