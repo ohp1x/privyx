@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **Proxy:** long reasoning streams no longer slow down as the thinking cache fills
+- **Streaming:** a known value at the very end of a response is now restored, like the same value mid-stream
 
 ## [0.1.21] - 2026-11-07
 
