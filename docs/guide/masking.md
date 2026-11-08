@@ -16,6 +16,7 @@ Once a value is detected, three settings shape what replaces it:
 | `hash` | `<PRIVYX_EMAIL_ff8d9819fc0e>` | Yes | The original | Nothing |
 | `encrypt` | `<PRIVYX_EMAIL_AAE5ECF9F12ED145>` | Yes | Ciphertext only | `privyx[crypto]` and a key |
 | `faker` | `curtisjohnson@cummings.net` | Yes | The original | `privyx[faker]` |
+| `fpe` | `user-38bc14ee@example.invalid` | Yes | The original | Nothing |
 | `partial` | `a****@example.com` | Yes | The original | Nothing |
 | `redact` | `[REDACTED]` | No | Nothing to restore | Nothing |
 
@@ -75,6 +76,32 @@ operator:
 Fakes are restored by matching the exact fake strings. If the model happens to
 write one of them on its own, it is restored too. Use `pseudonym` when exact
 reversal matters more than realism.
+
+### `fpe`
+
+Replaces a value with one of the same format that passes validation, from a
+range no real person or system uses. Use it when a tool checks its arguments
+and rejects `<PRIVYX_EMAIL_1>` where it expects an email address:
+
+| Value | Becomes |
+|---|---|
+| Email address | `user-38bc14ee@example.invalid` (`.invalid` is reserved, RFC 2606) |
+| IPv4 / IPv6 address | `10.147.79.228` (RFC 1918) / an `fd00::/8` address |
+| UUID | A random version 4 UUID |
+| Card number (`CREDIT_CARD`) | `4000 0088 1099 1617`: the `400000` prefix of payment test cards, Luhn-valid, same layout |
+| Anything else | A random letter for each letter and digit for each digit; punctuation and length stay |
+
+```yaml
+operator:
+  type: fpe
+  seed: 1234                # optional: another seed gives other substitutes
+```
+
+The same value gets the same substitute in every session. Like `faker`, a
+reply is restored by matching the exact substitutes, so one the model writes on
+its own is restored too, and a substitute that looks real (a name, a phone
+number) can be taken for real data by whoever reads the masked text. Use
+`pseudonym` when that matters.
 
 ### `partial`
 
