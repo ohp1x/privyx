@@ -17,7 +17,7 @@ ann@example.com  →  <PRIVYX_EMAIL_E55D8A16FDB2F399>
 
 ## Session Storage
 
-By default (`pseudonym`, `hash`, `faker`) session mappings store the original
+By default (`pseudonym`, `hash`, `faker`, `partial`) session mappings store the original
 value in plaintext in the vault. This is acceptable when the vault is trusted
 (Redis ACLs, SQLite file permissions).
 

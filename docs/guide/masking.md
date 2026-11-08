@@ -16,6 +16,7 @@ Once a value is detected, three settings shape what replaces it:
 | `hash` | `<PRIVYX_EMAIL_ff8d9819fc0e>` | Yes | The original | Nothing |
 | `encrypt` | `<PRIVYX_EMAIL_AAE5ECF9F12ED145>` | Yes | Ciphertext only | `privyx[crypto]` and a key |
 | `faker` | `curtisjohnson@cummings.net` | Yes | The original | `privyx[faker]` |
+| `partial` | `a****@example.com` | Yes | The original | Nothing |
 | `redact` | `[REDACTED]` | No | Nothing to restore | Nothing |
 
 ### `pseudonym`
@@ -74,6 +75,30 @@ operator:
 Fakes are restored by matching the exact fake strings. If the model happens to
 write one of them on its own, it is restored too. Use `pseudonym` when exact
 reversal matters more than realism.
+
+### `partial`
+
+Hides most of a value and keeps a little context, so the model can still tell
+which card or which mail domain a sentence is about:
+
+| Value | Becomes |
+|---|---|
+| `alice@example.com` | `a****@example.com` |
+| `4111 1111 1111 1234` | `**** **** **** 1234` |
+| `+62 812-3456-7890` | `+** ***-****-7890` |
+
+An email address keeps the first character and the domain. Any other value
+keeps its punctuation and its last four letters and digits, never more than a
+third of them. Two values that would look the same get one more `*` in front.
+
+```yaml
+operator:
+  type: partial
+```
+
+What stays visible goes to the provider: the domain of an address, the end of
+a card or key. The vault keeps the original, and a reply is restored by
+matching the exact masked strings.
 
 ### `redact`
 

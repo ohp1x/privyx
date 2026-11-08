@@ -99,7 +99,7 @@ class PolicyConfig(PluggableConfig):
 
 
 class OperatorConfig(PluggableConfig):
-    builtin_types = frozenset({"pseudonym", "redact", "hash", "faker", "encrypt"})
+    builtin_types = frozenset({"pseudonym", "redact", "hash", "faker", "encrypt", "partial"})
     type: str = "pseudonym"
     token: str = "[REDACTED]"  # redact operator
     length: int = 12  # hash operator digest length
