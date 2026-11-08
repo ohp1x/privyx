@@ -25,6 +25,9 @@ async def test_writes_through_a_wal_journal(tmp_path: Path) -> None:
     try:
         assert await vault._execute("PRAGMA journal_mode") == [("wal",)]
         assert await vault._execute("PRAGMA synchronous") == [(1,)]  # NORMAL
+        assert await vault._execute("PRAGMA mmap_size") == [(268435456,)]
+        assert await vault._execute("PRAGMA cache_size") == [(-64000,)]
+        assert await vault._execute("PRAGMA temp_store") == [(2,)]  # MEMORY
     finally:
         await vault.close()
 
