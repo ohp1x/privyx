@@ -558,6 +558,16 @@ def test_thinking_store_is_bounded_by_characters(monkeypatch: pytest.MonkeyPatch
     assert list(schemas._THINKING) == ["sig-7", "sig-8", "sig-9"]  # the oldest go first
 
 
+def test_remember_thinking_updates_existing_signature(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(schemas, "_THINKING", {})
+    monkeypatch.setattr(schemas, "_THINKING_CHARS", 0)
+    schemas.remember_thinking("sig-x", "text1")
+    assert schemas._THINKING["sig-x"] == "text1"
+    schemas.remember_thinking("sig-x", "updated text")
+    assert schemas._THINKING["sig-x"] == "updated text"
+    assert schemas._THINKING_CHARS == len("sig-x") + len("updated text")
+
+
 async def test_transform_openai_chat_gaps() -> None:
     engine = _engine()
     sid = await _session(engine)
