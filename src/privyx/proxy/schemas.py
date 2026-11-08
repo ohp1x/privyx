@@ -86,6 +86,9 @@ METADATA_KEYS: frozenset[str] = frozenset({"safeguards", "client_metadata"})
 #: Request headers that carry the same: Codex repeats its turn metadata in one.
 MASKED_HEADERS: frozenset[str] = frozenset({"x-codex-turn-metadata"})
 
+#: Query parameter names used for authentication (never masked).
+AUTH_QUERY_PARAMS: frozenset[str] = frozenset({"key", "api_key", "api-key", "access_token"})
+
 #: Top-level keys walked first, in the order the provider caches the prompt.
 _PREFIX_KEYS: tuple[str, ...] = ("tools", "system", "instructions")
 
@@ -96,6 +99,7 @@ _PREFIX_KEYS: tuple[str, ...] = ("tools", "system", "instructions")
 # ponytail: process-local FIFO — lost on restart, not shared between workers;
 # move it into the vault if multi-instance deployments hit signature errors.
 _THINKING: dict[str, str] = {}
+_THINKING_CHARS: int = 0
 _THINKING_MAX = 4096
 #: Characters held in all, signatures included: bounded by count alone, 4096
 #: long thinking blocks could hold hundreds of MB.
@@ -133,6 +137,7 @@ async def transform_request(
     *,
     session: Session | None = None,
     headers: dict[str, str] | None = None,
+    params: list[tuple[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return a copy of ``payload`` with its content leaves pseudonymized.
 
@@ -186,6 +191,10 @@ async def transform_request(
         if headers:
             for name in MASKED_HEADERS & headers.keys():
                 headers[name] = _header_value(await metadata(headers[name]))
+        if params is not None:
+            for idx, (name, val) in enumerate(list(params)):
+                if name.lower() not in AUTH_QUERY_PARAMS:
+                    params[idx] = (name, await metadata(val))
     _pin_thinking(rebuilt.get("messages"))
     return {key: rebuilt[key] for key in payload}
 
@@ -222,13 +231,19 @@ def remember_thinking(signature: Any, text: str) -> None:
     The oldest entries go first once there are more than :data:`_THINKING_MAX`
     of them or they hold more than :data:`_THINKING_MAX_CHARS` characters.
     """
+    global _THINKING_CHARS
     if not isinstance(signature, str) or not signature:
         return
+    # Resync when a caller (e.g. tests monkeypatching _THINKING) clears the dict directly.
+    if not _THINKING:
+        _THINKING_CHARS = 0
+    if signature in _THINKING:
+        _THINKING_CHARS -= len(signature) + len(_THINKING[signature])
     _THINKING[signature] = text
-    total = sum(len(key) + len(value) for key, value in _THINKING.items())
-    while len(_THINKING) > _THINKING_MAX or total > _THINKING_MAX_CHARS:
+    _THINKING_CHARS += len(signature) + len(text)
+    while len(_THINKING) > _THINKING_MAX or _THINKING_CHARS > _THINKING_MAX_CHARS:
         oldest = next(iter(_THINKING))
-        total -= len(oldest) + len(_THINKING.pop(oldest))
+        _THINKING_CHARS -= len(oldest) + len(_THINKING.pop(oldest))
 
 
 def _pin_thinking(messages: Any) -> None:
