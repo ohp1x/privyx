@@ -260,3 +260,21 @@ async def test_llm_fallback_reaches_the_transform_audit_event() -> None:
     transform = [json.loads(line) for line in buf.getvalue().splitlines()][-1]
     assert transform["event"] == "session.transform"
     assert transform["detector_counts"] == {"llm_fallbacks": 1}
+
+
+async def test_compact_tokens_from_config_round_trip() -> None:
+    from privyx.config.schema import Settings
+    from privyx.core.builder import build_engine
+
+    engine, close = await build_engine(
+        Settings(vault={"type": "memory"}, token={"compact": True}, audit={"enabled": False})
+    )
+    try:
+        session = await engine.get_or_create_session()
+        masked = await engine.transform("mail alice@example.com", session=session)
+        assert masked.text == "mail <E~1>"
+        restored = await engine.restore("hi <E~1>", session.session_id, session=session)
+        assert restored.text == "hi alice@example.com"
+    finally:
+        await close()
+

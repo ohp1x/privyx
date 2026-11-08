@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from privyx.token.codec import FormatCodec
+from privyx.token.codec import CompactCodec, FormatCodec
 from privyx.token.errors import TokenFormatError
 from privyx.token.model import LogicalToken
 
@@ -361,3 +361,81 @@ def test_a_word_that_is_no_issued_id_hides_no_token_inside_it() -> None:
 
     assert list(codec.restorable(text)) == found
     assert list(codec.restorable(text, codec.ids([f"PRIVYX:EMAIL:{ID}>"]))) == found
+
+
+# --- compact tokens -------------------------------------------------------------
+
+
+def test_compact_issues_the_type_initials_and_the_id() -> None:
+    codec = CompactCodec(FormatCodec.default())
+    assert codec.encode(LogicalToken("PRIVYX", "EMAIL", "1")) == "<E~1>"
+    assert codec.encode(LogicalToken("PRIVYX", "CREDIT_CARD", "9F3A")) == "<CC~9F3A>"
+
+
+def test_compact_recognizes_both_forms() -> None:
+    codec = CompactCodec(FormatCodec.default())
+    text = "<E~1> and <PRIVYX_EMAIL_2>, bare PRIVYX_PHONE_3"
+    assert [m.text for m in codec.finditer(text)] == ["<E~1>", "<PRIVYX_EMAIL_2>"]
+    assert [token for _, _, token in codec.restorable(text)] == [
+        "<E~1>",
+        "<PRIVYX_EMAIL_2>",
+        "<PRIVYX_PHONE_3>",
+    ]
+    assert codec.parse("<PRIVYX_EMAIL_2>") == LogicalToken("PRIVYX", "EMAIL", "2")
+
+
+def test_compact_finds_an_id_alone_of_either_form() -> None:
+    codec = CompactCodec(FormatCodec.default())
+    ids = codec.ids(["<E~0123456789ABCDEF>", "<PRIVYX_PHONE_9F3A1C2B7D4E5F60>"])
+    text = "0123456789ABCDEF 9F3A1C2B7D4E5F60"
+    assert [token for _, _, token in codec.restorable(text, ids)] == [
+        "<E~0123456789ABCDEF>",
+        "<PRIVYX_PHONE_9F3A1C2B7D4E5F60>",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fmt", "token", "written", "restored"),
+    [
+        # The configured form's token begins with a compact one.
+        ("<{type}~{id}>!", "<EMAIL~1>!", "mail <EMAIL~1>! now", "mail ana@example.com now"),
+        # A compact token followed by the configured form's last literal.
+        ("<{type}~{id}>!", "<E~1>", "mail <E~1>! now", "mail ana@example.com! now"),
+        # A compact token begins with one of the configured form.
+        ("<{type}~{id}", "<E~1>", "mail <E~1> now", "mail ana@example.com now"),
+    ],
+)
+def test_compact_restores_the_issued_token_where_both_forms_match(
+    fmt: str, token: str, written: str, restored: str
+) -> None:
+    """Batch and stream both give back the original, not merely the same text."""
+    from privyx.core.session import Session
+    from privyx.privacy.operator.base import restore
+    from privyx.streaming.deanonymizer import TokenStreamProcessor
+
+    codec = CompactCodec(FormatCodec(fmt))
+    known = {token: "ana@example.com"}
+    session = Session()
+    session.put(token, "ana@example.com")
+
+    processor = TokenStreamProcessor(codec, known.get, codec.ids(known))
+    streamed = "".join([processor.feed(c) for c in written] + [processor.flush()])
+
+    assert restore(written, session, codec).text == streamed == restored
+
+
+async def test_compact_tokens_round_trip_under_a_format_they_overlap() -> None:
+    from privyx.core.context import Context
+    from privyx.core.result import Detection, Span
+    from privyx.core.session import Session
+    from privyx.privacy.operator.pseudonym import PseudonymOperator
+
+    operator = PseudonymOperator(codec=CompactCodec(FormatCodec("<{type}~{id}")))
+    text = "mail ana@example.com"
+    session = Session()
+    detection = Detection(spans=[Span(5, 20, "EMAIL", "ana@example.com")])
+
+    masked = await operator.pseudonymize(text, detection, session, Context())
+
+    assert masked.text == "mail <E~1>"
+    assert (await operator.deanonymize(masked.text, session, Context())).text == text

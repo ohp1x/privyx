@@ -43,9 +43,9 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_left
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from privyx.token.errors import TokenFormatError
 from privyx.token.model import LogicalToken
@@ -87,12 +87,15 @@ class TokenIds:
     """A session's tokens by id, for finding an id a model wrote on its own.
 
     Built by :meth:`FormatCodec.ids`.  An id that two tokens carry maps to
-    ``None``: nothing says which of them the id alone stands for.
+    ``None``: nothing says which of them the id alone stands for.  ``known``,
+    every token of the session, is what :class:`CompactCodec` picks by where
+    two forms of token are written at one position.
     """
 
-    def __init__(self, tokens: dict[str, str | None]) -> None:
+    def __init__(self, tokens: dict[str, str | None], known: frozenset[str] = frozenset()) -> None:
         self._tokens = tokens
         self._sorted = sorted(tokens)
+        self.known = known
 
     def token(self, identifier: str) -> str | None:
         """The one token whose id is ``identifier``, or ``None``."""
@@ -232,9 +235,9 @@ class FormatCodec:
         match = self._token_re.fullmatch(text)
         return self._to_token(match) if match else None
 
-    def finditer(self, text: str) -> Iterator[TokenMatch]:
-        """Yield every complete token in ``text``, left to right, non-overlapping."""
-        for match in self._token_re.finditer(text):
+    def finditer(self, text: str, start: int = 0) -> Iterator[TokenMatch]:
+        """Yield every complete token in ``text`` from ``start``, left to right, non-overlapping."""
+        for match in self._token_re.finditer(text, start):
             token = self._to_token(match)
             if token is not None:
                 yield TokenMatch(match.start(), match.end(), match.group(0), token)
@@ -268,13 +271,15 @@ class FormatCodec:
         """
         found: dict[str, str | None] = {}
         for token in tokens:
-            match = self._token_re.fullmatch(token)
+            match = self._fullmatch(token)
             if match is not None and len(identifier := match["id"]) >= _ALONE_MIN:
                 found[identifier] = None if identifier in found else token
         return TokenIds(found) if found else None
 
-    def restorable(self, text: str, ids: TokenIds | None = None) -> Iterator[tuple[int, int, str]]:
-        """Yield ``(start, end, token)`` for every token written in ``text``.
+    def restorable(
+        self, text: str, ids: TokenIds | None = None, start: int = 0
+    ) -> Iterator[tuple[int, int, str]]:
+        """Yield ``(start, end, token)`` for every token written in ``text`` from ``start``.
 
         ``token`` is the token's full text, the key a session knows it by;
         ``text[start:end]`` is how it was written, which may be the bare form
@@ -284,7 +289,7 @@ class FormatCodec:
         and a batch find the same tokens.
         """
         written = self._written_re if ids is None else self._written_ids_re
-        pos = 0
+        pos = start
         while match := written.search(text, pos):
             start, pos = match.span()
             token = match.group(0)
@@ -343,6 +348,9 @@ class FormatCodec:
                 if ident:
                     chars.add(ident[0])
         return tuple(sorted(chars))
+
+    def _fullmatch(self, token: str) -> re.Match[str] | None:
+        return self._token_re.fullmatch(token)
 
     def _full(self, bare: str) -> str:
         return f"{self._lead}{bare}{self._trail}"
@@ -460,6 +468,126 @@ class FormatCodec:
             return f"(?:{alternatives})?"
 
         return build(0)
+
+
+class CompactCodec(FormatCodec):
+    """Short tokens, ``<E~1>`` for ``<PRIVYX_EMAIL_1>``, that save context window.
+
+    Tokens are issued as :data:`COMPACT_FORMAT`, with the entity type cut to the
+    initials of its words (``EMAIL`` → ``E``, ``CREDIT_CARD`` → ``CC``).  Restore
+    recognizes them *and* every form of ``full``'s tokens, which a session may
+    hold from before compact tokens were turned on.
+
+    Args:
+        full: The configured codec; its namespace is kept.
+    """
+
+    def __init__(self, full: FormatCodec) -> None:
+        super().__init__(COMPACT_FORMAT, full.namespace)
+        self._other = full
+
+    def encode(self, token: LogicalToken) -> str:
+        initials = "".join(word[0] for word in token.type.split("_") if word)
+        return super().encode(LogicalToken(token.namespace, initials, token.identifier))
+
+    def parse(self, text: str) -> LogicalToken | None:
+        return super().parse(text) or self._other.parse(text)
+
+    def finditer(self, text: str, start: int = 0) -> Iterator[TokenMatch]:
+        def first(codec: FormatCodec, at: int) -> tuple[int, int, TokenMatch] | None:
+            match = next(FormatCodec.finditer(codec, text, at), None)
+            return None if match is None else (match.start, match.end, match)
+
+        found = _leftmost(
+            lambda at: first(self._other, at), lambda at: first(self, at), start, _end
+        )
+        return (match for _, _, match in found)
+
+    def match_at(self, text: str, pos: int) -> TokenMatch | None:
+        found = [m for m in (self._other.match_at(text, pos), super().match_at(text, pos)) if m]
+        return max(found, key=lambda match: match.end, default=None)
+
+    def longest_prefix_len(self, text: str, pos: int) -> int:
+        return max(super().longest_prefix_len(text, pos), self._other.longest_prefix_len(text, pos))
+
+    # An id alone is looked for once, through this codec, with ids indexed from
+    # both forms; ``full`` adds its full and bare tokens.  Where both find a
+    # token at one position (one format's tokens can begin another's), the one
+    # the session issued wins, else the longer: here and in :meth:`restorable_at`
+    # alike, so a batch and a stream restore the same token.
+
+    def ids(self, tokens: Iterable[str]) -> TokenIds:
+        tokens = list(tokens)
+        found = super().ids(tokens)
+        return TokenIds(found._tokens if found else {}, frozenset(tokens))
+
+    def restorable(
+        self, text: str, ids: TokenIds | None = None, start: int = 0
+    ) -> Iterator[tuple[int, int, str]]:
+        known = ids.known if ids is not None else frozenset()
+        return _leftmost(
+            lambda at: next(self._other.restorable(text, start=at), None),
+            lambda at: next(FormatCodec.restorable(self, text, ids, at), None),
+            start,
+            lambda found: (found[2] in known, found[1]),
+        )
+
+    def restorable_at(
+        self, text: str, pos: int, ids: TokenIds | None = None
+    ) -> tuple[int, str] | None:
+        known = ids.known if ids is not None else frozenset()
+        found = [
+            f
+            for f in (self._other.restorable_at(text, pos), super().restorable_at(text, pos, ids))
+            if f
+        ]
+        return max(found, key=lambda f: (f[1] in known, f[0]), default=None)
+
+    def restorable_prefix_len(self, text: str, pos: int, ids: TokenIds | None = None) -> int:
+        return max(
+            super().restorable_prefix_len(text, pos, ids),
+            self._other.restorable_prefix_len(text, pos),
+        )
+
+    def start_chars(self, ids: TokenIds | None = None) -> tuple[str, ...] | None:
+        mine, other = super().start_chars(ids), self._other.start_chars()
+        if mine is None or other is None:
+            return None
+        return tuple(sorted({*mine, *other}))
+
+    def _fullmatch(self, token: str) -> re.Match[str] | None:
+        return super()._fullmatch(token) or self._other._fullmatch(token)
+
+
+#: How :class:`CompactCodec` writes a token.
+COMPACT_FORMAT = "<{type}~{id}>"
+
+
+def _end(match: tuple[int, int, Any]) -> int:
+    return match[1]
+
+
+def _leftmost[T: tuple[int, int, Any]](
+    first: Callable[[int], T | None],
+    second: Callable[[int], T | None],
+    pos: int,
+    rank: Callable[[T], Any],
+) -> Iterator[T]:
+    """Merge two finders' ``(start, end, ...)`` matches, left to right, without overlaps.
+
+    Each finder returns its first match at or after a position.  The leftmost
+    match is taken; of two at one position, the higher ``rank``, ``first``'s on
+    a tie.  A finder whose next match it overlaps looks again from its end.
+    """
+    finders = (first, second)
+    ahead = [find(pos) for find in finders]
+    while found := [match for match in ahead if match is not None]:
+        leftmost = min(match[0] for match in found)
+        taken = max((match for match in found if match[0] == leftmost), key=rank)
+        yield taken
+        for i, match in enumerate(ahead):
+            if match is not None and match[0] < taken[1]:
+                ahead[i] = finders[i](taken[1])
 
 
 def _cap_repetition(body: str, max_len: int) -> str:
