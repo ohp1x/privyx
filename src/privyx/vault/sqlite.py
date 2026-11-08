@@ -24,7 +24,15 @@ from privyx.vault.base import BaseVault
 #: loss can undo the last commits but not corrupt the file.  WAL needs a local
 #: disk; it does not work on a network file system such as NFS.  A lock held by
 #: another process is waited on for sqlite3's default 5 s busy timeout.
-_PRAGMAS = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;"
+#: Reads go through memory-mapped I/O (up to 256 MB), the page cache may grow
+#: to 64 MB (a cap, not allocated up front), and temporary tables stay in RAM.
+_PRAGMAS = (
+    "PRAGMA journal_mode=WAL; "
+    "PRAGMA synchronous=NORMAL; "
+    "PRAGMA mmap_size=268435456; "
+    "PRAGMA cache_size=-64000; "
+    "PRAGMA temp_store=MEMORY;"
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
