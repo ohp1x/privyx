@@ -278,3 +278,13 @@ async def test_compact_tokens_from_config_round_trip() -> None:
     finally:
         await close()
 
+
+async def test_dlp_check_comes_from_proxy_config() -> None:
+    from privyx.config.schema import Settings
+    from privyx.core.builder import build_engine
+
+    off, close_off = await build_engine(Settings(vault={"type": "memory"}))
+    on, close_on = await build_engine(Settings(vault={"type": "memory"}, proxy={"dlp_check": True}))
+    await close_off()
+    await close_on()
+    assert (off.dlp_check, on.dlp_check) == (False, True)

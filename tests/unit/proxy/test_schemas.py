@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from privyx.core.engine import PrivacyEngine
+from privyx.core.errors import LeakError
 from privyx.core.session import Session
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
@@ -804,3 +805,84 @@ async def test_restore_walks_every_leaf_of_all_three_shapes() -> None:
     assert token not in json.dumps(r)
     assert r["instructions"] == f"assist {EMAIL}"
     assert json.loads(r["output"][2]["arguments"])["to"] == f"x\n{EMAIL}"
+
+
+# --- dlp_check -----------------------------------------------------------------
+
+
+def _dlp_engine() -> PrivacyEngine:
+    engine = _engine()
+    engine.dlp_check = True
+    return engine
+
+
+async def test_dlp_check_refuses_a_masked_value_sent_elsewhere() -> None:
+    engine = _dlp_engine()
+    payload = {**_mail_request(), "user": EMAIL}  # ``user`` is config: not masked
+
+    with pytest.raises(LeakError):
+        await transform_request(payload, engine, await _session(engine))
+
+
+async def test_dlp_check_looks_in_masked_headers_and_params_but_not_auth() -> None:
+    engine = _dlp_engine()
+    sid = await _session(engine)
+    headers = {"authorization": f"Bearer {EMAIL}", "x-codex-turn-metadata": "{}"}
+    await transform_request(_mail_request(), engine, sid, headers=headers, params=[("key", EMAIL)])
+
+    with pytest.raises(LeakError):
+        await transform_request(
+            {**_mail_request(), "metadata": {"tag": f"for {EMAIL}"}}, engine, sid
+        )
+
+
+async def test_dlp_check_off_forwards_what_it_does_not_mask() -> None:
+    engine = _engine()
+    out = await transform_request(
+        {**_mail_request(), "user": EMAIL}, engine, await _session(engine)
+    )
+    assert out["user"] == EMAIL
+
+
+def test_find_leaks_counts_whole_words_only() -> None:
+    sent = {"a": ["Bobby", "x Bob y"], "Bob": "z"}
+    assert schemas.find_leaks(sent, {"Bob"}) == 1
+    assert schemas.find_leaks("Bobby", {"Bob"}) == 0
+    assert schemas.find_leaks("+1-555-0142x", {"+1-555-0142"}) == 0
+
+
+async def test_dlp_check_looks_in_every_header_sent_but_the_credentials() -> None:
+    engine = _dlp_engine()
+    headers = {"authorization": f"Bearer {EMAIL}", "x-user-email": EMAIL}
+
+    with pytest.raises(LeakError):
+        await transform_request(_mail_request(), engine, await _session(engine), headers=headers)
+
+
+async def test_dlp_check_looks_at_signed_thinking_as_it_is_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(schemas, "_THINKING", {})
+    monkeypatch.setattr(schemas, "_THINKING_CHARS", 0)
+    schemas.remember_thinking("sig-1", f"the user is {EMAIL}")
+    engine = _dlp_engine()
+    payload = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [{"type": "thinking", "thinking": "restored", "signature": "sig-1"}],
+            },
+            {"role": "user", "content": f"mail {EMAIL}"},
+        ]
+    }
+
+    with pytest.raises(LeakError):
+        await transform_request(payload, engine, await _session(engine))
+
+
+async def test_dlp_check_looks_in_query_parameter_names() -> None:
+    engine = _dlp_engine()
+    params: list[tuple[str, Any]] = [(EMAIL, "1")]
+
+    with pytest.raises(LeakError):
+        await transform_request(_mail_request(), engine, await _session(engine), params=params)

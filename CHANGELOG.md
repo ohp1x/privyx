@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Masking:** `operator.type: partial` hides most of a value and keeps a little context, such as `a****@example.com` or `**** **** **** 1234`, and restores it in replies
 - **Masking:** `operator.type: fpe` replaces values with ones that pass format checks from reserved ranges, such as an `example.invalid` address, a `10.x` IP, a UUID, or a Luhn-valid test card number, without the `faker` extra
 - **Masking:** `token.compact: true` issues short tokens such as `<E~1>` to save context window; tokens in the configured format are still restored
+- **Proxy:** `proxy.dlp_check: true` refuses with `422` a request that still holds, anywhere outside the masked text, a value it masked
 
 ## [0.1.26] - 2026-11-08
 

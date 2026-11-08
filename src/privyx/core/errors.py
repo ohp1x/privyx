@@ -27,6 +27,10 @@ class OperatorError(PrivyxError):
     """Raised when an operator fails."""
 
 
+class LeakError(PrivyxError):
+    """Raised when a masked request still holds a value it masked elsewhere."""
+
+
 class PolicyError(PrivyxError):
     """Raised when a policy is invalid or fails."""
 

@@ -645,3 +645,23 @@ async def test_no_api_docs_are_served(path: str) -> None:
     client, _ = _client(_engine())
     async with client:
         assert (await client.get(path)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
+    seen.clear()
+    engine = _engine()
+    engine.dlp_check = True
+    client, _ = _client(engine)
+    async with client:
+        response = await client.post(
+            "/v1/messages",
+            json={
+                "messages": [{"role": "user", "content": f"mail {EMAIL}"}],
+                "metadata": {"user_id": EMAIL},
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["type"] == "privyx_leak_blocked"
+    assert seen == []

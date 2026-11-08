@@ -210,6 +210,42 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
     assert await vault.list_sessions() == []  # the ephemeral session was cleaned up
 
 
+async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
+    seen: list[bytes] = []
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    engine = _engine()
+    engine.dlp_check = True
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}], "user": EMAIL},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["type"] == "privyx_leak_blocked"
+    assert EMAIL not in response.text
+    assert seen == []
+    errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
+    assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "LeakError")]
+
+
+async def test_dlp_check_finds_a_masked_value_in_a_query_parameter_name() -> None:
+    seen: list[bytes] = []
+    engine = _engine()
+    engine.dlp_check = True
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        response = await client.post(
+            "/v1/chat/completions?alice%40example.com=1",
+            json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+
+    assert response.status_code == 422
+    assert seen == []
+
+
 def _flaky_vault(method: str, nth: int) -> MemoryVault:
     """A vault whose ``nth`` call of ``method`` fails, like a Redis that stops answering."""
     vault = MemoryVault()

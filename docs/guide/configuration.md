@@ -343,6 +343,7 @@ environment.
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
 | `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
 | `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |
+| `dlp_check` | `false` | Before a masked request goes out, look for every value it masked anywhere else in it (fields that are not masked, URLs, headers other than the credential, signed thinking text). One found answers `422` and the request is not forwarded. See [Leak check](masking.md#leak-check). |
 
 [Proxy modes and routes](proxy.md) explains the two modes and when to pick
 which.

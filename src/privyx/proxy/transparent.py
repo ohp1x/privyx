@@ -40,7 +40,7 @@ import httpx
 
 from privyx.config.schema import ProxyConfig
 from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import VaultError
+from privyx.core.errors import LeakError, VaultError
 from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
@@ -71,6 +71,16 @@ SCAN_FAILED_BODY = {
         "type": "privyx_scan_failed",
         "message": "privyx could not scan this request for sensitive data, "
         "so it was not forwarded; see the privyx logs",
+    }
+}
+
+#: Body of the 422 returned when ``proxy.dlp_check`` finds a value the request
+#: masked still in it, in the clear.  Not forwarded, and retrying cannot help.
+LEAK_BODY = {
+    "error": {
+        "type": "privyx_leak_blocked",
+        "message": "privyx masked a value in this request but found it again unmasked "
+        "elsewhere in it, so it was not forwarded (proxy.dlp_check)",
     }
 }
 
@@ -324,10 +334,9 @@ class TransparentProxy:
                         duration_ms=_elapsed_ms(start),
                     )
                     log_scan_failure(exc)
+                    status, error = scan_failure(exc)
                     return ProxyResponse(
-                        status_code=503,
-                        media_type=_JSON,
-                        body=json.dumps(SCAN_FAILED_BODY).encode(),
+                        status_code=status, media_type=_JSON, body=json.dumps(error).encode()
                     )
                 transform_ms = _elapsed_ms(transform_start)
                 if isinstance(payload, dict):
@@ -691,6 +700,11 @@ def upstream_failure(exc: BaseException) -> tuple[int, dict[str, str], dict[str,
         status, kind, message = 502, "unreachable", "privyx could not reach the upstream"
     body = {"error": {"type": f"privyx_upstream_{kind}", "message": f"{message} ({name})"}}
     return status, headers, body
+
+
+def scan_failure(exc: Exception) -> tuple[int, dict[str, Any]]:
+    """The status and body answering a request that could not be masked."""
+    return (422, LEAK_BODY) if isinstance(exc, LeakError) else (503, SCAN_FAILED_BODY)
 
 
 def log_scan_failure(exc: Exception) -> None:
