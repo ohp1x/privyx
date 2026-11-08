@@ -276,10 +276,18 @@ class TransparentProxy:
                 extra=self._extra_headers,
             )
             out_body = body
+            parsed_params = httpx.QueryParams(query_params) if query_params is not None else None
+            out_params: list[tuple[str, Any]] | None = (
+                list(parsed_params.multi_items()) if parsed_params else None
+            )
             transform_ms: float | None = None
             # A masked header comes on body-less requests too, and on unrouted
             # paths.
-            if isinstance(payload, dict) or not MASKED_HEADERS.isdisjoint(upstream_headers):
+            if (
+                isinstance(payload, dict)
+                or not MASKED_HEADERS.isdisjoint(upstream_headers)
+                or out_params is not None
+            ):
                 transform_start = time.perf_counter()
                 try:
                     transformed = await transform_request(
@@ -288,6 +296,7 @@ class TransparentProxy:
                         sid,
                         session=ephemeral,
                         headers=upstream_headers,
+                        params=out_params,
                     )
                 except VaultError:
                     raise  # not a scan failure: answered below
@@ -317,7 +326,11 @@ class TransparentProxy:
                 # httpx would send the body chunked.
                 upstream_headers["content-length"] = length
             request = self._client.build_request(
-                method, url, headers=upstream_headers, content=out_body, params=query_params
+                method,
+                url,
+                headers=upstream_headers,
+                content=out_body,
+                params=out_params,
             )
             try:
                 response = await self._client.send(request, stream=True)
