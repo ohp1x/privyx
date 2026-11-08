@@ -136,6 +136,75 @@ def test_inspect_session_missing_exits_nonzero(runner: CliRunner, sqlite_config:
     assert "Session not found" in result.output
 
 
+def test_inspect_token_names_its_session_masked(runner: CliRunner, sqlite_config: Path) -> None:
+    session_id = _seed_session(sqlite_config)
+
+    result = runner.invoke(cli, ["inspect", "token", "-c", str(sqlite_config), "<PRIVYX_EMAIL_1>"])
+
+    assert result.exit_code == 0, result.output
+    assert "Type: EMAIL" in result.output
+    assert session_id in result.output
+    assert EMAIL not in result.output
+    assert "never (no vault.ttl)" in result.output
+
+
+def test_inspect_token_reveal_and_missing(runner: CliRunner, sqlite_config: Path) -> None:
+    _seed_session(sqlite_config)
+    args = ["inspect", "token", "-c", str(sqlite_config)]
+
+    assert EMAIL in runner.invoke(cli, [*args, "--reveal", "<PRIVYX_EMAIL_1>"]).output
+    missing = runner.invoke(cli, [*args, "<PRIVYX_EMAIL_99>"])
+    assert missing.exit_code == 1
+    assert "Not found in any session" in missing.output
+
+
+def test_inspect_routes_lists_the_configured_paths(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "proxy:\n  passthrough_unknown: false\n  routes:\n    /v1/messages: anthropic\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(cli, ["inspect", "routes", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert "/v1/messages  anthropic" in result.output
+    assert "/v1/chat/completions" not in result.output
+    assert "refused with 403" in result.output
+
+
+def test_inspect_regex_by_entity_and_by_pattern(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text("detector:\n  patterns:\n    ORDER: 'ORD-(\\d+)+X'\n", encoding="utf-8")
+    args = ["inspect", "regex", "-c", str(config)]
+
+    risky = runner.invoke(cli, [*args, "ORDER"])
+    assert "Entity:  ORDER" in risky.output
+    assert "ReDoS:   risky" in risky.output
+    assert "µs per KB" in risky.output  # the sample does not set it off
+
+    builtin = runner.invoke(cli, [*args, "EMAIL"])
+    assert "no nested repeat found" in builtin.output
+    assert "µs per KB" in builtin.output
+
+    raw = runner.invoke(cli, [*args, r"EMP-\d{6}"])
+    assert "Entity" not in raw.output and "no nested repeat found" in raw.output
+
+    assert runner.invoke(cli, [*args, "("]).exit_code == 1
+
+
+def test_inspect_regex_reports_a_stall_the_check_misses(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from privyx.cli.commands import inspect
+
+    monkeypatch.setattr(inspect, "_BENCH_TIMEOUT", 0.5)
+    result = runner.invoke(cli, ["inspect", "regex", "-c", os.devnull, "(?:.|..)+Z"])
+
+    assert result.exit_code == 0, result.output
+    assert "no nested repeat found" in result.output  # the static check misses it
+    assert "stalled" in result.output
+
+
 # session list / prune (show is the same command as `inspect session`)
 
 

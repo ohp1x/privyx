@@ -11,6 +11,7 @@ Usage::
     privyx mask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
     privyx unmask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
     privyx session list|show|prune
+    privyx inspect routes|regex|token
     privyx inspect session <session_id>   (alias of `session show`)
     privyx audit stats|tail [FILE]
     privyx doctor [--config FILE]
