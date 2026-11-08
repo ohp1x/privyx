@@ -275,6 +275,8 @@ def test_agent_that_bypasses_proxy_is_reported_after_exit(shell: Shell, tmp_path
     assert shell.exit_code() == 3
     # The shell owns the terminal by then: the warning starts its own line.
     shell.expect(rb"privyx-test\$ \r?\nWarning: no request from \S+ reached Privyx")
+    events = [json.loads(line) for line in (tmp_path / "audit.log").read_text().splitlines()]
+    assert [e["profile"] for e in events if e["event"] == "run.unproxied"] == ["work"]
 
 
 def test_agent_that_uses_proxy_is_not_reported(shell: Shell, tmp_path: Path) -> None:
@@ -286,6 +288,7 @@ def test_agent_that_uses_proxy_is_not_reported(shell: Shell, tmp_path: Path) -> 
     shell.send("echo DONE\n")
     shell.expect(rb"DONE\r?\n")
     assert b"Warning" not in shell.buffer
+    assert "run.unproxied" not in (tmp_path / "audit.log").read_text()
 
 
 def test_failed_exec_cleans_up_started_proxy(shell: Shell, tmp_path: Path) -> None:

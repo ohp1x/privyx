@@ -23,7 +23,8 @@ maps cleanly onto SQL columns):
 ## Events
 
 Naming is consistent `<domain>.<action>`: `session.*` are privacy-pipeline events
-on a session; `proxy.*` describe one HTTP exchange.
+on a session; `proxy.*` describe one HTTP exchange; `run.*` describe one
+`privyx run` launch.
 
 ### `session.created`
 A new session (pseudonym map) was created.
@@ -116,6 +117,14 @@ An exchange failed.
 | `error_type` | string | The exception's **class name** — never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |
+
+### `run.unproxied`
+A tool launched with `privyx run` exited without sending Privyx a single
+request. If it called its provider, it did so directly, without masking.
+
+| field | type | notes |
+|---|---|---|
+| `profile` | string | The agent profile, or the base name of the command run without one. |
 
 ## Guarantees
 

@@ -122,7 +122,9 @@ profile, and `-c` overrides; a provider set only in a project's
 `ANTHROPIC_BASE_URL` at a router or another proxy, give that URL to
 `privyx run` as `--upstream`: Privyx now takes that place and forwards to its
 own upstream. If the tool exits without having sent Privyx a single request,
-`privyx run` warns: a tool that calls its provider directly is not masked.
+`privyx run` warns and records a
+[`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
+tool that calls its provider directly is not masked.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.

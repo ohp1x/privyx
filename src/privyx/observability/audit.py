@@ -64,7 +64,8 @@ class AuditEventType(StrEnum):
     """The audit event vocabulary — declared once so names never drift.
 
     Consistent ``<domain>.<action>`` naming: ``session.*`` for privacy-pipeline
-    events tied to a session, ``proxy.*`` for one HTTP exchange.
+    events tied to a session, ``proxy.*`` for one HTTP exchange, ``run.*`` for
+    one ``privyx run`` launch.
     """
 
     SESSION_CREATED = "session.created"
@@ -76,6 +77,7 @@ class AuditEventType(StrEnum):
     PROXY_ERROR = "proxy.error"
     PROXY_PASSTHROUGH = "proxy.passthrough"
     PROXY_BLOCKED = "proxy.blocked"
+    RUN_UNPROXIED = "run.unproxied"
 
 
 def _iso(ts: float) -> str:

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **CLI:** run interactive coding agents directly via POSIX exec while supervising the background proxy
+- **Audit:** `run.unproxied` event when a `privyx run` tool sends no request through Privyx
 
 ### Fixed
 

@@ -350,6 +350,7 @@ async def _run_target(
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.gateway.server import Gateway
     from privyx.gateway.transparent import create_transparent_app
+    from privyx.observability.audit import AuditEventType
     from privyx.observability.logging import configure_logging
     from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider
@@ -401,6 +402,8 @@ async def _run_target(
             code = await _spawn(plan)
         if not counted.requests:
             # What a tool that ignores the proxy URL looks like from here.
+            # The profile's base name, so the trail holds no user paths.
+            audit.emit(AuditEventType.RUN_UNPROXIED, profile=Path(plan.profile).name)
             # After exec the shell has likely drawn its prompt already.
             click.echo(
                 ("\n" if parent is not None else "")
