@@ -40,12 +40,19 @@ so turning them on is your choice rather than a side effect of an upgrade:
 ```yaml
 detector:
   type: regex
-  enable: [CRYPTO_WALLET]
+  enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP]
 ```
 
 | Entity | Matches |
 |---|---|
 | `CRYPTO_WALLET` | Bitcoin addresses (`1…`, `3…`, `bc1…`) with a valid checksum, EVM addresses (`0x` and 40 hex digits), and Solana addresses next to a word such as `wallet` or `solana` |
+| `ID_NIK` | Indonesian NIK: 16 digits with a known province code and a real birth date |
+| `ID_NPWP` | Indonesian NPWP, written `01.234.567.8-901.000`, or 15 bare digits next to `npwp` |
+| `SG_NRIC_FIN` | Singapore NRIC/FIN with a correct check letter (`S1234567D`) |
+| `MY_NRIC` | Malaysian MyKad number with a real birth date (`850101-14-5678`) |
+| `ES_NIF`, `ES_NIE` | Spanish DNI and NIE with a correct check letter |
+| `UK_NHS` | UK NHS numbers with a correct check digit, next to `nhs` |
+| `IN_AADHAAR` | Indian Aadhaar numbers with a correct check digit, next to `aadhaar` |
 
 ## Context words
 
@@ -63,7 +70,8 @@ detector:
 ```
 
 Words are matched whole and ignoring case; an entry may be a phrase. For a
-built-in entity, the list adds the requirement. `context` for
+built-in entity, the list replaces its own words (`UK_NHS` and `IN_AADHAAR` have some) or adds the
+requirement to one without them. `context` for
 an entity the detector does not detect stops Privyx at startup. The `presidio`
 detector weighs context words on its own and ignores this setting.
 

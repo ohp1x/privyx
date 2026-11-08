@@ -11,8 +11,18 @@ from privyx.core.errors import ConfigError
 from privyx.privacy.detector.catalog import _BASE58
 from privyx.privacy.detector.yaml import build_detector
 
-#: The wallet entity, turned on for every test below.
-CATALOG = ["CRYPTO_WALLET"]
+#: The wallet and national-ID entities, turned on for every test below.
+CATALOG = [
+    "CRYPTO_WALLET",
+    "ID_NIK",
+    "ID_NPWP",
+    "SG_NRIC_FIN",
+    "MY_NRIC",
+    "ES_NIF",
+    "ES_NIE",
+    "UK_NHS",
+    "IN_AADHAAR",
+]
 
 
 def _found(text: str, **config: object) -> list[tuple[str, str]]:
@@ -77,6 +87,47 @@ def test_wallets_and_national_ids_are_off_by_default() -> None:
     assert _found(text, enable=[]) == []
 
 
+@pytest.mark.parametrize(
+    ("text", "entity", "value"),
+    [
+        ("NIK 3201014501900001", "ID_NIK", "3201014501900001"),
+        ("NIK 3201015501900001", "ID_NIK", "3201015501900001"),  # woman: day + 40
+        ("NPWP 01.234.567.8-901.000", "ID_NPWP", "01.234.567.8-901.000"),
+        ("npwp: 012345678901000", "ID_NPWP", "012345678901000"),
+        ("NRIC S1234567D", "SG_NRIC_FIN", "S1234567D"),
+        ("FIN G1234567X", "SG_NRIC_FIN", "G1234567X"),
+        ("MyKad 850101-14-5678", "MY_NRIC", "850101-14-5678"),
+        ("DNI 12345678Z", "ES_NIF", "12345678Z"),
+        ("NIE X1234567L", "ES_NIE", "X1234567L"),
+        ("NHS number 943 476 5919", "UK_NHS", "943 476 5919"),
+        ("aadhaar 2345 6789 0124", "IN_AADHAAR", "2345 6789 0124"),
+    ],
+)
+def test_national_ids_that_check_out_are_masked(text: str, entity: str, value: str) -> None:
+    assert _found(text) == [(entity, value)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "3201019913900001",  # month 13
+        "9901014501900001",  # no province 99
+        "3200014501900001",  # regency 00
+        "id 1731045678123456",  # a microsecond timestamp
+        "012345678901000",  # 15 digits, no NPWP nearby
+        "S1234567A",  # wrong check letter
+        "851301-14-5678",  # month 13
+        "12345678A",
+        "943 476 5918",  # NHS checksum broken
+        "number 943 476 5919",  # NHS without its context word
+        "2345 6789 0124",  # Aadhaar without its context word
+        "aadhaar 2345 6789 0125",
+    ],
+)
+def test_national_id_look_alikes_are_kept(text: str) -> None:
+    assert [entity for entity, _ in _found(text)] in ([], ["PHONE"])
+
+
 def test_a_context_word_must_be_near_a_match() -> None:
     config = {"type": "yaml", "patterns": {"PASSPORT": r"\b[A-Z]\d{7}\b"}}
     context = {"context": {"PASSPORT": ["passport", "paspor"]}}
@@ -85,6 +136,11 @@ def test_a_context_word_must_be_near_a_match() -> None:
     assert _found(text, **config, **context) == [("PASSPORT", "B7654321")]
     far = "passport one two three four five six A1234567"
     assert _found(far, **config, **context) == []
+
+
+def test_context_replaces_a_builtin_entitys_own_words() -> None:
+    text = "kesehatan 943 476 5919"
+    assert _found(text, context={"UK_NHS": ["kesehatan"]}) == [("UK_NHS", "943 476 5919")]
 
 
 def test_context_for_an_entity_the_detector_lacks_is_rejected() -> None:

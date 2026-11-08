@@ -14,6 +14,9 @@ ENTITY_PRIORITY: dict[str, int] = {
     "CREDIT_CARD": 90,
     "EMAIL": 80,
     "IP_ADDRESS": 70,
+    # A checksum and a context word make these surer than the phone shape.
+    "UK_NHS": 65,
+    "IN_AADHAAR": 65,
     "PHONE": 60,
     "ZIPCODE": 10,
 }
