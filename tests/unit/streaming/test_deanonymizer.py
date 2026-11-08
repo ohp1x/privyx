@@ -78,3 +78,35 @@ def test_flush_viable_prefix_matching_shorter_pseudonym() -> None:
     mapping = {"cat": "Alice", "caterpillar": "Bob"}
     out = _feed_all(["I want to cater"], mapping)
     assert out == "I want to Aliceer"
+
+
+def test_delimiter_skip_scan_speed_and_accuracy() -> None:
+    from privyx.streaming.deanonymizer import TokenStreamProcessor
+    from privyx.token.codec import FormatCodec
+
+    codec = FormatCodec.default()
+    mapping = {"<PRIVYX_EMAIL_1>": "alice@corp.com"}
+    processor = TokenStreamProcessor(codec, mapping.get)
+    long_plain = "The quick brown fox jumps over the lazy dog. " * 50
+    out = processor.feed(long_plain)
+    assert out == long_plain
+
+    out_with_token = processor.feed("Contact <PRIVYX_EMAIL_1> now.")
+    assert out_with_token == "Contact alice@corp.com now."
+
+
+def test_format_without_leading_literal_does_not_skip_tokens() -> None:
+    from privyx.streaming.deanonymizer import TokenStreamProcessor
+    from privyx.token.codec import FormatCodec
+
+    # Format without leading literal delimiter
+    codec = FormatCodec("{type}_{id}>")
+    assert codec.start_chars() is None
+
+    mapping = {"EMAIL_42>": "alice@corp.com"}
+    ids = codec.ids(mapping)
+    assert codec.start_chars(ids) is None  # Must fall back to no-skip
+
+    processor = TokenStreamProcessor(codec, mapping.get, ids)
+    out = processor.feed("Please contact EMAIL_42> for help.") + processor.flush()
+    assert out == "Please contact alice@corp.com for help."

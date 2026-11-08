@@ -331,6 +331,19 @@ class FormatCodec:
             longest = max(longest, match.end() - pos)
         return longest
 
+    def start_chars(self, ids: TokenIds | None = None) -> tuple[str, ...] | None:
+        """Return the characters that could begin a full token, bare token, or alone id."""
+        if not self._lead:
+            return None
+        chars: set[str] = {self._lead[0]}
+        if self._bare_re is not None and self._namespace:
+            chars.add(self._namespace[0])
+        if ids is not None and ids._sorted:
+            for ident in ids._sorted:
+                if ident:
+                    chars.add(ident[0])
+        return tuple(sorted(chars))
+
     def _full(self, bare: str) -> str:
         return f"{self._lead}{bare}{self._trail}"
 
