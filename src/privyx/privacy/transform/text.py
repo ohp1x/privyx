@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
-from privyx.core.result import Detection, Transformation, TransformResult
-from privyx.core.session import Session
+from privyx.core.result import Transformation
 
 
 def apply_replacements(text: str, transformations: list[Transformation]) -> str:
@@ -22,18 +19,3 @@ def apply_replacements(text: str, transformations: list[Transformation]) -> str:
         last = t.end
     parts.append(text[last:])
     return "".join(parts)
-
-
-def replace_spans(
-    text: str,
-    detection: Detection,
-    replacement_for: Callable[[str, str], str],
-    session: Session,
-) -> TransformResult:
-    """Replace each span using ``replacement_for(entity_type, original)``."""
-    detection = detection.merged()
-    transforms: list[Transformation] = []
-    for span in detection.spans:
-        replacement = replacement_for(span.entity_type, span.text)
-        transforms.append(Transformation(span.start, span.end, span.text, replacement))
-    return TransformResult(text=apply_replacements(text, transforms), transformations=transforms)
