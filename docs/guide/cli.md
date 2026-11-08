@@ -176,7 +176,7 @@ proxy URL. Missing environment references fail before startup.
 Show what the configured detector and policy find in a text.
 
 ```bash
-privyx detect [-c FILE] [--transform] [--no-policy] TEXT...
+privyx detect [-c FILE] [--transform] [--no-policy] [--explain] TEXT...
 echo "mail alice@example.com" | privyx detect --stdin
 ```
 
@@ -184,7 +184,20 @@ echo "mail alice@example.com" | privyx detect --stdin
 |---|---|
 | `--transform` | Also print the masked text. |
 | `--policy` / `--no-policy` | Apply the configured policy (default) or show every detection. |
+| `--explain` | For each span, the detector and rule that found it (a built-in pattern, your `patterns`, or your `terms`) and whether the policy masks all of it, part of it, or none. |
 | `--stdin` | Read the text from standard input. |
+
+`--explain` helps when a value is masked that should not be, or the reverse:
+
+```console
+$ privyx detect --explain "card 4111 1111 1111 1111"
+     5:24    CREDIT_CARD       '4111 1111 1111 1111'
+        found by  regex: built-in pattern PHONE
+        found by  regex: built-in pattern CREDIT_CARD
+        masked
+```
+
+With several detectors configured, each is numbered in the order listed.
 
 ## `privyx mask`
 

@@ -98,6 +98,57 @@ def test_detect_reports_bad_config(runner: CliRunner, tmp_path: Path) -> None:
     assert "Error:" in result.output
 
 
+def test_detect_explain_names_the_detector_and_the_policy(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "detector:\n"
+        "  - type: regex\n"
+        "    terms:\n      PROJECT: [bluebird]\n"
+        "  - type: yaml\n"
+        "    patterns:\n      TICKET: 'TCK-\\d+'\n"
+        "policy:\n  type: strict\n  allowed: [EMAIL, PROJECT]\n",
+        encoding="utf-8",
+    )
+    text = f"mail {EMAIL} about bluebird, ticket TCK-42"
+    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), text])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+
+    def block(value: str) -> list[str]:
+        start = next(i for i, line in enumerate(lines) if repr(value) in line)
+        return lines[start + 1 : start + 3]
+
+    assert block(EMAIL) == ["        found by  #1 regex: built-in pattern EMAIL", "        masked"]
+    assert block("bluebird") == ["        found by  #1 regex: terms PROJECT", "        masked"]
+    assert block("TCK-42") == [
+        "        found by  #2 yaml: pattern TICKET",
+        "        not masked: the strict policy masks only the types in policy.allowed",
+    ]
+
+
+def test_detect_explain_shows_a_partly_masked_span(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "detector:\n  type: yaml\n  patterns:\n    OUTER: abcdef\n    INNER: bcd\n"
+        "policy:\n  type: strict\n  allowed: [INNER]\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), "abcdef"])
+
+    assert "OUTER" in result.output
+    assert "partly masked: only 'bcd' as INNER; the rest is sent as is" in result.output
+    assert "        masked" not in result.output
+
+
+def test_detect_explain_without_policy_masks_everything(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["detect", "--explain", "--no-policy", f"mail {EMAIL}"])
+    assert "found by  regex: built-in pattern EMAIL" in result.output
+    assert "not masked" not in result.output
+
+
 # --------------------------------------------------------------------------
 # inspect session
 
