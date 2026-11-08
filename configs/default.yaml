@@ -93,6 +93,8 @@ detector:
   # An entity counts only with one of its words within five words of the match.
   # context:
   #   EMPLOYEE_ID: [employee, nip]
+  # Also find values split into strings ('s' + 'k' + ...) or Base64/hex/URL encoded.
+  # decode: false
 
 # --- Policy ---
 policy:
