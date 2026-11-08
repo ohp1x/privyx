@@ -115,6 +115,14 @@ async def test_deanonymize_matches_longest_value_first() -> None:
     assert restored.text == "REAL_LONG and REAL_SHORT"
 
 
+async def test_deanonymize_viable_prefix_matching_shorter_fake() -> None:
+    session = Session()
+    session.put("cat", "Alice")
+    session.put("caterpillar", "Bob")
+    restored = await FakerOperator(seed=1).deanonymize("I want to cater", session, Context())
+    assert restored.text == "I want to Aliceer"
+
+
 async def test_deanonymize_leaves_unknown_text_alone() -> None:
     operator = FakerOperator(seed=1)
     result = await operator.deanonymize("nothing to restore here", Session(), Context())

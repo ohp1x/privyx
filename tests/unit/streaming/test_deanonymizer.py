@@ -72,3 +72,9 @@ def test_update_mapping_mid_stream() -> None:
     d.update_mapping({"<PRIVYX_EMAIL_1>": "bob@example.com"})
     out = d.feed("<PRIVYX_EMAIL_1>") + d.flush()
     assert out == "bob@example.com"
+
+
+def test_flush_viable_prefix_matching_shorter_pseudonym() -> None:
+    mapping = {"cat": "Alice", "caterpillar": "Bob"}
+    out = _feed_all(["I want to cater"], mapping)
+    assert out == "I want to Aliceer"
