@@ -75,6 +75,25 @@ URL_CREDENTIAL_PATTERN = (
     r"""(?ix) [a-z][a-z0-9+.-]{0,20}:// [^\s:/@"'<>]{0,256} : (?P<value>[^\s/@"'<>]{1,256}) @"""
 )
 
+_SECRET_TYPE_NAMES: tuple[str, ...] = (
+    "str",
+    "string",
+    "int",
+    "bool",
+    "boolean",
+    "number",
+    "any",
+    "none",
+    "null",
+    "true",
+    "false",
+    "undefined",
+    "optional",
+    "dict",
+    "list",
+)
+_SECRET_TYPE_NAMES_SET: frozenset[str] = frozenset(_SECRET_TYPE_NAMES)
+
 #: A value assigned to a secret-looking name: ``.env``, shell, YAML, JSON, PHP,
 #: JS/Python, query strings, CLI flags.  Simple ``str`` / ``string`` annotations
 #: are allowed before an assignment. Quoted, up to the closing quote (including
@@ -85,7 +104,8 @@ URL_CREDENTIAL_PATTERN = (
 #: secret.  :func:`_secret_value` drops the rest of what cannot be one.
 #: A whitespace separator needs a CLI flag; quote selection is atomic so an
 #: empty triple-quoted string cannot backtrack into a nonempty single-quoted one.
-SECRET_PATTERN = r"""(?ix)
+SECRET_PATTERN = (
+    r"""(?ix)
 (?P<flag> --(?:\w{1,40}-)*?(?:require)? )?
 (?P<name>
     (?: passw(?:or)?d | passphrase | pwd | pass(?![a-z]) | secret(?![a-z]) | token(?![a-z])
@@ -94,8 +114,9 @@ SECRET_PATTERN = r"""(?ix)
 ["']? [ \t]* (?: :[ \t]*(?:str|string)[ \t]*(?==) )?
 (?P<sep> => | := | [:=](?!=) | (?(flag)[ \t]+|(?!)) ) [ \t]*
 (?: (?:[rubf]|[bf]r|r[bf])? (?> (?P<triple> \"{3} | '{3} ) | (?P<q>["'`]) )
-  | (?! (?:str|string|int|bool|boolean|number|any|none|null|true|false|undefined|optional
-           |dict|list)\b
+  | (?! (?:"""
+    + "|".join(_SECRET_TYPE_NAMES)
+    + r""")\b
       | \$[{(] ) )
 (?P<value>
     (?(triple) (?:\\[\s\S]|(?!(?P=triple))[^\\])+
@@ -103,6 +124,7 @@ SECRET_PATTERN = r"""(?ix)
           | [^\s"'`,;&#(){}\[\]<>]++(?!\() ) )
 )
 """
+)
 
 #: Built-in entity patterns.  A ``regex`` detector built from config layers its
 #: own patterns over these (:func:`privyx.privacy.detector.yaml.build_detector`).
@@ -205,16 +227,23 @@ def _secret_value(match: re.Match[str]) -> bool:
     string literal (``r"…"``), or when a single word after a colon starts a
     sentence (``api_key: When set, …`` in a docstring).
     """
-    name, value = match["name"], match["value"]
+    groups = match.groupdict()
+    name = groups.get("name")
+    value = groups.get("value")
+    if name is None or value is None:
+        return True
     if not any(char.isalnum() for char in value) or "..." in value or "…" in value:
         return False
     if _SECRET_METADATA.search(name):
         return False
     # A following flag or a shell variable is not the credential itself.
-    if match["flag"] and value.startswith(("--", "$")):
+    flag = groups.get("flag")
+    if flag and value.startswith(("--", "$")):
         return False
-    if match["q"] is not None or match["triple"] is not None:
+    if bool(groups.get("q")) or bool(groups.get("triple")):
         return True
+    if value.lower() in _SECRET_TYPE_NAMES_SET:
+        return False
     if _DOTTED_IDENTIFIER.fullmatch(value):
         return False
     following = match.string[match.end() : match.end() + 1]
@@ -222,9 +251,8 @@ def _secret_value(match: re.Match[str]) -> bool:
         return False
     if _STRING_PREFIX.fullmatch(value) and following in ('"', "'"):
         return False
-    return not (
-        match["sep"] == ":" and value.isalpha() and _WORDS_NEXT.match(match.string, match.end())
-    )
+    sep = groups.get("sep")
+    return not (sep == ":" and value.isalpha() and _WORDS_NEXT.match(match.string, match.end()))
 
 
 def _named_for(variable: str, name: str) -> bool:
@@ -290,7 +318,11 @@ def _detect(compiled: list[tuple[str, re.Pattern[str]]], text: str) -> Detection
     for entity, pattern in compiled:
         has_value = "value" in pattern.groupindex
         builtin = pattern.pattern == DEFAULT_PATTERNS.get(entity)
-        check = _CHECKS.get(entity) if builtin else None
+        check = (
+            _CHECKS.get(entity)
+            if (builtin or (entity == "SECRET" and "name" in pattern.groupindex and has_value))
+            else None
+        )
         matches = (
             _secret_matches(pattern, text)
             if builtin and entity == "SECRET"

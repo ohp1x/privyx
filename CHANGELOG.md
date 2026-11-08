@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Detector:** a custom `SECRET` pattern keeps the built-in false-positive checks (`password: str`, `TOKEN_URL`)
 - **Proxy:** transparent mode masks query parameter values, except auth parameters such as `key`
 - **Proxy:** long reasoning streams no longer slow down as the thinking cache fills
 - **Streaming:** a known value at the very end of a response is now restored, like the same value mid-stream
