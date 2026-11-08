@@ -150,7 +150,7 @@ def _origin(section: DetectorConfig, entity: str) -> str:
         return f"pattern {entity}"
     if entity in section.terms:
         return f"terms {entity}"
-    if section.type == "regex" and entity in DEFAULT_PATTERNS:
+    if (section.type == "regex" and entity in DEFAULT_PATTERNS) or entity in section.enable:
         return f"built-in pattern {entity}"
     return entity
 

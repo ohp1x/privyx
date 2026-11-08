@@ -12,6 +12,7 @@ from privyx.plugins.registry import PLUGINS
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.builtin import (
     DEFAULT_PATTERNS,
+    OPTIONAL_PATTERNS,
     CompositeDetector,
     RegexDetector,
     YamlDetector,
@@ -65,7 +66,7 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
     patterns = _patterns_from(config)
     detector: Detector
     if dtype in ("regex", "yaml"):
-        combined = dict(patterns)
+        combined = {**_enabled(config), **patterns}
         if dtype == "regex":
             combined = {**DEFAULT_PATTERNS, **combined}
         _validate(combined)
@@ -105,6 +106,18 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
             max_size = 10000 if isinstance(cache, bool) else cache.get("max_size", 10000)
             return CachedDetector(detector, max_size=max_size)
     return detector
+
+
+def _enabled(config: dict[str, Any]) -> dict[str, str]:
+    """The opt-in built-in patterns ``enable`` lists."""
+    enable = config.get("enable") or []
+    unknown = sorted(set(enable) - OPTIONAL_PATTERNS.keys())
+    if unknown:
+        raise ConfigError(
+            f"detector 'enable' lists unknown entities {unknown}; "
+            f"the opt-in built-ins are {sorted(OPTIONAL_PATTERNS)}"
+        )
+    return {entity: OPTIONAL_PATTERNS[entity] for entity in enable}
 
 
 def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[str, Any]:

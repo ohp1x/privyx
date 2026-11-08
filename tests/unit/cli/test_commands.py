@@ -143,6 +143,16 @@ def test_detect_explain_shows_a_partly_masked_span(runner: CliRunner, tmp_path: 
     assert "        masked" not in result.output
 
 
+def test_detect_explain_names_an_opt_in_entity(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text("detector:\n  type: regex\n  enable: [CRYPTO_WALLET]\n", encoding="utf-8")
+    address = "0x" + "ab" * 20
+    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), f"pay {address}"])
+
+    assert result.exit_code == 0, result.output
+    assert "found by  regex: built-in pattern CRYPTO_WALLET" in result.output
+
+
 def test_detect_explain_without_policy_masks_everything(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["detect", "--explain", "--no-policy", f"mail {EMAIL}"])
     assert "found by  regex: built-in pattern EMAIL" in result.output

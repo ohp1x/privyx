@@ -147,6 +147,9 @@ DEFAULT_PATTERNS: dict[str, str] = {
     "SECRET": SECRET_PATTERN,
 }
 
+#: Built-in entities a detector turns on with ``enable``.
+OPTIONAL_PATTERNS: dict[str, str] = dict(catalog.OPTIONAL_PATTERNS)
+
 
 def _luhn(match: re.Match[str]) -> bool:
     """Whether the digits pass the Luhn checksum, as every card number does."""
@@ -276,6 +279,7 @@ _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "IP_ADDRESS": _host_address,
     "PHONE": _phone_number,
     "SECRET": _secret_value,
+    **catalog.CHECKS,
 }
 
 
@@ -310,7 +314,7 @@ Check = Callable[[re.Match[str]], bool]
 
 
 def _builtin(entity: str, pattern: str) -> bool:
-    return pattern == DEFAULT_PATTERNS.get(entity)
+    return pattern in (DEFAULT_PATTERNS.get(entity), OPTIONAL_PATTERNS.get(entity))
 
 
 def _check_for(entity: str, pattern: re.Pattern[str], checks: dict[str, Check]) -> Check | None:

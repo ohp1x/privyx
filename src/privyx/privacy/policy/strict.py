@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from privyx.core.context import Context
 from privyx.core.result import Detection
-from privyx.privacy.detector.builtin import DEFAULT_PATTERNS
+from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, OPTIONAL_PATTERNS
 from privyx.privacy.policy.base import BasePolicy
 
 
@@ -13,14 +13,14 @@ class StrictPolicy(BasePolicy):
 
     Args:
         allowed_types: Set of entity type strings to keep.  Empty or ``None``
-            means the built-in entities.
+            means the built-in entities, opt-in ones included.
     """
 
     name = "strict"
 
     def __init__(self, allowed_types: set[str] | None = None) -> None:
         super().__init__()
-        self._allowed = allowed_types or set(DEFAULT_PATTERNS)
+        self._allowed = allowed_types or {*DEFAULT_PATTERNS, *OPTIONAL_PATTERNS}
 
     def _decide_sync(self, detection: Detection, context: Context) -> Detection:
         filtered = Detection()

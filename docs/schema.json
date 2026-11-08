@@ -204,6 +204,13 @@
           "title": "Context",
           "type": "object"
         },
+        "enable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Enable",
+          "type": "array"
+        },
         "cache": {
           "anyOf": [
             {

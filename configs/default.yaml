@@ -84,6 +84,8 @@ detector:
   #   PERSON:       [ann, bob]
   #   ORGANIZATION: [acme, initech]
   #   URL:          ["https://git.internal.example/team"]
+  # Opt-in built-ins, checked by checksum or structure.
+  # enable: [CRYPTO_WALLET]
   # An entity counts only with one of its words within five words of the match.
   # context:
   #   EMPLOYEE_ID: [employee, nip]
