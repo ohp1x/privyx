@@ -32,6 +32,26 @@ With no configuration, the `regex` detector finds:
 
 Names and anything specific to you need more configuration.
 
+## Context words
+
+`context` makes an entity count only when one of its words is within five
+words of the match. It turns a pattern that would match too much into one you
+can use:
+
+```yaml
+detector:
+  type: regex
+  patterns:
+    PASSPORT: '\b[A-Z]\d{7}\b'
+  context:
+    PASSPORT: [passport, paspor, "travel document"]
+```
+
+Words are matched whole and ignoring case; an entry may be a phrase. For a
+built-in entity, the list adds the requirement. `context` for
+an entity the detector does not detect stops Privyx at startup. The `presidio`
+detector weighs context words on its own and ignores this setting.
+
 ## Secrets
 
 Most built-in secret patterns match a recognizable shape, such as a vendor

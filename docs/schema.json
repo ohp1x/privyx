@@ -194,6 +194,16 @@
           "title": "Terms",
           "type": "object"
         },
+        "context": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Context",
+          "type": "object"
+        },
         "cache": {
           "anyOf": [
             {
