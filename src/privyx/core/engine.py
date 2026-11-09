@@ -59,6 +59,8 @@ class PrivacyEngine:
             (:func:`privyx.proxy.schemas.find_leaks`).
         directive: Ask transports to add :func:`privyx.proxy.schemas.directive`
             to each chat request they mask.
+        cache_control: Ask transports to mark a large Anthropic prefix for
+            prompt caching (:func:`privyx.proxy.schemas.add_cache_control`).
     """
 
     def __init__(
@@ -71,6 +73,7 @@ class PrivacyEngine:
         audit: AuditLogger | None = None,
         dlp_check: bool = False,
         directive: bool = False,
+        cache_control: bool = False,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -88,6 +91,7 @@ class PrivacyEngine:
         self._audit = audit or AuditLogger(None)
         self.dlp_check = dlp_check
         self.directive = directive
+        self.cache_control = cache_control
         # One lock per live session id; an entry disappears once nobody holds it.
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 

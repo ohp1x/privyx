@@ -984,3 +984,66 @@ async def test_directive_skips_requests_without_a_chat(schema: Any, payload: Any
     out = await transform_request(payload, engine, await _session(engine), schema=schema)
 
     assert DIRECTIVE not in json.dumps(out)
+
+
+# --------------------------------------------------------------------------
+# proxy.cache_control
+
+BIG = "x" * schemas.CACHE_MIN_CHARS
+EPHEMERAL = {"type": "ephemeral"}
+
+
+def _cache_engine() -> PrivacyEngine:
+    engine = _engine()
+    engine.cache_control = True
+    return engine
+
+
+async def test_cache_control_is_off_by_default() -> None:
+    engine = _engine()
+    payload = {"system": BIG, **_mail_request()}
+
+    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
+
+    assert out["system"] == BIG
+
+
+async def test_cache_control_marks_a_large_system_and_tools_prefix() -> None:
+    engine = _cache_engine()
+    tools = [{"name": "a", "input_schema": {}}, {"name": "b", "description": BIG}]
+    payload = {"tools": tools, "system": "be brief", **_mail_request()}
+
+    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
+
+    assert out["tools"][-1]["cache_control"] == EPHEMERAL
+    assert "cache_control" not in out["tools"][0]
+    assert out["system"] == [{"type": "text", "text": "be brief", "cache_control": EPHEMERAL}]
+    assert EMAIL not in json.dumps(out)
+    assert "cache_control" not in tools[-1] and payload["system"] == "be brief"  # not mutated
+
+
+@pytest.mark.parametrize(
+    ("payload", "schema"),
+    [
+        ({"system": "short", **_mail_request()}, "anthropic"),  # too small to cache
+        ({"system": BIG, **_mail_request()}, "openai"),  # not Anthropic
+        (  # the client already caches
+            {
+                "system": BIG,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "hi", "cache_control": EPHEMERAL}],
+                    }
+                ],
+            },
+            "anthropic",
+        ),
+    ],
+)
+async def test_cache_control_leaves_a_request_alone(payload: dict[str, Any], schema: str) -> None:
+    engine = _cache_engine()
+
+    out = await transform_request(payload, engine, await _session(engine), schema=schema)
+
+    assert out.get("system") == payload["system"]

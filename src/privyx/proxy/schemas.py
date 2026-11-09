@@ -190,7 +190,8 @@ async def transform_request(
     it descends into; config values are shared, not copied).
 
     With ``engine.directive``, a chat request of ``schema`` also gets
-    :func:`directive`, unmasked (see :func:`_add_directive`).
+    :func:`directive`, unmasked (see :func:`_add_directive`).  With
+    ``engine.cache_control``, an Anthropic one gets :func:`add_cache_control`.
     """
 
     def rank(key: str) -> int:
@@ -245,7 +246,50 @@ async def transform_request(
     result = {key: rebuilt[key] for key in payload}
     if engine.directive:
         _add_directive(result, schema, directive(engine.codec))
+    if engine.cache_control and schema == "anthropic":
+        add_cache_control(result)
     return result
+
+
+#: Characters of prefix worth a cache breakpoint: about 1024 tokens at four
+#: characters a token, the smallest minimum most Claude models cache.
+CACHE_MIN_CHARS = 4096
+_EPHEMERAL = {"type": "ephemeral"}
+
+
+def add_cache_control(payload: dict[str, Any]) -> None:
+    """Mark a large ``tools`` / ``system`` prefix of an Anthropic request for caching, in place.
+
+    Only a request that marks nothing itself is changed: then its last tool
+    gets a breakpoint when ``tools`` is at least :data:`CACHE_MIN_CHARS` long,
+    and its last ``system`` block when ``tools`` and ``system`` together are.
+    Both are the same on every turn, so the request stays byte-stable.  A
+    client that sets ``cache_control`` anywhere manages caching itself.
+    """
+    if "messages" not in payload or _has_cache_control(payload):
+        return
+    tools = payload.get("tools")
+    size = 0
+    if isinstance(tools, list) and tools:
+        size = len(json.dumps(tools, ensure_ascii=False))
+        if size >= CACHE_MIN_CHARS and isinstance(tools[-1], dict):
+            tools[-1] = {**tools[-1], "cache_control": dict(_EPHEMERAL)}
+    system = payload.get("system")
+    if isinstance(system, str) and system:
+        system = [{"type": "text", "text": system}]
+    if not isinstance(system, list) or not system or not isinstance(system[-1], dict):
+        return
+    size += sum(len(str(block.get("text", ""))) for block in system if isinstance(block, dict))
+    if size >= CACHE_MIN_CHARS:
+        payload["system"] = [*system[:-1], {**system[-1], "cache_control": dict(_EPHEMERAL)}]
+
+
+def _has_cache_control(value: Any) -> bool:
+    if isinstance(value, dict):
+        return "cache_control" in value or any(_has_cache_control(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_cache_control(v) for v in value)
+    return False
 
 
 def directive(codec: TokenCodec) -> str:

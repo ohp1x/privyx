@@ -789,6 +789,19 @@
               "pattern": "\\$\\{"
             }
           ]
+        },
+        "cache_control": {
+          "title": "Cache Control",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
         }
       },
       "title": "ProxyConfig",

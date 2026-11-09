@@ -225,6 +225,9 @@ class ProxyConfig(BaseModel):
     dlp_check: bool = False
     #: Tell the model, in each masked chat request, to keep placeholders as written.
     directive: bool = False
+    #: Mark a large Anthropic ``tools`` / ``system`` prefix for prompt caching
+    #: when the request marks nothing itself.
+    cache_control: bool = False
 
 
 class ModelPrice(BaseModel):
