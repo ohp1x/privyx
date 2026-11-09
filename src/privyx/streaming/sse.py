@@ -72,11 +72,16 @@ class SSEDecoder:
 
     def __init__(self) -> None:
         self._buffer = ""
+        # The last chunk ended in CR, so an LF opening the next one is its pair.
+        self._after_cr = False
 
     def feed(self, chunk: str) -> list[SSEEvent]:
         """Feed a raw chunk; return every event completed by it."""
         if not chunk:
             return []
+        if self._after_cr and chunk.startswith("\n"):
+            chunk = chunk[1:]
+        self._after_cr = chunk.endswith("\r")
         self._buffer += chunk
         return self._drain()
 
@@ -86,11 +91,13 @@ class SSEDecoder:
         A blank line terminates the current event.
         """
         self._buffer += line.rstrip("\r") + "\n"
+        self._after_cr = False
         return self._drain()
 
     def _drain(self) -> list[SSEEvent]:
         events: list[SSEEvent] = []
         # Normalize CRLF/CR so the blank-line split works on any transport.
+        # A CRLF split across two chunks is joined in feed(), which drops the LF.
         self._buffer = self._buffer.replace("\r\n", "\n").replace("\r", "\n")
         while "\n\n" in self._buffer:
             block, _, self._buffer = self._buffer.partition("\n\n")
