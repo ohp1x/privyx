@@ -126,6 +126,18 @@ request. If it called its provider, it did so directly, without masking.
 |---|---|---|
 | `profile` | string | The agent profile, or the base name of the command run without one. |
 
+### `run.budget_exceeded`
+A tool launched with `privyx run` reached its profile's
+[`budget`](../guide/configuration.md#agents), and Privyx refused its next model
+request. Written once per launch.
+
+| field | type | notes |
+|---|---|---|
+| `profile` | string | As in `run.unproxied`. |
+| `limit` | string | `turn` or `token`: the limit reached; `unmeasured` when a reply came without token usage under a token limit. |
+| `turns` | int | Model requests forwarded so far. |
+| `tokens` | int | Tokens the upstream reported so far. |
+
 ## Guarantees
 
 - **PII-safe by construction.** No field carries matched text, original values,

@@ -86,6 +86,9 @@
           "title": "Env From",
           "type": "object"
         },
+        "budget": {
+          "$ref": "#/$defs/BudgetConfig"
+        },
         "privyx": {
           "additionalProperties": true,
           "title": "Privyx",
@@ -136,6 +139,56 @@
         }
       },
       "title": "AuditConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "BudgetConfig": {
+      "description": "Limits on one ``privyx run`` launch; unset means no limit.",
+      "properties": {
+        "max_turns": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Turns"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        }
+      },
+      "title": "BudgetConfig",
       "type": "object",
       "additionalProperties": false
     },
