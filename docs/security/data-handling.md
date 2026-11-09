@@ -14,6 +14,9 @@
 - The `sqlite` vault file (with its `-wal` and `-shm` files) and
   `privyx mask --map` files are created readable by their owner only. An
   existing file keeps its mode: `chmod 600` it.
+- The [session tap](../observability/tap.md) (`audit.tap`, off by default)
+  writes requests and replies with their original values to `audit.tap_dir`:
+  the directory is `0700`, each file `0600`.
 
 ## Logging
 

@@ -215,6 +215,7 @@ async def _run_server(settings: Any, watch_paths: list[Path] | None = None) -> b
 
 def build_transparent_proxy(settings: Any, engine: Any, audit: Any) -> Any:
     """The transparent proxy ``settings`` describe; ``privyx run`` serves it too."""
+    from privyx.observability.tap import Tap
     from privyx.providers.registry import resolve_api_key, resolve_origin
     from privyx.proxy.transparent import TransparentProxy
 
@@ -231,6 +232,7 @@ def build_transparent_proxy(settings: Any, engine: Any, audit: Any) -> Any:
         max_connections=settings.proxy.max_connections,
         audit=audit,
         session_strategy=settings.session.strategy,
+        tap=Tap(settings.audit.tap_dir) if settings.audit.tap else None,
     )
 
 

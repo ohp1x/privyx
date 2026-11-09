@@ -44,6 +44,7 @@ from privyx.core.errors import LeakError, VaultError
 from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
+from privyx.observability.tap import Tap
 from privyx.observability.usage import UsageMeter
 from privyx.providers.generic import upstream_client
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
@@ -162,6 +163,8 @@ class TransparentProxy:
         session_strategy: How to identify a session when the client sends no
             ``x-privyx-session`` header — ``ephemeral`` (default), ``client``, or
             ``conversation``.  See :func:`privyx.proxy.session.resolve_session_id`.
+        tap: Optional developer tap that records each masked exchange before
+            and after masking (``audit.tap``; see :mod:`privyx.observability.tap`).
     """
 
     def __init__(
@@ -180,8 +183,10 @@ class TransparentProxy:
         max_connections: int | None = None,
         audit: AuditLogger | None = None,
         session_strategy: str = "ephemeral",
+        tap: Tap | None = None,
     ) -> None:
         self._engine = engine
+        self._tap = tap
         self._origin = origin.rstrip("/")
         self._audit = audit or AuditLogger(None)
         self._session_strategy = session_strategy
@@ -343,6 +348,16 @@ class TransparentProxy:
                 transform_ms = _elapsed_ms(transform_start)
                 if isinstance(payload, dict):
                     out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
+                    if self._tap is not None:
+                        self._tap.record(
+                            sid,
+                            req_id,
+                            "request",
+                            path="/" + path.lstrip("/"),
+                            schema=schema,
+                            before=payload,
+                            after=transformed,
+                        )
             self._audit.flush_transform()
 
             url = f"{self._origin}/{path.lstrip('/')}"
@@ -504,6 +519,8 @@ class TransparentProxy:
         status = response.status_code
         restored = 0
         meter = UsageMeter()
+        # What the tap keeps, when it is on: the upstream's bytes and ours.
+        tapped: tuple[list[bytes], list[str]] | None = ([], []) if self._tap and schema else None
         completed = aborted = False
         try:
             adapter = build_stream_adapter(schema or "generic")
@@ -529,11 +546,17 @@ class TransparentProxy:
             )
             async for raw in response.aiter_bytes():
                 meter.feed_sse(raw)
+                if tapped is not None:
+                    tapped[0].append(raw)
                 for out in router.feed(raw):
                     frames += 1
+                    if tapped is not None:
+                        tapped[1].append(out)
                     yield out
             for out in router.flush():
                 frames += 1
+                if tapped is not None:
+                    tapped[1].append(out)
                 yield out
             completed = True
         except Exception as exc:
@@ -569,6 +592,17 @@ class TransparentProxy:
                         usage=meter.usage,
                         model=meter.model,
                     )
+                    if self._tap is not None and tapped is not None:
+                        self._tap.record(
+                            session_id,
+                            request_id,
+                            "response",
+                            status=status,
+                            stream=True,
+                            aborted=aborted,
+                            upstream=b"".join(tapped[0]).decode("utf-8", "replace"),
+                            restored="".join(tapped[1]),
+                        )
                 self._end_session(ephemeral, request_id)
 
     def _relayed_response(
@@ -664,6 +698,7 @@ class TransparentProxy:
         data = await response.aread()
         await response.aclose()
         meter = UsageMeter()
+        upstream_data = data
         payload = _loads(data)
         meter.feed_json(payload)  # embeddings report usage too
         if schema != "embeddings" and isinstance(payload, dict):
@@ -681,6 +716,16 @@ class TransparentProxy:
             usage=meter.usage,
             model=meter.model,
         )
+        if self._tap is not None:
+            self._tap.record(
+                session_id,
+                request_id,
+                "response",
+                status=response.status_code,
+                stream=False,
+                upstream=_tapped_body(upstream_data),
+                restored=_tapped_body(data),
+            )
         return ProxyResponse(
             status_code=response.status_code,
             headers=headers,
@@ -738,6 +783,12 @@ def _ci_get(headers: Mapping[str, str], name: str) -> str:
         if key.lower() == target:
             return value
     return ""
+
+
+def _tapped_body(data: bytes) -> Any:
+    """A body as the tap keeps it: parsed when it is JSON, else as text."""
+    parsed = _loads(data)
+    return parsed if parsed is not None else data.decode("utf-8", "replace")
 
 
 def _loads(data: bytes | str) -> Any:
