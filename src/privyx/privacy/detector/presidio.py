@@ -75,7 +75,9 @@ def _load_analyzer(language: str, model: str, kwargs: dict[str, Any]) -> Any:
             supported_languages=[language],
             **kwargs,
         )
-    except OSError as exc:  # pragma: no cover - depends on the local model set
+    # A missing model is downloaded by Presidio; when that fails, spaCy calls
+    # sys.exit, which would end the proxy without saying why.
+    except (OSError, SystemExit) as exc:
         raise ConfigError(
             f"spaCy model {model!r} is not installed; run `python -m spacy download {model}`"
         ) from exc
