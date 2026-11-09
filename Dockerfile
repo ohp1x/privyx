@@ -23,9 +23,16 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --all-extras --no-extra dev
 
-# Install default spaCy model for the presidio extra
+# Install default spaCy model for the presidio extra.  GitHub release downloads
+# fail now and then with a 5xx, so try a few times with a growing pause.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+    url="https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"; \
+    for pause in 15 30 60 120; do \
+        uv pip install "$url" && exit 0; \
+        echo "model download failed, retrying in ${pause}s" >&2; \
+        sleep "$pause"; \
+    done; \
+    uv pip install "$url"
 
 
 FROM python:3.12-slim-bookworm AS runtime
