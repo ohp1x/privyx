@@ -1,5 +1,5 @@
 ---
-description: Record each masked exchange before and after masking, one owner-only file per session, for debugging what masking changed.
+description: Record each masked exchange before and after masking, and watch the diff live with privyx audit watch.
 ---
 
 # Session tap
@@ -36,3 +36,24 @@ With `tap: false` Privyx creates no tap directory and writes nothing.
 
 A batch body is kept as JSON, a stream as its SSE text. A session id the
 client chose that is not a plain name is hashed for the file name.
+
+## Watching it live
+
+```bash
+privyx audit watch                 # every session
+privyx audit watch SESSION_ID      # one session
+```
+
+It prints the last records, then each new one as it is written. Each place
+that changed is one line, with removed text as `[-...-]` (red) and added text
+as `{+...+}` (green):
+
+```text
+2026-11-09T14:02:11  request   req_8a7f9b0c1d2e  ses_01a116a0c5ca  /v1/messages
+  mail [-alice@example.com-]{+<PRIVYX_EMAIL_1>+} about the invoice
+2026-11-09T14:02:13  response  req_8a7f9b0c1d2e  ses_01a116a0c5ca  status 200 stream
+  Sent to [-<PRIVYX_EMAIL_1>-]{+alice@example.com+}.
+```
+
+A streamed reply is shown as the text its events carry. `--no-follow` stops
+after the last records, and `-n` sets how many come first.

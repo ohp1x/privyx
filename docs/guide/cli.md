@@ -296,6 +296,7 @@ Read the audit trail. `FILE` defaults to `audit.path`, which is
 ```bash
 privyx audit stats [FILE] [--since 24h]
 privyx audit tail [FILE] [-n 20] [--no-follow]
+privyx audit watch [SESSION_ID] [-n 20] [--no-follow]
 ```
 
 | Command | Option | Description |
@@ -303,6 +304,9 @@ privyx audit tail [FILE] [-n 20] [--no-follow]
 | `stats` | `--since` | Only count events from the last `30m`, `12h`, `7d`, `2w`. |
 | `tail` | `-n`, `--lines` | Recent events to show first. Default `10`. |
 | `tail` | `--follow` / `--no-follow` | Keep printing new events (default) or stop. |
+| `watch` | | What masking changed in each exchange, from the [tap](../observability/tap.md), as a word diff. Needs `audit.tap: true`. |
+| `watch` | `-n`, `--lines` | Recent records to show first. Default `10`. |
+| `watch` | `--follow` / `--no-follow` | Keep showing new records (default) or stop. |
 
 See [Audit events](../observability/audit-events.md) for what each event holds.
 

@@ -9,7 +9,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+from click.testing import CliRunner
 
+from privyx.cli.main import cli
 from privyx.core.engine import PrivacyEngine
 from privyx.observability.tap import Tap, tap_file
 from privyx.privacy.detector.builtin import RegexDetector
@@ -90,3 +92,21 @@ def test_a_client_session_id_never_becomes_a_path(tmp_path: Path) -> None:
     # No session can name the file another one is hashed to.
     hashed = tap_file(tmp_path, "session/one")
     assert tap_file(tmp_path, hashed.stem) != hashed
+
+
+async def test_audit_watch_shows_what_masking_changed(tmp_path: Path) -> None:
+    await _exchange(_proxy(Tap(tmp_path / "tap")), stream=True)
+    config = tmp_path / "c.yaml"
+    config.write_text(f"audit:\n  tap: true\n  tap_dir: {tmp_path / 'tap'}\n", encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["audit", "watch", "-c", str(config), "--no-follow"])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert any("request" in line and "/v1/chat/completions" in line for line in lines)
+    assert f"  mail [-{EMAIL}-]{{+<PRIVYX_EMAIL_1>+}}" in lines
+    assert any("response" in line and "status 200 stream" in line for line in lines)
+    assert f"  Sent to [-<PRIVYX_EMAIL_1>-]{{+{EMAIL}+}}." in lines
+
+    one = CliRunner().invoke(cli, ["audit", "watch", "-c", str(config), "--no-follow", "ses_x"])
+    assert one.output == ""
