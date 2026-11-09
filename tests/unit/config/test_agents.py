@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -367,3 +368,71 @@ def test_child_transport_override_survives_a_later_parent_update(
     project.write_text("provider:\n  base_url: https://common.example\n")
     trust(project)
     assert load_config(agent="work").upstream_url == "https://common.example"
+
+
+def test_a_key_given_twice_is_warned_about_and_the_last_one_still_wins(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    config = tmp_path / "named.yaml"
+    config.write_text(
+        "agents:\n"
+        "  claude:work:\n"
+        "    upstream: https://one.example\n"
+        "  claude:work:\n"
+        "    upstream: https://two.example\n"
+    )
+
+    settings = load_config(config)
+    load_config(config)
+
+    assert settings.agents["claude:work"].upstream == "https://two.example"
+    warnings = [r.getMessage() for r in caplog.records if "given twice" in r.getMessage()]
+    assert len(warnings) == 1  # once, however often the file is read
+    assert "line 4: key 'claude:work'" in warnings[0]
+    assert "two.example" not in warnings[0]
+
+
+def test_a_merge_key_may_be_overridden(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    config = tmp_path / "named.yaml"
+    config.write_text(
+        "base: &base {command: tool, upstream: 'https://one.example'}\n"
+        "agents:\n"
+        "  x:\n"
+        "    <<: *base\n"
+        "    upstream: https://two.example\n"
+    )
+    with pytest.raises(ConfigError, match="unknown setting 'base'"):
+        load_config(config)  # parsed fine: the anchor key is the only complaint
+    assert not [r for r in caplog.records if "given twice" in r.getMessage()]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits")
+@pytest.mark.parametrize(
+    ("env", "mode", "warned"),
+    [
+        ({"ANTHROPIC_AUTH_TOKEN": "sk-" + "ant-abc123"}, 0o644, True),
+        ({"ANTHROPIC_AUTH_TOKEN": "sk-" + "ant-abc123"}, 0o600, False),
+        ({"ANTHROPIC_AUTH_TOKEN": "${WORK_TOKEN}"}, 0o644, False),
+        ({"CLAUDE_CODE_EFFORT_LEVEL": "max"}, 0o644, False),
+    ],
+)
+def test_a_readable_file_with_a_credential_is_warned_about(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    env: dict[str, str],
+    mode: int,
+    warned: bool,
+) -> None:
+    monkeypatch.setenv("WORK_TOKEN", "x")
+    config = tmp_path / "named.yaml"
+    config.write_text(yaml.safe_dump({"agents": {"claude:work": {"env": env}}}))
+    config.chmod(mode)
+
+    load_config(config)
+
+    messages = [r.getMessage() for r in caplog.records if "other users can read" in r.getMessage()]
+    assert bool(messages) is warned
+    for message in messages:
+        assert "agents.claude:work.env.ANTHROPIC_AUTH_TOKEN" in message
+        assert "abc123" not in message
