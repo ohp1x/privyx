@@ -136,6 +136,13 @@
           "default": "~/.privyx/audit.log",
           "title": "Path",
           "type": "string"
+        },
+        "prices": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelPrice"
+          },
+          "title": "Prices",
+          "type": "object"
         }
       },
       "title": "AuditConfig",
@@ -422,6 +429,86 @@
       },
       "title": "DetectorConfig",
       "type": "object"
+    },
+    "ModelPrice": {
+      "description": "USD per million tokens; cache rates default to 0.1x and 1.25x of input.",
+      "properties": {
+        "input": {
+          "title": "Input",
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "output": {
+          "title": "Output",
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "cache_read": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Read"
+        },
+        "cache_write": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Write"
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "title": "ModelPrice",
+      "type": "object",
+      "additionalProperties": false
     },
     "OperatorConfig": {
       "additionalProperties": true,

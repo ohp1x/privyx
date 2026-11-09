@@ -12,6 +12,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Coroutine
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -130,20 +131,26 @@ async def _list(config_path: str | None) -> None:
 async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
     async with _open_vault(config_path) as (settings, vault):
         record = await vault.get(session_id)
+    usage = _session_usage(settings, session_id)
 
-    if record is None:
+    if record is None and usage is None:
         click.echo(f"Session not found: {session_id}", err=True)
         click.echo(f"(vault: {settings.vault.type})", err=True)
         sys.exit(1)
 
-    click.echo(f"Session: {record.session_id}")
+    click.echo(f"Session: {session_id}")
     click.echo(f"  Vault:      {settings.vault.type}")
-    click.echo(f"  Created:    {_ts(record.created_at)}")
-    click.echo(f"  Updated:    {_ts(record.updated_at)}")
-    click.echo(f"  Mappings:   {len(record.mapping)}")
-    if record.metadata:
-        click.echo(f"  Metadata:   {record.metadata}")
-    if not record.mapping:
+    if record is None:
+        click.echo("  (not in the vault; usage from the audit trail)")
+    else:
+        click.echo(f"  Created:    {_ts(record.created_at)}")
+        click.echo(f"  Updated:    {_ts(record.updated_at)}")
+        click.echo(f"  Mappings:   {len(record.mapping)}")
+        if record.metadata:
+            click.echo(f"  Metadata:   {record.metadata}")
+    if usage is not None:
+        _show_usage(settings, *usage)
+    if record is None or not record.mapping:
         return
     click.echo("")
     for pseudonym, original in record.mapping.items():
@@ -152,6 +159,81 @@ async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
     if not reveal:
         click.echo("")
         click.echo("  (values masked; pass --reveal to show them)")
+
+
+def _matching_lines(path: Path, session_id: str | None = None) -> list[dict[str, Any]]:
+    """The JSON objects in a JSONL file, those of ``session_id`` when given."""
+    import json
+
+    # A cheap text test first, on the id as the trail and the tap write it
+    # (JSON-escaped: ``session"one`` is ``session\"one`` there), then the parsed field.
+    needle = None if session_id is None else json.dumps(session_id, ensure_ascii=False)
+    rows = []
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if needle is not None and needle not in line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and (
+                    session_id is None or row.get("session_id") == session_id
+                ):
+                    rows.append(row)
+    except OSError:
+        return []
+    return rows
+
+
+def _session_usage(
+    settings: Settings, session_id: str
+) -> tuple[int, dict[str, dict[str, int]]] | None:
+    """Responses and token usage by model of ``session_id``, from the audit trail.
+
+    ``None`` when the trail is off, missing, or has no response of the session.
+    """
+    import os
+    from collections import Counter
+
+    if not settings.audit.enabled:
+        return None
+    path = Path(os.path.expanduser(settings.audit.path))
+    responses = [e for e in _matching_lines(path, session_id) if e.get("event") == "proxy.response"]
+    if not responses:
+        return None
+    by_model: dict[str, Counter[str]] = {}
+    for event in responses:
+        usage = event.get("usage")
+        if isinstance(usage, dict):
+            tokens = by_model.setdefault(str(event.get("model") or "unknown"), Counter())
+            tokens.update({k: v for k, v in usage.items() if isinstance(v, int)})
+    return len(responses), {model: dict(tokens) for model, tokens in by_model.items()}
+
+
+def _show_usage(settings: Settings, responses: int, by_model: dict[str, dict[str, int]]) -> None:
+    from collections import Counter
+
+    from privyx.cli.commands.audit import _tokens
+    from privyx.observability.usage import cost
+
+    click.echo(f"  Responses:  {responses}")
+    if not by_model:
+        return
+    total: Counter[str] = Counter()
+    for tokens in by_model.values():
+        total.update(tokens)
+    click.echo(f"  Tokens:     {_tokens(total)}")
+    prices = settings.audit.prices
+    costs = {model: cost(model, tokens, prices) for model, tokens in by_model.items()}
+    known = [c for c in costs.values() if c is not None]
+    unknown = sorted(model for model, c in costs.items() if c is None)
+    if known:
+        models = ", ".join(sorted(m for m, c in costs.items() if c is not None))
+        click.echo(f"  Cost:       ~${sum(known):.4f} (estimate; {models})")
+    if unknown:
+        click.echo(f"  No price for: {', '.join(unknown)} (set audit.prices)")
 
 
 async def _prune(older_than: int, config_path: str | None, dry_run: bool) -> None:

@@ -207,6 +207,57 @@ def test_inspect_session_missing_exits_nonzero(runner: CliRunner, sqlite_config:
     assert "Session not found" in result.output
 
 
+def test_session_show_sums_tokens_and_cost_from_the_audit_trail(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    log = tmp_path / "audit.log"
+    usage = {"input": 1_000_000, "output": 100_000, "cache_read": 3_000_000, "cache_write": 0}
+    records = [
+        {
+            "event": "proxy.response",
+            "session_id": "ses_a",
+            "model": "claude-opus-5-5",
+            "usage": usage,
+        },
+        {"event": "proxy.response", "session_id": "ses_a", "model": "gpt-x", "usage": usage},
+        {"event": "proxy.response", "session_id": "ses_b", "model": "gpt-x", "usage": usage},
+    ]
+    log.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    config = tmp_path / "c.yaml"
+    config.write_text(f"audit:\n  path: {log}\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["session", "show", "-c", str(config), "ses_a"])
+
+    assert result.exit_code == 0, result.output
+    assert "not in the vault" in result.output
+    assert "Responses:  2" in result.output
+    assert "input 2,000,000, output 200,000, cache read 6,000,000" in result.output
+    assert "(cache hit rate 75%)" in result.output
+    # 1M input at $4 + 100k output at $20 + 3M cache reads at $0.20.
+    assert "Cost:       ~$6.6000 (estimate; claude-opus-5-5)" in result.output
+    assert "No price for: gpt-x (set audit.prices)" in result.output
+
+    config.write_text(
+        f"audit:\n  path: {log}\n  prices:\n    gpt-x: {{input: 1, output: 1}}\n",
+        encoding="utf-8",
+    )
+    priced = runner.invoke(cli, ["session", "show", "-c", str(config), "ses_a"])
+    assert "(estimate; claude-opus-5-5, gpt-x)" in priced.output
+
+
+def test_session_show_finds_an_id_that_json_escapes(runner: CliRunner, tmp_path: Path) -> None:
+    log = tmp_path / "audit.log"
+    record = {"event": "proxy.response", "session_id": 'session"one', "usage": {"input": 5}}
+    log.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+    config = tmp_path / "c.yaml"
+    config.write_text(f"audit:\n  path: {log}\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["session", "show", "-c", str(config), 'session"one'])
+
+    assert result.exit_code == 0, result.output
+    assert "Responses:  1" in result.output
+
+
 def test_inspect_token_names_its_session_masked(runner: CliRunner, sqlite_config: Path) -> None:
     session_id = _seed_session(sqlite_config)
 

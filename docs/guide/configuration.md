@@ -506,6 +506,13 @@ How placeholders look. See [Token format](masking.md#token-format).
 |---|---|---|
 | `enabled` | `true` | Append PII-safe audit events to `path`. |
 | `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. It is created with mode `0600`. See [Audit events](../observability/audit-events.md). |
+| `prices` | `{}` | Model-id prefix → prices in USD per million tokens: `input`, `output`, and optionally `cache_read` (default a tenth of `input`) and `cache_write` (default 1.25 times `input`). For the cost `privyx session show` estimates; adds models to the built-in Claude prices or overrides them. |
+
+```yaml
+audit:
+  prices:
+    gpt-5: {input: 1.25, output: 10.0, cache_read: 0.125}
+```
 
 ### `plugins`
 
