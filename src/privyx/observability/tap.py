@@ -9,7 +9,8 @@ two records per exchange::
 
 A batch body is kept as parsed JSON, a stream as its SSE text.  Both records
 share the envelope of an audit event (``time``, ``ts``, ``request_id``,
-``session_id``).  ``privyx audit watch`` shows them as a diff.
+``session_id``).  ``privyx audit watch`` shows them as a diff, and
+``privyx session export --forensic`` keeps only what went over the network.
 
 The files hold original values, so the directory is ``0700`` and each file
 ``0600``, as for the vault.  Writing never raises into the request path.
