@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Proxy:** a streamed event whose CRLF line ending arrives split across two chunks is no longer cut into two events
+
 ## [0.1.29] - 2026-11-09
 
 ### Added

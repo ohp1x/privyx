@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
 from privyx.streaming.adapters.openai import OpenAIStreamAdapter
-from privyx.streaming.sse import SSEEvent, parse_sse
+from privyx.streaming.sse import SSEDecoder, SSEEvent, parse_sse
 
 
 def test_parse_sse_single_event() -> None:
@@ -103,3 +105,20 @@ def test_utf8_multibyte_split_across_stream_chunks() -> None:
     flushed = router.flush()
     all_frames = "".join(frames1 + frames2 + flushed)
     assert "Halo 🌟 dunia" in all_frames
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_sse_decoder_any_line_ending_split_anywhere(newline: str) -> None:
+    stream = newline.join(["data: a", "data: b", "", "data: c", "", ""])
+    decoder = SSEDecoder()
+    events = [event for char in stream for event in decoder.feed(char)]
+    events += decoder.flush()
+    assert [e.data for e in events] == ["a\nb", "c"]
+
+
+def test_sse_decoder_emits_a_cr_terminated_event_at_once() -> None:
+    decoder = SSEDecoder()
+    assert [e.data for e in decoder.feed("data: hello\r\r")] == ["hello"]
+    # The LF opening the next chunk paired the last CR: not a blank line.
+    assert decoder.feed("\ndata: a\r") == []
+    assert [e.data for e in decoder.feed("\n\r\n")] == ["a"]
