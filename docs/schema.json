@@ -911,6 +911,27 @@
       "type": "object",
       "additionalProperties": false
     },
+    "TracingConfig": {
+      "description": "OpenTelemetry spans per proxied request (``pip install 'privyx[otel]'``).\n\nThe exporter is configured by the standard ``OTEL_*`` environment variables.",
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "title": "TracingConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
     "VaultConfig": {
       "additionalProperties": true,
       "properties": {
@@ -1037,6 +1058,9 @@
     },
     "audit": {
       "$ref": "#/$defs/AuditConfig"
+    },
+    "tracing": {
+      "$ref": "#/$defs/TracingConfig"
     },
     "plugins": {
       "$ref": "#/$defs/PluginsConfig"

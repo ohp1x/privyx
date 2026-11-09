@@ -517,6 +517,12 @@ audit:
     gpt-5: {input: 1.25, output: 10.0, cache_read: 0.125}
 ```
 
+### `tracing`
+
+| Key | Default | Description |
+|---|---|---|
+| `enabled` | `false` | Export an OpenTelemetry span per proxied request. Needs `pip install 'privyx[otel]'`; the exporter is set by the `OTEL_*` variables. See [Tracing](../observability/tracing.md). |
+
 ### `plugins`
 
 | Key | Default | Description |

@@ -60,6 +60,7 @@ setup.
 | `faker` | Faker | the [`faker` operator](masking.md#faker) |
 | `crypto` | cryptography | the [`encrypt` operator](masking.md#encrypt) |
 | `keychain` | keyring | [`keychain://` secrets](configuration.md#secrets-from-a-password-manager) |
+| `otel` | OpenTelemetry SDK, OTLP exporter | [tracing](../observability/tracing.md) |
 
 Combine them as needed:
 
