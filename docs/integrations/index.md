@@ -27,6 +27,10 @@ Two base URLs cover most clients:
 | Grok Build | `privyx run grok` | [`privyx run`](../guide/cli.md#privyx-run) |
 | A tool or script on the OpenAI or Anthropic SDK | `privyx run -p openai -- tool` | [`privyx run`](../guide/cli.md#privyx-run) |
 | Any tool with another base-URL variable | `privyx run --env-var NAME -u URL -- tool` | [`privyx run`](../guide/cli.md#privyx-run) |
+| Cline | `privyx proxy`, then a custom base URL | [Cline](cline.md) |
+| Roo Code | `privyx proxy`, then a custom base URL | [Roo Code](roo-code.md) |
+| Continue | `privyx proxy`, then `apiBase` | [Continue](continue.md) |
+| Cursor | Not on `localhost`: Cursor calls the URL from its servers | [Cursor](cursor.md) |
 
 ## SDKs and frameworks
 
