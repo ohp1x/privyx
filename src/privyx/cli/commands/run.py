@@ -62,6 +62,7 @@ def _run_settings(
     session_strategy: str | None,
     no_anchor: bool,
     *,
+    harvest: bool | None = None,
     agent: str | None = None,
     sources: dict[str, str] | None = None,
 ) -> Settings:
@@ -76,6 +77,8 @@ def _run_settings(
     base_extra: dict[str, Any] = {"session": {"strategy": "conversation"}}
     if session_strategy is not None:
         extra["session"] = {"strategy": session_strategy}
+    if harvest is not None:
+        extra["harvest"] = harvest
     if not no_anchor:
         # Resolved only when running, so inspection never creates anchor.key.
         base_extra["anchor"] = {"secret": AUTO_ANCHOR}
@@ -116,6 +119,11 @@ def _run_settings(
     default=False,
     help="Don't auto-provision an anchor secret; leave pseudonym anchoring to config.",
 )
+@click.option(
+    "--harvest/--no-harvest",
+    default=None,
+    help="Also mask this workspace's git authors, remotes, and .env values (default: config).",
+)
 @click.option("--list", "list_targets", is_flag=True, help="List known targets and exit")
 @click.option("--dry-run", is_flag=True, help="Show the launch plan without starting anything")
 def run(
@@ -128,6 +136,7 @@ def run(
     env_vars: tuple[str, ...],
     session_strategy: str | None,
     no_anchor: bool,
+    harvest: bool | None,
     list_targets: bool,
     dry_run: bool,
 ) -> None:
@@ -153,6 +162,7 @@ def run(
             upstream,
             session_strategy,
             no_anchor,
+            harvest=harvest,
             agent=target,
             sources=sources,
         )
@@ -211,9 +221,14 @@ def run(
         )
     except PrivyxError as exc:
         raise click.ClickException(str(exc)) from exc
+    harvested = _harvest(settings) if settings.harvest else None
     if dry_run:
         _show_plan(plan)
+        if harvested is not None:
+            click.echo(f"Harvest: {harvested}")
         return
+    if harvested is not None:
+        click.echo(f"Harvest: {harvested}", err=True)
 
     if shutil.which(plan.command, path=plan.environment.get("PATH")) is None:
         click.echo(f"Error: {spec.command!r} not found on PATH", err=True)
@@ -244,6 +259,38 @@ def run(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     sys.exit(code)
+
+
+def _harvest(settings: Settings) -> str:
+    """Add a detector for what the working directory tells; return what it masks.
+
+    A detector of its own, so a ``patterns`` entry of the user's for the same
+    entity cannot override it.  Only counts are returned: the values are
+    never shown or written.
+    """
+    import re
+
+    from privyx.cli import workspace
+    from privyx.config.schema import DetectorConfig
+
+    root = Path.cwd()
+    terms: dict[str, list[str]] = {}
+    for item in workspace.unique(workspace.git_terms(root, workspace.HARVEST_COMMITS)):
+        terms.setdefault(item.entity, []).append(item.value)
+    values: dict[str, set[str]] = {}
+    for key, value, _ in workspace.env_values(root):
+        entity = workspace.env_entity(key)
+        if entity:
+            values.setdefault(entity, set()).add(re.escape(value))
+    # Literal and case-sensitive, as a secret is: the fastest regex to search.
+    patterns = {e: "|".join(sorted(v, key=lambda p: (-len(p), p))) for e, v in values.items()}
+    if terms or patterns:
+        current = settings.detector if isinstance(settings.detector, list) else [settings.detector]
+        added = DetectorConfig(type="yaml", terms=terms, patterns=patterns)
+        settings.detector = [*current, added]
+    counts = [f"{len(v)} {entity}" for entity, v in sorted(terms.items())]
+    counts.append(f"{sum(map(len, values.values()))} .env value(s)")
+    return ", ".join(counts)
 
 
 def _route_codex_provider(
