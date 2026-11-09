@@ -35,6 +35,7 @@ class HTTPProxy:
         engine: Configured PrivacyEngine instance.
         provider: Upstream HTTP provider (any Provider implementation).
         stream_adapter: SSE stream adapter for extracting/rewriting deltas.
+        schema: The wire schema of the requests this proxy serves.
     """
 
     def __init__(
@@ -42,8 +43,10 @@ class HTTPProxy:
         engine: PrivacyEngine,
         provider: Provider,
         stream_adapter: SSEStreamAdapter | None = None,
+        schema: str = "openai",
     ) -> None:
         self._engine = engine
+        self._schema = schema
         self._provider = provider
         self._adapter = stream_adapter or SSEStreamAdapter()
         # The client's path, for a provider that can aim it (the generic one does);
@@ -67,11 +70,13 @@ class HTTPProxy:
         """
         if session is not None:
             transformed = await transform_request(
-                payload, self._engine, session.session_id, session=session
+                payload, self._engine, session.session_id, session=session, schema=self._schema
             )
             return transformed, session.session_id
         stored = await self._engine.get_or_create_session(session_id, source=source)
-        transformed = await transform_request(payload, self._engine, stored.session_id)
+        transformed = await transform_request(
+            payload, self._engine, stored.session_id, schema=self._schema
+        )
         return transformed, stored.session_id
 
     async def send_batch(self, payload: dict[str, Any], path: str | None = None) -> Any:

@@ -289,5 +289,6 @@ async def build_engine(
         codec=codec,
         audit=audit,
         dlp_check=settings.proxy.dlp_check,
+        directive=settings.proxy.directive,
     )
     return engine, closer

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Proxy:** `proxy.directive` (off by default) tells the model to keep placeholders exactly as written
+
 ### Fixed
 
 - **Proxy:** a placeholder the model wrote with one bracket missing or in another case is restored, when the session issued it

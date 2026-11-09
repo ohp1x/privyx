@@ -223,6 +223,8 @@ class ProxyConfig(BaseModel):
     max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
     #: Refuse a masked request that still holds, anywhere, a value it masked.
     dlp_check: bool = False
+    #: Tell the model, in each masked chat request, to keep placeholders as written.
+    directive: bool = False
 
 
 class AuditConfig(BaseModel):

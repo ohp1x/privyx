@@ -179,6 +179,25 @@ it is never looked for on its own.
 Any other change to a token is left as written. A token the session did not
 issue is never restored, whatever its form.
 
+### Placeholder directive
+
+`proxy.directive` adds a short instruction to each masked chat request: some
+values are placeholders such as `<PRIVYX_EMAIL_1>`, to be copied exactly as
+written wherever the value is needed, and never changed, split, encoded, or
+guessed at. It helps a model that otherwise treats a placeholder as a typo to
+fix, or rebuilds one in code.
+
+```yaml
+proxy:
+  directive: true
+```
+
+It goes after Anthropic's `system`, after the leading system messages of a Chat
+Completions request, and first in a Responses `input` (in `instructions` when
+the request continues a stored response). The text is the same on every
+request, so the provider's prompt cache keeps working; it adds about 80 tokens
+to each request. Off by default.
+
 ### Compact tokens
 
 In a long conversation the same placeholders come back on every turn. Set

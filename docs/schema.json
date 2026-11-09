@@ -631,6 +631,19 @@
               "pattern": "\\$\\{"
             }
           ]
+        },
+        "directive": {
+          "title": "Directive",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
         }
       },
       "title": "ProxyConfig",
