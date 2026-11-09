@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **CLI:** `privyx scan` finds the git authors, remote owners and names, package names, and `.env` keys of a workspace and adds the ones you keep to `privyx.d/terms.yaml`; `.env` values are never written
 - **CLI:** `privyx run --harvest` (or `harvest: true`) also masks the working directory's git authors, remotes, and `.env` values for that run, kept in memory only
+- **CLI:** `privyx install-hook` adds git hooks that refuse a commit whose staged changes or message hold a credential or a Privyx placeholder
 
 ## [0.1.27] - 2026-11-09
 
