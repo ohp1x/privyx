@@ -370,6 +370,67 @@ def test_child_transport_override_survives_a_later_parent_update(
     assert load_config(agent="work").upstream_url == "https://common.example"
 
 
+def test_profile_privyx_settings_sit_between_the_environment_and_the_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "named.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "operator": {"type": "redact"},
+                "agents": {
+                    "claude:strict": {
+                        "privyx": {
+                            "operator": {"type": "hash"},
+                            "policy": {"type": "strict"},
+                            "session": {"strategy": "conversation"},
+                        },
+                    },
+                    "claude:stricter": {
+                        "extends": "claude:strict",
+                        "privyx": {"policy": {"allowed": ["EMAIL"]}},
+                    },
+                },
+            }
+        )
+    )
+    monkeypatch.setenv("PRIVYX_SESSION_STRATEGY", "client")
+    sources: dict[str, str] = {}
+
+    strict = load_config(config, agent="claude:strict", sources=sources)
+    stricter = load_config(config, agent="claude:stricter")
+    flag = load_config(config, agent="claude:strict", extra={"operator": {"type": "redact"}})
+    plain = load_config(config, agent="claude")
+
+    assert (strict.operator.type, strict.policy.type) == ("hash", "strict")
+    assert strict.session.strategy == "conversation"  # over the environment
+    assert sources["operator.type"] == "agents.claude:strict.privyx"
+    # Maps merge with the parent's, as in `extends`.
+    assert (stricter.policy.type, stricter.policy.allowed) == ("strict", ["EMAIL"])
+    assert flag.operator.type == "redact"  # a flag still wins
+    assert (plain.operator.type, plain.session.strategy) == ("redact", "client")
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"detecter": {}}, "'agents.x.privyx.detecter' (did you mean 'detector'?)"),
+        ({"operator": {"type": "hash", "lenght": 4}}, "'agents.x.privyx.operator.lenght'"),
+        ({"agents": {}}, "'agents.x.privyx.agents'"),
+    ],
+)
+def test_profile_privyx_settings_are_checked_like_a_config_file(
+    tmp_path: Path, override: dict[str, object], message: str
+) -> None:
+    config = tmp_path / "named.yaml"
+    config.write_text(yaml.safe_dump({"agents": {"x": {"command": "x", "privyx": override}}}))
+
+    # Checked whichever profile runs, so a typo shows before it is needed.
+    with pytest.raises(ConfigError, match="unknown setting") as error:
+        load_config(config, agent="claude")
+    assert message in str(error.value)
+
+
 def test_a_key_given_twice_is_warned_about_and_the_last_one_still_wins(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

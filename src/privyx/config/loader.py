@@ -181,7 +181,8 @@ def load_config(
     ``privyx.yaml`` and ``.privyx/config.yaml``.
 
     With ``agent``, that profile's provider/upstream are applied within each
-    layer, above that layer's common settings. Later layers still win.
+    layer, above that layer's common settings. Later layers still win. Its
+    ``privyx`` settings come just below ``extra``.
     ``sources`` optionally receives dotted field paths -> winning layer.
     """
     merged: dict[str, Any] = {}
@@ -223,7 +224,12 @@ def load_config(
     if isinstance(profiles, dict):
         _apply_colon_inheritance(profiles)
         profiles, inherited_sources = resolve_profiles(profiles, origins)
+        _check_overrides(profiles)
         selected = profiles.get(agent) if agent else None
+        override = selected.get("privyx") if isinstance(selected, dict) else None
+        if isinstance(override, dict) and override:
+            at = next((i for i, (source, _) in enumerate(layers) if source == "CLI"), len(layers))
+            layers.insert(at, (f"agents.{agent}.privyx", override))
         # Reapply transport fields at their originating layer, so a late
         # common environment/CLI override still beats an inherited profile.
         effective: dict[str, Any] = {}
@@ -250,6 +256,24 @@ def load_config(
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
+
+
+def _check_overrides(profiles: dict[str, Any]) -> None:
+    """Reject a key a profile's ``privyx`` settings do not take, as for a config file."""
+    unknown: list[str] = []
+    for name, profile in profiles.items():
+        override = profile.get("privyx") if isinstance(profile, dict) else None
+        if not isinstance(override, dict):
+            continue  # the wrong shape is pydantic's to report
+        prefix = f"agents.{name}.privyx."
+        if "agents" in override:
+            unknown.append(f"{prefix + 'agents'!r} (profiles cannot be set per profile)")
+        unknown += _unknown_keys(
+            Settings, {k: v for k, v in override.items() if k != "agents"}, prefix
+        )
+    if unknown:
+        plural = "s" if len(unknown) > 1 else ""
+        raise ConfigError(f"unknown setting{plural} {', '.join(unknown)}")
 
 
 def _apply_colon_inheritance(profiles: dict[str, Any]) -> None:

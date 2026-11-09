@@ -280,6 +280,8 @@ class AgentConfig(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     env_from: dict[str, str] = Field(default_factory=dict)
+    #: Privyx settings for this profile, above config files and environment.
+    privyx: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("extends")
     @classmethod

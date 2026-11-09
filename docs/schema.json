@@ -85,6 +85,11 @@
           },
           "title": "Env From",
           "type": "object"
+        },
+        "privyx": {
+          "additionalProperties": true,
+          "title": "Privyx",
+          "type": "object"
         }
       },
       "title": "AgentConfig",

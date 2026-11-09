@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Proxy:** `proxy.directive` (off by default) tells the model to keep placeholders exactly as written
+- **CLI:** an agent profile's `privyx` section sets Privyx options, such as the detector or operator, for that profile only
 
 ### Changed
 
