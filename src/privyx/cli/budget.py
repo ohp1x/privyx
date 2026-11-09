@@ -20,43 +20,11 @@ from typing import Any
 
 from privyx.config.schema import BudgetConfig
 from privyx.observability.audit import AuditEventType, AuditLogger
+from privyx.observability.usage import merge_usage, usage_tokens
 from privyx.proxy.schemas import detect_schema
 
 #: Schemas whose requests are model turns.
 _CHAT = frozenset({"openai", "anthropic", "responses"})
-#: Usage fields summed when a reply gives no ``total_tokens``.
-_COUNTED = (
-    "input_tokens",
-    "output_tokens",
-    "cache_creation_input_tokens",
-    "cache_read_input_tokens",
-    "prompt_tokens",
-    "completion_tokens",
-)
-
-
-def usage_tokens(fields: dict[str, int]) -> int:
-    """The tokens a reply's merged ``usage`` fields add up to."""
-    return fields.get("total_tokens") or sum(fields.get(key, 0) for key in _COUNTED)
-
-
-def merge_usage(fields: dict[str, int], event: Any) -> None:
-    """Fold the ``usage`` of one reply or stream event into ``fields``.
-
-    A stream reports usage more than once (Anthropic's ``message_start`` and
-    ``message_delta``), each time the running count, so later values replace
-    earlier ones.
-    """
-    if not isinstance(event, dict):
-        return
-    for holder in (event, event.get("message"), event.get("response")):
-        usage = holder.get("usage") if isinstance(holder, dict) else None
-        if isinstance(usage, dict):
-            fields.update(
-                (key, value)
-                for key, value in usage.items()
-                if isinstance(value, int) and not isinstance(value, bool)
-            )
 
 
 class Budget:

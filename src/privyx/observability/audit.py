@@ -433,6 +433,8 @@ class AuditLogger:
         frames: int | None = None,
         restored: int = 0,
         aborted: bool = False,
+        usage: Mapping[str, int] | None = None,
+        model: str | None = None,
     ) -> None:
         """A proxied response was fully delivered, or its stream aborted.
 
@@ -440,7 +442,9 @@ class AuditLogger:
         ``frames`` (streamed SSE frames) describes the response volume, and
         ``restored`` counts the pseudonyms reversed on the way back.
         ``aborted`` marks a stream the client left before its end; the counts
-        then cover what was sent until then.
+        then cover what was sent until then.  ``usage`` is the token counts the
+        upstream reported (see :func:`privyx.observability.usage.normalize`)
+        and ``model`` the model id it named.
         """
         fields: dict[str, Any] = {
             "status": status,
@@ -454,6 +458,10 @@ class AuditLogger:
             fields["frames"] = frames
         if aborted:
             fields["aborted"] = True
+        if usage is not None:
+            fields["usage"] = dict(usage)
+        if model is not None:
+            fields["model"] = model
         self.emit(
             AuditEventType.PROXY_RESPONSE,
             session_id=session_id,

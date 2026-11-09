@@ -107,6 +107,8 @@ before a stream ended (`aborted`).
 | `restored` | int | Pseudonyms reversed on the way back. |
 | `duration_ms` | float | **Total** exchange time. |
 | `aborted` | bool | Present (`true`) when the client disconnected mid-stream, e.g. a coding tool's request cancelled with Esc; `frames` and `restored` then count what was sent. Not an error, so `privyx_proxy_errors_total` does not count it. |
+| `usage` | object | Present when the upstream reported token usage: `input` (not read from the prompt cache), `output`, `cache_read`, and `cache_write`. Anthropic, OpenAI Chat Completions, and OpenAI Responses usage are all reported this way. |
+| `model` | string | The model the upstream named in its reply, when it did. Left out when it does not look like a model id or the built-in patterns find a value in it (an email, a key, an address). |
 
 ### `proxy.error`
 An exchange failed.
@@ -164,7 +166,7 @@ request. Written once per launch.
 For the common questions, no `jq` is needed:
 
 ```bash
-privyx audit stats [FILE] [--since 24h]   # totals: requests, errors by phase, sessions, entity types
+privyx audit stats [FILE] [--since 24h]   # totals: requests, errors, sessions, entity types, tokens, cache hit rate
 privyx audit tail [FILE] [-n 20]          # one readable line per event, then follow (--no-follow)
 ```
 
@@ -180,6 +182,7 @@ from startup, so they work with `audit.enabled: false` and reset on restart:
 | `privyx_proxy_errors_total` | `phase` | `proxy.error` events by `phase`. |
 | `privyx_pseudonyms_restored_total` | | Sum of `session.restore` `transformations`. |
 | `privyx_response_duration_seconds` | | Summary (`_sum`, `_count`) of `proxy.response` `duration_ms`. |
+| `privyx_tokens_total` | `kind` | Sum of `proxy.response` `usage`: `input`, `output`, `cache_read`, `cache_write`. |
 
 `/metrics` needs no key, like `/health`; it exposes counts only, but keep it off
 networks where traffic volume should stay private.

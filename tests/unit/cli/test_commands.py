@@ -331,7 +331,13 @@ def _write_audit_log(path: Path) -> None:
         },
         {"ts": now, "event": "proxy.request", "request_id": "req_1", "status": 200},
         {"ts": now, "event": "session.restore", "request_id": "req_1", "transformations": 2},
-        {"ts": now, "event": "proxy.response", "request_id": "req_1", "duration_ms": 1500.0},
+        {
+            "ts": now,
+            "event": "proxy.response",
+            "request_id": "req_1",
+            "duration_ms": 1500.0,
+            "usage": {"input": 100, "output": 20, "cache_read": 300, "cache_write": 0},
+        },
         {
             "ts": now,
             "event": "proxy.error",
@@ -357,6 +363,8 @@ def test_audit_stats_summarizes_the_log(runner: CliRunner, tmp_path: Path) -> No
     assert "Sessions:   2 created, 0 deleted" in result.output
     assert "Masked:     3 entities" in result.output
     assert "Restored:   2 pseudonyms" in result.output
+    assert "Tokens:     input 100, output 20, cache read 300, cache write 0" in result.output
+    assert "(cache hit rate 75%)" in result.output
     assert "EMAIL   2" in result.output
     assert "Skipped 1 unreadable line(s)" in result.output
 

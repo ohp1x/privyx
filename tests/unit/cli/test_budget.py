@@ -10,9 +10,10 @@ from typing import Any
 
 import pytest
 
-from privyx.cli.budget import Budget, merge_usage, usage_tokens
+from privyx.cli.budget import Budget
 from privyx.config.schema import BudgetConfig, ProxyConfig
 from privyx.observability.audit import AuditLogger
+from privyx.observability.usage import merge_usage, usage_tokens
 
 ROUTES = ProxyConfig().routes
 

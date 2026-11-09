@@ -22,6 +22,8 @@ class AuditStats:
     entities: Counter[str] = field(default_factory=Counter)
     detector: Counter[str] = field(default_factory=Counter)
     errors: Counter[str] = field(default_factory=Counter)
+    #: Upstream-reported tokens: input, output, cache_read, cache_write.
+    tokens: Counter[str] = field(default_factory=Counter)
     restored: int = 0
     response_ms: float = 0.0
     first_ts: float | None = None
@@ -41,6 +43,9 @@ class AuditStats:
             self.restored += record.get("transformations") or 0
         elif event == "proxy.response":
             self.response_ms += record.get("duration_ms") or 0.0
+            usage = record.get("usage")
+            if isinstance(usage, dict):
+                self.tokens.update({k: v for k, v in usage.items() if isinstance(v, int)})
         elif event == "proxy.error":
             self.errors[record.get("phase") or "unknown"] += 1
 
@@ -76,6 +81,14 @@ class AuditStats:
                 "Failed exchanges, by the phase that failed.",
                 "phase",
                 self.errors,
+            ),
+            *_family(
+                "privyx_tokens_total",
+                "counter",
+                "Tokens the upstream reported, by kind: input (uncached), output, "
+                "cache_read, cache_write.",
+                "kind",
+                self.tokens,
             ),
             "# HELP privyx_pseudonyms_restored_total Pseudonyms restored in responses.",
             "# TYPE privyx_pseudonyms_restored_total counter",
