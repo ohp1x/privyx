@@ -116,6 +116,7 @@ nav:
       - CLI: guide/cli.md
       - Errors: reference/errors.md
       - Audit events and metrics: observability/audit-events.md
+      - Session tap: observability/tap.md
   - Security:
       - Threat model: security/threat-model.md
       - Limitations: security/limitations.md

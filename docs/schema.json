@@ -137,6 +137,24 @@
           "title": "Path",
           "type": "string"
         },
+        "tap": {
+          "title": "Tap",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "tap_dir": {
+          "default": "~/.privyx/tap",
+          "title": "Tap Dir",
+          "type": "string"
+        },
         "prices": {
           "additionalProperties": {
             "$ref": "#/$defs/ModelPrice"

@@ -249,6 +249,10 @@ class AuditConfig(BaseModel):
 
     enabled: bool = True
     path: str = "~/.privyx/audit.log"
+    #: Developer tap: each masked exchange before and after masking, one JSONL
+    #: file per session in ``tap_dir``.  It holds original values; owner-only.
+    tap: bool = False
+    tap_dir: str = "~/.privyx/tap"
     #: Model-id prefix -> USD per million tokens, for ``privyx session show``.
     prices: dict[str, ModelPrice] = Field(default_factory=dict)
 

@@ -16,6 +16,7 @@ an upstream that speaks Anthropic.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -59,6 +60,9 @@ _AUXILIARY_ROUTES = frozenset(
 )
 
 
+_log = logging.getLogger("privyx")
+
+
 def _elapsed_ms(start: float) -> float:
     """Milliseconds since a ``time.perf_counter()`` mark, rounded for the trail."""
     return round((time.perf_counter() - start) * 1000, 2)
@@ -86,6 +90,8 @@ class Gateway:
         self._audit = audit or AuditLogger(None)
         self._upstream_host = _upstream_host(settings)
         self._session_strategy = settings.session.strategy if settings else "ephemeral"
+        if settings is not None and settings.audit.tap:
+            _log.warning("audit.tap records in transparent mode only; gateway mode has no tap")
         routes = dict(settings.proxy.routes) if settings else ProxyConfig().routes
         self._routes = {path: s for path, s in routes.items() if path not in _AUXILIARY_ROUTES}
         # One proxy per schema: the stream adapter (and the schema used to
