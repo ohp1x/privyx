@@ -34,6 +34,21 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "provider": "anthropic",
         "env_vars": ["PRIVYX_PI_BASE_URL"],
     },
+    # Its Anthropic and OpenAI providers both read a base URL ending in /v1;
+    # pick the upstream of the model's provider with --provider.
+    "opencode": {
+        "command": "opencode",
+        "provider": "anthropic",
+        "env_vars": ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"],
+        "base_path": "/v1",
+    },
+    "grok": {
+        "command": "grok",
+        "provider": "openai",
+        "upstream": "https://api.x.ai/v1",
+        "env_vars": ["GROK_XAI_API_BASE_URL"],
+        "base_path": "/v1",
+    },
 }
 
 DEFAULTS: dict[str, object] = {
