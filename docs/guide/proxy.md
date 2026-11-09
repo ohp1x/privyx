@@ -263,6 +263,32 @@ headers before anything else, so only a configured key can go upstream.
 - Other request and response headers are relayed, so rate-limit and
   request-id headers from the provider reach the client.
 
+## Prompt caching
+
+Providers cache a prompt by its exact bytes, so masking must give a turn the
+client sends again the same bytes on every later turn. It does: a value keeps
+its token for the whole session, and a request is masked in the order the
+provider caches it (`tools`, then `system`, then the messages), so a value
+that first appears later never renumbers what came before. That holds for the
+default fresh session per request too, since values are numbered in the order
+they appear. `privyx audit stats` and `privyx session show` report the cache
+hit rate from the usage the upstream returns.
+
+Anthropic caches only what a request marks with `cache_control`. A client that
+marks nothing can have Privyx do it:
+
+```yaml
+proxy:
+  cache_control: true   # off by default
+```
+
+A request that sets `cache_control` nowhere then gets a 5-minute breakpoint on
+its last tool when `tools` is at least about 1,024 tokens, and on its last
+`system` block when `tools` and `system` together are. A cache write costs
+1.25 times the input price and a read about a tenth, so this pays off from the
+second request with the same prefix. Claude Code and most SDK-based agents mark
+their prompts themselves, and are left as they are.
+
 ## Endpoints Privyx answers itself
 
 `GET /health` and `GET /metrics` are answered by Privyx in both modes and are

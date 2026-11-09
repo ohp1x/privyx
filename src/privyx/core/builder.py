@@ -290,5 +290,6 @@ async def build_engine(
         audit=audit,
         dlp_check=settings.proxy.dlp_check,
         directive=settings.proxy.directive,
+        cache_control=settings.proxy.cache_control,
     )
     return engine, closer
