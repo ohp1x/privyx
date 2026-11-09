@@ -18,6 +18,8 @@ Usage::
     privyx config [--show] [--path]
     privyx trust
     privyx scan [PATH] [--yes] [--dry-run]
+    privyx install-hook
+    privyx hook pre-commit|commit-msg FILE
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from privyx.cli.commands.audit import audit
 from privyx.cli.commands.config import config_cmd
 from privyx.cli.commands.detect import detect
 from privyx.cli.commands.doctor import doctor
+from privyx.cli.commands.hook import hook, install_hook
 from privyx.cli.commands.inspect import inspect
 from privyx.cli.commands.mask import mask, unmask
 from privyx.cli.commands.proxy import proxy
@@ -85,6 +88,8 @@ cli.add_command(doctor)
 cli.add_command(config_cmd, name="config")
 cli.add_command(trust)
 cli.add_command(scan)
+cli.add_command(install_hook)
+cli.add_command(hook)
 
 
 if __name__ == "__main__":

@@ -363,6 +363,59 @@ trusted before; otherwise run `privyx trust` after reviewing it. A `detector`
 given as a list in `privyx.yaml` replaces the terms it includes; move them into
 the list.
 
+## `privyx install-hook`
+
+Install git hooks that stop a commit holding a credential or a Privyx
+placeholder such as `<PRIVYX_EMAIL_1>`.
+
+```bash
+privyx install-hook
+```
+
+It writes `pre-commit` and `commit-msg` in the repository's hooks directory
+(`core.hooksPath` when set). Each runs `privyx hook`, so `privyx` must be on the
+`PATH` of whatever runs `git commit`. A hook of another tool is left alone: the
+command exits with an error naming the line to add to it. Running it again
+rewrites only its own hooks. To remove them, delete the two files.
+
+A blocked commit lists each finding by file and line and the kind of value,
+never a secret itself:
+
+```console
+$ git commit -m "Add the client"
+privyx: this commit holds values that must not leave this machine:
+  src/client.py:12  API_KEY
+  commit message:1  placeholder <PRIVYX_EMAIL_1>
+Remove the secrets, restore placeholders with `privyx unmask`, or commit with --no-verify to skip this check.
+```
+
+`git commit --no-verify` skips both hooks. Aider skips them unless it runs with
+`--git-commit-verify`; give it that option to keep a placeholder out of the
+messages it writes.
+
+## `privyx hook`
+
+The checks the installed hooks run. They exit with status 1 when they find
+something.
+
+```bash
+privyx hook pre-commit             # the lines the staged changes add
+privyx hook commit-msg FILE        # a commit message file, # lines included
+```
+
+Both look for the built-in credential types (`API_KEY`, `PRIVATE_KEY`, `JWT`,
+`AUTH_TOKEN`, `URL_CREDENTIAL`, `SECRET`) and for placeholders in the configured
+`token` format. Personal data such as an email address is not a reason to
+refuse a commit: code and tests are full of it.
+
+`pre-commit` reads the staged content itself, as text: not the view a
+`textconv` diff driver gives of it, and a file marked binary (`-diff` in
+`.gitattributes`) too. `commit-msg` checks the whole message file, `#` lines
+included: `git commit -m` keeps them, and a hook cannot tell which cleanup mode
+a commit uses. With `git commit -v`, that includes the diff shown below the
+scissors line, so a placeholder the commit removes is reported too; commit
+with `--no-verify` then.
+
 ## `privyx doctor`
 
 Build every configured component and push a request through it: plugins,
