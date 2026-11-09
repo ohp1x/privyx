@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** `proxy.cache_control` (off by default) marks a large Anthropic `tools` and `system` prefix for prompt caching when the request marks nothing itself
 - **Audit:** `audit.tap` (off by default) records each masked exchange before and after masking, one owner-only file per session
 - **CLI:** `privyx audit watch` shows live what masking changed in each exchange, from the tap
+- **CLI:** `privyx session export --forensic` writes a session's audit events and masked transcript to a zip archive, without original values
 
 ### Fixed
 

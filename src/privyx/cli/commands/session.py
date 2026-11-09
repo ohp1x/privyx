@@ -82,6 +82,34 @@ def prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
     _run(_prune(older_than, config_path, dry_run))
 
 
+@session.command("export")
+@click.argument("session_id")
+@_CONFIG
+@click.option(
+    "--forensic",
+    is_flag=True,
+    required=True,
+    help="What went over the network and its events, without original values.",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Archive to write [default: SESSION_ID-forensic.zip].",
+)
+def export(session_id: str, config_path: str | None, forensic: bool, output: Path | None) -> None:
+    """Write a session's record for review as a zip archive.
+
+    ``events.jsonl`` holds its audit events, ``transcript.jsonl`` each request
+    as sent upstream and each reply as the upstream sent it (from the tap,
+    when ``audit.tap`` was on), and ``summary.json`` the totals.  Original
+    values are left out: the transcript is the masked side.  A value Privyx
+    did not detect is in it as it was sent.
+    """
+    _run(_export(session_id, config_path, output or Path(f"{session_id}-forensic.zip")))
+
+
 inspect.add_command(show, name="session")
 
 
@@ -159,6 +187,86 @@ async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
     if not reveal:
         click.echo("")
         click.echo("  (values masked; pass --reveal to show them)")
+
+
+#: Tap record fields kept in a forensic transcript: never ``before``/``restored``.
+_MASKED_SIDE = (
+    "time",
+    "ts",
+    "request_id",
+    "session_id",
+    "stage",
+    "path",
+    "schema",
+    "status",
+    "stream",
+    "aborted",
+    "after",
+    "upstream",
+)
+
+
+async def _export(session_id: str, config_path: str | None, output: Path) -> None:
+    async with _open_vault(config_path) as (settings, vault):
+        record = await vault.get(session_id)
+    _write_bundle(settings, session_id, None if record is None else len(record.mapping), output)
+
+
+def _write_bundle(settings: Settings, session_id: str, mappings: int | None, output: Path) -> None:
+    import json
+    import os
+    import zipfile
+    from collections import Counter
+    from datetime import UTC, datetime
+
+    from privyx.observability.metrics import AuditStats
+    from privyx.observability.tap import tap_file
+    from privyx.version import __version__
+
+    events = _matching_lines(Path(settings.audit.path).expanduser(), session_id)
+    taps = _matching_lines(
+        tap_file(Path(settings.audit.tap_dir).expanduser(), session_id), session_id
+    )
+    transcript = [{k: t[k] for k in _MASKED_SIDE if k in t} for t in taps]
+    if mappings is None and not events and not transcript:
+        click.echo(f"Nothing recorded for session {session_id}", err=True)
+        sys.exit(1)
+
+    totals = AuditStats()
+    for event in events:
+        totals.add(event)
+    stamps = [e["ts"] for e in [*events, *transcript] if isinstance(e.get("ts"), int | float)]
+    summary = {
+        "session_id": session_id,
+        "exported_at": datetime.now(UTC).isoformat(timespec="microseconds"),
+        "privyx_version": __version__,
+        "first_ts": min(stamps, default=None),
+        "last_ts": max(stamps, default=None),
+        "events": dict(totals.events),
+        "entities_masked": dict(totals.entities),
+        "pseudonyms_restored": totals.restored,
+        "tokens": dict(totals.tokens),
+        "errors": dict(totals.errors),
+        "transcript_records": dict(Counter(str(t.get("stage")) for t in transcript)),
+        "vault_mappings": mappings,
+    }
+
+    def jsonl(rows: list[dict[str, Any]]) -> str:
+        return "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows)
+
+    try:
+        # Owner-only, and never over an existing file: it may be evidence.
+        fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except OSError as exc:
+        raise click.ClickException(f"cannot write {output}: {exc.strerror or exc}") from exc
+    with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("summary.json", json.dumps(summary, indent=2) + "\n")
+        archive.writestr("events.jsonl", jsonl(events))
+        archive.writestr("transcript.jsonl", jsonl(transcript))
+    click.echo(
+        f"Wrote {output}: {len(events)} event(s), {len(transcript)} transcript record(s)"
+        + ("" if transcript else " (audit.tap was off)")
+    )
 
 
 def _matching_lines(path: Path, session_id: str | None = None) -> list[dict[str, Any]]:

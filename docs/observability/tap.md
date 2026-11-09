@@ -1,5 +1,5 @@
 ---
-description: Record each masked exchange before and after masking, and watch the diff live with privyx audit watch.
+description: Record each masked exchange before and after masking, watch the diff live with privyx audit watch, and export a session for review without its original values.
 ---
 
 # Session tap
@@ -57,3 +57,21 @@ as `{+...+}` (green):
 
 A streamed reply is shown as the text its events carry. `--no-follow` stops
 after the last records, and `-n` sets how many come first.
+
+## Exporting a session for review
+
+```bash
+privyx session export SESSION_ID --forensic [-o case.zip]
+```
+
+writes a zip archive, owner-only and never over an existing file, with:
+
+| File | Holds |
+|---|---|
+| `events.jsonl` | The session's audit events. |
+| `transcript.jsonl` | From the tap: each request as sent upstream and each reply as the upstream sent it. The `before` and `restored` sides are left out. |
+| `summary.json` | Time span, event counts, entity types masked, tokens, errors, and the vault's mapping count. |
+
+The archive holds no original value Privyx masked. It holds what went over
+the network, so a value Privyx did not detect is in it as it was sent. Without
+the tap, `transcript.jsonl` is empty.

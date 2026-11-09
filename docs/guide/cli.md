@@ -256,6 +256,7 @@ see [Sessions and vault](sessions.md).
 privyx session list
 privyx session show SESSION_ID [--reveal]
 privyx session prune --older-than 7d [--dry-run]
+privyx session export SESSION_ID --forensic [-o FILE]
 ```
 
 | Command | Option | Description |
@@ -265,6 +266,8 @@ privyx session prune --older-than 7d [--dry-run]
 | `show` | `--reveal` | Print original values in full. Without it they are masked. |
 | `prune` | `--older-than` | Required. Delete sessions idle at least this long: `30m`, `12h`, `7d`, `2w`. |
 | `prune` | `--dry-run` | List what would be deleted and delete nothing. |
+| `export` | `--forensic` | Required. Write the session's audit events, its masked transcript from the [tap](../observability/tap.md), and a summary to a zip archive, without original values. |
+| `export` | `-o`, `--output` | Archive path. Default `SESSION_ID-forensic.zip`; an existing file is never overwritten. |
 
 The cost is an estimate from built-in prices for Claude models; add other
 models, or correct a price, with [`audit.prices`](configuration.md#audit).

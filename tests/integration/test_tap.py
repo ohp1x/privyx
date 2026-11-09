@@ -94,6 +94,34 @@ def test_a_client_session_id_never_becomes_a_path(tmp_path: Path) -> None:
     assert tap_file(tmp_path, hashed.stem) != hashed
 
 
+def test_export_and_watch_keep_only_the_session_asked_for(tmp_path: Path) -> None:
+    """Two sessions in one file, as on a case-insensitive file system."""
+    tap = Tap(tmp_path / "tap")
+    tap.record("ses_a", "req_1", "request", path="/v1/x", before={"m": "mine"}, after={"m": "A"})
+    shared = tap_file(tap.directory, "ses_a")
+    with shared.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"session_id": "ses_A", "stage": "request", "after": "other"}) + "\n")
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        f"audit:\n  tap: true\n  path: {tmp_path / 'none.log'}\n  tap_dir: {tap.directory}\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "a.zip"
+    runner = CliRunner()
+
+    runner.invoke(
+        cli, ["session", "export", "ses_a", "--forensic", "-c", str(config), "-o", str(out)]
+    )
+    watched = runner.invoke(cli, ["audit", "watch", "ses_a", "-c", str(config), "--no-follow"])
+
+    import zipfile
+
+    with zipfile.ZipFile(out) as archive:
+        transcript = archive.read("transcript.jsonl").decode()
+    assert "ses_a" in transcript and "ses_A" not in transcript
+    assert "ses_a" in watched.output and "ses_A" not in watched.output
+
+
 async def test_audit_watch_shows_what_masking_changed(tmp_path: Path) -> None:
     await _exchange(_proxy(Tap(tmp_path / "tap")), stream=True)
     config = tmp_path / "c.yaml"
@@ -110,3 +138,56 @@ async def test_audit_watch_shows_what_masking_changed(tmp_path: Path) -> None:
 
     one = CliRunner().invoke(cli, ["audit", "watch", "-c", str(config), "--no-follow", "ses_x"])
     assert one.output == ""
+
+
+def test_forensic_export_keeps_only_the_masked_side(tmp_path: Path) -> None:
+    import asyncio
+    import io
+    import zipfile
+
+    from privyx.observability.audit import AuditLogger
+
+    log = io.StringIO()
+    proxy = _proxy(Tap(tmp_path / "tap"))
+    proxy._audit = AuditLogger(log)  # noqa: SLF001
+
+    async def exchanges() -> None:
+        await _exchange(proxy)
+        await _exchange(proxy, stream=True)
+
+    asyncio.run(exchanges())
+    (tmp_path / "audit.log").write_text(log.getvalue(), encoding="utf-8")
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        f"audit:\n  path: {tmp_path / 'audit.log'}\n  tap_dir: {tmp_path / 'tap'}\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "case.zip"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli, ["session", "export", "ses_tap", "--forensic", "-c", str(config), "-o", str(out)]
+    )
+
+    assert result.exit_code == 0, result.output
+    with zipfile.ZipFile(out) as archive:
+        assert sorted(archive.namelist()) == ["events.jsonl", "summary.json", "transcript.jsonl"]
+        everything = b"".join(archive.read(name) for name in archive.namelist())
+        summary = json.loads(archive.read("summary.json"))
+        transcript = archive.read("transcript.jsonl").decode().splitlines()
+    assert EMAIL.encode() not in everything
+    assert b"<PRIVYX_EMAIL_1>" in everything
+    assert summary["events"]["proxy.response"] == 2
+    assert summary["transcript_records"] == {"request": 2, "response": 2}
+    assert {"before", "restored"}.isdisjoint(json.loads(transcript[0]))
+    if os.name == "posix":
+        assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+    again = runner.invoke(
+        cli, ["session", "export", "ses_tap", "--forensic", "-c", str(config), "-o", str(out)]
+    )
+    assert again.exit_code == 1 and "cannot write" in again.output
+    missing = runner.invoke(cli, ["session", "export", "ses_none", "--forensic", "-c", str(config)])
+    assert missing.exit_code == 1 and "Nothing recorded" in missing.output
+    no_flag = runner.invoke(cli, ["session", "export", "ses_tap", "-c", str(config)])
+    assert no_flag.exit_code == 2
