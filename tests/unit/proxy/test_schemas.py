@@ -886,3 +886,101 @@ async def test_dlp_check_looks_in_query_parameter_names() -> None:
 
     with pytest.raises(LeakError):
         await transform_request(_mail_request(), engine, await _session(engine), params=params)
+
+
+# --- directive -----------------------------------------------------------------
+
+
+def _directive_engine() -> PrivacyEngine:
+    engine = _engine()
+    engine.directive = True
+    return engine
+
+
+DIRECTIVE = schemas.directive(_engine().codec)
+
+
+async def test_directive_is_off_by_default() -> None:
+    engine = _engine()
+    payload = {"system": "be brief", **_mail_request()}
+
+    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
+
+    assert out["system"] == "be brief"
+    assert "<PRIVYX_EMAIL_1>" in DIRECTIVE
+
+
+@pytest.mark.parametrize(
+    ("system", "expected"),
+    [
+        (None, DIRECTIVE),
+        ("be brief", f"be brief\n\n{DIRECTIVE}"),
+        (
+            [{"type": "text", "text": "first"}],
+            [{"type": "text", "text": "first"}, {"type": "text", "text": DIRECTIVE}],
+        ),
+    ],
+)
+async def test_directive_goes_after_the_anthropic_system_prompt(system: Any, expected: Any) -> None:
+    engine = _directive_engine()
+    payload = {**({"system": system} if system else {}), **_mail_request()}
+
+    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
+
+    assert out["system"] == expected
+    assert EMAIL not in json.dumps(out)
+    assert "system" not in payload or payload["system"] == system  # not mutated
+
+
+async def test_directive_goes_after_the_leading_chat_system_messages() -> None:
+    engine = _directive_engine()
+    payload = {
+        "messages": [
+            {"role": "system", "content": "a"},
+            {"role": "developer", "content": "b"},
+            {"role": "user", "content": f"mail {EMAIL}"},
+            {"role": "system", "content": "late"},
+        ]
+    }
+
+    out = await transform_request(payload, engine, await _session(engine), schema="openai")
+
+    roles = [(m["role"], m["content"]) for m in out["messages"]]
+    assert roles[2] == ("system", DIRECTIVE)
+    assert [r for r, _ in roles] == ["system", "developer", "system", "user", "system"]
+    assert len(payload["messages"]) == 4
+
+
+async def test_directive_comes_first_in_a_responses_input() -> None:
+    engine = _directive_engine()
+    sid = await _session(engine)
+
+    out = await transform_request({"input": "hi"}, engine, sid, schema="responses")
+    resumed = await transform_request(
+        {"input": "hi", "previous_response_id": "resp_1", "instructions": "x"},
+        engine,
+        sid,
+        schema="responses",
+    )
+
+    assert out["input"][0]["role"] == "developer"
+    assert out["input"][0]["content"][0]["text"] == DIRECTIVE
+    assert out["input"][1] == {"role": "user", "content": "hi"}
+    assert resumed["input"] == "hi"
+    assert resumed["instructions"] == f"x\n\n{DIRECTIVE}"
+
+
+@pytest.mark.parametrize(
+    ("schema", "payload"),
+    [
+        ("embeddings", {"input": "hi"}),
+        ("openai", {"prompt": "hi"}),  # legacy completions
+        (None, _mail_request()),
+    ],
+)
+async def test_directive_skips_requests_without_a_chat(schema: Any, payload: Any) -> None:
+    engine = _directive_engine()
+
+    out = await transform_request(payload, engine, await _session(engine), schema=schema)
+
+    assert DIRECTIVE not in json.dumps(out)

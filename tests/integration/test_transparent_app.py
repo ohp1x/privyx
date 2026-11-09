@@ -231,6 +231,21 @@ async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
     assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "LeakError")]
 
 
+async def test_directive_reaches_the_upstream_in_the_system_prompt() -> None:
+    seen: list[bytes] = []
+    engine = _engine()
+    engine.directive = True
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        await client.post(
+            "/v1/messages",
+            json={"system": "be brief", "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+
+    sent = json.loads(seen[0])
+    assert sent["system"].startswith("be brief\n\nPrivacy notice from the Privyx proxy")
+
+
 async def test_dlp_check_finds_a_masked_value_in_a_query_parameter_name() -> None:
     seen: list[bytes] = []
     engine = _engine()

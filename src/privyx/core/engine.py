@@ -57,6 +57,8 @@ class PrivacyEngine:
         dlp_check: Ask transports to check a masked request for the values it
             masked before sending it on
             (:func:`privyx.proxy.schemas.find_leaks`).
+        directive: Ask transports to add :func:`privyx.proxy.schemas.directive`
+            to each chat request they mask.
     """
 
     def __init__(
@@ -68,6 +70,7 @@ class PrivacyEngine:
         codec: TokenCodec | None = None,
         audit: AuditLogger | None = None,
         dlp_check: bool = False,
+        directive: bool = False,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -84,6 +87,7 @@ class PrivacyEngine:
         self._codec = codec or FormatCodec.default()
         self._audit = audit or AuditLogger(None)
         self.dlp_check = dlp_check
+        self.directive = directive
         # One lock per live session id; an entry disappears once nobody holds it.
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 

@@ -346,6 +346,7 @@ environment.
 | `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
 | `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |
 | `dlp_check` | `false` | Before a masked request goes out, look for every value it masked anywhere else in it (fields that are not masked, URLs, headers other than the credential, signed thinking text). One found answers `422` and the request is not forwarded. See [Leak check](masking.md#leak-check). |
+| `directive` | `false` | Add a short instruction to each masked chat request, telling the model to keep placeholders exactly as written. About 80 tokens. See [Placeholder directive](masking.md#placeholder-directive). |
 
 [Proxy modes and routes](proxy.md) explains the two modes and when to pick
 which.

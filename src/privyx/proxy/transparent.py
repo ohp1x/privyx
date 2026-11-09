@@ -322,6 +322,7 @@ class TransparentProxy:
                         session=ephemeral,
                         headers=upstream_headers,
                         params=out_params,
+                        schema=schema,
                     )
                 except VaultError:
                     raise  # not a scan failure: answered below

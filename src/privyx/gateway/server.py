@@ -92,7 +92,10 @@ class Gateway:
         # the upstream endpoint and its connection pool — is shared.
         self._proxies = {
             schema: HTTPProxy(
-                engine=engine, provider=provider, stream_adapter=build_stream_adapter(schema)
+                engine=engine,
+                provider=provider,
+                stream_adapter=build_stream_adapter(schema),
+                schema=schema,
             )
             for schema in set(self._routes.values())
         }

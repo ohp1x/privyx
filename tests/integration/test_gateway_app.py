@@ -73,7 +73,7 @@ def _upstream_client() -> httpx.AsyncClient:
                     "choices": [{"text": body.get("prompt", ""), "index": 0}],
                 },
             )
-        text = body["messages"][-1]["content"]
+        text = body["messages"][-1]["content"] if "messages" in body else ""
         return httpx.Response(200, json={"content": [{"type": "text", "text": text}]})
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -665,3 +665,23 @@ async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
     assert response.status_code == 422
     assert response.json()["error"]["type"] == "privyx_leak_blocked"
     assert seen == []
+
+
+async def test_directive_follows_each_route_schema() -> None:
+    """An Anthropic route gets it in ``system``, a Responses route first in ``input``."""
+    seen.clear()
+    engine = _engine()
+    engine.directive = True
+    client, _ = _client(engine)
+    async with client:
+        await client.post(
+            "/v1/messages",
+            json={"system": "be brief", "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+        await client.post("/v1/responses", json={"input": f"mail {EMAIL}"})
+
+    anthropic, responses = (json.loads(request.content) for request in seen)
+    assert anthropic["system"].startswith("be brief\n\nPrivacy notice from the Privyx proxy")
+    assert [m["role"] for m in anthropic["messages"]] == ["user"]
+    assert responses["input"][0]["role"] == "developer"
+    assert EMAIL not in json.dumps([anthropic, responses])

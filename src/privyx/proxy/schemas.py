@@ -47,6 +47,8 @@ from typing import Any
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import LeakError
 from privyx.core.session import Session
+from privyx.token.codec import TokenCodec
+from privyx.token.model import LogicalToken
 
 #: The schemas whose request/response bodies this module knows how to walk.
 KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic", "responses", "embeddings"})
@@ -164,6 +166,7 @@ async def transform_request(
     session: Session | None = None,
     headers: dict[str, str] | None = None,
     params: list[tuple[str, Any]] | None = None,
+    schema: str | None = None,
 ) -> dict[str, Any]:
     """Return a copy of ``payload`` with its content leaves pseudonymized.
 
@@ -185,6 +188,9 @@ async def transform_request(
 
     The caller's ``payload`` is never mutated (the walk rebuilds every container
     it descends into; config values are shared, not copied).
+
+    With ``engine.directive``, a chat request of ``schema`` also gets
+    :func:`directive`, unmasked (see :func:`_add_directive`).
     """
 
     def rank(key: str) -> int:
@@ -236,7 +242,64 @@ async def transform_request(
             leaks = find_leaks(sent, masked)
             if leaks:
                 raise LeakError(f"{leaks} masked value(s) still in the request")
-    return {key: rebuilt[key] for key in payload}
+    result = {key: rebuilt[key] for key in payload}
+    if engine.directive:
+        _add_directive(result, schema, directive(engine.codec))
+    return result
+
+
+def directive(codec: TokenCodec) -> str:
+    """The instruction ``proxy.directive`` adds: keep placeholders exactly as written."""
+    example = codec.encode(LogicalToken(namespace=codec.namespace, type="EMAIL", identifier="1"))
+    return (
+        "Privacy notice from the Privyx proxy: some values in this conversation are "
+        f"replaced by placeholders such as {example}. Treat each placeholder as the value "
+        "itself and copy it exactly as written, brackets included, wherever that value is "
+        "needed: in replies, code, commands, file contents, and tool calls. Do not change, "
+        "split, encode, translate, or guess what is behind a placeholder."
+    )
+
+
+def _add_directive(payload: dict[str, Any], schema: str | None, text: str) -> None:
+    """Add ``text`` to a chat request's system prompt, in place.
+
+    It goes where it stays at one place turn after turn, so the provider's
+    prompt cache keeps working: after Anthropic's ``system`` (the first block
+    may have to stay first), after the leading system messages of a Chat
+    request, and first in a Responses ``input``.  A request that resumes a
+    stored response (``previous_response_id``) sends only its new items, so
+    there it goes in ``instructions``, which is not carried over.
+    """
+    if schema == "anthropic" and "messages" in payload:
+        system = payload.get("system")
+        if isinstance(system, list):
+            payload["system"] = [*system, {"type": "text", "text": text}]
+        else:
+            payload["system"] = f"{system}\n\n{text}" if system else text
+    elif schema == "openai" and isinstance(payload.get("messages"), list):
+        messages = payload["messages"]
+        at = 0
+        while at < len(messages) and _role(messages[at]) in ("system", "developer"):
+            at += 1
+        messages.insert(at, {"role": "system", "content": text})
+    elif schema == "responses" and "input" in payload:
+        instructions = payload.get("instructions")
+        if payload.get("previous_response_id"):
+            payload["instructions"] = f"{instructions}\n\n{text}" if instructions else text
+            return
+        items = payload["input"]
+        if isinstance(items, str):
+            items = [{"role": "user", "content": items}]
+        message = {
+            "type": "message",
+            "role": "developer",
+            "content": [{"type": "input_text", "text": text}],
+        }
+        payload["input"] = [message, *items] if isinstance(items, list) else items
+
+
+def _role(message: Any) -> Any:
+    return message.get("role") if isinstance(message, dict) else None
 
 
 def find_leaks(value: Any, masked: set[str]) -> int:
