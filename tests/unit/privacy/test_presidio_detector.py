@@ -94,3 +94,19 @@ def test_config_can_select_presidio() -> None:
         pytest.skip(f"presidio extra not installed: {exc}")
     else:
         assert detector.name == "presidio"
+
+
+def test_a_failed_model_download_is_a_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """spaCy exits the process when it cannot download a missing model."""
+    nlp_engine = pytest.importorskip("presidio_analyzer.nlp_engine")
+
+    class Provider:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def create_engine(self) -> None:
+            raise SystemExit(1)
+
+    monkeypatch.setattr(nlp_engine, "NlpEngineProvider", Provider)
+    with pytest.raises(ConfigError, match="is not installed"):
+        PresidioDetector(model="xx_missing_model")
