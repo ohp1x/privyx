@@ -35,6 +35,7 @@ providers = ["openai>=1.30", "anthropic>=0.30"]
 faker = ["faker>=25.0"]
 presidio = ["presidio-analyzer>=2.2", "spacy>=3.6"]
 crypto = ["cryptography>=42"]
+otel = ["opentelemetry-sdk>=1.20", "opentelemetry-exporter-otlp-proto-http>=1.20"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

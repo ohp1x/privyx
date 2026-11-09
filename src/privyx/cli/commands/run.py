@@ -409,6 +409,7 @@ async def _run_target(
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.gateway.server import Gateway
     from privyx.gateway.transparent import create_transparent_app
+    from privyx.observability import tracing
     from privyx.observability.audit import AuditEventType
     from privyx.observability.logging import configure_logging
     from privyx.plugins.loader import load_plugins
@@ -428,6 +429,7 @@ async def _run_target(
     sock, bound_port = _listen(settings.host, port)
 
     hooks = load_plugins(settings)
+    tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
     if settings.proxy.mode == "gateway":

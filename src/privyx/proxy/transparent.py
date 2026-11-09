@@ -42,6 +42,7 @@ from privyx.config.schema import ProxyConfig
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import LeakError, VaultError
 from privyx.core.session import Session
+from privyx.observability import tracing
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
 from privyx.observability.tap import Tap
@@ -226,6 +227,39 @@ class TransparentProxy:
         ``body`` may be the chunks as they arrive: a routed body is read whole to
         be masked, any other is streamed upstream as it comes.
         """
+        span = tracing.start("privyx.request", headers=headers, **{"http.request.method": method})
+        try:
+            result = await self._handle(
+                span,
+                method=method,
+                path=path,
+                headers=headers,
+                body=body,
+                query_params=query_params,
+                session_id=session_id,
+            )
+        except BaseException as exc:
+            tracing.end(span, error=exc)
+            raise
+        # The status the client gets, whichever way the exchange went.
+        tracing.annotate(span, **{"http.response.status_code": result.status_code})
+        if result.status_code >= 500:
+            tracing.fail(span)
+        if result.stream is None:  # a stream or relayed reply ends the span when it ends
+            tracing.end(span)
+        return result
+
+    async def _handle(
+        self,
+        span: Any,
+        *,
+        method: str,
+        path: str,
+        headers: Mapping[str, str],
+        body: bytes | AsyncIterator[bytes],
+        query_params: Any | None,
+        session_id: str | None,
+    ) -> ProxyResponse:
         start = time.perf_counter()
         req_id = new_request_id()
         # Correlate every event of this exchange and aggregate its per-leaf
@@ -247,6 +281,10 @@ class TransparentProxy:
                     body=json.dumps({"error": {"message": message}}).encode(),
                 )
             schema = detect_schema(path, self._routes)
+            if schema is not None:
+                tracing.annotate(
+                    span, **{"http.route": "/" + path.lstrip("/"), "privyx.schema": schema}
+                )
             if schema is None:
                 self._audit.route_decision(allowed=self._passthrough_unknown, method=method)
             if schema is None and not self._passthrough_unknown:
@@ -320,6 +358,7 @@ class TransparentProxy:
                 or out_params is not None
             ):
                 transform_start = time.perf_counter()
+                transform_span = tracing.start("privyx.transform", span)
                 try:
                     transformed = await transform_request(
                         payload or {},
@@ -330,9 +369,11 @@ class TransparentProxy:
                         params=out_params,
                         schema=schema,
                     )
-                except VaultError:
+                except VaultError as exc:
+                    tracing.end(transform_span, error=exc)
                     raise  # not a scan failure: answered below
                 except Exception as exc:
+                    tracing.end(transform_span, error=exc)
                     self._audit.error(
                         phase="transform",
                         error_type=type(exc).__name__,
@@ -346,6 +387,7 @@ class TransparentProxy:
                         status_code=status, media_type=_JSON, body=json.dumps(error).encode()
                     )
                 transform_ms = _elapsed_ms(transform_start)
+                tracing.end(transform_span)
                 if isinstance(payload, dict):
                     out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
                     if self._tap is not None:
@@ -373,9 +415,11 @@ class TransparentProxy:
                 content=out_body,
                 params=out_params,
             )
+            upstream_span = tracing.start("privyx.upstream", span)
             try:
                 response = await self._client.send(request, stream=True)
             except Exception as exc:
+                tracing.end(upstream_span, error=exc)
                 self._audit.error(
                     phase="upstream",
                     error_type=type(exc).__name__,
@@ -393,11 +437,13 @@ class TransparentProxy:
                     body=json.dumps(error).encode(),
                 )
 
+            tracing.end(upstream_span)
             resp_content_type = response.headers.get("content-type", "")
             resp_headers = filter_response_headers(response.headers)
             resp_headers["x-privyx-session"] = sid
 
             is_stream = _SSE in resp_content_type and method.upper() != "HEAD"
+            tracing.annotate(span, **{"privyx.stream": is_stream})
             self._audit.request(
                 method=method,
                 # An unmatched URL may itself contain PII. The route-decision
@@ -443,6 +489,7 @@ class TransparentProxy:
                     req_id,
                     start,
                     ephemeral,
+                    span,
                 )
             if schema and _JSON in resp_content_type:
                 return await self._batch_response(
@@ -454,12 +501,14 @@ class TransparentProxy:
                     req_id,
                     start,
                     schema=schema,
+                    span=span,
                 )
             defer_cleanup = True  # as for a stream
             return self._relayed_response(
-                response, resp_headers, resp_content_type, sid, req_id, start, ephemeral
+                response, resp_headers, resp_content_type, sid, req_id, start, ephemeral, span
             )
         except VaultError as exc:
+            tracing.annotate(span, **{"error.type": type(exc).__name__})
             self._audit.error(
                 phase="vault",
                 error_type=type(exc).__name__,
@@ -488,11 +537,12 @@ class TransparentProxy:
         request_id: str,
         start: float,
         ephemeral: Session | None,
+        span: Any = None,
     ) -> ProxyResponse:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
         stream_iter = self._stream(
-            response, schema, session_id, mapping, request_id, start, ephemeral
+            response, schema, session_id, mapping, request_id, start, ephemeral, span
         )
         return ProxyResponse(
             status_code=response.status_code,
@@ -501,7 +551,7 @@ class TransparentProxy:
             stream=AuditedStream(
                 stream_iter,
                 response=response,
-                cleanup=lambda: self._end_session(ephemeral, request_id),
+                cleanup=lambda: self._abandon(ephemeral, request_id, span),
             ),
         )
 
@@ -514,7 +564,10 @@ class TransparentProxy:
         request_id: str,
         start: float,
         ephemeral: Session | None,
+        span: Any = None,
     ) -> AsyncIterator[str]:
+        restore_span = tracing.start("privyx.restore", span)
+        failure: BaseException | None = None
         frames = 0
         status = response.status_code
         restored = 0
@@ -560,6 +613,7 @@ class TransparentProxy:
                 yield out
             completed = True
         except Exception as exc:
+            failure = exc
             self._audit.error(
                 phase="stream",
                 error_type=type(exc).__name__,
@@ -603,6 +657,10 @@ class TransparentProxy:
                             upstream=b"".join(tapped[0]).decode("utf-8", "replace"),
                             restored="".join(tapped[1]),
                         )
+                tracing.annotate(restore_span, **{"privyx.restored": restored})
+                tracing.end(restore_span, error=failure)
+                tracing.annotate(span, **{"privyx.aborted": aborted or None})
+                tracing.end(span, error=failure)
                 self._end_session(ephemeral, request_id)
 
     def _relayed_response(
@@ -614,6 +672,7 @@ class TransparentProxy:
         request_id: str,
         start: float,
         ephemeral: Session | None,
+        span: Any = None,
     ) -> ProxyResponse:
         """Forward a response with nothing to restore as it arrives.
 
@@ -625,9 +684,9 @@ class TransparentProxy:
             headers=headers,
             media_type=content_type or None,
             stream=AuditedStream(
-                self._relay(response, session_id, request_id, start, ephemeral),
+                self._relay(response, session_id, request_id, start, ephemeral, span),
                 response=response,
-                cleanup=lambda: self._end_session(ephemeral, request_id),
+                cleanup=lambda: self._abandon(ephemeral, request_id, span),
             ),
         )
 
@@ -638,8 +697,10 @@ class TransparentProxy:
         request_id: str,
         start: float,
         ephemeral: Session | None,
+        span: Any = None,
     ) -> AsyncIterator[bytes]:
         size = 0
+        failure: BaseException | None = None
         completed = aborted = False
         try:
             async for chunk in response.aiter_bytes():
@@ -647,6 +708,7 @@ class TransparentProxy:
                 yield chunk
             completed = True
         except Exception as exc:
+            failure = exc
             self._audit.error(
                 phase="response",
                 error_type=type(exc).__name__,
@@ -674,7 +736,18 @@ class TransparentProxy:
                         duration_ms=_elapsed_ms(start),
                         aborted=aborted,
                     )
+                tracing.annotate(span, **{"privyx.aborted": aborted or None})
+                tracing.end(span, error=failure)
                 self._end_session(ephemeral, request_id)
+
+    def _abandon(self, ephemeral: Session | None, request_id: str, span: Any) -> None:
+        """Clean up a reply the client closed before reading any of it.
+
+        Its generator never started, so its ``finally`` does not run either.
+        """
+        tracing.annotate(span, **{"privyx.aborted": True})
+        tracing.end(span)
+        self._end_session(ephemeral, request_id)
 
     def _end_session(self, ephemeral: Session | None, request_id: str) -> None:
         """End the request's ephemeral session, if it has one.
@@ -694,17 +767,27 @@ class TransparentProxy:
         request_id: str,
         start: float,
         schema: str | None = None,
+        span: Any = None,
     ) -> ProxyResponse:
         data = await response.aread()
         await response.aclose()
+        restore_span = tracing.start("privyx.restore", span)
         meter = UsageMeter()
         upstream_data = data
         payload = _loads(data)
         meter.feed_json(payload)  # embeddings report usage too
         if schema != "embeddings" and isinstance(payload, dict):
-            restored = await restore_response(payload, self._engine, session_id, session=ephemeral)
+            try:
+                restored = await restore_response(
+                    payload, self._engine, session_id, session=ephemeral
+                )
+            except BaseException as exc:  # the vault failed: answered with 503
+                tracing.end(restore_span, error=exc)
+                raise
             data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
         restored_n = self._audit.flush_restore()
+        tracing.annotate(restore_span, **{"privyx.restored": restored_n})
+        tracing.end(restore_span)
         self._audit.response(
             status=response.status_code,
             stream=False,

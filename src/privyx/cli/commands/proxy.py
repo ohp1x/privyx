@@ -183,6 +183,7 @@ async def _run_server(settings: Any, watch_paths: list[Path] | None = None) -> b
     Returns ``True`` when the server stopped because a config file changed.
     """
     from privyx.core.builder import build_audit_logger, build_engine
+    from privyx.observability import tracing
     from privyx.observability.logging import configure_logging
     from privyx.plugins.loader import load_plugins
 
@@ -190,6 +191,7 @@ async def _run_server(settings: Any, watch_paths: list[Path] | None = None) -> b
     # Load plugins before building the engine so a plugin detector/operator/etc.
     # is registered by the time build_engine resolves the configured types.
     hooks = load_plugins(settings)
+    tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
     await hooks.run_startup()

@@ -239,6 +239,15 @@ class ModelPrice(BaseModel):
     cache_write: float | None = Field(default=None, ge=0)
 
 
+class TracingConfig(BaseModel):
+    """OpenTelemetry spans per proxied request (``pip install 'privyx[otel]'``).
+
+    The exporter is configured by the standard ``OTEL_*`` environment variables.
+    """
+
+    enabled: bool = False
+
+
 class AuditConfig(BaseModel):
     """PII-safe audit trail.
 
@@ -411,6 +420,7 @@ class Settings(BaseModel):
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
+    tracing: TracingConfig = Field(default_factory=TracingConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     tls: TLSConfig = Field(default_factory=TLSConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=_default_agents)
