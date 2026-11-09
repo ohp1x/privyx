@@ -230,6 +230,7 @@ privyx run claude-work
 | `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Arguments are passed without a shell or interpolation. |
 | `env` | `{}` | Destination environment variable name → literal string value. Values must be strings: quote YAML booleans/numbers. Merged by name over the shell environment; values are masked in previews and config dumps. |
 | `env_from` | `{}` | Destination environment variable name → source variable name in the parent shell. Resolve only for the selected launch; a missing source fails before any resource opens. An existing empty source value is allowed. Values are never expanded from profile `env`. |
+| `budget` | `{}` | Limits on one launch: `max_turns` (model requests) and `max_tokens` (tokens the upstream reports, input and output). Unset means no limit. See [Budget](#budget). |
 | `privyx` | `{}` | Privyx settings for this profile only, such as `detector` or `operator`. Checked like a config file. See [Settings per profile](#settings-per-profile). |
 
 Use inheritance to avoid copying a preset and reference credentials already
@@ -287,6 +288,32 @@ Child process environment precedence is shell → profile literals/references
 → injected proxy URLs. Privyx's URL wins even if a profile also defines that
 destination. Custom `PATH` is used to locate the executable. Profile values
 are not exported into Privyx's own process.
+
+#### Budget
+
+An agent that loops, retrying a failing fix again and again, keeps sending
+requests. `budget` stops a launch at a limit:
+
+```yaml
+agents:
+  claude:
+    budget:
+      max_turns: 200          # model requests
+      max_tokens: 5000000     # input + output, cached included, as the upstream reports them
+```
+
+A turn is one request on a masked chat route; token counting requests are not
+turns. Tokens are summed from the `usage` of each reply. A streamed Chat
+Completions reply has `usage` only when asked for, so with `max_tokens` Privyx
+adds `stream_options.include_usage` to such a request unless the client set
+`include_usage` itself. A reply that still comes without `usage` cannot be
+counted: the next request is refused rather than counted as free. Both limits are checked
+before each request, so the request that crosses one completes and the next is
+refused with `400` and the error type `privyx_budget_exceeded`, which agents
+show without retrying. Privyx records a
+[`run.budget_exceeded`](../observability/audit-events.md#runbudget_exceeded)
+event and, when the tool exits, says which limit stopped it. A budget counts
+one launch; a new `privyx run` starts from zero. `--dry-run` shows the budget.
 
 #### Settings per profile
 

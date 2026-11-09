@@ -267,6 +267,13 @@ class TLSConfig(BaseModel):
         return bool(self.certfile and self.keyfile)
 
 
+class BudgetConfig(BaseModel):
+    """Limits on one ``privyx run`` launch; unset means no limit."""
+
+    max_turns: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0)
+
+
 class AgentConfig(BaseModel):
     """How to launch a tool and point it at the local proxy; never a shell command."""
 
@@ -280,6 +287,7 @@ class AgentConfig(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     env_from: dict[str, str] = Field(default_factory=dict)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
     #: Privyx settings for this profile, above config files and environment.
     privyx: dict[str, Any] = Field(default_factory=dict)
 

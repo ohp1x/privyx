@@ -354,6 +354,10 @@ def _show_plan(plan: LaunchPlan) -> None:
     click.echo(f"Routing: tool → {plan.base_url} → {redact(plan.route, 'upstream_url')}")
     click.echo(f"Session: {plan.session} [{sources.get('session.strategy', 'defaults')}]")
     click.echo(f"Anchor: {plan.anchor} [{sources.get('anchor.secret', 'defaults')}]")
+    budget = plan.target.budget
+    limits = [f"{budget.max_turns} turns"] if budget.max_turns else []
+    limits += [f"{budget.max_tokens} tokens"] if budget.max_tokens else []
+    click.echo(f"Budget: {', '.join(limits) or 'none'}")
     prefix = f"agents.{plan.profile}."
     for field_name in ("command", "base_path", "adapter", "args"):
         fallback = "CLI" if field_name == "command" else "defaults"
@@ -393,6 +397,7 @@ async def _run_target(
     Returns:
         The tool's exit code.
     """
+    from privyx.cli.budget import Budget
     from privyx.cli.commands.proxy import build_transparent_proxy
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.gateway.server import Gateway
@@ -428,7 +433,13 @@ async def _run_target(
         close_upstream = proxy.close
     await hooks.run_startup()
 
-    counted = _Counted(app)
+    budget = spec.budget
+    guard = (
+        Budget(app, budget, settings.proxy.routes, audit, Path(plan.profile).name)
+        if budget.max_turns or budget.max_tokens
+        else None
+    )
+    counted = _Counted(guard or app)
     server = _make_server(counted, settings, bound_port)
     if parent is not None:
         # The worker handles SIGTERM itself; uvicorn must not re-raise it during cleanup.
@@ -456,6 +467,13 @@ async def _run_target(
                 ("\n" if parent is not None else "")
                 + f"Warning: no request from {spec.command} reached Privyx; if it called "
                 "its provider, it did so directly, without masking.",
+                err=True,
+            )
+        if guard is not None and guard.exceeded:
+            click.echo(
+                ("\n" if parent is not None else "")
+                + f"Privyx stopped {spec.command}: the {guard.exceeded}, "
+                f"after {guard.turns} turn(s) and {guard.tokens} tokens.",
                 err=True,
             )
         return code

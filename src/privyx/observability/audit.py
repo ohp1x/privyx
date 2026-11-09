@@ -78,6 +78,7 @@ class AuditEventType(StrEnum):
     PROXY_PASSTHROUGH = "proxy.passthrough"
     PROXY_BLOCKED = "proxy.blocked"
     RUN_UNPROXIED = "run.unproxied"
+    RUN_BUDGET_EXCEEDED = "run.budget_exceeded"
 
 
 def _iso(ts: float) -> str:

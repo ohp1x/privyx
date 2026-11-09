@@ -385,10 +385,12 @@ def test_profile_privyx_settings_sit_between_the_environment_and_the_cli(
                             "policy": {"type": "strict"},
                             "session": {"strategy": "conversation"},
                         },
+                        "budget": {"max_turns": 5},
                     },
                     "claude:stricter": {
                         "extends": "claude:strict",
                         "privyx": {"policy": {"allowed": ["EMAIL"]}},
+                        "budget": {"max_tokens": 100},
                     },
                 },
             }
@@ -407,6 +409,8 @@ def test_profile_privyx_settings_sit_between_the_environment_and_the_cli(
     assert sources["operator.type"] == "agents.claude:strict.privyx"
     # Maps merge with the parent's, as in `extends`.
     assert (stricter.policy.type, stricter.policy.allowed) == ("strict", ["EMAIL"])
+    budget = stricter.agents["claude:stricter"].budget
+    assert (budget.max_turns, budget.max_tokens) == (5, 100)
     assert flag.operator.type == "redact"  # a flag still wins
     assert (plain.operator.type, plain.session.strategy) == ("redact", "client")
 
@@ -429,6 +433,14 @@ def test_profile_privyx_settings_are_checked_like_a_config_file(
     with pytest.raises(ConfigError, match="unknown setting") as error:
         load_config(config, agent="claude")
     assert message in str(error.value)
+
+
+def test_bad_budget_fails_at_startup(tmp_path: Path) -> None:
+    config = tmp_path / "named.yaml"
+    config.write_text(yaml.safe_dump({"agents": {"claude": {"budget": {"max_turns": 0}}}}))
+
+    with pytest.raises(ConfigError, match="max_turns"):
+        load_config(config)
 
 
 def test_a_key_given_twice_is_warned_about_and_the_last_one_still_wins(

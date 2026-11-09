@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 
-from privyx.config.schema import AgentConfig, Settings
+from privyx.config.schema import AgentConfig, BudgetConfig, Settings
 from privyx.core.errors import ConfigError
 from privyx.providers.registry import resolve_base_url, resolve_origin
 
@@ -58,6 +58,7 @@ class Target:
     env_from: dict[str, str] = field(default_factory=dict)
     default_args: tuple[str, ...] = field(default=(), repr=False)
     adapter: str = "env"
+    budget: BudgetConfig = field(default_factory=BudgetConfig)
 
 
 def profile_target(name: str, profile: AgentConfig) -> Target:
@@ -75,6 +76,7 @@ def profile_target(name: str, profile: AgentConfig) -> Target:
         extra_env=dict(profile.env),
         env_from=dict(profile.env_from),
         default_args=tuple(profile.args),
+        budget=profile.budget,
     )
 
 

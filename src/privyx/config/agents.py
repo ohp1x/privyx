@@ -15,7 +15,7 @@ def resolve_profiles(
     An iterative walk handles long chains without Python recursion limits.
     Scalars and lists replace; env mappings merge, with a child's destination
     overriding its parent's even when it changes between env and env_from;
-    ``privyx`` merges deeply.
+    ``budget`` and ``privyx`` merge deeply.
     """
     from privyx.config.loader import _deep_merge
 
@@ -49,7 +49,7 @@ def resolve_profiles(
             if not isinstance(parent, dict):
                 parent = {}  # The parent's schema error is reported by Settings.
             effective = {**parent, **child}
-            for section in ("privyx",):
+            for section in ("budget", "privyx"):
                 own, inherited = child.get(section), parent.get(section)
                 if isinstance(own, dict) and isinstance(inherited, dict):
                     effective[section] = _deep_merge(inherited, own)
