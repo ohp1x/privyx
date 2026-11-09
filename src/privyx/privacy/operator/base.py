@@ -49,9 +49,9 @@ def restore(
     Unknown tokens are passed through untouched: a stream may legitimately
     contain text that fits the token syntax but was never issued by us, and
     dropping or mangling it would corrupt the response.  A token the model wrote
-    without its edge literals (``PRIVYX_EMAIL_1``), or as its id alone when the
-    id is long enough, is restored as well, under the same rule: only if this
-    session issued it.
+    without its edge literals (``PRIVYX_EMAIL_1``) or one of them, in another
+    case, or as its id alone when the id is long enough, is restored as well,
+    under the same rule: only if this session issued it.
 
     Args:
         text: Text containing tokens.
@@ -69,9 +69,12 @@ def restore(
     # codec that does not know those forms (a plugin's) keeps to full tokens.
     restorable = getattr(codec, "restorable", None)
     full = ((m.start, m.end, m.text) for m in codec.finditer(text))
-    found = restorable(text, _token_ids(session, codec)) if restorable else full
+    ids = _token_ids(session, codec) if restorable else None
+    found = restorable(text, ids) if restorable else full
     for start, end, token in sorted(found):
         original = resolve(token)
+        if original is None and ids is not None and (issued := ids.cased(token)):
+            original = resolve(issued)  # written in another case
         if original is None:
             continue
         transforms.append(Transformation(start, end, text[start:end], original))

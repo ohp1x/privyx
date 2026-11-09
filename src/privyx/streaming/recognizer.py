@@ -128,6 +128,8 @@ class CodecRecognizer:
         end, token = found
         written = text[pos:end]
         original = self._resolve(token)
+        if original is None and self._ids is not None and (issued := self._ids.cased(token)):
+            original = self._resolve(issued)  # written in another case
         return (written, written if original is None else original)
 
     def find_candidate(self, text: str, pos: int) -> int:

@@ -42,7 +42,7 @@ parts that carry conversation content.
 
 | Limit | What to do |
 |---|---|
-| A token the model rewrote is not restored: translated, split by a space, or wrapped in other characters. Two departures are tolerated, a token without its outer delimiters and a long id on its own. | Pick a [token format](../guide/masking.md#token-format) your model reproduces reliably. |
+| A token the model rewrote is not restored: translated, split by a space, or wrapped in other characters. A few departures are tolerated: a token missing one or both outer delimiters, a token in another case, and a long id on its own, each only for a token of the session. | Pick a [token format](../guide/masking.md#token-format) your model reproduces reliably. |
 | `logprobs` token strings are not restored, so a client that asks for them can see fragments of a token. | Do not request `logprobs` through Privyx. |
 | The `redact` operator cannot be restored at all, and `faker`, `fpe`, and `partial` restore by matching their substitutes, which the model may also write by coincidence. | Use `pseudonym` when exact reversal matters. |
 | A tool that the provider runs for the model, such as web search or code execution, receives tokens. A search for a masked name searches for the token. | Leave unmasked what such a tool must see, with the [`strict` policy](../guide/detection.md#policy). |
