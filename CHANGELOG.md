@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Proxy:** a placeholder the model wrote with one bracket missing or in another case is restored, when the session issued it
+
 ## [0.1.28] - 2026-11-09
 
 ### Added

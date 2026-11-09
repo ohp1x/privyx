@@ -266,6 +266,50 @@ def test_a_format_without_edge_literals_or_a_leading_namespace_has_no_bare_form(
     assert list(codec.restorable(text)) == [(m.start, m.end, m.text) for m in codec.finditer(text)]
 
 
+@pytest.mark.parametrize(
+    ("written", "key"),
+    [
+        ("<PRIVYX_EMAIL_1", "<PRIVYX_EMAIL_1>"),
+        ("PRIVYX_EMAIL_1>", "<PRIVYX_EMAIL_1>"),
+        ("<privyx_email_1", "<privyx_email_1>"),
+        ("privyx_Email_1>", "<privyx_Email_1>"),
+        ("<Privyx_Email_1>", "<Privyx_Email_1>"),  # a full token: any namespace parses
+    ],
+)
+def test_restorable_takes_a_half_edge_and_any_case_with_a_bare_token(
+    written: str, key: str
+) -> None:
+    codec = FormatCodec.default()
+    text = f"a {written} b"
+
+    assert list(codec.restorable(text)) == [(2, 2 + len(written), key)]
+    assert codec.restorable_at(text, 2) == (2 + len(written), key)
+
+
+def test_a_leading_edge_needs_no_word_boundary() -> None:
+    assert list(FormatCodec.default().restorable("mail:<PRIVYX_EMAIL_1.")) == [
+        (5, 20, "<PRIVYX_EMAIL_1>")
+    ]
+    assert list(FormatCodec.default().restorable("xPRIVYX_EMAIL_1>")) == []
+
+
+def test_a_half_edge_is_held_back_until_the_token_ends() -> None:
+    codec = FormatCodec.default()
+
+    assert codec.restorable_prefix_len("a privyx_ema", 2) == 10
+    assert codec.restorable_prefix_len("a PRIVYX_EMAIL_1", 2) == 14  # a ">" may follow
+    assert codec.restorable_prefix_len("a <privyx_EMAIL_1", 2) == 15
+
+
+def test_cased_finds_only_one_session_token() -> None:
+    codec = FormatCodec.default()
+    ids = codec.ids(["<PRIVYX_EMAIL_1>", "<PRIVYX_SSN_ab12>", "<PRIVYX_SSN_AB12>"])
+
+    assert ids.cased("<privyx_email_1>") == "<PRIVYX_EMAIL_1>"
+    assert ids.cased("<PRIVYX_EMAIL_2>") is None  # not issued
+    assert ids.cased("<privyx_ssn_ab12>") is None  # two tokens: nothing says which
+
+
 # -- a token's id written on its own -------------------------------------------
 
 ID = "9F3A1C2B7D4E5F60"
@@ -278,11 +322,11 @@ def test_ids_indexes_the_ids_long_enough_to_stand_alone() -> None:
 
     ids = codec.ids(["<PRIVYX_EMAIL_1>", ANCHORED, hashed, "not a token"])
 
-    assert ids is not None
+    assert ids.alone
     assert (ids.token(ID), ids.token("ff8d9819fc0e")) == (ANCHORED, hashed)
     assert ids.token("1") is None
     # A session of counters, however many, has no id to look for.
-    assert codec.ids(["<PRIVYX_EMAIL_1>", "<PRIVYX_PHONE_12345678901>"]) is None
+    assert not codec.ids(["<PRIVYX_EMAIL_1>", "<PRIVYX_PHONE_12345678901>"]).alone
 
 
 def test_restorable_finds_an_issued_id_written_on_its_own() -> None:

@@ -136,7 +136,7 @@ The client sees `<PRIVYX_EMAIL_1>` where a value should be.
 
 | Cause | Fix |
 |---|---|
-| The model changed the token: translated it, put a space in it, or wrapped it in other characters. Privyx restores a token as written, without its outer delimiters, or as a long id alone, and nothing else. | Try another [token format](masking.md#token-format), and check with your model which one it reproduces reliably. |
+| The model changed the token: translated it, put a space in it, or wrapped it in other characters. Privyx restores a token as written, without one or both outer delimiters, in another case, or as a long id alone, and nothing else. | Try another [token format](masking.md#token-format), and check with your model which one it reproduces reliably. |
 | The token comes from another session. With the default `ephemeral` strategy, a token from an earlier request means nothing in the next one. That happens when the provider stores the conversation (`previous_response_id`), or when text with tokens was saved and sent again. | Use a [session](sessions.md#which-session-a-request-uses): the `x-privyx-session` header, or the `client` or `conversation` strategy. |
 | The session expired (`vault.ttl`) or lived in a `memory` vault that restarted. | Use a persistent vault, a longer TTL, or an [anchor](masking.md#anchors). |
 | The operator is `redact`. | Redaction cannot be restored; that is its purpose. |

@@ -227,8 +227,10 @@ rule is in
 - In a stream, text and reasoning deltas as they arrive; a token split
   between two chunks is held back until it is whole. Tool-call arguments are
   collected and delivered restored in one piece.
-- A token the model wrote without its outer delimiters (`PRIVYX_EMAIL_1`), or
-  as its id alone when the id is long, is restored too. See
+- A token the model wrote without its outer delimiters (`PRIVYX_EMAIL_1`) or
+  with only one of them (`<PRIVYX_EMAIL_1`), in another case
+  (`<privyx_email_1>`), or as its id alone when the id is long, is restored
+  too. See
   [Token format](masking.md#token-format).
 
 A token is restored only if the request's session issued it. A reply cannot

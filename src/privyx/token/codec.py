@@ -32,6 +32,13 @@ with the codec's own namespace in front, which is what keeps it from reading
 every word as a token.  A format with no edge literal, or one that does not
 begin with ``{namespace}``, has no bare form.
 
+A model may also drop only one of the edge literals (``<PRIVYX_EMAIL_1``,
+``PRIVYX_EMAIL_1>``) or change the case (``<privyx_email_1>``).  The bare form
+takes a half edge with it, and the namespace in any case; the restore paths
+then look a token up in another case among the session's own
+(:meth:`TokenIds.cased`), so no form ever restores a token the session did
+not issue.
+
 A model may also write a token's id and nothing else (``9F3A1C2B7D4E5F60`` for
 ``<PRIVYX_EMAIL_9F3A1C2B7D4E5F60>``).  No syntax tells that from any other word,
 so the same methods find it only among the ids a session's tokens carry
@@ -92,10 +99,25 @@ class TokenIds:
     two forms of token are written at one position.
     """
 
-    def __init__(self, tokens: dict[str, str | None], known: frozenset[str] = frozenset()) -> None:
+    def __init__(
+        self,
+        tokens: dict[str, str | None],
+        known: frozenset[str] = frozenset(),
+        cased: dict[str, str | None] | None = None,
+    ) -> None:
         self._tokens = tokens
         self._sorted = sorted(tokens)
         self.known = known
+        self._cased = cased or {}
+
+    @property
+    def alone(self) -> bool:
+        """Whether any id is long enough to be looked for on its own."""
+        return bool(self._tokens)
+
+    def cased(self, token: str) -> str | None:
+        """The one session token that is ``token`` up to case, or ``None``."""
+        return self._cased.get(token.casefold())
 
     def token(self, identifier: str) -> str | None:
         """The one token whose id is ``identifier``, or ``None``."""
@@ -179,27 +201,43 @@ class FormatCodec:
         self._lead = segments[0][1] if segments[0][0] == "lit" else ""
         self._trail = segments[-1][1] if segments[-1][0] == "lit" else ""
         core = segments[bool(self._lead) : len(segments) - bool(self._trail)]
-        loose: list[str] = []  # what may stand for a token between word boundaries
+        written = f"(?P<full>{token_pattern})"  # a full token, then the bare form
         self._bare_re: re.Pattern[str] | None = None
         self._bare_prefix_re: re.Pattern[str] | None = None
         if (self._lead or self._trail) and core[0] == ("field", "namespace"):
             bare = [("lit", namespace), *core[1:]]
-            body = "".join(
+            # The namespace in any case; the field grammars take any case already.
+            body = f"(?i:{re.escape(namespace)})" + "".join(
                 re.escape(value) if kind == "lit" else f"(?:{self._fields[value].greedy})"
-                for kind, value in bare
+                for kind, value in core[1:]
             )
-            loose.append(f"{body}(?!{_WORD})")
-            self._bare_re = re.compile(f"(?<!{_WORD}){loose[0]}")
-            self._bare_prefix_re = re.compile(f"(?<!{_WORD}){self._build_prefix_pattern(bare)}")
-        self._written_re = self._written(token_pattern, loose)
+            # A leading edge stands in for the word boundary on the left.
+            left = f"(?:{re.escape(self._lead)}|(?<!{_WORD}))" if self._lead else f"(?<!{_WORD})"
+            right = f"(?:{re.escape(self._trail)})?" if self._trail else ""
+            self._bare_re = re.compile(f"{left}(?P<core>{body})(?!{_WORD}){right}")
+            # With the closing edge, which may follow: held back until it ends.
+            held = [*bare, ("lit", self._trail)] if self._trail else bare
+            self._bare_prefix_re = re.compile(
+                f"(?<!{_WORD}){self._build_prefix_pattern(held)}", re.IGNORECASE
+            )
+            bare_form = f"(?<!{_WORD})(?P<core>{body})(?!{_WORD}){right}"
+            if self._lead:
+                # One test of the leading edge for both forms that begin with it:
+                # most positions of a text fail there, which keeps a search fast.
+                rest = self._build_token_pattern(segments[1:])
+                led = f"(?P<full>{rest})|(?P<led>{body})(?!{_WORD}){right}"
+                written = f"{re.escape(self._lead)}(?:{led})|{bare_form}"
+            else:
+                written += f"|{bare_form}"
+        self._written_re = re.compile(written)
 
         # An id on its own: a whole word in the id's grammar, _ALONE_MIN or longer.
         # One still being written is a word that reaches the end of the text.
         identifier = self._fields["id"].greedy
-        loose.append(f"(?={_WORD}{{{_ALONE_MIN}}})(?P<alone>{identifier})(?!{_WORD})")
-        self._alone_re = re.compile(f"(?<!{_WORD}){loose[-1]}")
+        alone = f"(?<!{_WORD})(?={_WORD}{{{_ALONE_MIN}}})(?P<alone>{identifier})(?!{_WORD})"
+        self._alone_re = re.compile(alone)
         self._alone_prefix_re = re.compile(f"(?<!{_WORD})(?:{identifier})\\Z")
-        self._written_ids_re = self._written(token_pattern, loose)
+        self._written_ids_re = re.compile(f"{written}|{alone}")
 
     @classmethod
     def default(cls) -> FormatCodec:
@@ -264,17 +302,17 @@ class FormatCodec:
 
     # -- restore: full and bare forms, and the id alone -------------------------
 
-    def ids(self, tokens: Iterable[str]) -> TokenIds | None:
-        """Index ``tokens``, a session's, by the ids long enough to stand alone.
-
-        ``None`` when no id is: a session of counters has nothing to look for.
-        """
+    def ids(self, tokens: Iterable[str]) -> TokenIds:
+        """Index ``tokens``, a session's, by the ids long enough to stand alone, and by case."""
         found: dict[str, str | None] = {}
+        cased: dict[str, str | None] = {}
         for token in tokens:
+            folded = token.casefold()
+            cased[folded] = None if folded in cased else token
             match = self._fullmatch(token)
             if match is not None and len(identifier := match["id"]) >= _ALONE_MIN:
                 found[identifier] = None if identifier in found else token
-        return TokenIds(found) if found else None
+        return TokenIds(found, cased=cased)
 
     def restorable(
         self, text: str, ids: TokenIds | None = None, start: int = 0
@@ -288,7 +326,7 @@ class FormatCodec:
         order :meth:`restorable_at` gives one position at a time, so a stream
         and a batch find the same tokens.
         """
-        written = self._written_re if ids is None else self._written_ids_re
+        written = self._written_ids_re if ids is not None and ids.alone else self._written_re
         pos = start
         while match := written.search(text, pos):
             start, pos = match.span()
@@ -299,8 +337,8 @@ class FormatCodec:
                     pos = start + 1
                     continue
                 token = issued
-            elif match.lastgroup != "full":
-                token = self._full(token)
+            elif match.lastgroup in ("core", "led"):
+                token = self._full(match[match.lastgroup])
             yield start, match.end(), token
 
     def restorable_at(
@@ -311,7 +349,7 @@ class FormatCodec:
         if match is not None:
             return match.end(), match.group(0)
         if self._bare_re is not None and (match := self._bare_re.match(text, pos)):
-            return match.end(), self._full(match.group(0))
+            return match.end(), self._full(match["core"])
         if ids is not None and (match := self._alone_re.match(text, pos)):
             token = ids.token(match.group(0))
             if token is not None:
@@ -342,7 +380,7 @@ class FormatCodec:
             return None
         chars: set[str] = {self._lead[0]}
         if self._bare_re is not None and self._namespace:
-            chars.add(self._namespace[0])
+            chars.update((self._namespace[0].lower(), self._namespace[0].upper()))
         if ids is not None and ids._sorted:
             for ident in ids._sorted:
                 if ident:
@@ -354,16 +392,6 @@ class FormatCodec:
 
     def _full(self, bare: str) -> str:
         return f"{self._lead}{bare}{self._trail}"
-
-    @staticmethod
-    def _written(token_pattern: str, loose: list[str]) -> re.Pattern[str]:
-        """A full token, or one of the ``loose`` forms between word boundaries.
-
-        The boundary on the left is checked once for all of them: inside a
-        word, which is most of a text, a search then drops them together.
-        """
-        forms = f"|(?<!{_WORD})(?:{'|'.join(loose)})" if loose else ""
-        return re.compile(f"(?P<full>{token_pattern}){forms}")
 
     # -- internals -----------------------------------------------------------
 
@@ -519,7 +547,7 @@ class CompactCodec(FormatCodec):
     def ids(self, tokens: Iterable[str]) -> TokenIds:
         tokens = list(tokens)
         found = super().ids(tokens)
-        return TokenIds(found._tokens if found else {}, frozenset(tokens))
+        return TokenIds(found._tokens, frozenset(tokens), found._cased)
 
     def restorable(
         self, text: str, ids: TokenIds | None = None, start: int = 0
