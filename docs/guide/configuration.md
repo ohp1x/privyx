@@ -507,7 +507,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 |---|---|---|
 | `enabled` | `true` | Append PII-safe audit events to `path`. |
 | `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. It is created with mode `0600`. See [Audit events](../observability/audit-events.md). |
-| `tap` | `false` | Record each masked exchange before and after masking. The files hold original values. See [Session tap](../observability/tap.md). |
+| `tap` | `false` | Record each masked exchange before and after masking, for `privyx audit watch`. The files hold original values. See [Session tap](../observability/tap.md). |
 | `tap_dir` | `~/.privyx/tap` | Where the tap writes, one file per session. |
 | `prices` | `{}` | Model-id prefix → prices in USD per million tokens: `input`, `output`, and optionally `cache_read` (default a tenth of `input`) and `cache_write` (default 1.25 times `input`). For the cost `privyx session show` estimates; adds models to the built-in Claude prices or overrides them. |
 
