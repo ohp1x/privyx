@@ -247,6 +247,24 @@ mapping does not know are left as they are. Takes the same options as
 privyx unmask --map map.json -i masked.txt
 ```
 
+## `privyx pipe`
+
+Mask standard input to standard output one line at a time. Each line is
+written as soon as it is read, so a live stream never waits for its end.
+
+```bash
+tail -f app.log | privyx pipe --session logs | your-tool
+your-tool | privyx pipe --session logs --restore
+```
+
+| Option | Description |
+|---|---|
+| `--session ID` | Keep the mapping in this vault session. Without it, a new session is created and its id printed to standard error. Needs a persistent vault to be restored later. |
+| `--restore` | Put the original values back instead of masking. Needs `--session`. The session is read again for each line, so restore can follow a `privyx pipe` that is still masking into the same session, and stops with an error once the session is deleted or expires. |
+
+Lines are masked one by one, so a value split across lines, such as a PEM
+private key, is not seen whole: use `privyx mask` for those.
+
 ## `privyx session`
 
 List, show, and delete vault sessions. These need a `sqlite` or `redis` vault;

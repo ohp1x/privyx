@@ -85,6 +85,19 @@ privyx mask --map map.json -i build.log \
 The `session:` line goes to standard error, so it does not end up in the
 pipe.
 
+`privyx mask` reads all of its input before it writes anything. To follow a
+stream that does not end, such as `tail -f`, use
+[`privyx pipe`](../guide/cli.md#privyx-pipe), which writes each line as soon
+as it is masked:
+
+```bash
+tail -f app.log | privyx pipe --session app-logs
+```
+
+`privyx pipe` keeps its mapping in a vault session rather than a map file, so
+restoring its output later with `privyx pipe --restore --session app-logs`
+needs a `sqlite` or `redis` vault; see [Sessions and vault](../guide/sessions.md).
+
 An existing map is extended, not overwritten. Mask a second file against the
 same map and a value seen before keeps its token:
 

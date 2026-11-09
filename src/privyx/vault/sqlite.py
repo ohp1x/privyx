@@ -7,11 +7,15 @@ last activity and drives the optional TTL.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
 import sqlite3
 import time
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +45,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_updated_at ON sessions (updated_at);
+CREATE TABLE IF NOT EXISTS session_locks (
+    session_id TEXT PRIMARY KEY,
+    token TEXT NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
 
 #: Seconds between two sweeps of expired rows, which reads skip meanwhile.
@@ -93,7 +102,18 @@ class SQLiteVault(BaseVault):
                         os.chmod(f"{self._dsn}{ext}", 0o600)
         try:
             self._db = await aiosqlite.connect(self._dsn)
-            await self._db.executescript(_PRAGMAS + _SCHEMA)
+            # Switching a new file to WAL and creating its tables take locks
+            # SQLite does not wait for, so processes opening it at once retry
+            # the (idempotent) setup instead of failing.
+            deadline = time.monotonic() + 5.0
+            while True:
+                try:
+                    await self._db.executescript(_PRAGMAS + _SCHEMA)
+                    break
+                except sqlite3.OperationalError as exc:
+                    if "locked" not in str(exc) or time.monotonic() >= deadline:
+                        raise
+                    await asyncio.sleep(0.05)
             await self._db.commit()
             if os.name == "posix" and self._dsn != ":memory:":
                 for ext in ("-wal", "-shm"):
@@ -171,8 +191,70 @@ class SQLiteVault(BaseVault):
         except (json.JSONDecodeError, KeyError) as exc:
             raise VaultError(f"corrupt session record: {session_id}") from exc
 
-    async def save(self, session: Session) -> None:
-        await self._write(session)
+    async def save(self, session: Session, *, lock_token: str | None = None) -> None:
+        """Write ``session``; with ``lock_token``, only while :meth:`lock` still holds it."""
+        if lock_token is None:
+            await self._write(session)
+            return
+        sid = session.session_id
+        saved = await self._execute(
+            "INSERT OR REPLACE INTO sessions (session_id, payload, updated_at) "
+            "SELECT ?, ?, ? WHERE EXISTS "
+            "(SELECT 1 FROM session_locks WHERE session_id = ? AND token = ?) "
+            "RETURNING session_id",
+            (sid, json.dumps(session.to_dict()), session.updated_at, sid, lock_token),
+            commit=True,
+        )
+        if not saved:
+            raise VaultError(f"session lock expired before saving: {sid}")
+
+    @asynccontextmanager
+    async def lock(self, session_id: str, ttl: int = 10, wait: float = 10.0) -> AsyncIterator[str]:
+        """Hold ``session_id`` across processes sharing this database file.
+
+        Yields the token :meth:`save` checks.  The lock is renewed every
+        ``ttl / 3`` seconds while held, so a slow transform keeps it; a process
+        that dies leaves a row another may take over after ``ttl``.  Waiting
+        longer than ``wait`` seconds for it raises :class:`VaultError`.
+        """
+        token = uuid.uuid4().hex
+        deadline = time.monotonic() + wait
+        while not await self._execute(
+            "INSERT INTO session_locks (session_id, token, expires_at) VALUES (?, ?, ?) "
+            "ON CONFLICT (session_id) DO UPDATE SET "
+            "token = excluded.token, expires_at = excluded.expires_at "
+            "WHERE session_locks.expires_at < ? RETURNING token",
+            (session_id, token, time.time() + ttl, time.time()),
+            commit=True,
+        ):
+            if time.monotonic() >= deadline:
+                raise VaultError(f"timed out waiting for the session lock: {session_id}")
+            await asyncio.sleep(0.05)
+
+        async def renew() -> None:
+            while True:
+                await asyncio.sleep(ttl / 3)
+                # A missed renewal is not fatal: save still checks the token.
+                with contextlib.suppress(VaultError):
+                    await self._execute(
+                        "UPDATE session_locks SET expires_at = ? "
+                        "WHERE session_id = ? AND token = ?",
+                        (time.time() + ttl, session_id, token),
+                        commit=True,
+                    )
+
+        renewer = asyncio.create_task(renew())
+        try:
+            yield token
+        finally:
+            renewer.cancel()
+            await asyncio.gather(renewer, return_exceptions=True)
+            with contextlib.suppress(VaultError):  # unreleased, it is taken over after ttl
+                await self._execute(
+                    "DELETE FROM session_locks WHERE session_id = ? AND token = ?",
+                    (session_id, token),
+                    commit=True,
+                )
 
     async def delete(self, session_id: str) -> None:
         await self._execute("DELETE FROM sessions WHERE session_id = ?", (session_id,), commit=True)

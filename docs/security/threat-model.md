@@ -52,7 +52,7 @@ Client ──► [Privyx] ──► Provider
 | Someone uses the proxy without permission, or names another caller's session | Privyx binds to `127.0.0.1` by default. Session ids it derives (`client`, `conversation`) are keyed on the caller's credential, and per-request ids are random. An explicit `x-privyx-session` header is trusted as sent. Beyond that, access control is the deployment's job; see [Deployment](../guide/deployment.md#who-can-reach-it). |
 | Traffic between a client and Privyx is read | Native TLS termination (`tls.certfile` and `tls.keyfile`, or `PRIVYX_SSL_*` / `PRIVYX_TLS_*`) or a TLS-terminating reverse proxy in front; see [Deployment](../guide/deployment.md#https). |
 | A token split across stream chunks reaches the client unrestored | The stream is restored with a hold-back scan, and property tests check that streamed output equals batch output for any chunking; see [Streaming](../architecture/streaming.md). |
-| Two values get the same token | Counters are issued under a per-session lock: within one process, and across instances sharing a Redis vault. With an anchor, the token is derived from the value instead. |
+| Two values get the same token | Counters are issued under a per-session lock: within one process, and across processes sharing a SQLite file or instances sharing a Redis vault. With an anchor, the token is derived from the value instead. |
 | Keys leak through process lists, shell history, or diagnostics | Keys come from the environment or a config file, never from a command-line flag. `privyx config --show` and the startup lines mask them. |
 | A plugin does harm | Plugins are opt-in and load from local paths you list, never from installed packages. A plugin cannot replace a built-in component. |
 
