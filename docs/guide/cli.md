@@ -261,9 +261,13 @@ privyx session prune --older-than 7d [--dry-run]
 | Command | Option | Description |
 |---|---|---|
 | `list` | | Sessions, most recently active first, with mapping counts. Never shows values. |
+| `show` | | The session's mappings, then its responses, tokens, prompt cache hit rate, and estimated cost, read from the audit trail. A session that is not in the vault shows only the latter. |
 | `show` | `--reveal` | Print original values in full. Without it they are masked. |
 | `prune` | `--older-than` | Required. Delete sessions idle at least this long: `30m`, `12h`, `7d`, `2w`. |
 | `prune` | `--dry-run` | List what would be deleted and delete nothing. |
+
+The cost is an estimate from built-in prices for Claude models; add other
+models, or correct a price, with [`audit.prices`](configuration.md#audit).
 
 ## `privyx inspect`
 

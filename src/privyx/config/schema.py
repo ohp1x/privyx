@@ -227,6 +227,15 @@ class ProxyConfig(BaseModel):
     directive: bool = False
 
 
+class ModelPrice(BaseModel):
+    """USD per million tokens; cache rates default to 0.1x and 1.25x of input."""
+
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+    cache_read: float | None = Field(default=None, ge=0)
+    cache_write: float | None = Field(default=None, ge=0)
+
+
 class AuditConfig(BaseModel):
     """PII-safe audit trail.
 
@@ -237,6 +246,8 @@ class AuditConfig(BaseModel):
 
     enabled: bool = True
     path: str = "~/.privyx/audit.log"
+    #: Model-id prefix -> USD per million tokens, for ``privyx session show``.
+    prices: dict[str, ModelPrice] = Field(default_factory=dict)
 
 
 class PluginsConfig(BaseModel):

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Audit:** `proxy.response` events record the token usage the upstream reported, and `privyx audit stats` shows tokens and the prompt cache hit rate
+- **CLI:** `privyx session show` shows a session's tokens, prompt cache hit rate, and estimated cost
 
 ### Fixed
 

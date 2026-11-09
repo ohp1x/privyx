@@ -35,6 +35,23 @@ _COUNTED = (
 _DETAILS = ("prompt_tokens_details", "input_tokens_details")
 _MODEL = re.compile(r"[\w.:/@-]{1,128}")
 
+#: Built-in prices in USD per million tokens: input, output, cache read, cache
+#: write (5-minute).  Matched by the longest model-id prefix; ``audit.prices``
+#: adds models or overrides these.  Estimates: check your provider's price list.
+PRICES: dict[str, tuple[float, float, float, float]] = {
+    "claude-fable-5-1": (10.0, 50.0, 0.25, 12.5),
+    "claude-opus-5-5": (4.0, 20.0, 0.20, 5.0),
+    "claude-opus-5": (5.0, 25.0, 0.50, 6.25),
+    "claude-opus-4-6": (5.0, 25.0, 0.50, 6.25),
+    "claude-opus-4-7": (5.0, 25.0, 0.50, 6.25),
+    "claude-opus-4-8": (5.0, 25.0, 0.50, 6.25),
+    "claude-sonnet-5": (2.0, 10.0, 0.20, 2.5),
+    "claude-sonnet-4": (3.0, 15.0, 0.30, 3.75),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125),
+    "claude-haiku-4-5": (1.0, 5.0, 0.10, 1.25),
+}
+
+
 def merge_usage(fields: dict[str, int], event: Any) -> str | None:
     """Fold the ``usage`` of one reply or stream event into ``fields``.
 
@@ -105,6 +122,41 @@ def cache_hit_rate(usage: Mapping[str, int]) -> float | None:
     """The share of input tokens read from the prompt cache, or ``None`` without input."""
     total = usage.get("input", 0) + usage.get("cache_read", 0) + usage.get("cache_write", 0)
     return usage.get("cache_read", 0) / total if total else None
+
+
+def cost(
+    model: str, usage: Mapping[str, int], prices: Mapping[str, Any] | None = None
+) -> float | None:
+    """Estimated USD cost of ``usage`` on ``model``, or ``None`` for an unknown model.
+
+    ``prices`` (``audit.prices``) are checked before :data:`PRICES`; each entry
+    has ``input`` and ``output``, and optionally ``cache_read`` (default a
+    tenth of input) and ``cache_write`` (default 1.25 times input).
+    """
+    rates = None
+    for table in (prices or {}, PRICES):
+        match = max((p for p in table if model.startswith(p)), key=len, default=None)
+        if match is not None:
+            rates = _rates(table[match])
+            break
+    if rates is None:
+        return None
+    keys = ("input", "output", "cache_read", "cache_write")
+    return sum(usage.get(k, 0) * rate for k, rate in zip(keys, rates, strict=True)) / 1e6
+
+
+def _rates(entry: Any) -> tuple[float, float, float, float]:
+    if isinstance(entry, tuple):
+        return entry
+    data = entry if isinstance(entry, Mapping) else entry.model_dump()
+    read = data.get("cache_read")
+    write = data.get("cache_write")
+    return (
+        data["input"],
+        data["output"],
+        data["input"] * 0.1 if read is None else read,
+        data["input"] * 1.25 if write is None else write,
+    )
 
 
 class UsageMeter:

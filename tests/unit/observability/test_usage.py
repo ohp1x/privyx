@@ -1,10 +1,11 @@
-"""Token usage: the three provider shapes and cache hit rate."""
+"""Token usage: the three provider shapes, cache hit rate, and cost."""
 
 from __future__ import annotations
 
 import pytest
 
-from privyx.observability.usage import UsageMeter, cache_hit_rate
+from privyx.config.schema import ModelPrice
+from privyx.observability.usage import UsageMeter, cache_hit_rate, cost
 
 
 def test_anthropic_stream_usage_keeps_the_last_running_count() -> None:
@@ -102,3 +103,14 @@ def test_real_model_ids_are_kept(model: str) -> None:
 def test_cache_hit_rate() -> None:
     assert cache_hit_rate({"input": 10, "cache_read": 90}) == pytest.approx(0.9)
     assert cache_hit_rate({"output": 5}) is None
+
+
+def test_cost_uses_the_longest_prefix_and_configured_prices_first() -> None:
+    usage = {"input": 1_000_000, "output": 1_000_000, "cache_read": 0, "cache_write": 0}
+    assert cost("claude-opus-5-5", usage) == pytest.approx(24.0)
+    assert cost("claude-opus-5", usage) == pytest.approx(30.0)
+    assert cost("unknown-model", usage) is None
+
+    prices = {"gpt-x": ModelPrice(input=1.0, output=2.0)}
+    cached = {"input": 0, "output": 0, "cache_read": 1_000_000, "cache_write": 1_000_000}
+    assert cost("gpt-x-mini", cached, prices) == pytest.approx(0.1 + 1.25)
