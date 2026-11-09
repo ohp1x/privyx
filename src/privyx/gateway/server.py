@@ -27,6 +27,7 @@ from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ProviderError, VaultError
 from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
+from privyx.observability.usage import UsageMeter
 from privyx.providers.base import Provider
 from privyx.proxy.http import HTTPProxy
 from privyx.proxy.schemas import has_token_ids
@@ -257,6 +258,8 @@ class Gateway:
                         return _relay_upstream_error(exc)
                     raise
                 result = JSONResponse(deanonymized, headers={"X-Privyx-Session": session_id})
+                meter = UsageMeter()
+                meter.feed_json(response)
                 restored_n = self._audit.flush_restore()
                 self._audit.response(
                     status=200,
@@ -266,6 +269,8 @@ class Gateway:
                     session_id=session_id,
                     request_id=req_id,
                     duration_ms=_elapsed_ms(start),
+                    usage=meter.usage,
+                    model=meter.model,
                 )
                 return result
             except VaultError as exc:
@@ -302,10 +307,12 @@ class Gateway:
         breaks mid-flight.
         """
         frames = 0
+        meter = UsageMeter()
         completed = aborted = False
         try:
             async for frame in source:
                 frames += 1
+                meter.feed_sse(frame)
                 yield frame
             completed = True
         except Exception as exc:
@@ -323,6 +330,7 @@ class Gateway:
             raise
         finally:
             if completed or aborted:
+                meter.close()
                 self._audit.response(
                     status=200,
                     stream=True,
@@ -332,6 +340,8 @@ class Gateway:
                     request_id=request_id,
                     duration_ms=_elapsed_ms(start),
                     aborted=aborted,
+                    usage=meter.usage,
+                    model=meter.model,
                 )
             self._end_session(ephemeral, request_id)
 

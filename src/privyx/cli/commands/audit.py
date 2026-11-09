@@ -11,6 +11,7 @@ import json
 import os
 import time
 from collections import Counter, deque
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -69,6 +70,8 @@ def stats(file: Path | None, config_path: str | None, since: int | None) -> None
         )
         click.echo(f"Masked:     {totals.entities.total()} entities")
         click.echo(f"Restored:   {totals.restored} pseudonyms")
+        if totals.tokens:
+            click.echo(f"Tokens:     {_tokens(totals.tokens)}")
         if totals.detector:
             counts = ", ".join(f"{k} {v}" for k, v in sorted(totals.detector.items()))
             click.echo(f"Detector:   {counts}")
@@ -151,6 +154,18 @@ def _value(value: Any) -> str:
     if isinstance(value, dict):  # entity_counts
         return ",".join(f"{k}:{v}" for k, v in value.items())
     return value if isinstance(value, str) else json.dumps(value)
+
+
+def _tokens(usage: Mapping[str, int]) -> str:
+    """Token counts in one line, with the prompt cache hit rate."""
+    from privyx.observability.usage import cache_hit_rate
+
+    text = (
+        f"input {usage.get('input', 0):,}, output {usage.get('output', 0):,}, "
+        f"cache read {usage.get('cache_read', 0):,}, cache write {usage.get('cache_write', 0):,}"
+    )
+    rate = cache_hit_rate(usage)
+    return text if rate is None else f"{text} (cache hit rate {rate:.0%})"
 
 
 def _breakdown(counts: Counter[str]) -> str:

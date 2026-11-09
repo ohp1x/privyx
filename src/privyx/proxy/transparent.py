@@ -44,6 +44,7 @@ from privyx.core.errors import LeakError, VaultError
 from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
+from privyx.observability.usage import UsageMeter
 from privyx.providers.generic import upstream_client
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import (
@@ -502,6 +503,7 @@ class TransparentProxy:
         frames = 0
         status = response.status_code
         restored = 0
+        meter = UsageMeter()
         completed = aborted = False
         try:
             adapter = build_stream_adapter(schema or "generic")
@@ -526,6 +528,7 @@ class TransparentProxy:
                 ),
             )
             async for raw in response.aiter_bytes():
+                meter.feed_sse(raw)
                 for out in router.feed(raw):
                     frames += 1
                     yield out
@@ -552,6 +555,7 @@ class TransparentProxy:
                 await response.aclose()
             finally:
                 if completed or aborted:
+                    meter.close()
                     self._audit.restore(session_id, transformations=restored, request_id=request_id)
                     self._audit.response(
                         status=status,
@@ -562,6 +566,8 @@ class TransparentProxy:
                         request_id=request_id,
                         duration_ms=_elapsed_ms(start),
                         aborted=aborted,
+                        usage=meter.usage,
+                        model=meter.model,
                     )
                 self._end_session(ephemeral, request_id)
 
@@ -657,13 +663,12 @@ class TransparentProxy:
     ) -> ProxyResponse:
         data = await response.aread()
         await response.aclose()
-        if schema != "embeddings":
-            payload = _loads(data)
-            if isinstance(payload, dict):
-                restored = await restore_response(
-                    payload, self._engine, session_id, session=ephemeral
-                )
-                data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
+        meter = UsageMeter()
+        payload = _loads(data)
+        meter.feed_json(payload)  # embeddings report usage too
+        if schema != "embeddings" and isinstance(payload, dict):
+            restored = await restore_response(payload, self._engine, session_id, session=ephemeral)
+            data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
         restored_n = self._audit.flush_restore()
         self._audit.response(
             status=response.status_code,
@@ -673,6 +678,8 @@ class TransparentProxy:
             session_id=session_id,
             request_id=request_id,
             duration_ms=_elapsed_ms(start),
+            usage=meter.usage,
+            model=meter.model,
         )
         return ProxyResponse(
             status_code=response.status_code,

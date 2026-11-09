@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Audit:** `proxy.response` events record the token usage the upstream reported, and `privyx audit stats` shows tokens and the prompt cache hit rate
+
 ### Fixed
 
 - **Proxy:** a streamed event whose CRLF line ending arrives split across two chunks is no longer cut into two events
