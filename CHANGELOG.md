@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI:** an agent profile's `privyx` section sets Privyx options, such as the detector or operator, for that profile only
 - **CLI:** an agent profile's `budget` (`max_turns`, `max_tokens`) stops a `privyx run` launch at its limit with a clear error and a `run.budget_exceeded` audit event
 - **CLI:** `privyx run --provider openai|anthropic` launches a command without a profile, setting the base-URL variables most tools read
+- **CLI:** built-in `opencode` and `grok` profiles for `privyx run`
 
 ### Changed
 
