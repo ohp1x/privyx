@@ -17,6 +17,7 @@ Usage::
     privyx doctor [--config FILE]
     privyx config [--show] [--path]
     privyx trust
+    privyx scan [PATH] [--yes] [--dry-run]
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from privyx.cli.commands.inspect import inspect
 from privyx.cli.commands.mask import mask, unmask
 from privyx.cli.commands.proxy import proxy
 from privyx.cli.commands.run import run
+from privyx.cli.commands.scan import scan
 from privyx.cli.commands.session import session
 from privyx.cli.commands.trust import trust
 
@@ -82,6 +84,7 @@ cli.add_command(audit)
 cli.add_command(doctor)
 cli.add_command(config_cmd, name="config")
 cli.add_command(trust)
+cli.add_command(scan)
 
 
 if __name__ == "__main__":

@@ -311,6 +311,50 @@ in `~/.privyx/trusted.json` for the file's path and content: run the command
 again after you change the file. While you are still editing one, pass it with
 `-c`, which needs no trust.
 
+## `privyx scan`
+
+Find the names and secrets a workspace should keep from the model, and add the
+ones you keep to `privyx.d/terms.yaml`.
+
+```bash
+privyx scan [PATH]          # list, ask what to leave out, then add the rest
+privyx scan --dry-run       # only list
+privyx scan --yes           # add everything found
+```
+
+| Option | Description |
+|---|---|
+| `-y`, `--yes` | Add everything found, without asking. |
+| `--dry-run` | List what was found and write nothing. |
+
+It reads, in `PATH` (default: the working directory):
+
+- the git history: each author and `Co-authored-by` name, as `PERSON` (bots left out);
+- the git remotes: the owner as `ORGANIZATION` and the repository as `PROJECT`, never the host or a credential in the URL;
+- `pyproject.toml`, `package.json`, `Cargo.toml`, and `go.mod`: the project name, and an npm scope as `ORGANIZATION`;
+- `.env` files, except those ending in `.example`, `.sample`, `.template`, or `.dist`: each key whose value is six characters or longer, neither a number nor a single word (`true`, `development`), and not already masked by the built-in detector, as a pattern `ENV_<KEY>` that masks the value assigned to that key (`KEY=…`, `KEY: …`, `"KEY": "…"`). The values themselves are never written.
+
+```console
+$ privyx scan
+Found in /home/ana/billing:
+    1  PERSON          Ana Example  (git history)
+    2  ORGANIZATION    acme-labs  (git remote origin, package.json)
+    3  PROJECT         billing  (git remote origin)
+    4  ENV_SENTRY_DSN  value of SENTRY_DSN  (.env)
+Numbers to leave out (e.g. 2,5), or Enter to keep all:
+Added 4 to /home/ana/billing/privyx.d/terms.yaml
+Created /home/ana/billing/privyx.yaml, which includes it
+```
+
+The file only grows: a later scan lists only what it does not hold yet, so a
+scan that finds nothing new changes nothing. What you left out is offered
+again. Without a `privyx.yaml`, the scan creates one that includes the file and
+trusts it, since it wrote both. An existing `privyx.yaml` is not changed: add
+`privyx.d/terms.yaml` to its `include` list. It stays trusted when it was
+trusted before; otherwise run `privyx trust` after reviewing it. A `detector`
+given as a list in `privyx.yaml` replaces the terms it includes; move them into
+the list.
+
 ## `privyx doctor`
 
 Build every configured component and push a request through it: plugins,
