@@ -38,6 +38,13 @@ def pi_args(base_url: str, argv: list[str]) -> list[str]:
     return ["-e", str(Path(__file__).with_name("pi_extension.js")), *argv]
 
 
+#: For a command with no profile: the base-URL variables most tools read, by
+#: provider type, and the path the proxy URL ends in for them.
+FALLBACK_ENV: dict[str, tuple[tuple[str, ...], str]] = {
+    "openai": (("OPENAI_BASE_URL", "OPENAI_API_BASE"), "/v1"),
+    "anthropic": (("ANTHROPIC_BASE_URL",), ""),
+}
+
 ADAPTERS: dict[str, Callable[[str, list[str]], list[str]]] = {
     "claude": claude_args,
     "codex": codex_args,
