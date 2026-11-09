@@ -204,7 +204,7 @@ def load_config(
             config_file,
         )
     for config_file in config_files:
-        for file, data in _config_layers(config_file):
+        for file, data in _config_layers(config_file, warn=True):
             apply(data, str(file.resolve()))
 
     apply(env_config(), "environment")
@@ -350,11 +350,12 @@ def _section(annotation: Any) -> type[BaseModel] | None:
     return None
 
 
-def _config_layers(path: Path) -> list[tuple[Path, dict[str, Any]]]:
+def _config_layers(path: Path, *, warn: bool = False) -> list[tuple[Path, dict[str, Any]]]:
     """``path``'s included files, then ``path`` itself, each as read, low → high precedence.
 
     An included file cannot include others: one level keeps the merge order
-    plain to see, and leaves no include loop to detect.
+    plain to see, and leaves no include loop to detect.  With ``warn``, each
+    file that exposes a credential is reported (:func:`_warn_exposed`).
     """
     data = _read_yaml(path)
     layers = []
@@ -362,10 +363,49 @@ def _config_layers(path: Path) -> list[tuple[Path, dict[str, Any]]]:
         included = _read_yaml(file)
         if "include" in included:
             raise ConfigError(f"{file} is included by {path}, so it cannot include files itself")
+        if warn:
+            _warn_exposed(file, included)
         layers.append((file, _interpolate(included, file)))
     data.pop("include", None)
+    if warn:
+        _warn_exposed(path, data)
     layers.append((path, _interpolate(data, path)))
     return layers
+
+
+#: An agent ``env`` name that holds a credential.
+_CREDENTIAL = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTH|CREDENTIAL", re.IGNORECASE)
+
+
+def _warn_exposed(path: Path, data: dict[str, Any]) -> None:
+    """Warn when other users can read a credential written in ``path``, as ssh does for a key.
+
+    A credential is an agent ``env`` value under a name such as ``*_TOKEN``,
+    written as is rather than as a ``${NAME}`` reference.  Only names are
+    reported, never values.
+    """
+    if os.name == "nt":
+        return  # no POSIX mode bits to go by
+    agents = data.get("agents")
+    names = [
+        f"agents.{agent}.env.{key}"
+        for agent, profile in (agents.items() if isinstance(agents, dict) else [])
+        if isinstance(profile, dict) and isinstance(profile.get("env"), dict)
+        for key, value in profile["env"].items()
+        if _CREDENTIAL.search(str(key)) and isinstance(value, str) and value and "${" not in value
+    ]
+    try:
+        exposed = names and path.stat().st_mode & 0o044
+    except OSError:
+        return
+    if exposed:
+        _log.warning(
+            "%s holds %s and other users can read it; run `chmod 600 %s`, "
+            "or use env_from or ${NAME} instead",
+            path,
+            ", ".join(names),
+            path,
+        )
 
 
 def _included(path: Path, data: dict[str, Any]) -> list[Path]:
@@ -392,12 +432,47 @@ def _included(path: Path, data: dict[str, Any]) -> list[Path]:
     return files
 
 
+#: Duplicate keys already reported, so a file read twice warns once.
+_DUPLICATES_WARNED: set[tuple[str, int, str]] = set()
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):  # type: ignore[misc]
+    """A safe loader that warns about a key given twice in one mapping.
+
+    PyYAML keeps the last one without a word, so an agent profile written
+    twice silently loses its first definition.  The last one still wins, as
+    before; only the key and its line are reported, never a value.
+    """
+
+    def construct_mapping(self, node: Any, deep: bool = False) -> Any:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue  # `<<` may be overridden by design
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicate = key in seen
+            except TypeError:
+                continue  # unhashable: the base class reports it
+            mark = key_node.start_mark
+            where = (str(mark.name), mark.line + 1, str(key))
+            if duplicate and where not in _DUPLICATES_WARNED:
+                _DUPLICATES_WARNED.add(where)
+                _log.warning(
+                    "%s, line %d: key %r is given twice in one mapping; the last one is "
+                    "used, and a later release will refuse the file",
+                    *where,
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep)
+
+
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"config file not found: {path}")
     with path.open("r", encoding="utf-8") as fh:
         try:
-            data = yaml.safe_load(fh)
+            data = yaml.load(fh, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader
         except yaml.YAMLError as exc:
             raise ConfigError(f"config file is not valid YAML: {path}: {exc}") from exc
     if data is None:

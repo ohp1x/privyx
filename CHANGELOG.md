@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Proxy:** `proxy.directive` (off by default) tells the model to keep placeholders exactly as written
 
+### Changed
+
+- **Config:** a key given twice in one mapping of a config file gets a warning instead of the last one silently winning
+- **Config:** a credential written in an agent profile's `env` in a file other users can read gets a warning
+
 ### Fixed
 
 - **Proxy:** a placeholder the model wrote with one bracket missing or in another case is restored, when the session issued it

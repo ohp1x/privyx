@@ -71,7 +71,9 @@ anchor secret) just above the built-in ones, so your files and environment
 still override them.
 
 A config with a misspelled setting, an unknown type, an invalid regex, or a
-value of the wrong kind fails at startup, before any request is served. A
+value of the wrong kind fails at startup, before any request is served. A key
+given twice in one mapping gets a warning naming the key and its line; the last
+one is used, and a later release will refuse such a file. A
 section whose `type` names a plugin is the exception to the first: keys Privyx
 does not define there are the plugin's own options, and are passed to it.
 
@@ -248,6 +250,11 @@ Set `WORK_ANTHROPIC_TOKEN` in your shell or secret manager before running
 `privyx run --dry-run claude-work` or `privyx run claude-work`. The reference
 name is visible in the preview; its value is masked. `--list` and `config
 --show` do not resolve references, so unused profiles need no credentials.
+
+A credential written as is in a profile's `env` (a name such as
+`*_TOKEN`, `*_KEY`, or `*_SECRET`, with no `${NAME}` in its value) in a file
+that other users can read gets a warning, as ssh warns about a private key:
+`chmod 600` the file, or use `env_from` or `${NAME}`.
 
 A profile named `base:variant` is a variant of `base` when it sets no
 `extends` of its own and `base` is itself a profile: it inherits as if it
