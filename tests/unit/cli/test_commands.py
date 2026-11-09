@@ -585,6 +585,41 @@ def test_run_unknown_target_without_env_var_is_a_usage_error(runner: CliRunner) 
     assert result.exit_code != 0
     assert "no agent profile 'some-tool'" in result.output
     assert "--env-var" in result.output
+    assert "--provider openai or anthropic" in result.output
+
+
+@pytest.mark.parametrize(
+    ("provider", "injected"),
+    [
+        (
+            "openai",
+            [
+                "OPENAI_API_BASE=http://127.0.0.1:<auto>/v1 [unknown command, provider openai]",
+                "OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [unknown command, provider openai]",
+            ],
+        ),
+        (
+            "anthropic",
+            ["ANTHROPIC_BASE_URL=http://127.0.0.1:<auto> [unknown command, provider anthropic]"],
+        ),
+    ],
+)
+def test_run_unknown_target_gets_the_usual_variables_of_its_provider(
+    runner: CliRunner, provider: str, injected: list[str]
+) -> None:
+    result = runner.invoke(cli, ["run", "--dry-run", "-p", provider, "some-tool"])
+
+    assert result.exit_code == 0, result.output
+    env = result.output.split("Environment injected:\n")[1].splitlines()
+    assert [line.strip() for line in env] == injected
+
+
+def test_run_unknown_target_with_env_var_gets_only_that_variable(runner: CliRunner) -> None:
+    result = runner.invoke(cli, ["run", "--dry-run", "-p", "openai", "--env-var", "X", "some-tool"])
+
+    assert result.exit_code == 0, result.output
+    env = result.output.split("Environment injected:\n")[1].splitlines()
+    assert [line.strip() for line in env] == ["X=http://127.0.0.1:<auto> [CLI]"]
 
 
 def test_run_unknown_target_suggests_a_near_profile(runner: CliRunner) -> None:

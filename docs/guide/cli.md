@@ -73,6 +73,7 @@ this in VS Code's user or workspace settings:
 privyx run [OPTIONS] TARGET [ARGS]...
 privyx run claude
 privyx run claude -- --continue      # arguments after -- go to the tool
+privyx run -p openai my-tool         # OPENAI_BASE_URL and OPENAI_API_BASE
 privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --flag
 ```
 
@@ -134,8 +135,14 @@ neither a number nor a single word (`true`, `development`); files ending in
 as `ENV_<KEY>`. A repository named for a common word (`api`) masks that word
 too: `privyx scan` lets you review the list first.
 
-Any other command runs too, given `--env-var` so Privyx knows how to point it
-at the proxy. The variable gets the proxy's URL with no path.
+Any other command runs too. With `--provider openai`, Privyx sets the
+variables most OpenAI clients read, `OPENAI_BASE_URL` and `OPENAI_API_BASE`, to
+the proxy's URL ending in `/v1`; with `--provider anthropic`, it sets
+`ANTHROPIC_BASE_URL` to the proxy's URL. The provider can also come from
+`provider.type` in the config. For a tool that reads another variable, pass
+`--env-var` instead: that variable gets the proxy's URL with no path, and no
+other is set. If the tool ignores these variables, the warning that no request
+reached Privyx says so when it exits.
 
 You can also define [agent profiles](configuration.md#agents) in your config
 and use their names as `TARGET`. `--list` includes those profiles. Built-in

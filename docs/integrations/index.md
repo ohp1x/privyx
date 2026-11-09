@@ -23,7 +23,8 @@ Two base URLs cover most clients:
 | Codex | `privyx run codex` | [Coding agents](../tutorials/coding-agents.md) |
 | aider | `privyx run aider` | [Coding agents](../tutorials/coding-agents.md) |
 | pi | `privyx run pi` | [Coding agents](../tutorials/coding-agents.md) |
-| Any tool with a base-URL variable | `privyx run --env-var NAME -u URL -- tool` | [`privyx run`](../guide/cli.md#privyx-run) |
+| A tool or script on the OpenAI or Anthropic SDK | `privyx run -p openai -- tool` | [`privyx run`](../guide/cli.md#privyx-run) |
+| Any tool with another base-URL variable | `privyx run --env-var NAME -u URL -- tool` | [`privyx run`](../guide/cli.md#privyx-run) |
 
 ## SDKs and frameworks
 

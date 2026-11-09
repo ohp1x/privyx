@@ -36,6 +36,7 @@ from click.core import ParameterSource
 
 from privyx.cli.launch import (
     AUTO_ANCHOR,
+    FALLBACK_ENV,
     LaunchPlan,
     Target,
     build_launch_plan,
@@ -183,6 +184,11 @@ def run(
         else Target(command=target, provider=settings.provider.type, env_vars=())
     )
     spec = replace(spec, provider=settings.provider.type)
+    if not profile and not env_vars and spec.provider in FALLBACK_ENV:
+        # A tool Privyx has no profile for: the variables most tools read.
+        names, base_path = FALLBACK_ENV[spec.provider]
+        spec = replace(spec, env_vars=names, base_path=base_path)
+        sources[f"agents.{target}.env_vars"] = f"unknown command, provider {spec.provider}"
     all_env_vars = tuple(spec.env_vars) + tuple(env_vars)
     if not all_env_vars and spec.args is None:
         import difflib
@@ -197,7 +203,8 @@ def run(
         hint = f" (did you mean {near[0]!r}?)" if near else ""
         raise click.UsageError(
             f"no agent profile {target!r}{hint}; define it under `agents` "
-            "or, to launch a tool directly, pass --env-var NAME "
+            "or, to launch a tool directly, pass --provider openai or anthropic "
+            "(sets the usual base-URL variables) or --env-var NAME "
             "(see `privyx run --list`)"
         )
 
