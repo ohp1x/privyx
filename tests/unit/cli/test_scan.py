@@ -1,4 +1,4 @@
-"""`privyx scan`: what a workspace tells, masked."""
+"""`privyx scan` and `privyx run --harvest`: what a workspace tells, masked."""
 
 from __future__ import annotations
 
@@ -183,6 +183,33 @@ def test_scan_keeps_a_trusted_config_trusted(runner: CliRunner, repo: Path) -> N
     assert load_config().port == 9001
 
 
+def test_harvest_masks_the_workspace_for_one_run(runner: CliRunner, repo: Path) -> None:
+    from privyx.cli.commands.run import _harvest
+
+    settings = load_config()
+    summary = _harvest(settings)
+
+    assert summary == "1 ORGANIZATION, 2 PERSON, 1 PROJECT, 3 .env value(s)"
+    assert isinstance(settings.detector, list)
+    detector = build_detector([d.model_dump() for d in settings.detector])
+    text = f"Budi Contoh pasted {DSN} and acme-portal"
+    spans = asyncio.run(detector.detect(text, Context())).merged(text).spans
+    assert {s.text for s in spans} >= {"Budi Contoh", DSN, "acme-portal"}
+    assert not (repo / "privyx.d").exists()
+
+
+def test_harvest_is_opt_in_and_shows_no_value(runner: CliRunner, repo: Path) -> None:
+    plain = runner.invoke(cli, ["run", "--dry-run", "claude"])
+    assert "Harvest" not in plain.output
+
+    result = runner.invoke(cli, ["run", "--harvest", "--dry-run", "claude"])
+
+    assert result.exit_code == 0, result.output
+    assert "Harvest: 1 ORGANIZATION, 2 PERSON, 1 PROJECT, 3 .env value(s)" in result.output
+    for value in (DSN, STRIPE, "acme-portal", "Budi Contoh"):
+        assert value not in result.output
+
+
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
@@ -237,3 +264,35 @@ def test_env_values_decode_escapes_in_quotes(tmp_path: Path, line: str, value: s
     (tmp_path / ".env").write_text(line + "\n", encoding="utf-8")
 
     assert workspace.env_values(tmp_path) == [("CUSTOM_VALUE", value, ".env")]
+
+
+def test_harvest_masks_a_value_with_an_escaped_quote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from privyx.cli.commands.run import _harvest
+
+    (tmp_path / ".env").write_text('CUSTOM_VALUE="abc-123\\"tail-456" # x\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    settings = load_config()
+    _harvest(settings)
+
+    detector = build_detector([d.model_dump() for d in settings.detector])  # type: ignore[union-attr]
+    text = 'it is abc-123"tail-456 here'
+    spans = asyncio.run(detector.detect(text, Context())).merged(text).spans
+    assert [s.text for s in spans] == ['abc-123"tail-456']
+
+
+def test_harvest_masks_a_value_with_an_unknown_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from privyx.cli.commands.run import _harvest
+
+    (tmp_path / ".env").write_text('CUSTOM_VALUE="abc\\q-123456"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    settings = load_config()
+    _harvest(settings)
+
+    detector = build_detector([d.model_dump() for d in settings.detector])  # type: ignore[union-attr]
+    text = "it is abc\\q-123456 here"
+    spans = asyncio.run(detector.detect(text, Context())).merged(text).spans
+    assert [s.text for s in spans] == ["abc\\q-123456"]

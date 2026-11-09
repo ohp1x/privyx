@@ -384,6 +384,9 @@ class Settings(BaseModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     tls: TLSConfig = Field(default_factory=TLSConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=_default_agents)
+    #: ``privyx run``: also mask the workspace's git authors, remote owners and
+    #: names, and ``.env`` values, read at launch and kept in memory only.
+    harvest: bool = False
 
     @property
     def is_tls(self) -> bool:

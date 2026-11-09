@@ -84,6 +84,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
 | `--no-anchor` | Do not create an anchor secret in `~/.privyx/anchor.key`. |
+| `--harvest` / `--no-harvest` | Also mask what the working directory tells: the authors of its last 1000 commits, the owner and name of each git remote, and the values in its `.env` files. Read at launch and kept in memory, never written. Default: the `harvest` setting, off. |
 | `--list` | List the known targets and exit. |
 | `--dry-run` | Print the launch plan and winning configuration sources, then exit. Opens no port, starts no tool, imports no plugins, and creates no log, vault, or anchor file. Works even if the executable is not installed. |
 
@@ -125,6 +126,13 @@ own upstream. If the tool exits without having sent Privyx a single request,
 `privyx run` warns and records a
 [`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
 tool that calls its provider directly is not masked.
+
+With `--harvest`, the launch prints how many values of each kind it masks, never
+the values. A `.env` value is masked when it is six characters or longer and is
+neither a number nor a single word (`true`, `development`); files ending in
+`.example`, `.sample`, `.template`, or `.dist` are skipped. Each value is masked
+as `ENV_<KEY>`. A repository named for a common word (`api`) masks that word
+too: `privyx scan` lets you review the list first.
 
 Any other command runs too, given `--env-var` so Privyx knows how to point it
 at the proxy. The variable gets the proxy's URL with no path.
@@ -332,7 +340,7 @@ It reads, in `PATH` (default: the working directory):
 - the git history: each author and `Co-authored-by` name, as `PERSON` (bots left out);
 - the git remotes: the owner as `ORGANIZATION` and the repository as `PROJECT`, never the host or a credential in the URL;
 - `pyproject.toml`, `package.json`, `Cargo.toml`, and `go.mod`: the project name, and an npm scope as `ORGANIZATION`;
-- `.env` files, except those ending in `.example`, `.sample`, `.template`, or `.dist`: each key whose value is six characters or longer, neither a number nor a single word (`true`, `development`), and not already masked by the built-in detector, as a pattern `ENV_<KEY>` that masks the value assigned to that key (`KEY=…`, `KEY: …`, `"KEY": "…"`). The values themselves are never written.
+- `.env` files: each key whose value is worth masking (as in `privyx run --harvest`) and is not already masked by the built-in detector, as a pattern `ENV_<KEY>` that masks the value assigned to that key (`KEY=…`, `KEY: …`, `"KEY": "…"`). The values themselves are never written.
 
 ```console
 $ privyx scan

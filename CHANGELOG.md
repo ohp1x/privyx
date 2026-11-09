@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **CLI:** `privyx scan` finds the git authors, remote owners and names, package names, and `.env` keys of a workspace and adds the ones you keep to `privyx.d/terms.yaml`; `.env` values are never written
+- **CLI:** `privyx run --harvest` (or `harvest: true`) also masks the working directory's git authors, remotes, and `.env` values for that run, kept in memory only
 
 ## [0.1.27] - 2026-11-09
 

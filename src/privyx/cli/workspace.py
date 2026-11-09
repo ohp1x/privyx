@@ -1,7 +1,8 @@
 """What a workspace tells about its people, owners, and secrets.
 
-``privyx scan`` writes what it finds to a config file, after asking.  It reads
-the git history and remotes, the package manifests, and ``.env`` files.
+``privyx scan`` writes what it finds to a config file, after asking;
+``privyx run --harvest`` masks it for one run, in memory.  Both read the same
+places: the git history and remotes, the package manifests, and ``.env`` files.
 """
 
 from __future__ import annotations
@@ -13,6 +14,10 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
+
+#: Commits ``privyx run --harvest`` reads authors from, so a long history does
+#: not slow every launch.  ``privyx scan`` reads them all.
+HARVEST_COMMITS = 1000
 
 _ASSIGNMENT = re.compile(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)")
 _DOUBLE = re.compile(r'"((?:\\.|[^"\\])*)"')

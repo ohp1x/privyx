@@ -862,6 +862,19 @@
       "title": "Agents",
       "type": "object"
     },
+    "harvest": {
+      "title": "Harvest",
+      "anyOf": [
+        {
+          "default": false,
+          "type": "boolean"
+        },
+        {
+          "type": "string",
+          "pattern": "\\$\\{"
+        }
+      ]
+    },
     "include": {
       "description": "Config files or globs to merge below this one, relative to it.",
       "anyOf": [
