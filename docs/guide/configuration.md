@@ -230,6 +230,7 @@ privyx run claude-work
 | `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Arguments are passed without a shell or interpolation. |
 | `env` | `{}` | Destination environment variable name → literal string value. Values must be strings: quote YAML booleans/numbers. Merged by name over the shell environment; values are masked in previews and config dumps. |
 | `env_from` | `{}` | Destination environment variable name → source variable name in the parent shell. Resolve only for the selected launch; a missing source fails before any resource opens. An existing empty source value is allowed. Values are never expanded from profile `env`. |
+| `privyx` | `{}` | Privyx settings for this profile only, such as `detector` or `operator`. Checked like a config file. See [Settings per profile](#settings-per-profile). |
 
 Use inheritance to avoid copying a preset and reference credentials already
 present in your shell:
@@ -286,6 +287,24 @@ Child process environment precedence is shell → profile literals/references
 → injected proxy URLs. Privyx's URL wins even if a profile also defines that
 destination. Custom `PATH` is used to locate the executable. Profile values
 are not exported into Privyx's own process.
+
+#### Settings per profile
+
+`privyx` holds Privyx settings for one profile: another detector, operator,
+or policy for one agent, say. They take the place of the same settings in
+config files and the environment, and command-line flags still win. Unknown
+keys are rejected, as in a config file, for every profile, selected or not.
+Maps merge with a parent's, as in `extends`.
+
+```yaml
+agents:
+  claude:strict:
+    privyx:
+      detector: [{type: regex}, {type: presidio}]
+      policy: {type: strict}
+```
+
+A profile without `privyx` behaves as before. `agents` cannot be set in it.
 
 For a wrapper whose filename differs from the agent's, keep the adapter
 explicit. For example, a profile with `extends: claude` and
