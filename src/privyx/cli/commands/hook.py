@@ -169,16 +169,15 @@ def _report(found: list[str]) -> None:
 
 def _git(*args: str) -> str:
     try:
+        # Bytes, decoded here: text mode would also split lines at a lone
+        # carriage return, and what follows one in an added line would lose
+        # its `+` and go unchecked.
         result = subprocess.run(
-            ["git", "-c", "core.quotePath=false", *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
+            ["git", "-c", "core.quotePath=false", *args], capture_output=True, check=False
         )
     except OSError as exc:
         raise click.ClickException(f"cannot run git: {exc.strerror or exc}") from exc
     if result.returncode != 0:
-        raise click.ClickException(result.stderr.strip() or f"git {args[0]} failed")
-    return result.stdout
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        raise click.ClickException(stderr or f"git {args[0]} failed")
+    return result.stdout.decode("utf-8", errors="replace")
