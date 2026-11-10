@@ -12,6 +12,7 @@ Usage::
     privyx unmask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
     privyx pipe [--session ID] [--restore]
     privyx mcp wrap [--session ID] -- COMMAND...
+    privyx mcp serve [--config FILE] [--root DIR]
     privyx session list|show|prune
     privyx inspect routes|regex|token
     privyx inspect session <session_id>   (alias of `session show`)

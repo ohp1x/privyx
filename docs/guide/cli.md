@@ -313,6 +313,50 @@ too. To use both, give `privyx mcp wrap` a config with its own
 `token.namespace` (for example `MCP`), so the proxy never restores one of its
 tokens from the proxy's own session.
 
+## `privyx mcp serve`
+
+Run a local MCP server over standard input and output. Add it to the client's
+config:
+
+```json
+{
+  "mcpServers": {
+    "privyx": {
+      "command": "privyx",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+Options after `serve`: `--config FILE` selects a configuration, and
+`--root DIR` the directory the file tool may use (default: the directory the
+client starts the server in, which for a desktop client may not be your
+project, so set it).
+
+| Tool | Description |
+|---|---|
+| `privyx_scan` | Detect sensitive spans in `text` with the configured detector and policy, optionally limited to `categories` (entity types such as `EMAIL`, case-insensitive). Returns offsets (in Unicode code points) and entity types, without the detected values. With `categories`, `filtered_out` counts the findings of other types. |
+| `privyx_sanitize_file` | Mask a regular UTF-8 file at `path` using the configured detector, policy, and operator. Returns the masked text, or writes it to a new `output_path`. |
+| `privyx_precommit_check` | Check added lines in `git_diff`, a unified diff (a merge's combined diff and colored output too), for credentials and placeholders. Added lines no file header names are reported under `(unknown)`. Reports findings but does not install a hook or block a commit. |
+
+`path` and `output_path` are resolved against the root, and a path outside it,
+symbolic links followed, is refused: the tool can only read what is under the
+root, and what it returns is masked but still the file's content. For file
+sanitization, `format` can be `auto`, `text`, `json`, or `jsonl`. Existing
+output files are never overwritten. JSON masking follows the same string-leaf
+rules as `privyx mask`. With a persistent vault, the result includes a
+`session_id` for `privyx unmask --session` with the same configuration. With
+the default memory vault, the mapping is dropped after the call and the result
+includes a warning instead. Review the output before sharing it: detection and
+policy configuration determine what is masked.
+
+A failed call names the problem (file not found, output exists, path outside
+the root, ...). When the cause could quote file content, the client is only
+told that the call failed, and the server logs the error type to standard
+error. Configuration is loaded once, when the server starts: a broken config
+stops it there with an error.
+
 ## `privyx session`
 
 List, show, and delete vault sessions. These need a `sqlite` or `redis` vault;

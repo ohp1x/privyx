@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from privyx.cli.commands.mask import _dumps
+from privyx.cli.commands.mcp_serve import serve
 from privyx.cli.commands.pipe import _drop_stdout
 
 if TYPE_CHECKING:
@@ -66,6 +67,9 @@ _READ_AHEAD = 64
 @click.group()
 def mcp() -> None:
     """Use Privyx with MCP servers (stdio)."""
+
+
+mcp.add_command(serve)
 
 
 @mcp.command(context_settings={"ignore_unknown_options": True, "allow_interspersed_args": False})
