@@ -224,6 +224,7 @@ class PrivacyEngine:
         metadata: dict[str, Any] | None = None,
         *,
         persist: bool = True,
+        detection: Detection | None = None,
     ) -> TransformResult:
         """Pseudonymize sensitive spans in ``text``.
 
@@ -234,6 +235,9 @@ class PrivacyEngine:
             metadata: Free-form metadata attached to the context.
             persist: Save the session afterwards.  False inside
                 :meth:`session_scope`, which saves once for the whole batch.
+            detection: The spans to replace, already decided by the policy,
+                instead of detecting them in ``text``: found with context
+                ``text`` lacks, such as the key of a JSON value.
 
         Returns:
             A :class:`TransformResult` with the pseudonymized text.
@@ -242,8 +246,9 @@ class PrivacyEngine:
             session = await self.get_or_create_session(session_id)
         context = Context(session_id=session.session_id, vault=self._vault, metadata=metadata or {})
 
-        detection = await self._detector.detect(text, context)
-        detection = await self._policy.decide(detection, context)
+        if detection is None:
+            detection = await self._detector.detect(text, context)
+            detection = await self._policy.decide(detection, context)
         result = await self._operator.pseudonymize(text, detection, session, context)
         if persist:
             # Every turn counts as activity, not only turns that add a mapping,
