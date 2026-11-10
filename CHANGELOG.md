@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Vault:** concurrent SQLite session batches preserve each writer's token mappings
 - **Vault:** processes that open a new SQLite vault at the same time no longer fail with "database is locked"
 - **Docker:** the image build retries the spaCy model download instead of failing on a temporary GitHub error
+- **Hook:** the pre-commit hook checks the text after a lone carriage return in an added line, which it used to let through unchecked
 
 ## [0.1.30] - 2026-11-09
 

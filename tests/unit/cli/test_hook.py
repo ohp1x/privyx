@@ -90,6 +90,15 @@ def test_pre_commit_blocks_a_key_and_a_placeholder_by_line(runner: CliRunner, re
     assert KEY not in result.output
 
 
+def test_pre_commit_checks_text_after_a_lone_carriage_return(runner: CliRunner, repo: Path) -> None:
+    _stage(repo, "app.py", f'x = 1\rkey = "{KEY}"\n')
+
+    result = runner.invoke(cli, ["hook", "pre-commit"])
+
+    assert result.exit_code == 1
+    assert "app.py:1  API_KEY" in result.output
+
+
 def test_pre_commit_passes_personal_data_and_removed_lines(runner: CliRunner, repo: Path) -> None:
     _stage(repo, "old.py", f'key = "{KEY}"\n')
     _git(repo, "commit", "-q", "--no-verify", "-m", "old")
