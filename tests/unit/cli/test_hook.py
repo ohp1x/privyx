@@ -199,3 +199,13 @@ def test_pre_commit_checks_a_file_git_marks_as_binary(runner: CliRunner, repo: P
 
     assert result.exit_code == 1
     assert "app.cfg:2  API_KEY" in result.output
+
+
+def test_added_lines_keep_header_shaped_content_when_the_count_matches() -> None:
+    # A removed `-- note` and an added `++ x` at the end of a hunk, then the
+    # next hunk: content, not a header naming file `x`.
+    diff = (
+        "diff --git a/q.sql b/q.sql\n--- a/q.sql\n+++ b/q.sql\n"
+        "@@ -1 +1 @@\n--- note\n+++ x\n@@ -5,0 +6 @@\n+select 1;\n"
+    )
+    assert _added_lines(diff) == {"q.sql": [(1, "++ x"), (6, "select 1;")]}
