@@ -11,6 +11,7 @@ Usage::
     privyx mask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
     privyx unmask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
     privyx pipe [--session ID] [--restore]
+    privyx mcp wrap [--session ID] -- COMMAND...
     privyx session list|show|prune
     privyx inspect routes|regex|token
     privyx inspect session <session_id>   (alias of `session show`)
@@ -39,6 +40,7 @@ from privyx.cli.commands.doctor import doctor
 from privyx.cli.commands.hook import hook, install_hook
 from privyx.cli.commands.inspect import inspect
 from privyx.cli.commands.mask import mask, unmask
+from privyx.cli.commands.mcp import mcp
 from privyx.cli.commands.pipe import pipe
 from privyx.cli.commands.proxy import proxy
 from privyx.cli.commands.run import run
@@ -84,6 +86,7 @@ cli.add_command(detect)
 cli.add_command(mask)
 cli.add_command(unmask)
 cli.add_command(pipe)
+cli.add_command(mcp)
 cli.add_command(inspect)
 cli.add_command(session)
 cli.add_command(audit)

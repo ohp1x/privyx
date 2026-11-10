@@ -265,6 +265,54 @@ your-tool | privyx pipe --session logs --restore
 Lines are masked one by one, so a value split across lines, such as a PEM
 private key, is not seen whole: use `privyx mask` for those.
 
+## `privyx mcp wrap`
+
+Run an MCP server that speaks over standard input and output, and mask what
+it sends to the client. Put `privyx mcp wrap --` in front of the server's
+command in the client's config:
+
+```json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "privyx",
+      "args": ["mcp", "wrap", "--", "npx", "-y", "some-postgres-mcp-server"]
+    }
+  }
+}
+```
+
+Or, for Claude Code: `claude mcp add postgres -- privyx mcp wrap -- npx -y
+some-postgres-mcp-server`.
+
+Tool results, notifications, and requests from the server are masked, so the
+model and the client only see tokens. That covers object keys and numbers (a
+masked number becomes its token, a string), and a value is also checked
+together with its key, so the value in `{"password": "..."}` is masked as a
+secret. Base64 payloads, an image's or audio's `data` and a resource's `blob`,
+are passed on unread, as the proxy does. Tokens in what the client sends, such
+as tool arguments, are restored first, so the server works on the real values.
+The server needs no change. Its standard error is passed through as it is.
+
+| Option | Description |
+|---|---|
+| `--session ID` | Keep the mapping in this vault session. Without it, a new session is created and its id printed to standard error. Any vault works, the default `memory` one included, since both directions run in one process. Stops with an error once the session is deleted or expires, so a token the client still holds is never restored from a new session. |
+
+A message that cannot be masked is never sent: the server is stopped and
+`privyx mcp wrap` exits with an error. That includes an object whose keys
+masking would make the same, as the `redact` operator does with two emails.
+Otherwise it exits with the server's exit code. When it stops the server, after
+a masking error or on SIGTERM, it sends SIGTERM to the server and every process
+the server started (such as the server `npx` runs), then SIGKILL to those still
+running a second later.
+
+Behind `privyx run` or the proxy, tool results are masked on their way to the
+model already. `privyx mcp wrap` is for clients that cannot use the proxy, such
+as Claude Desktop, and keeps the values out of the client's own transcripts
+too. To use both, give `privyx mcp wrap` a config with its own
+`token.namespace` (for example `MCP`), so the proxy never restores one of its
+tokens from the proxy's own session.
+
 ## `privyx session`
 
 List, show, and delete vault sessions. These need a `sqlite` or `redis` vault;

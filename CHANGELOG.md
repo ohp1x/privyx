@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **CLI:** `privyx pipe` masks or restores standard input line by line, writing each line as soon as it is read
+- **CLI:** `privyx mcp wrap -- <command>` runs a stdio MCP server, masking what it sends to the client and restoring tokens in what the client sends it
 
 ### Fixed
 
