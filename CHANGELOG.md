@@ -6,8 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** `privyx pipe` masks or restores standard input line by line, writing each line as soon as it is read
+
 ### Fixed
 
+- **Vault:** concurrent SQLite session batches preserve each writer's token mappings
+- **Vault:** processes that open a new SQLite vault at the same time no longer fail with "database is locked"
 - **Docker:** the image build retries the spaCy model download instead of failing on a temporary GitHub error
 
 ## [0.1.30] - 2026-11-09

@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from privyx.core.context import Context
-from privyx.core.errors import ConfigError, VaultError
+from privyx.core.errors import ConfigError, SessionNotFoundError, VaultError
 from privyx.core.result import Detection, TransformResult
 from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
@@ -168,7 +168,9 @@ class PrivacyEngine:
         )
 
     @asynccontextmanager
-    async def session_scope(self, session_id: str) -> AsyncIterator[Session]:
+    async def session_scope(
+        self, session_id: str, *, require_existing: bool = False
+    ) -> AsyncIterator[Session]:
         """Hold ``session_id`` for a batch of transforms: one vault read, one write.
 
         A request body has thousands of text leaves; reading and writing the
@@ -180,7 +182,19 @@ class PrivacyEngine:
         The lock keeps two requests of one session in this process from minting
         the same counter pseudonym for different values and overwriting each
         other's mapping on save.
+
+        ``require_existing`` raises :class:`SessionNotFoundError` when the
+        session is gone (deleted or expired) instead of creating it again.
         """
+
+        async def load() -> Session:
+            if not require_existing:
+                return await self.get_or_create_session(session_id)
+            session = await self._vault.get(session_id)
+            if session is None:
+                raise SessionNotFoundError(f"session not found: {session_id}")
+            return session
+
         # The in-process lock covers one process.  Replicas sharing a Redis vault
         # also take its lock, unless an anchor makes pseudonyms value-derived:
         # then two replicas mint the same token for a value anyway.
@@ -192,12 +206,12 @@ class PrivacyEngine:
         async with lock:
             if shared:
                 async with vault.lock(session_id) as token:
-                    session = await self.get_or_create_session(session_id)
+                    session = await load()
                     yield session
                     session.touch()
                     await vault.save(session, lock_token=token)
             else:
-                session = await self.get_or_create_session(session_id)
+                session = await load()
                 yield session
                 session.touch()
                 await vault.save(session)

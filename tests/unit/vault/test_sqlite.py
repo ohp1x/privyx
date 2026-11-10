@@ -126,3 +126,71 @@ async def test_an_existing_file_is_tightened_to_owner_only(tmp_path: Path) -> No
     await vault.close()
 
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+async def test_a_lock_is_waited_for_and_renewed(tmp_path: Path) -> None:
+    vault = SQLiteVault(str(tmp_path / "privyx.db"))
+    await vault.connect()
+    try:
+        async with vault.lock("s1", ttl=1):
+            await asyncio.sleep(1.2)  # past the 1 s ttl: only renewal keeps it
+            with pytest.raises(VaultError, match="timed out"):
+                async with vault.lock("s1", wait=0.1):
+                    pass
+        async with vault.lock("s1", wait=0.1):  # released
+            pass
+    finally:
+        await vault.close()
+
+
+async def test_an_expired_lock_is_taken_over(tmp_path: Path) -> None:
+    vault = SQLiteVault(str(tmp_path / "privyx.db"))
+    await vault.connect()
+    try:
+        await vault._execute(
+            "INSERT INTO session_locks VALUES ('s1', 'dead', 0)", commit=True
+        )  # left by a process that died
+        async with vault.lock("s1", wait=0.1):
+            pass
+    finally:
+        await vault.close()
+
+
+async def test_a_save_after_the_lock_was_taken_over_is_refused(tmp_path: Path) -> None:
+    vault = SQLiteVault(str(tmp_path / "privyx.db"))
+    await vault.connect()
+    try:
+        session = Session(session_id="s1")
+        session.put("<PRIVYX_EMAIL_1>", "ana@example.com")
+        await vault.create(session)
+        await vault._execute("INSERT INTO session_locks VALUES ('s1', 'other', 1e12)", commit=True)
+
+        session.put("<PRIVYX_EMAIL_1>", "bob@example.com")
+        with pytest.raises(VaultError, match="lock expired"):
+            await vault.save(session, lock_token="mine")
+        stored = await vault.get("s1")
+        assert stored is not None and stored.get("<PRIVYX_EMAIL_1>") == "ana@example.com"
+    finally:
+        await vault.close()
+
+
+async def test_opening_a_new_file_waits_for_another_process_switching_it_to_wal(
+    tmp_path: Path,
+) -> None:
+    """Processes that start together on a new file must not fail with "locked"."""
+    import sqlite3
+
+    path = tmp_path / "privyx.db"
+    other = sqlite3.connect(path, isolation_level=None)
+    other.execute("CREATE TABLE t (x)")  # a file still in rollback-journal mode
+    other.execute("BEGIN IMMEDIATE")  # writing, as a process creating the schema does
+    vault = SQLiteVault(str(path))
+    opening = asyncio.ensure_future(vault.connect())
+    await asyncio.sleep(0.3)
+    other.execute("COMMIT")
+    other.close()
+    await opening
+    try:
+        assert await vault._execute("PRAGMA journal_mode") == [("wal",)]
+    finally:
+        await vault.close()
