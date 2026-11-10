@@ -549,8 +549,9 @@ async def test_sanitize_saves_the_session_once(tmp_path):
 
 
 def test_a_response_too_deep_to_write_does_not_stop_the_server(monkeypatch):
+    # Deeper than any stack: from 3.14 the limit depends on the stack's size.
     deep: list = []
-    for _ in range(100_000):
+    for _ in range(1_000_000):
         deep = [deep]
 
     async def handle(message, *args):
