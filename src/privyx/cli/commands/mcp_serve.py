@@ -425,14 +425,14 @@ def _inside(root: Path, path: str) -> Path:
         resolved = (root / Path(path).expanduser()).resolve()
     except (OSError, RuntimeError, ValueError):  # a link loop before 3.13, a NUL byte
         raise _ToolError("invalid path") from None
+    if not resolved.is_relative_to(root):
+        raise _ToolError("path is outside the server's root")
     try:
         resolved.stat()
     except OSError as exc:
         # From 3.13 `resolve` keeps a link loop as it is instead of raising.
         if exc.errno == errno.ELOOP:
             raise _ToolError("invalid path") from None
-    if not resolved.is_relative_to(root):
-        raise _ToolError("path is outside the server's root")
     return resolved
 
 
