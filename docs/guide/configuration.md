@@ -370,8 +370,8 @@ Where requests go and which key they carry.
 
 | Key | Default | Description |
 |---|---|---|
-| `type` | `generic` | `generic`, `openai`, `anthropic`, or a plugin provider. Sets the default upstream and how the key is sent: `anthropic` sends it as `x-api-key` and adds `anthropic-version`. |
-| `base_url` | empty | Upstream endpoint. Empty uses the default for `type`: `http://localhost:20128` for `generic`, `https://api.openai.com/v1/chat/completions` for `openai`, `https://api.anthropic.com/v1/messages` for `anthropic`. |
+| `type` | `generic` | `generic`, `openai`, `anthropic`, `google`, or a plugin provider. Sets the default upstream and how the key is sent: `anthropic` sends it as `x-api-key` and adds `anthropic-version`, `google` sends it as `x-goog-api-key`. |
+| `base_url` | empty | Upstream endpoint. Empty uses the default for `type`: `http://localhost:20128` for `generic`, `https://api.openai.com/v1/chat/completions` for `openai`, `https://api.anthropic.com/v1/messages` for `anthropic`, `https://generativelanguage.googleapis.com/v1beta` for `google`. |
 | `api_key` | empty | Key Privyx sends upstream in place of the client's. |
 | `openai_api_key`, `anthropic_api_key`, `google_api_key` | empty | Per-type keys. The one matching `type` wins over `api_key`. |
 | `headers` | `{}` | Extra headers sent with every upstream request. |
@@ -392,9 +392,9 @@ environment.
 | Key | Default | Description |
 |---|---|---|
 | `mode` | `transparent` | `transparent` forwards every path to the upstream origin; `gateway` serves Privyx's own endpoints and posts to one fixed URL. Same as `--transparent` / `--gateway`. |
-| `routes` | fourteen paths | Path → wire schema (`openai`, `anthropic`, `responses`, `embeddings`) for the requests Privyx masks. A map given here replaces the default one. See [Routes](proxy.md#routes). |
+| `routes` | twenty-three paths | Path → wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`) for the requests Privyx masks; a `*` matches any characters except `/`. A map given here replaces the default one. See [Routes](proxy.md#routes). |
 | `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead; enabled by the `configs/strict.yaml` preset. `doctor` reports route coverage and warns on passthrough. |
-| `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` and `key` query parameter. `false` drops them so only the configured key is used. |
+| `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter. `false` drops them so only the configured key is used. |
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
 | `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
 | `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |

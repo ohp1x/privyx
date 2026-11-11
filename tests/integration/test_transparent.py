@@ -460,12 +460,14 @@ async def test_the_clients_query_key_is_dropped_with_its_headers(options: dict[s
     await proxy.handle(
         method="POST",
         path="v1beta/models/gemini-pro:generateContent",
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", "x-goog-api-key": "client-key"},
         body=b"{}",
         query_params=[("key", "client-key"), ("alt", "sse")],
     )
 
-    assert dict(capture[0].url.params) == {"alt": "sse"}
+    sent = capture[0]
+    assert dict(sent.url.params) == {"alt": "sse"}
+    assert sent.headers.get("x-goog-api-key") == options.get("api_key")
 
 
 class _BrokenDetector:

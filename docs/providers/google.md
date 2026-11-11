@@ -1,61 +1,89 @@
 # Google Gemini
 
-There is no native Gemini provider yet. `provider.type: google` is not
-registered (the gateway refuses to start with `unknown provider: google`), and Gemini's native
-`generateContent` / `streamGenerateContent` paths are not routed — a transparent
-proxy forwards them **verbatim**, so any PII in them reaches Google in the
-clear. A native route is planned for v0.2.0.
+Privyx masks Gemini's native API (`generateContent`, `streamGenerateContent`,
+and `countTokens`) in both proxy modes. Gemini's
+[OpenAI-compatible endpoint](#openai-compatible-endpoint) works too.
 
-Until then, use Gemini's [OpenAI-compatible endpoint](https://ai.google.dev/gemini-api/docs/openai)
-(`https://generativelanguage.googleapis.com/v1beta/openai/`). It speaks the
-`openai` wire schema, so chat messages, streaming deltas, and tool-call
-arguments are pseudonymized and restored exactly as described in
-[openai.md](openai.md).
+What a request has masked: the text of every turn, the system instruction,
+function call arguments and function responses, and tool descriptions. What a
+reply has restored: its text, streamed or not, thought summaries, and function
+call arguments. Left as sent: inline data and file URIs (not inspected, like
+any binary content), thought signatures, function names, and request settings
+such as `generationConfig`.
+
+## Transparent mode
+
+The default routes cover the native paths of every API version
+(`/v1beta/models/…`, `/v1/models/…`, `/v1alpha/models/…`) for any model,
+embeddings (`embedContent`, `batchEmbedContents`), tuned models, and the
+creation of cached contents included:
+
+```bash
+privyx proxy --upstream https://generativelanguage.googleapis.com
+```
+
+```python
+from google import genai
+
+client = genai.Client(
+    api_key="<your Gemini API key>",  # relayed upstream as x-goog-api-key
+    http_options={"base_url": "http://localhost:8000"},
+)
+
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents="My email is alice@example.com",
+)
+```
+
+The client keeps its own key. To have Privyx send one instead, set
+`provider.google_api_key` (`PRIVYX_GOOGLE_API_KEY`) with `provider.type: google`;
+it then replaces the client's on Gemini paths.
+
+A stream asked for with `alt=sse`, as the Google SDKs do, is restored event by
+event. Without `alt=sse`, Gemini sends the stream as one JSON array; Privyx
+reads it whole to restore it, so the client gets it at the end rather than as
+it is generated.
 
 ## Gateway mode
 
-The simplest setup: Privyx serves `/v1/chat/completions` and posts it to the
-Gemini endpoint.
+Privyx holds the key, and the client calls Privyx's own Gemini paths:
 
 ```yaml
 proxy:
   mode: gateway
   routes:
-    /v1/chat/completions: openai
+    /v1beta/models/*:generateContent: gemini
+    /v1beta/models/*:streamGenerateContent: gemini
+    /v1beta/models/*:countTokens: gemini
 provider:
-  type: generic
-  base_url: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+  type: google
 ```
 
 ```bash
-export PRIVYX_API_KEY=<your Gemini API key>
+export PRIVYX_GOOGLE_API_KEY=<your Gemini API key>
 privyx proxy -c privyx.yaml
 ```
 
-The gateway does not relay the client's key; Privyx sends its own, from
-`PRIVYX_API_KEY` (or `provider.api_key`). `provider.type: generic` matters here:
-with `openai`, an exported `PRIVYX_OPENAI_API_KEY` would take precedence and
-your OpenAI key would be sent to Google. The wire schema comes from `routes`,
-not from the provider type. Narrowing `routes` to the one chat path keeps
-Anthropic and Responses requests from being posted to Gemini.
-
-```python
-from openai import OpenAI
-
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="unused")
-
-response = client.chat.completions.create(
-    model="gemini-2.5-flash",
-    messages=[{"role": "user", "content": "My email is alice@example.com"}],
-)
+```text
+client  → http://localhost:8000/v1beta/models/gemini-2.5-flash:generateContent
+Privyx  → https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent  (masked)
 ```
 
-## Transparent mode
+Privyx posts to the path the client called, under `provider.base_url`. When
+that is an origin (the default, `https://generativelanguage.googleapis.com`),
+the client's API version is kept; when it has a path of its own, such as
+Vertex AI's `…/v1/projects/PROJECT/locations/LOCATION/publishers/google`, that
+path takes the place of the client's version. A URL that already ends in a
+model and method is cut back to the part before `/models/`. The gateway serves Gemini paths only with
+`provider.type: google`, and streams as SSE when the client asks for
+`alt=sse`.
 
-Use this when the client should keep its own key, or needs other Gemini paths
-(such as `/v1beta/openai/models`) to reach the upstream. The Gemini chat path is
-not in the default routes, so add it — **without the route it is forwarded
-verbatim**:
+## OpenAI-compatible endpoint
+
+Gemini also speaks the `openai` wire schema at
+`https://generativelanguage.googleapis.com/v1beta/openai/`. Its chat path is
+not in the default routes, so add it, **or it is forwarded verbatim**:
 
 ```yaml
 proxy:
@@ -64,14 +92,16 @@ proxy:
 ```
 
 `proxy.routes` replaces the default map rather than merging into it; list the
-default paths too if the same config also fronts OpenAI or Anthropic (see
-[Adding a route](../guide/proxy.md#adding-a-route)).
+default paths too if the same config also fronts the native API or other
+providers (see [Adding a route](../guide/proxy.md#adding-a-route)).
 
 ```bash
-privyx proxy --transparent -c privyx.yaml --upstream https://generativelanguage.googleapis.com
+privyx proxy -c privyx.yaml --upstream https://generativelanguage.googleapis.com
 ```
 
 ```python
+from openai import OpenAI
+
 client = OpenAI(
     base_url="http://localhost:8000/v1beta/openai/",
     api_key="<your Gemini API key>",  # relayed upstream as a bearer token
@@ -80,10 +110,19 @@ client = OpenAI(
 
 ## Not covered
 
-Forwarded verbatim in transparent mode (native endpoints still get their query
-values masked, except `key`) — keep PII out of them, or set
-`proxy.passthrough_unknown: false` to answer them (and every other unrouted
-path, including `/v1beta/openai/models`) with a 403 instead:
+Forwarded verbatim in transparent mode (their query values are still masked,
+except `key`). Keep PII out of them, or set `proxy.passthrough_unknown: false`
+to answer them, and every other unrouted path, with a 403:
 
-- `/v1beta/openai/embeddings`
-- native `/v1beta/models/{model}:generateContent` and `:streamGenerateContent`
+- `/v1beta/openai/embeddings`, unless you add a route
+- file uploads and batch jobs
+- Vertex AI paths (`/v1/projects/…/models/…:generateContent`): they use the
+  same format, so a route makes them masked:
+  `/v1/projects/*/locations/*/publishers/google/models/*:generateContent: gemini`
+- the Live API, a WebSocket, which is refused with `426`
+
+[`proxy.directive`](../guide/masking.md#placeholder-directive) goes last in
+`systemInstruction`. It is not added to a `countTokens` call's own `contents`,
+which take no instruction, nor to a request that uses a cached content, which
+Gemini refuses one beside; a cached content created through Privyx has it
+already.

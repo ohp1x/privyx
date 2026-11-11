@@ -14,6 +14,7 @@ from privyx.core.errors import ConfigError
 from privyx.plugins.registry import PLUGINS
 from privyx.providers.base import Provider
 from privyx.providers.generic import GenericProvider
+from privyx.providers.google import GoogleProvider
 
 ProviderFactory = Callable[[dict[str, Any]], Provider]
 
@@ -22,6 +23,7 @@ DEFAULT_BASE_URLS: dict[str, str] = {
     "generic": "http://localhost:20128",
     "openai": "https://api.openai.com/v1/chat/completions",
     "anthropic": "https://api.anthropic.com/v1/messages",
+    "google": "https://generativelanguage.googleapis.com",
 }
 
 #: The ``proxy`` settings a built-in provider's upstream client takes.
@@ -85,9 +87,18 @@ def default_registry() -> ProviderRegistry:
             **_client_options(config),
         )
 
+    def google_factory(config: dict[str, Any]) -> Provider:
+        return GoogleProvider(
+            base_url=config.get("base_url") or DEFAULT_BASE_URLS["google"],
+            api_key=config.get("api_key"),
+            headers=config.get("headers"),
+            **_client_options(config),
+        )
+
     registry.register("generic", generic_factory)
     registry.register("openai", openai_factory)
     registry.register("anthropic", anthropic_factory)
+    registry.register("google", google_factory)
     return registry
 
 

@@ -51,14 +51,14 @@ def inspect() -> None:
 def routes(config_path: str | None) -> None:
     """Show which request paths are masked, and with which wire schema."""
     from privyx.config.redact import redact
-    from privyx.gateway.server import _AUXILIARY_ROUTES
+    from privyx.gateway.server import served_routes
     from privyx.providers.registry import resolve_base_url
 
     settings = _load(config_path)
     proxy = settings.proxy
     table = proxy.routes
     if proxy.mode == "gateway":
-        table = {path: s for path, s in table.items() if path not in _AUXILIARY_ROUTES}
+        table = served_routes(table, google=settings.provider.type == "google")
     click.echo(f"Mode: {proxy.mode}  Upstream: {redact(resolve_base_url(settings), 'url')}")
     click.echo("")
     width = max(len("PATH"), *(len(path) for path in table)) if table else len("PATH")

@@ -82,7 +82,10 @@ Three things differ from transparent mode:
   exception: they post beside it, so `…/v1/chat/completions` sends them to
   `…/v1/embeddings` and `…/v1/completions`. The token-counting and compaction paths are
   never served in this mode: forwarding one to a chat endpoint would turn a
-  count into a billed completion.
+  count into a billed completion. Gemini paths are the other exception: with
+  `provider.type: google`, each one posts to the model and method it names
+  (see [Google Gemini](../providers/google.md#gateway-mode)), and with any
+  other provider they are not served.
 - Anything else, such as `GET /v1/models`, gets a `404`.
 
 Neither mode translates between wire schemas. An Anthropic client needs an
@@ -106,9 +109,16 @@ is masked only when its path is in this map. The default:
 | `/chat/completions`, `/completions` | `openai` | |
 | `/embeddings` | `embeddings` | |
 | `/responses`, `/responses/input_tokens`, `/responses/compact` | `responses` | |
+| `/*/models/*:generateContent`, `/*/models/*:streamGenerateContent` | `gemini` | Gemini API, any version (`v1beta`, `v1`, `v1alpha`) |
+| `/*/models/*:countTokens` | `gemini` | Gemini token counting |
+| `/*/models/*:embedContent`, `/*/models/*:batchEmbedContents` | `gemini` | Gemini embeddings |
+| the same three chat methods under `/*/tunedModels/*` | `gemini` | Gemini tuned models |
+| `/*/cachedContents` | `gemini` | Gemini context caching |
 
-The path is matched exactly, without its query string, so
-`/v1/messages?beta=true` matches too.
+The path is matched without its query string, so `/v1/messages?beta=true`
+matches too. A `*` matches any characters except `/`, such as the model name
+in a Gemini path. A route without a `*` wins over one with it; among those,
+the first listed wins.
 
 The last two rows are what an OpenAI client calls when its base URL lacks the
 `/v1` it expects (`OPENAI_BASE_URL=http://localhost:8000`). They are masked
@@ -159,7 +169,7 @@ client sent it. That keeps `GET /v1/models`, file uploads, and the rest of a
 provider's API working, and it means that **nothing in those requests is
 masked**. The common ones:
 
-- Gemini's native `generateContent`
+- Gemini's file uploads and batch jobs
 - batch and file uploads
 - reads of stored objects, such as `GET /v1/responses/{id}`
 
@@ -243,13 +253,14 @@ make Privyx reveal a value from another session.
 1. `provider.<type>_api_key` for the configured `provider.type`
    (`PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`);
 2. `provider.api_key` (`PRIVYX_API_KEY`);
-3. in transparent mode, the client's own `Authorization` or `x-api-key`
-   header, or `key` query parameter; in gateway mode, none.
+3. in transparent mode, the client's own `Authorization`, `x-api-key`, or
+   `x-goog-api-key` header, or `key` query parameter; in gateway mode, none.
 
 A key held by Privyx replaces the client's on every request. The transparent
-proxy sends it as `x-api-key` on Anthropic paths and as a bearer token
-elsewhere; the gateway sends it as `x-api-key` when `provider.type` is
-`anthropic`. `proxy.forward_client_auth: false` drops the client's credential
+proxy sends it as `x-api-key` on Anthropic paths, as `x-goog-api-key` on
+Gemini paths, and as a bearer token elsewhere; the gateway sends it as
+`x-api-key` when `provider.type` is `anthropic` and as `x-goog-api-key` when
+it is `google`. `proxy.forward_client_auth: false` drops the client's credential
 headers and key query parameters before anything else, so only a configured
 key can go upstream.
 

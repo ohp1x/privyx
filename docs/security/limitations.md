@@ -29,7 +29,7 @@ parts that carry conversation content.
 
 | Limit | What to do |
 |---|---|
-| A path without a [route](../guide/proxy.md#routes) is forwarded as the client sent it: batch and file uploads, Gemini's native API, reads of stored objects. | Set [`proxy.passthrough_unknown: false`](../guide/proxy.md#paths-without-a-route) to refuse those paths, or mask the data first with `privyx mask`. |
+| A path without a [route](../guide/proxy.md#routes) is forwarded as the client sent it: batch and file uploads, reads of stored objects. | Set [`proxy.passthrough_unknown: false`](../guide/proxy.md#paths-without-a-route) to refuse those paths, or mask the data first with `privyx mask`. |
 | Images, audio, PDFs, and other binary or base64 content are not inspected. | Do not rely on Privyx for files; extract and mask the text yourself. |
 | Request settings are left as sent: `model`, `metadata`, `user`, tool names, parameter names, `enum` values, and a `response_format` schema. | Keep sensitive values out of those fields. Tool and parameter descriptions are masked. |
 | URLs and ids inside messages are skipped: an image URL with a name in its query string goes out unchanged. | Put such values in the text of a message instead. |
@@ -79,8 +79,7 @@ Prefer `pseudonym` with an anchor secret when that matters.
 
 Privyx is in its `0.1.x` series. Defaults and internals can change between
 releases, and the [changelog](https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md)
-records each change. A native Gemini route is not implemented yet; see
-[Google Gemini](../providers/google.md).
+records each change.
 
 If you find a case where a detected value reaches the provider, or a token is
 restored wrongly, please report it privately; see the

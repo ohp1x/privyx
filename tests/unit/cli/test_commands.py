@@ -294,6 +294,20 @@ def test_inspect_routes_lists_the_configured_paths(runner: CliRunner, tmp_path: 
     assert "refused with 403" in result.output
 
 
+@pytest.mark.parametrize(("provider", "gemini"), [("generic", False), ("google", True)])
+def test_inspect_routes_shows_what_the_gateway_serves(
+    runner: CliRunner, tmp_path: Path, provider: str, gemini: bool
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(f"proxy:\n  mode: gateway\nprovider:\n  type: {provider}\n")
+
+    result = runner.invoke(cli, ["inspect", "routes", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert ("/*/models/*:generateContent" in result.output) is gemini
+    assert "/v1/messages/count_tokens" not in result.output
+
+
 def test_inspect_regex_by_entity_and_by_pattern(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
     config.write_text("detector:\n  patterns:\n    ORDER: 'ORD-(\\d+)+X'\n", encoding="utf-8")
@@ -599,7 +613,19 @@ def test_doctor_reports_gateway_auxiliary_gaps(runner: CliRunner, tmp_path: Path
     assert result.exit_code == 0
     assert "unlisted paths return 404" in result.output
     assert "WITHOUT body masking" not in result.output
-    assert "default paths outside coverage: /responses/compact" in result.output
+    assert "/responses/compact" in result.output.split("default paths outside coverage: ")[1]
+
+
+@pytest.mark.parametrize(("provider", "served"), [("generic", False), ("google", True)])
+def test_doctor_counts_gateway_gemini_routes_only_with_google(
+    runner: CliRunner, tmp_path: Path, provider: str, served: bool
+) -> None:
+    config = tmp_path / "routes.yaml"
+    config.write_text(f"proxy:\n  mode: gateway\nprovider:\n  type: {provider}\n")
+    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    assert result.exit_code == 0
+    covered = result.output.split("masking route(s): ")[1].split(";")[0]
+    assert ("/*/models/*:generateContent (gemini)" in covered) is served
 
 
 @pytest.mark.parametrize("mode", ["transparent", "gateway"])
@@ -609,7 +635,7 @@ def test_doctor_reports_a_replaced_route_map(runner: CliRunner, tmp_path: Path, 
     result = runner.invoke(cli, ["doctor", "-c", str(config)])
     assert result.exit_code == 0
     assert "1 masking route(s): /v1/messages (anthropic)" in result.output
-    assert "default paths outside coverage: /chat/completions" in result.output
+    assert "/chat/completions" in result.output.split("default paths outside coverage: ")[1]
 
 
 # --------------------------------------------------------------------------

@@ -193,8 +193,9 @@ proxy:
 ```
 
 It goes after Anthropic's `system`, after the leading system messages of a Chat
-Completions request, and first in a Responses `input` (in `instructions` when
-the request continues a stored response). The text is the same on every
+Completions request, first in a Responses `input` (in `instructions` when
+the request continues a stored response), and last in Gemini's
+`systemInstruction`. The text is the same on every
 request, so the provider's prompt cache keeps working; it adds about 80 tokens
 to each request. Off by default.
 

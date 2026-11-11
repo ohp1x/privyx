@@ -34,6 +34,9 @@ HOP_BY_HOP: frozenset[str] = frozenset(
 #: goes because the client receives the decoded (identity) bytes we transformed.
 _RESPONSE_DROP: frozenset[str] = HOP_BY_HOP | {"content-encoding"}
 
+#: The client's credential headers.
+_CLIENT_AUTH: frozenset[str] = frozenset({"authorization", "x-api-key", "x-goog-api-key"})
+
 #: Internal request headers that must not leak upstream.
 _REQUEST_DROP_EXTRA: frozenset[str] = frozenset({"accept-encoding", "x-privyx-session"})
 
@@ -54,7 +57,8 @@ def filter_request_headers(
             Used to pick the right credential header and stamp
             ``anthropic-version``.
         forward_client_auth: When false, the client's ``Authorization`` /
-            ``x-api-key`` are dropped (rely on the configured ``api_key``).
+            ``x-api-key`` / ``x-goog-api-key`` are dropped (rely on the
+            configured ``api_key``).
         api_key: When set, overrides the upstream credential with this key,
             using the header the target provider expects.
         extra: Static headers merged in last (e.g. configured provider headers).
@@ -67,7 +71,7 @@ def filter_request_headers(
         lower = key.lower()
         if lower in HOP_BY_HOP or lower in _REQUEST_DROP_EXTRA:
             continue
-        if not forward_client_auth and lower in ("authorization", "x-api-key"):
+        if not forward_client_auth and lower in _CLIENT_AUTH:
             continue
         out[lower] = value
 
@@ -78,6 +82,9 @@ def filter_request_headers(
     if api_key:
         if schema == "anthropic":
             out["x-api-key"] = api_key
+            out.pop("authorization", None)
+        elif schema == "gemini":
+            out["x-goog-api-key"] = api_key
             out.pop("authorization", None)
         else:
             out["authorization"] = f"Bearer {api_key}"

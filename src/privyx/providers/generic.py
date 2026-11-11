@@ -127,6 +127,10 @@ class GenericProvider(BaseProvider):
                 break
         return urlunsplit(parts._replace(path=f"{prefix}/{wanted}"))
 
+    def _stream_url(self, path: str | None) -> str:
+        """The URL a streamed request goes to: the same as a batch one here."""
+        return self._resolve_url(path)
+
     async def send(
         self, payload: Any, session_id: str | None = None, *, path: str | None = None
     ) -> Any:
@@ -155,7 +159,7 @@ class GenericProvider(BaseProvider):
         event ends.  Callers reassemble events with
         :class:`~privyx.streaming.sse.SSEDecoder`.
         """
-        url = self._resolve_url(path)
+        url = self._stream_url(path)
         try:
             async with self._client.stream(
                 "POST",

@@ -162,7 +162,7 @@ class ProviderConfig(PluggableConfig):
     non-empty default here would silently override every such fallback.
     """
 
-    builtin_types = frozenset({"generic", "openai", "anthropic"})
+    builtin_types = frozenset({"generic", "openai", "anthropic", "google"})
     type: str = "generic"
     base_url: str = ""
     api_key: str = ""
@@ -173,10 +173,17 @@ class ProviderConfig(PluggableConfig):
 
 
 def _default_routes() -> dict[str, str]:
-    # Unlisted paths (Gemini-native, files) are forwarded without
+    # Unlisted paths (files, batches) are forwarded without
     # pseudonymization; see docs/architecture/proxy.md.  The
     # paths without /v1 are what the OpenAI SDK calls when its base URL lacks
-    # the /v1 it expects.
+    # the /v1 it expects.  A `*` stands for the model in a Gemini path.
+    # The first `*` is the API version (v1, v1beta, v1alpha).
+    chat = ("generateContent", "streamGenerateContent", "countTokens")
+    gemini = {
+        **{f"/*/models/*:{m}": "gemini" for m in (*chat, "embedContent", "batchEmbedContents")},
+        **{f"/*/tunedModels/*:{m}": "gemini" for m in chat},
+        "/*/cachedContents": "gemini",
+    }
     return {
         "/v1/chat/completions": "openai",
         "/v1/completions": "openai",
@@ -192,6 +199,7 @@ def _default_routes() -> dict[str, str]:
         "/responses": "responses",
         "/responses/input_tokens": "responses",
         "/responses/compact": "responses",
+        **gemini,
     }
 
 

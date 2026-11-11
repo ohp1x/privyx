@@ -58,7 +58,12 @@ from privyx.proxy.schemas import (
     transform_request,
 )
 from privyx.proxy.session import resolve_session_id
-from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
+from privyx.proxy.stream_router import (
+    StreamRouter,
+    resolver_for,
+    restore_chunks,
+    select_processor_factory,
+)
 from privyx.proxy.streaming import AuditedStream
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.utils.ids import request_id as new_request_id
@@ -373,6 +378,7 @@ class TransparentProxy:
                         headers=upstream_headers,
                         params=out_params,
                         schema=schema,
+                        path="/" + path.lstrip("/"),
                     )
                 except VaultError as exc:
                     tracing.end(transform_span, error=exc)
@@ -781,11 +787,16 @@ class TransparentProxy:
         upstream_data = data
         payload = _loads(data)
         meter.feed_json(payload)  # embeddings report usage too
-        if schema != "embeddings" and isinstance(payload, dict):
+        chunks = schema == "gemini" and isinstance(payload, list)
+        if schema != "embeddings" and (isinstance(payload, dict) or chunks):
             try:
-                restored = await restore_response(
-                    payload, self._engine, session_id, session=ephemeral
-                )
+                restored: Any
+                if chunks:
+                    restored = await self._restore_chunks(payload, session_id, ephemeral)
+                else:
+                    restored = await restore_response(
+                        payload, self._engine, session_id, session=ephemeral, schema=schema
+                    )
             except BaseException as exc:  # the vault failed: answered with 503
                 tracing.end(restore_span, error=exc)
                 raise
@@ -820,6 +831,23 @@ class TransparentProxy:
             media_type=content_type or None,
             body=data,
         )
+
+    async def _restore_chunks(
+        self, chunks: list[Any], session_id: str, ephemeral: Session | None
+    ) -> list[Any]:
+        """Restore a Gemini stream sent as one JSON array, counted in the audit.
+
+        The array is read whole first: the client gets it at the end, not as it
+        is generated.
+        """
+        stored = ephemeral or await self._engine.vault.get(session_id)
+        if stored is None:
+            return chunks
+        restored, count = restore_chunks(
+            chunks, self._engine.operator, self._engine.codec, stored.mapping
+        )
+        self._audit.restore(session_id, transformations=count)
+        return restored
 
 
 def upstream_failure(exc: BaseException) -> tuple[int, dict[str, str], dict[str, Any]]:

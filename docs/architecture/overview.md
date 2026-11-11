@@ -63,7 +63,7 @@ see [How it works](../guide/how-it-works.md).
 | `privacy/` | Detectors, policies, operators, anchors, transforms |
 | `streaming/` | Deanonymizer, recognizer, trie, buffer, SSE adapters |
 | `vault/` | Memory, SQLite, Redis session storage |
-| `providers/` | Generic, OpenAI, Anthropic transports (Google is a placeholder) |
+| `providers/` | Generic, OpenAI, Anthropic, and Google transports |
 | `proxy/` | HTTP/SSE proxy connecting engine to providers |
 | `gateway/` | Optional FastAPI server |
 | `cli/` | `privyx` orchestration layer |

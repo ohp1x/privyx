@@ -50,7 +50,7 @@ Two base URLs cover most clients:
 |---|---|---|---|
 | OpenAI | transparent | nothing | [OpenAI](../providers/openai.md) |
 | Anthropic | transparent | nothing | [Anthropic](../providers/anthropic.md) |
-| Google Gemini | transparent or gateway | a route for its OpenAI-compatible path | [Google Gemini](../providers/google.md) |
+| Google Gemini | transparent or gateway | nothing for the native API | [Google Gemini](../providers/google.md) |
 | Azure OpenAI | transparent | a route per path | [Azure OpenAI](../providers/azure-openai.md) |
 | OpenRouter | transparent | a route | [OpenRouter](../providers/openrouter.md) |
 | DeepSeek | transparent, or gateway for Claude Code | a route for its Anthropic format | [DeepSeek](../providers/deepseek.md) |

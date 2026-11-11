@@ -42,6 +42,7 @@ import json
 import re
 from collections.abc import Awaitable, Callable, Generator, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
+from functools import lru_cache
 from typing import Any
 
 from privyx.core.engine import PrivacyEngine
@@ -51,7 +52,9 @@ from privyx.token.codec import TokenCodec
 from privyx.token.model import LogicalToken
 
 #: The schemas whose request/response bodies this module knows how to walk.
-KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic", "responses", "embeddings"})
+KNOWN_SCHEMAS: frozenset[str] = frozenset(
+    {"openai", "anthropic", "responses", "embeddings", "gemini"}
+)
 
 #: Top-level request keys that carry conversation content.  ``messages`` and
 #: ``system`` (Chat, Anthropic); ``input``, ``instructions``, and ``prompt``
@@ -60,6 +63,46 @@ KNOWN_SCHEMAS: frozenset[str] = frozenset({"openai", "anthropic", "responses", "
 CONTENT_KEYS: frozenset[str] = frozenset(
     {"messages", "system", "input", "instructions", "prompt", "suffix", "prediction"}
 )
+
+#: Top-level keys of a Gemini request that carry the conversation, in both of
+#: the casings Gemini accepts.  ``generateContentRequest`` is the request a
+#: ``countTokens`` call wraps; it is walked as a request of its own.
+#: ``content`` and ``title`` are an embedding request's text, and ``requests``
+#: the embedding requests of a batch, walked whole.
+GEMINI_CONTENT_KEYS: frozenset[str] = frozenset(
+    {
+        "contents",
+        "systemInstruction",
+        "system_instruction",
+        "generateContentRequest",
+        "generate_content_request",
+        "requests",
+        "content",
+        "title",
+    }
+)
+
+_GEMINI_WRAPPED = frozenset({"generateContentRequest", "generate_content_request"})
+
+#: Keys whose object value is a tool-argument document (see :func:`_walk`), per
+#: schema.  Gemini's ``functionCall.args`` and ``functionResponse.response``.
+_DOCUMENT_KEYS: dict[str | None, frozenset[str]] = {"gemini": frozenset({"args", "response"})}
+_DEFAULT_DOCUMENT_KEYS = frozenset({"input", "arguments"})
+
+#: Opaque keys a schema adds to :data:`OPAQUE_KEYS`.  Gemini: the media type and
+#: URI of a file part, and the signature of the model's hidden reasoning.
+_SCHEMA_OPAQUE_KEYS: dict[str | None, frozenset[str]] = {
+    "gemini": frozenset(
+        {
+            "mimeType",
+            "mime_type",
+            "fileUri",
+            "file_uri",
+            "thoughtSignature",
+            "thought_signature",
+        }
+    ),
+}
 
 #: Keys whose value is structural or opaque — skipped with their whole subtree.
 #: Ids, enums, tool/function names, signatures, binary payloads, and URLs: a
@@ -101,7 +144,13 @@ AUTH_HEADERS: frozenset[str] = frozenset(
 AUTH_QUERY_PARAMS: frozenset[str] = frozenset({"key", "api_key", "api-key", "access_token"})
 
 #: Top-level keys walked first, in the order the provider caches the prompt.
-_PREFIX_KEYS: tuple[str, ...] = ("tools", "system", "instructions")
+_PREFIX_KEYS: tuple[str, ...] = (
+    "tools",
+    "system",
+    "systemInstruction",
+    "system_instruction",
+    "instructions",
+)
 
 #: Thinking text exactly as the upstream sent it, by signature.  The client gets
 #: it restored and echoes it back, but re-pseudonymizing that is not always the
@@ -133,12 +182,26 @@ def detect_schema(path: str, routes: dict[str, str]) -> str | None:
     calls when its base URL ends in a ``/v1`` of its own) gets the schema of the
     route it means: the upstream answers 404 either way, and the body must not
     reach it unmasked.
+
+    A ``*`` in a route matches any characters but ``/``, as the model name in
+    ``/v1beta/models/*:generateContent``.  A route without one wins over a
+    route with one; between those, the first listed wins.
     """
     normalized = "/" + path.lstrip("/")
     schema = routes.get(normalized)
     if schema is None and normalized.startswith("/v1/v1/"):
         schema = routes.get(normalized[3:])
+    if schema is None:
+        for pattern, route in _route_patterns(tuple(r for r in routes if "*" in r)):
+            if pattern.fullmatch(normalized):
+                return routes[route]
     return schema
+
+
+@lru_cache(maxsize=16)
+def _route_patterns(routes: tuple[str, ...]) -> tuple[tuple[re.Pattern[str], str], ...]:
+    """Each route with a ``*`` compiled to a regex, in order."""
+    return tuple((re.compile("[^/]+".join(map(re.escape, r.split("*")))), r) for r in routes)
 
 
 def has_token_ids(payload: dict[str, Any]) -> bool:
@@ -167,6 +230,7 @@ async def transform_request(
     headers: dict[str, str] | None = None,
     params: list[tuple[str, Any]] | None = None,
     schema: str | None = None,
+    path: str | None = None,
 ) -> dict[str, Any]:
     """Return a copy of ``payload`` with its content leaves pseudonymized.
 
@@ -190,14 +254,13 @@ async def transform_request(
     it descends into; config values are shared, not copied).
 
     With ``engine.directive``, a chat request of ``schema`` also gets
-    :func:`directive`, unmasked (see :func:`_add_directive`).  With
+    :func:`directive`, unmasked (see :func:`_add_directive`; ``path`` tells a
+    Gemini ``countTokens`` call, which takes none of its own).  With
     ``engine.cache_control``, an Anthropic one gets :func:`add_cache_control`.
     """
 
     def rank(key: str) -> int:
-        if key in METADATA_KEYS:
-            return len(_PREFIX_KEYS) + 1
-        return _PREFIX_KEYS.index(key) if key in _PREFIX_KEYS else len(_PREFIX_KEYS)
+        return len(_PREFIX_KEYS) + 1 if key in METADATA_KEYS else _prefix_rank(key)
 
     rebuilt: dict[str, Any] = {}
     masked: set[str] = set()  # what this request masked, for engine.dlp_check
@@ -215,12 +278,13 @@ async def transform_request(
         async def metadata(text: str) -> str:
             return await transform(_unescaped(text))
 
+        content_keys = GEMINI_CONTENT_KEYS if schema == "gemini" else CONTENT_KEYS
         for key in sorted(payload, key=rank):  # stable: the rest keep their order
             value = payload[key]
             if key == "tools":
                 rebuilt[key] = await _drive(_descriptions(value), transform)
-            elif key in CONTENT_KEYS:
-                rebuilt[key] = await walk_async(value, transform, key)
+            elif key in content_keys:
+                rebuilt[key] = await _drive(_content(value, key, schema), transform)
             elif key in METADATA_KEYS:
                 rebuilt[key] = await _drive(_walk(value, key, True), metadata)
             else:
@@ -245,7 +309,7 @@ async def transform_request(
                 raise LeakError(f"{leaks} masked value(s) still in the request")
     result = {key: rebuilt[key] for key in payload}
     if engine.directive:
-        _add_directive(result, schema, directive(engine.codec))
+        _add_directive(result, schema, directive(engine.codec), path)
     if engine.cache_control and schema == "anthropic":
         add_cache_control(result)
     return result
@@ -304,7 +368,9 @@ def directive(codec: TokenCodec) -> str:
     )
 
 
-def _add_directive(payload: dict[str, Any], schema: str | None, text: str) -> None:
+def _add_directive(
+    payload: dict[str, Any], schema: str | None, text: str, path: str | None = None
+) -> None:
     """Add ``text`` to a chat request's system prompt, in place.
 
     It goes where it stays at one place turn after turn, so the provider's
@@ -312,8 +378,19 @@ def _add_directive(payload: dict[str, Any], schema: str | None, text: str) -> No
     may have to stay first), after the leading system messages of a Chat
     request, and first in a Responses ``input``.  A request that resumes a
     stored response (``previous_response_id``) sends only its new items, so
-    there it goes in ``instructions``, which is not carried over.
+    there it goes in ``instructions``, which is not carried over.  Gemini's
+    goes last in ``systemInstruction``, also of the request a ``countTokens``
+    call wraps; see :func:`_add_gemini_directive`.
     """
+    if schema == "gemini":
+        if (path or "").endswith(":countTokens"):
+            nested = [payload.get(key) for key in _GEMINI_WRAPPED]
+            for request in nested:
+                if isinstance(request, dict):
+                    _add_gemini_directive(request, text)
+        else:
+            _add_gemini_directive(payload, text)
+        return
     if schema == "anthropic" and "messages" in payload:
         system = payload.get("system")
         if isinstance(system, list):
@@ -340,6 +417,23 @@ def _add_directive(payload: dict[str, Any], schema: str | None, text: str) -> No
             "content": [{"type": "input_text", "text": text}],
         }
         payload["input"] = [message, *items] if isinstance(items, list) else items
+
+
+def _add_gemini_directive(request: dict[str, Any], text: str) -> None:
+    """Add ``text`` to a Gemini request's ``systemInstruction``, in place.
+
+    Only to a request with ``contents``, and not to one that uses a cached
+    content: Gemini refuses a ``systemInstruction`` beside it (the directive
+    was added to the cache when it was created through Privyx).
+    """
+    if "contents" not in request or "cachedContent" in request or "cached_content" in request:
+        return
+    key = "system_instruction" if "system_instruction" in request else "systemInstruction"
+    system = request.get(key)
+    if system is None:
+        request[key] = {"parts": [{"text": text}]}
+    elif isinstance(system, dict) and isinstance(system.get("parts"), list):
+        request[key] = {**system, "parts": [*system["parts"], {"text": text}]}
 
 
 def _role(message: Any) -> Any:
@@ -449,14 +543,16 @@ async def restore_response(
     session_id: str,
     *,
     session: Session | None = None,
+    schema: str | None = None,
 ) -> dict[str, Any]:
     """Return a copy of a batch ``payload`` with pseudonyms restored.
 
     Every string leaf is restored whatever the route's schema (OpenAI-compatible
     gateways often answer ``/v1/messages`` with a ``chat.completion`` body); only
-    opaque keys are skipped, so a token-shaped id is left alone.  ``session``,
-    when the caller holds it, skips the vault read.  When the session is unknown
-    the payload is returned untouched.
+    opaque keys are skipped, so a token-shaped id is left alone.  ``schema``
+    adds its own document and opaque keys (Gemini's ``functionCall.args``).
+    ``session``, when the caller holds it, skips the vault read.  When the
+    session is unknown the payload is returned untouched.
     """
     content = payload.get("content")
     for block in content if isinstance(content, list) else []:
@@ -470,13 +566,15 @@ async def restore_response(
     async def restore(text: str) -> str:
         return (await engine.restore(text, session_id, session=session)).text
 
-    result: dict[str, Any] = await walk_async(payload, restore)
+    result: dict[str, Any] = await walk_async(payload, restore, schema=schema)
     return result
 
 
-def walk_sync(value: Any, fn: Callable[[str], str], key: str | None = None) -> Any:
+def walk_sync(
+    value: Any, fn: Callable[[str], str], key: str | None = None, *, schema: str | None = None
+) -> Any:
     """Rebuild ``value`` with ``fn`` applied to each content string leaf."""
-    walker = _walk(value, key)
+    walker = _walk(value, key, schema=schema)
     try:
         text = next(walker)
         while True:
@@ -486,10 +584,14 @@ def walk_sync(value: Any, fn: Callable[[str], str], key: str | None = None) -> A
 
 
 async def walk_async(
-    value: Any, fn: Callable[[str], Awaitable[str]], key: str | None = None
+    value: Any,
+    fn: Callable[[str], Awaitable[str]],
+    key: str | None = None,
+    *,
+    schema: str | None = None,
 ) -> Any:
     """Async twin of :func:`walk_sync` for the engine's ``transform``/``restore``."""
-    return await _drive(_walk(value, key), fn)
+    return await _drive(_walk(value, key, schema=schema), fn)
 
 
 async def _drive(walker: _Walk, fn: Callable[[str], Awaitable[str]]) -> Any:
@@ -502,12 +604,15 @@ async def _drive(walker: _Walk, fn: Callable[[str], Awaitable[str]]) -> Any:
         return done.value
 
 
-def _walk(value: Any, key: str | None, document: bool = False) -> _Walk:
+def _walk(
+    value: Any, key: str | None, document: bool = False, *, schema: str | None = None
+) -> _Walk:
     """Yield every content string leaf of ``value`` and return the rebuilt value.
 
     ``key`` is the key ``value`` sits under.  A tool-argument *document* — an
     object under ``input`` (Anthropic ``tool_use``/``server_tool_use``) or
-    ``arguments``, or the JSON a string ``arguments`` holds — is user data with
+    ``arguments``, or the JSON a string ``arguments`` holds; for ``schema``
+    ``gemini`` an object under ``args`` or ``response`` — is user data with
     no wire structure, so inside it no key is opaque (a ``name`` argument is
     PII).  A string ``arguments`` is walked parsed and re-serialized, never as
     one text blob (a match could straddle a JSON escape); unparseable arguments
@@ -521,24 +626,54 @@ def _walk(value: Any, key: str | None, document: bool = False) -> _Walk:
                 parsed = json.loads(value)
             except ValueError:
                 return (yield value)
-            rebuilt = yield from _walk(parsed, None, True)
+            rebuilt = yield from _walk(parsed, None, True, schema=schema)
             return value if rebuilt == parsed else json.dumps(rebuilt, ensure_ascii=False)
         return (yield value)
     if isinstance(value, list):
         items = []
         for item in value:
-            items.append((yield from _walk(item, key, document)))
+            items.append((yield from _walk(item, key, document, schema=schema)))
         return items
     if isinstance(value, dict):
+        documents = _DOCUMENT_KEYS.get(schema, _DEFAULT_DOCUMENT_KEYS)
         out: dict[str, Any] = {}
         for k, v in value.items():
-            if not document and _opaque(k, value):
+            if not document and _opaque(k, value, schema):
                 out[k] = v
             else:
-                nested = document or (k in ("input", "arguments") and isinstance(v, dict))
-                out[k] = yield from _walk(v, k, nested)
+                nested = document or (k in documents and isinstance(v, dict))
+                out[k] = yield from _walk(v, k, nested, schema=schema)
         return out
     return value
+
+
+def _prefix_rank(key: str) -> int:
+    """Where ``key`` goes in the walk: :data:`_PREFIX_KEYS` first, in their order."""
+    return _PREFIX_KEYS.index(key) if key in _PREFIX_KEYS else len(_PREFIX_KEYS)
+
+
+def _content(value: Any, key: str, schema: str | None) -> _Walk:
+    """Walk the content ``value`` of a request's top-level ``key``.
+
+    The request a Gemini ``countTokens`` call wraps is walked as a request:
+    its content keys and ``tools`` descriptions, nothing else.
+    """
+    if schema == "gemini" and key in _GEMINI_WRAPPED and isinstance(value, dict):
+        return (yield from _gemini_request(value))
+    return (yield from _walk(value, key, schema=schema))
+
+
+def _gemini_request(value: dict[str, Any]) -> _Walk:
+    out: dict[str, Any] = {}
+    for k in sorted(value, key=_prefix_rank):
+        v = value[k]
+        if k == "tools":
+            out[k] = yield from _descriptions(v)
+        elif k in GEMINI_CONTENT_KEYS:
+            out[k] = yield from _content(v, k, "gemini")
+        else:
+            out[k] = v
+    return {k: out[k] for k in value}
 
 
 def _descriptions(value: Any, key: str | None = None) -> _Walk:
@@ -565,10 +700,12 @@ def _descriptions(value: Any, key: str | None = None) -> _Walk:
     return value
 
 
-def _opaque(key: str, parent: Mapping[str, Any]) -> bool:
+def _opaque(key: str, parent: Mapping[str, Any], schema: str | None = None) -> bool:
     """Whether ``key`` (in the object ``parent``) is structural, not content."""
     if key == "data" and parent.get("type") == "text":
         return False  # Anthropic plain-text document source: the document itself
     if key == "result" and parent.get("type") == "image_generation_call":
         return True  # base64 image, echoed back in a Responses input
+    if key in _SCHEMA_OPAQUE_KEYS.get(schema, ()):
+        return True
     return key in OPAQUE_KEYS or key.endswith(("_id", "_url")) or key.startswith("encrypted_")
