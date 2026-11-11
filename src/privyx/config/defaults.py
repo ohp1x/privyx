@@ -51,6 +51,15 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "env_vars": ["GOOGLE_GEMINI_BASE_URL", "CODE_ASSIST_ENDPOINT", "GOOGLE_VERTEX_BASE_URL"],
         "privyx": {"proxy": {"passthrough_unknown": False}},
     },
+    # `ollama:<model>` runs `ollama run <model>`; the upstream is the local
+    # server, or the one OLLAMA_HOST names (see privyx.cli.launch.ollama_url).
+    # Ollama takes no key, so Privyx's own is not sent to that server.
+    "ollama": {
+        "command": "ollama",
+        "upstream": "http://127.0.0.1:11434",
+        "env_vars": ["OLLAMA_HOST"],
+        "privyx": {"provider": {"api_key": ""}},
+    },
     "grok": {
         "command": "grok",
         "provider": "openai",

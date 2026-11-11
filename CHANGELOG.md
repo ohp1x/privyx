@@ -13,7 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Audit:** Gemini's and Ollama's token usage and model are recorded like other providers'
 - **Proxy:** `proxy.directive` adds its instruction to Gemini requests too, last in `systemInstruction`
 - **CLI:** `privyx run gemini` launches Gemini CLI through Privyx with an API key; its Google sign-in and Vertex endpoints are refused rather than reached unmasked
-- **CLI:** the `privyx run` budget counts Gemini turns and their tokens
+- **CLI:** `privyx run ollama:<model>` runs `ollama run <model>` through Privyx, after checking that the local server, or the one `OLLAMA_HOST` names, answers
+- **CLI:** the `privyx run` budget counts Gemini and Ollama turns and their tokens
 
 ### Security
 

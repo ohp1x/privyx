@@ -68,6 +68,19 @@ API (`/api/tags`, `/api/pull`, `/api/show`, …) is forwarded as sent.
 
 These paths are served in transparent mode only.
 
+### `privyx run ollama`
+
+`privyx run` starts Privyx in front of your Ollama server and the `ollama`
+command pointed at it:
+
+```bash
+privyx run ollama:llama3.2          # ollama run llama3.2, through Privyx
+```
+
+It first checks that a server answers at `http://127.0.0.1:11434`, or at
+the one `OLLAMA_HOST` names, and stops with a hint if none does. See
+[`privyx run`](../guide/cli.md#privyx-run).
+
 ## A local model as the detector
 
 The [`llm` detector](../guide/detection.md#llm-detector) sends the text it

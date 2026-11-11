@@ -116,6 +116,11 @@ GEMINI_SSE = (
     b'"thoughtsTokenCount":10,"totalTokenCount":70}}\r\n\r\n'
 )
 GEMINI_ARRAY = b'[{"candidates":[]},{"usageMetadata":{"totalTokenCount":70}}]'
+OLLAMA_LINES = (
+    b'{"model":"llama3.2","message":{"content":"hi"},"done":false}\n'
+    b'{"model":"llama3.2","message":{"content":""},"done":true,'
+    b'"prompt_eval_count":50,"eval_count":20}\n'
+)
 
 
 @pytest.mark.parametrize(
@@ -127,10 +132,11 @@ GEMINI_ARRAY = b'[{"candidates":[]},{"usageMetadata":{"totalTokenCount":70}}]'
             GEMINI_ARRAY,
             b"application/json",
         ),
+        ("/api/chat", OLLAMA_LINES, b"application/x-ndjson"),
     ],
-    ids=["gemini-sse", "gemini-array"],
+    ids=["gemini-sse", "gemini-array", "ollama"],
 )
-async def test_gemini_turns_are_counted(
+async def test_gemini_and_ollama_turns_are_counted(
     path: str, body: bytes, content_type: bytes
 ) -> None:
     app = Budget(

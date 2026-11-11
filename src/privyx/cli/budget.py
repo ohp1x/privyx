@@ -24,7 +24,7 @@ from privyx.observability.usage import merge_usage, usage_tokens
 from privyx.proxy.schemas import detect_schema
 
 #: Schemas whose requests are model turns.
-_CHAT = frozenset({"openai", "anthropic", "responses", "gemini"})
+_CHAT = frozenset({"openai", "anthropic", "responses", "gemini", "ollama"})
 #: Path endings of routes that are not model turns: token counting, and
 #: Gemini's embeddings and cached contents, which share the chat schema.
 _FREE = (
@@ -115,22 +115,25 @@ class Budget:
 
     def _metered(self, send: Any) -> Any:
         fields: dict[str, int] = {}
-        stream = False
+        sse = lines = False
         status = 0
-        pending = b""  # an SSE line, or a JSON body, not yet whole
+        pending = b""  # an SSE line, a JSON line, or a JSON body, not yet whole
 
         async def metered(message: dict[str, Any]) -> None:
-            nonlocal stream, status, pending
+            nonlocal sse, lines, status, pending
             if message["type"] == "http.response.start":
-                headers = dict(message.get("headers", []))
-                stream = b"text/event-stream" in headers.get(b"content-type", b"")
+                content_type = dict(message.get("headers", [])).get(b"content-type", b"")
+                sse = b"text/event-stream" in content_type
+                lines = b"application/x-ndjson" in content_type  # Ollama
                 status = message.get("status", 0)
             elif message["type"] == "http.response.body":
                 pending += message.get("body", b"")
-                if stream:
-                    *lines, pending = pending.split(b"\n")
-                    for line in lines:
-                        if line.startswith(b"data:"):
+                if sse or lines:
+                    *whole, pending = pending.split(b"\n")
+                    for line in whole:
+                        if lines:
+                            merge_usage(fields, _loads(line))
+                        elif line.startswith(b"data:"):
                             merge_usage(fields, _loads(line[5:]))
                 if not message.get("more_body", False):
                     if pending.startswith(b"data:"):
