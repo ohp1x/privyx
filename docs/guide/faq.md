@@ -39,9 +39,10 @@ Nothing. Privyx is open source under the MIT license.
 
 ### Which providers work?
 
-Any provider that speaks one of four formats: OpenAI Chat Completions,
-OpenAI Responses, Anthropic Messages, or the Gemini API. That covers OpenAI,
-Anthropic, and Gemini, and the many services compatible with them. See
+Any provider that speaks one of five formats: OpenAI Chat Completions,
+OpenAI Responses, Anthropic Messages, the Gemini API, or Ollama's API. That
+covers OpenAI, Anthropic, Gemini, and Ollama, and the many services compatible
+with them. See
 [Integrations](../integrations/index.md).
 
 ### Which clients work?

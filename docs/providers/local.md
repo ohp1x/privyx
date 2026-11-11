@@ -36,9 +36,37 @@ print(reply.choices[0].message.content)
 For another server, replace the upstream with its address.
 
 Masked: `/v1/chat/completions`, `/v1/responses`, the legacy
-`/v1/completions`, and `/v1/embeddings`. Forwarded as sent: Ollama's native
-API under `/api/`. A client that uses the native API, as the `ollama` command itself
-does, is not masked.
+`/v1/completions`, and `/v1/embeddings`, and Ollama's own API: `/api/chat`,
+`/api/generate`, `/api/embed`, and `/api/embeddings`.
+
+### Ollama's own API
+
+A client of the native API, such as the `ollama` command or the `ollama`
+Python library, points at Privyx the same way:
+
+```bash
+OLLAMA_HOST=http://localhost:8000 ollama run llama3.2
+```
+
+```python
+from ollama import Client
+
+client = Client(host="http://localhost:8000")
+reply = client.chat(
+    model="llama3.2",
+    messages=[{"role": "user", "content": "Write a short greeting to alice@example.com"}],
+)
+```
+
+Messages, the system prompt, `prompt` and `suffix`, thinking, and tool call
+arguments are masked; the reply, streamed or not, has its text, thinking, and
+tool calls restored. Images are not inspected, and `format`, `options`, and
+`tools` other than their descriptions go as sent. The `context` list of
+`/api/generate` holds token ids of the earlier turns as Ollama saw them,
+masked when they went through Privyx; it is forwarded as is. The rest of the
+API (`/api/tags`, `/api/pull`, `/api/show`, …) is forwarded as sent.
+
+These paths are served in transparent mode only.
 
 ## A local model as the detector
 

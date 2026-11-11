@@ -59,6 +59,7 @@ from privyx.proxy.schemas import (
 )
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.stream_router import (
+    LineRouter,
     StreamRouter,
     resolver_for,
     restore_chunks,
@@ -70,6 +71,7 @@ from privyx.utils.ids import request_id as new_request_id
 
 _JSON = "application/json"
 _SSE = "text/event-stream"
+_NDJSON = "application/x-ndjson"  # Ollama's stream: one JSON object per line
 _log = logging.getLogger(__name__)
 
 #: Body of the 503 returned when a request cannot be masked (a detector failed
@@ -453,7 +455,9 @@ class TransparentProxy:
             resp_headers = filter_response_headers(response.headers)
             resp_headers["x-privyx-session"] = sid
 
-            is_stream = _SSE in resp_content_type and method.upper() != "HEAD"
+            # Restored as it streams: SSE, and the JSON lines of an Ollama route.
+            lines = schema == "ollama" and _NDJSON in resp_content_type
+            is_stream = (_SSE in resp_content_type or lines) and method.upper() != "HEAD"
             tracing.annotate(span, **{"privyx.stream": is_stream})
             self._audit.request(
                 method=method,
@@ -501,6 +505,7 @@ class TransparentProxy:
                     start,
                     ephemeral,
                     span,
+                    lines=lines,
                 )
             if schema and _JSON in resp_content_type:
                 return await self._batch_response(
@@ -549,16 +554,18 @@ class TransparentProxy:
         start: float,
         ephemeral: Session | None,
         span: Any = None,
+        *,
+        lines: bool = False,
     ) -> ProxyResponse:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
         stream_iter = self._stream(
-            response, schema, session_id, mapping, request_id, start, ephemeral, span
+            response, schema, session_id, mapping, request_id, start, ephemeral, span, lines=lines
         )
         return ProxyResponse(
             status_code=response.status_code,
             headers=headers,
-            media_type=_SSE,
+            media_type=_NDJSON if lines else _SSE,
             stream=AuditedStream(
                 stream_iter,
                 response=response,
@@ -576,7 +583,10 @@ class TransparentProxy:
         start: float,
         ephemeral: Session | None,
         span: Any = None,
+        *,
+        lines: bool = False,
     ) -> AsyncIterator[str]:
+        """Restore a streamed reply: SSE events, or with ``lines`` JSON lines."""
         restore_span = tracing.start("privyx.restore", span)
         failure: BaseException | None = None
         frames = 0
@@ -600,16 +610,19 @@ class TransparentProxy:
                     restored += 1
                 return original
 
-            router = StreamRouter(
-                self._engine.codec,
-                resolve,
-                adapter,
-                make_processor=select_processor_factory(
-                    self._engine.operator, self._engine.codec, resolve, mapping
-                ),
+            make = select_processor_factory(
+                self._engine.operator, self._engine.codec, resolve, mapping
+            )
+            router: StreamRouter | LineRouter = (
+                LineRouter(self._engine.codec, resolve, make)
+                if lines
+                else StreamRouter(self._engine.codec, resolve, adapter, make_processor=make)
             )
             async for raw in response.aiter_bytes():
-                meter.feed_sse(raw)
+                if lines:
+                    meter.feed_lines(raw)
+                else:
+                    meter.feed_sse(raw)
                 if tapped is not None:
                     tapped[0].append(raw)
                 for out in router.feed(raw):

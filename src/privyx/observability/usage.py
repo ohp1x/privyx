@@ -1,11 +1,12 @@
 """Token usage the upstream reports, and what it costs.
 
-Providers report ``usage`` in four shapes: Anthropic Messages (input without
+Providers report ``usage`` in five shapes: Anthropic Messages (input without
 the cached part, plus ``cache_read_input_tokens`` and
 ``cache_creation_input_tokens``), OpenAI Chat Completions (``prompt_tokens``
 with the cached part inside, ``prompt_tokens_details.cached_tokens``),
 OpenAI Responses (``input_tokens`` with ``input_tokens_details.cached_tokens``),
-and Gemini (``usageMetadata``, read like OpenAI Chat).
+Gemini (``usageMetadata``, read like OpenAI Chat), and Ollama
+(``prompt_eval_count`` and ``eval_count``).
 :func:`normalize` turns any of them into the four counts the audit trail
 keeps: ``input`` (uncached), ``output``, ``cache_read``, and ``cache_write``.
 
@@ -76,6 +77,15 @@ def merge_usage(fields: dict[str, int], event: Any) -> str | None:
                 details = usage.get(key)
                 if isinstance(details, dict) and _count(details.get("cached_tokens")):
                     fields["cached_tokens"] = details["cached_tokens"]
+    ollama = {
+        key: event[name]
+        for name, key in (
+            ("prompt_eval_count", "prompt_tokens"),
+            ("eval_count", "completion_tokens"),
+        )
+        if _count(event.get(name))
+    }
+    fields.update(ollama)
     gemini = event.get("usageMetadata")
     if isinstance(gemini, dict):
         name = event.get("modelVersion")
@@ -196,6 +206,7 @@ class UsageMeter:
         self.fields: dict[str, int] = {}
         self.model: str | None = None
         self._events = SSEDecoder()
+        self._line = ""  # a JSON line not yet whole
         self._utf8 = codecs.getincrementaldecoder("utf-8")("replace")
 
     def feed_json(self, payload: Any) -> None:
@@ -203,13 +214,23 @@ class UsageMeter:
         for item in payload if isinstance(payload, list) else [payload]:
             self.model = merge_usage(self.fields, item) or self.model
 
+    def feed_lines(self, chunk: bytes | str) -> None:
+        """Feed a JSON-lines stream (Ollama's) in any chunking."""
+        text = chunk if isinstance(chunk, str) else self._utf8.decode(chunk)
+        *lines, self._line = (self._line + text).split("\n")
+        for line in lines:
+            if '"eval_count"' in line or '"done":true' in line:
+                self.feed_json(_loads(line))
+
     def feed_sse(self, chunk: bytes | str) -> None:
         text = chunk if isinstance(chunk, str) else self._utf8.decode(chunk)
         self._read(self._events.feed(text))
 
     def close(self) -> None:
-        """Read a last event that ended without a blank line."""
+        """Read a last event that ended without a blank line, or a last line."""
         self._read([*self._events.feed(self._utf8.decode(b"", final=True)), *self._events.flush()])
+        if self._line:
+            self.feed_lines("\n")
 
     def _read(self, events: list[Any]) -> None:
         for event in events:

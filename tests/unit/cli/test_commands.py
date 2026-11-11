@@ -305,6 +305,7 @@ def test_inspect_routes_shows_what_the_gateway_serves(
 
     assert result.exit_code == 0, result.output
     assert ("/*/models/*:generateContent" in result.output) is gemini
+    assert "/api/chat" not in result.output
     assert "/v1/messages/count_tokens" not in result.output
 
 

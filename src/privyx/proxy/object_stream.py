@@ -1,17 +1,18 @@
 """Restore a stream of whole JSON objects whose text arrives in pieces.
 
 Gemini streams a reply as ``GenerateContentResponse`` chunks, as SSE events or
-as the elements of one JSON array.  Each chunk is complete, but the reply's
-text is cut across chunks anywhere, so a pseudonym can start in one and end in
-the next.  :class:`GeminiStream` restores such a stream one chunk at a time:
-each text field goes through its own deanonymizer, which holds back a fragment
-that may still grow into a token, and every other string (a function call
-comes whole) is restored in place.
+as the elements of one JSON array, and Ollama as one JSON object per line.
+Each object is complete, but the reply's text is cut across objects anywhere,
+so a pseudonym can start in one and end in the next.  :class:`GeminiStream`
+and :class:`OllamaStream` restore such a stream one object at a time: each
+text field goes through its own deanonymizer, which holds back a fragment
+that may still grow into a token, and every other string (a function or tool
+call comes whole) is restored in place.
 
 A held-back fragment is given back when other content follows, when the reply
 finishes, and, if the upstream ends the stream without finishing, in one last
-chunk of its own.  The framing (SSE event, array element) stays with the
-caller.
+object of its own.  The framing (SSE event, array element, line) stays with
+the caller.
 """
 
 from __future__ import annotations
@@ -145,3 +146,93 @@ def _text_kind(part: Any) -> str | None:
         return None
     return "thought" if part.get("thought") is True else "text"
 
+
+#: Ollama's streamed text fields, in the order they come: ``/api/chat`` sends
+#: them in ``message``, ``/api/generate`` at the top level.
+_CHAT_FIELDS = ("thinking", "content")
+_GENERATE_FIELDS = ("thinking", "response")
+
+
+class OllamaStream:
+    """Restores the lines of one streamed Ollama reply.
+
+    Args:
+        make_processor: Builds the deanonymizer for one text field.
+        restore: Restores a complete string.
+    """
+
+    def __init__(
+        self,
+        make_processor: Callable[[], StreamDeanonymizer],
+        restore: Callable[[str], str],
+    ) -> None:
+        self._make_processor = make_processor
+        self._restore = restore
+        self._held: dict[str, StreamDeanonymizer] = {}
+        self._chat = True  # the shape of the last line, for a tail sent alone
+        self._model: Any = None
+
+    def feed(self, payload: Any) -> list[Any]:
+        """Restore one line's object; return the objects to send in its place."""
+        if not isinstance(payload, dict):
+            return [self._whole(payload)]
+        if "error" in payload:
+            return self.flush() + [self._whole(payload)]
+        message = payload.get("message")
+        self._chat = isinstance(message, dict)
+        self._model = payload.get("model", self._model)
+        holder: dict[str, Any] = message if isinstance(message, dict) else payload
+        names = _CHAT_FIELDS if self._chat else _GENERATE_FIELDS
+        texts = {n: holder[n] for n in names if isinstance(holder.get(n), str) and holder[n]}
+        out = dict.fromkeys(names, "")
+        for name in names:
+            if name in texts:
+                # One field starting ends the others: what they hold goes first.
+                for other in names:
+                    if other != name:
+                        out[other] += self._flush(other)
+                out[name] += self._processor(name).feed(texts[name])
+        if payload.get("done") is True or holder.get("tool_calls"):
+            for name in names:
+                out[name] += self._flush(name)
+        rebuilt = self._fill(holder, names, out)
+        if holder is payload:
+            return [rebuilt]
+        rest = self._whole({k: v for k, v in payload.items() if k != "message"})
+        return [{k: rebuilt if k == "message" else rest[k] for k in payload}]
+
+    def flush(self) -> list[Any]:
+        """The text still held back, as one more object, or nothing."""
+        names = _CHAT_FIELDS if self._chat else _GENERATE_FIELDS
+        tails = {name: self._flush(name) for name in names}
+        tails = {name: tail for name, tail in tails.items() if tail}
+        if not tails:
+            return []
+        body = {"message": {"role": "assistant", **tails}} if self._chat else tails
+        head = {"model": self._model} if self._model is not None else {}
+        return [{**self._whole(head), **body, "done": False}]
+
+    def _fill(self, holder: dict[str, Any], names: tuple[str, ...], out: dict[str, str]) -> Any:
+        """``holder`` restored, with ``out`` in its text fields."""
+        rest = self._whole({k: v for k, v in holder.items() if k not in names})
+        rebuilt = {
+            k: out[k] if k in names and (isinstance(v, str) or out[k]) else rest.get(k, v)
+            for k, v in holder.items()
+        }
+        for name in names:
+            if out[name] and name not in rebuilt:
+                rebuilt[name] = out[name]
+        return rebuilt
+
+    def _processor(self, name: str) -> StreamDeanonymizer:
+        processor = self._held.get(name)
+        if processor is None:
+            processor = self._held[name] = self._make_processor()
+        return processor
+
+    def _flush(self, name: str) -> str:
+        processor = self._held.get(name)
+        return processor.flush() if processor is not None else ""
+
+    def _whole(self, value: Any) -> Any:
+        return walk_sync(value, self._restore, schema="ollama")

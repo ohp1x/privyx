@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from typing import Any
 
 #: Wire schemas whose request body this module knows how to fingerprint.
-_CHAT_SCHEMAS = frozenset({"openai", "anthropic", "responses", "gemini"})
+_CHAT_SCHEMAS = frozenset({"openai", "anthropic", "responses", "gemini", "ollama"})
 
 
 def resolve_session_id(

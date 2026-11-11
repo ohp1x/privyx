@@ -85,7 +85,8 @@ Three things differ from transparent mode:
   count into a billed completion. Gemini paths are the other exception: with
   `provider.type: google`, each one posts to the model and method it names
   (see [Google Gemini](../providers/google.md#gateway-mode)), and with any
-  other provider they are not served.
+  other provider they are not served. Ollama's paths under `/api/` are
+  served in transparent mode only.
 - Anything else, such as `GET /v1/models`, gets a `404`.
 
 Neither mode translates between wire schemas. An Anthropic client needs an
@@ -114,10 +115,13 @@ is masked only when its path is in this map. The default:
 | `/*/models/*:embedContent`, `/*/models/*:batchEmbedContents` | `gemini` | Gemini embeddings |
 | the same three chat methods under `/*/tunedModels/*` | `gemini` | Gemini tuned models |
 | `/*/cachedContents` | `gemini` | Gemini context caching |
+| `/api/chat`, `/api/generate` | `ollama` | Ollama's own API |
+| `/api/embed`, `/api/embeddings` | `embeddings` | Ollama embeddings |
 
 The path is matched without its query string, so `/v1/messages?beta=true`
 matches too. A `*` matches any characters except `/`, such as the model name
-in a Gemini path. A route without a `*` wins over one with it; among those,
+in a Gemini path. A route is matched whatever the upstream behind it, so on a
+server where `/api/chat` is not Ollama's, give `proxy.routes` without it. A route without a `*` wins over one with it; among those,
 the first listed wins.
 
 The last two rows are what an OpenAI client calls when its base URL lacks the

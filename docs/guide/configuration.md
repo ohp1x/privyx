@@ -392,7 +392,7 @@ environment.
 | Key | Default | Description |
 |---|---|---|
 | `mode` | `transparent` | `transparent` forwards every path to the upstream origin; `gateway` serves Privyx's own endpoints and posts to one fixed URL. Same as `--transparent` / `--gateway`. |
-| `routes` | twenty-three paths | Path → wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`) for the requests Privyx masks; a `*` matches any characters except `/`. A map given here replaces the default one. See [Routes](proxy.md#routes). |
+| `routes` | twenty-seven paths | Path → wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`) for the requests Privyx masks; a `*` matches any characters except `/`. A map given here replaces the default one. See [Routes](proxy.md#routes). |
 | `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead; enabled by the `configs/strict.yaml` preset. `doctor` reports route coverage and warns on passthrough. |
 | `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter. `false` drops them so only the configured key is used. |
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |

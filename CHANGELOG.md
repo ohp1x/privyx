@@ -10,13 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Proxy:** a `*` in a `proxy.routes` path matches any characters except `/`, such as the model name in a Gemini path
 - **Providers:** `provider.type: google` sends the key as `x-goog-api-key` and, in gateway mode, posts each Gemini request to the model and method the client called
-- **Audit:** Gemini's token usage and model version are recorded like other providers'
+- **Audit:** Gemini's and Ollama's token usage and model are recorded like other providers'
 - **Proxy:** `proxy.directive` adds its instruction to Gemini requests too, last in `systemInstruction`
 
 ### Security
 
 - **Proxy:** Gemini's native API is masked instead of forwarded as sent: `generateContent`, `streamGenerateContent`, `countTokens`, `embedContent`, and `batchEmbedContents` of every API version and tuned model, and the creation of cached contents, with function calls and streamed replies restored
 - **Proxy:** with `proxy.forward_client_auth: false`, or a key Privyx holds, the client's `key` query parameter is dropped like its credential headers, so the client's own key no longer reaches the upstream
+- **Proxy:** Ollama's native `/api/chat`, `/api/generate`, `/api/embed`, and `/api/embeddings` are masked instead of forwarded as sent in transparent mode, with tool calls and streamed replies restored
 
 ## [0.1.31] - 2026-11-11
 

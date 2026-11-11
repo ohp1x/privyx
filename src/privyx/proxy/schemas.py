@@ -53,7 +53,7 @@ from privyx.token.model import LogicalToken
 
 #: The schemas whose request/response bodies this module knows how to walk.
 KNOWN_SCHEMAS: frozenset[str] = frozenset(
-    {"openai", "anthropic", "responses", "embeddings", "gemini"}
+    {"openai", "anthropic", "responses", "embeddings", "gemini", "ollama"}
 )
 
 #: Top-level request keys that carry conversation content.  ``messages`` and
@@ -91,6 +91,7 @@ _DEFAULT_DOCUMENT_KEYS = frozenset({"input", "arguments"})
 
 #: Opaque keys a schema adds to :data:`OPAQUE_KEYS`.  Gemini: the media type and
 #: URI of a file part, and the signature of the model's hidden reasoning.
+#: Ollama: base64 images, and the tool a tool message answers.
 _SCHEMA_OPAQUE_KEYS: dict[str | None, frozenset[str]] = {
     "gemini": frozenset(
         {
@@ -102,6 +103,7 @@ _SCHEMA_OPAQUE_KEYS: dict[str | None, frozenset[str]] = {
             "thought_signature",
         }
     ),
+    "ollama": frozenset({"images", "tool_name"}),
 }
 
 #: Keys whose value is structural or opaque — skipped with their whole subtree.
@@ -380,7 +382,8 @@ def _add_directive(
     stored response (``previous_response_id``) sends only its new items, so
     there it goes in ``instructions``, which is not carried over.  Gemini's
     goes last in ``systemInstruction``, also of the request a ``countTokens``
-    call wraps; see :func:`_add_gemini_directive`.
+    call wraps; see :func:`_add_gemini_directive`.  Ollama gets none: a
+    system prompt there replaces the one the model was made with.
     """
     if schema == "gemini":
         if (path or "").endswith(":countTokens"):
