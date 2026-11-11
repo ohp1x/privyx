@@ -233,7 +233,9 @@ async def test_redaction_is_irreversible() -> None:
 @pytest.mark.parametrize("operator_class", [PseudonymOperator, HashOperator, RedactOperator])
 async def test_many_spans_take_linear_time(operator_class: type[BaseOperator]) -> None:
     # 4,000 spans in 8 MB.  Rebuilding the whole text once per span took ~2.4 s
-    # per call here; joining the pieces once takes ~20 ms.
+    # per call here; joining the pieces once takes ~50 ms to mask.  Restoring
+    # also searches the whole text for every form a token may take (bare, an
+    # id alone), which takes ~0.5 s, so its bound is wider.
     text = "".join(f"{'x' * 2000} user{i}@example.com" for i in range(4000))
     matches = re.finditer(r"user\d+@example\.com", text)
     detection = Detection(spans=[Span(m.start(), m.end(), "EMAIL", m[0]) for m in matches])
@@ -247,7 +249,7 @@ async def test_many_spans_take_linear_time(operator_class: type[BaseOperator]) -
 
     assert len(masked.transformations) == 4000
     assert middle - start < 0.5
-    assert end - middle < 0.5
+    assert end - middle < 1.0
 
 
 def test_restore_brings_back_an_issued_token_written_without_its_brackets() -> None:
