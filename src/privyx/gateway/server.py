@@ -8,6 +8,10 @@ so an upstream carrying a base path (``https://host/anthropic/v1/messages``,
 an Azure deployment, an OpenRouter prefix) works here and cannot be expressed in
 transparent mode, which appends the client's path to the bare origin.
 
+Gemini is the exception: it names the model in the path, so the Google provider
+aims each request at the model and method the client called, and Gemini routes
+are served only with that provider.
+
 Which paths are served — and the wire schema each speaks — comes from
 ``proxy.routes``, the same map the transparent proxy classifies against.  Note
 that nothing translates between schemas: a client speaking Anthropic still needs
@@ -30,6 +34,7 @@ from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
 from privyx.observability.usage import UsageMeter
 from privyx.providers.base import Provider
+from privyx.providers.google import GoogleProvider
 from privyx.proxy.http import HTTPProxy
 from privyx.proxy.schemas import has_token_ids
 from privyx.proxy.session import resolve_session_id
@@ -93,7 +98,7 @@ class Gateway:
         if settings is not None and settings.audit.tap:
             _log.warning("audit.tap records in transparent mode only; gateway mode has no tap")
         routes = dict(settings.proxy.routes) if settings else ProxyConfig().routes
-        self._routes = {path: s for path, s in routes.items() if path not in _AUXILIARY_ROUTES}
+        self._routes = served_routes(routes, google=isinstance(provider, GoogleProvider))
         # One proxy per schema: the stream adapter (and the schema used to
         # restore a batch response) is per-instance, while the provider — hence
         # the upstream endpoint and its connection pool — is shared.
@@ -133,7 +138,7 @@ class Gateway:
             return self._audit.stats.prometheus()
 
         for path, schema in self._routes.items():
-            self._app.post(path)(self._make_handler(path, schema))
+            self._app.post(_route_path(path))(self._make_handler(path, schema))
 
     def _make_handler(self, path: str, schema: str) -> Any:
         proxy = self._proxies[schema]
@@ -163,7 +168,10 @@ class Gateway:
                     payload=payload,
                     schema=schema,
                 )
-                is_stream = bool(payload.get("stream", False))
+                is_stream = _wants_stream(schema, path, payload, request.query_params)
+                # A route with a `*` stands for many paths: the provider gets the
+                # one called (Gemini's has the model in it).
+                called = request.url.path if "*" in path else path
 
                 # Created here rather than inside process_request so that the
                 # finally below has the session to end even when masking fails
@@ -177,7 +185,11 @@ class Gateway:
                 transform_start = time.perf_counter()
                 try:
                     transformed, _ = await proxy.process_request(
-                        payload, session_id=session_id, source=source, session=ephemeral
+                        payload,
+                        session_id=session_id,
+                        source=source,
+                        session=ephemeral,
+                        path=called,
                     )
                 except VaultError:
                     raise  # not a scan failure: answered below
@@ -211,7 +223,7 @@ class Gateway:
 
                 if is_stream:
                     frames = proxy.process_stream(
-                        transformed, session_id, session=ephemeral, path=path
+                        transformed, session_id, session=ephemeral, path=called
                     )
                     # Pull the first frame before committing to a 200, so an
                     # upstream error status reaches the client as itself.
@@ -243,7 +255,7 @@ class Gateway:
                     )
 
                 try:
-                    response = await proxy.send_batch(transformed, path=path)
+                    response = await proxy.send_batch(transformed, path=called)
                     if schema == "embeddings":
                         deanonymized = response
                     else:
@@ -358,6 +370,35 @@ class Gateway:
         """
         if ephemeral is not None:
             self._engine.end_ephemeral_session(ephemeral, request_id=request_id)
+
+
+def served_routes(routes: dict[str, str], *, google: bool) -> dict[str, str]:
+    """The ``routes`` the gateway serves, with or without the Google provider.
+
+    Not the auxiliary ones.  Gemini's only with the Google provider
+    (``google``): it alone posts each request to its own model and method, and
+    posted to one fixed endpoint, a ``countTokens`` call could become a billed
+    reply.
+    """
+    unserved = set() if google else {"gemini"}
+    return {p: s for p, s in routes.items() if p not in _AUXILIARY_ROUTES and s not in unserved}
+
+
+def _route_path(route: str) -> str:
+    """``route`` as a FastAPI path: each ``*`` becomes a path parameter."""
+    pieces = route.split("*")
+    return "".join(f"{{_{i - 1}}}{piece}" if i else piece for i, piece in enumerate(pieces))
+
+
+def _wants_stream(schema: str, path: str, payload: dict[str, Any], query: Any) -> bool:
+    """Whether the reply streams back as SSE.
+
+    Gemini streams on its own method, as SSE only with ``alt=sse`` (what its
+    SDKs send); without it the reply is a JSON array, relayed as one body.
+    """
+    if schema == "gemini":
+        return path.endswith(":streamGenerateContent") and query.get("alt") == "sse"
+    return bool(payload.get("stream", False))
 
 
 def _relay_upstream_error(exc: ProviderError) -> Any:

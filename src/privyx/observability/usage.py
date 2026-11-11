@@ -1,10 +1,11 @@
 """Token usage the upstream reports, and what it costs.
 
-Providers report ``usage`` in three shapes: Anthropic Messages (input without
+Providers report ``usage`` in four shapes: Anthropic Messages (input without
 the cached part, plus ``cache_read_input_tokens`` and
 ``cache_creation_input_tokens``), OpenAI Chat Completions (``prompt_tokens``
-with the cached part inside, ``prompt_tokens_details.cached_tokens``), and
-OpenAI Responses (``input_tokens`` with ``input_tokens_details.cached_tokens``).
+with the cached part inside, ``prompt_tokens_details.cached_tokens``),
+OpenAI Responses (``input_tokens`` with ``input_tokens_details.cached_tokens``),
+and Gemini (``usageMetadata``, read like OpenAI Chat).
 :func:`normalize` turns any of them into the four counts the audit trail
 keeps: ``input`` (uncached), ``output``, ``cache_read``, and ``cache_write``.
 
@@ -75,7 +76,29 @@ def merge_usage(fields: dict[str, int], event: Any) -> str | None:
                 details = usage.get(key)
                 if isinstance(details, dict) and _count(details.get("cached_tokens")):
                     fields["cached_tokens"] = details["cached_tokens"]
+    gemini = event.get("usageMetadata")
+    if isinstance(gemini, dict):
+        name = event.get("modelVersion")
+        if isinstance(name, str) and safe_model(name):
+            model = name
+        fields.update(_gemini_usage(gemini))
     return model
+
+
+def _gemini_usage(meta: dict[str, Any]) -> dict[str, int]:
+    """Gemini's ``usageMetadata`` as OpenAI-style fields: its input counts the
+    cached part, and the model's thinking is billed as output."""
+
+    def total(*names: str) -> int:
+        return sum(meta[name] for name in names if _count(meta.get(name)))
+
+    fields = {
+        "prompt_tokens": total("promptTokenCount", "toolUsePromptTokenCount"),
+        "completion_tokens": total("candidatesTokenCount", "thoughtsTokenCount"),
+        "cached_tokens": total("cachedContentTokenCount"),
+        "total_tokens": total("totalTokenCount"),
+    }
+    return {key: value for key, value in fields.items() if value}
 
 
 @functools.lru_cache(maxsize=256)
@@ -176,7 +199,9 @@ class UsageMeter:
         self._utf8 = codecs.getincrementaldecoder("utf-8")("replace")
 
     def feed_json(self, payload: Any) -> None:
-        self.model = merge_usage(self.fields, payload) or self.model
+        # A Gemini stream asked for without SSE is one JSON array of chunks.
+        for item in payload if isinstance(payload, list) else [payload]:
+            self.model = merge_usage(self.fields, item) or self.model
 
     def feed_sse(self, chunk: bytes | str) -> None:
         text = chunk if isinstance(chunk, str) else self._utf8.decode(chunk)
@@ -189,12 +214,16 @@ class UsageMeter:
     def _read(self, events: list[Any]) -> None:
         for event in events:
             # Most events carry no usage; parse only those that may.
-            if '"usage"' in event.data or '"model"' in event.data:
+            if any(key in event.data for key in _USAGE_KEYS):
                 self.feed_json(_loads(event.data))
 
     @property
     def usage(self) -> dict[str, int] | None:
         return normalize(self.fields) if self.fields else None
+
+
+#: What an SSE event that may carry usage or a model id contains.
+_USAGE_KEYS = ('"usage"', '"model"', '"usageMetadata"', '"modelVersion"')
 
 
 def _count(value: Any) -> bool:

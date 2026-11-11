@@ -22,6 +22,9 @@ complete strings, so its JSON is restored leaf by leaf with the same walk as a
 batch body (:func:`~privyx.proxy.schemas.walk_sync`) and re-serialized only when
 something changed.
 
+Gemini events are whole ``GenerateContentResponse`` chunks; they are restored
+by :class:`~privyx.proxy.object_stream.GeminiStream`.
+
 Terminal events (OpenAI ``[DONE]``, Anthropic ``message_stop``) are deferred and
 emitted last, after every held-back fragment and buffered tool call has been
 flushed.  (A previous approach that tried to defer ``[DONE]`` *after* JSON-parsing
@@ -43,6 +46,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
+from privyx.proxy.object_stream import GeminiStream
 from privyx.proxy.schemas import remember_thinking, walk_sync
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 from privyx.streaming.deanonymizer import (
@@ -144,6 +148,8 @@ class StreamRouter:
         self._block_types: dict[int, str] = {}
         # Responses: (kind, *indexes) -> its delta stream.
         self._rs: dict[tuple[Any, ...], _Delta] = {}
+        # Gemini: whole chunks.
+        self._objects = GeminiStream(self._make_processor, self._restore_full)
 
     # -- public API --------------------------------------------------------
 
@@ -170,6 +176,7 @@ class StreamRouter:
         out.extend(self._flush_openai_tools())
         out.extend(self._flush_anthropic_tools())
         out.extend(self._flush_responses())
+        out.extend(SSEEvent(data=_dumps(chunk)).to_str() for chunk in self._objects.flush())
         out.extend(self._pending_terminal)
         self._pending_terminal = []
         return out
@@ -185,6 +192,8 @@ class StreamRouter:
         payload = _loads(event.data)
         if payload is None:
             return self._passthrough(event)
+        if self._schema == "gemini":
+            return [_reframe(event, chunk) for chunk in self._objects.feed(payload)]
         if self._schema == "anthropic":
             return self._handle_anthropic(event, payload)
         if self._schema == "responses":
@@ -626,6 +635,32 @@ def select_processor_factory(
     index = getattr(codec, "ids", None)
     ids = index(mapping) if index else None
     return lambda: TokenStreamProcessor(codec, resolve, ids)
+
+
+def restore_chunks(
+    chunks: list[Any], operator: object, codec: TokenCodec, mapping: dict[str, str]
+) -> tuple[list[Any], int]:
+    """Restore a Gemini stream sent as one JSON array (no ``alt=sse``).
+
+    Its chunks split text like SSE events do, so they are restored in order, as
+    a stream.  Returns the restored chunks and how many pseudonyms were reversed.
+    """
+    base_resolve = resolver_for(operator, mapping)
+    count = 0
+
+    def resolve(token: str) -> str | None:
+        nonlocal count
+        original = base_resolve(token)
+        count += original is not None
+        return original
+
+    make = select_processor_factory(operator, codec, resolve, mapping)
+    full = make()
+    stream = GeminiStream(make, lambda text: full.feed(text) + full.flush())
+    restored: list[Any] = []
+    for chunk in chunks:
+        restored += stream.feed(chunk)
+    return restored + stream.flush(), count
 
 
 def _reframe(event: SSEEvent, payload: dict[str, Any]) -> str:

@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from typing import Any
 
 #: Wire schemas whose request body this module knows how to fingerprint.
-_CHAT_SCHEMAS = frozenset({"openai", "anthropic", "responses"})
+_CHAT_SCHEMAS = frozenset({"openai", "anthropic", "responses", "gemini"})
 
 
 def resolve_session_id(
@@ -53,7 +53,7 @@ def resolve_session_id(
             return _derive(credential), "client"
     elif strategy == "conversation":
         credential = _credential(headers)
-        first = _first_user_message(payload) if schema in _CHAT_SCHEMAS else ""
+        first = _first_user_message(payload, schema) if schema in _CHAT_SCHEMAS else ""
         if credential or first:
             return _derive(f"{credential}\x00{first}"), "conversation"
     return None, "ephemeral"
@@ -68,17 +68,18 @@ def _derive(material: str) -> str:
 def _credential(headers: Mapping[str, str]) -> str:
     """The client credential to key a session on, or ``""`` when absent.
 
-    ``Authorization`` (OpenAI-style bearer) or ``x-api-key`` (Anthropic-style),
-    matched case-insensitively since header casing is not guaranteed.
+    ``Authorization`` (OpenAI-style bearer), ``x-api-key`` (Anthropic-style),
+    or ``x-goog-api-key`` (Gemini), matched case-insensitively since header
+    casing is not guaranteed.
     """
-    wanted = ("authorization", "x-api-key")
+    wanted = ("authorization", "x-api-key", "x-goog-api-key")
     for key, value in headers.items():
         if key.lower() in wanted and value:
             return value
     return ""
 
 
-def _first_user_message(payload: Any) -> str:
+def _first_user_message(payload: Any, schema: str | None = None) -> str:
     """Text of the first ``user`` message, or ``""`` when there is none.
 
     OpenAI Chat and Anthropic share the shape read here: ``messages`` is a list
@@ -88,10 +89,12 @@ def _first_user_message(payload: Any) -> str:
     message is immutable across a conversation's turns, so it is a stable
     fingerprint — unless a Responses client chains turns with
     ``previous_response_id`` and sends only the new turn, which then derives a
-    new session per turn.
+    new session per turn.  Gemini sends ``contents``, whose ``parts`` hold text.
     """
     if not isinstance(payload, Mapping):
         return ""
+    if schema == "gemini":
+        return _gemini_first_user_text(payload.get("contents"))
     messages = payload.get("messages", payload.get("input"))
     if isinstance(messages, str):
         return messages
@@ -100,6 +103,19 @@ def _first_user_message(payload: Any) -> str:
     for message in messages:
         if isinstance(message, Mapping) and message.get("role") == "user":
             return _content_text(message.get("content"))
+    return ""
+
+
+def _gemini_first_user_text(contents: Any) -> str:
+    """Text of the first ``user`` turn of Gemini ``contents`` (``role`` may be left out)."""
+    for content in contents if isinstance(contents, list) else []:
+        if isinstance(content, Mapping) and content.get("role", "user") == "user":
+            parts = content.get("parts")
+            return "".join(
+                part["text"]
+                for part in (parts if isinstance(parts, list) else [])
+                if isinstance(part, Mapping) and isinstance(part.get("text"), str)
+            )
     return ""
 
 

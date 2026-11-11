@@ -24,7 +24,12 @@ from privyx.core.engine import PrivacyEngine
 from privyx.core.session import Session
 from privyx.providers.base import Provider
 from privyx.proxy.schemas import restore_response, transform_request
-from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
+from privyx.proxy.stream_router import (
+    StreamRouter,
+    resolver_for,
+    restore_chunks,
+    select_processor_factory,
+)
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 
 
@@ -60,22 +65,29 @@ class HTTPProxy:
         *,
         source: str = "ephemeral",
         session: Session | None = None,
+        path: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         """Pseudonymize the request payload and return (transformed, session_id).
 
         ``source`` records how ``session_id`` was chosen for the audit trail; see
         :func:`privyx.proxy.session.resolve_session_id`.  ``session``, an
         :meth:`~privyx.core.engine.PrivacyEngine.ephemeral_session`, is masked
-        in memory instead of through the vault.
+        in memory instead of through the vault.  ``path`` is the one the client
+        called (see :func:`~privyx.proxy.schemas.transform_request`).
         """
         if session is not None:
             transformed = await transform_request(
-                payload, self._engine, session.session_id, session=session, schema=self._schema
+                payload,
+                self._engine,
+                session.session_id,
+                session=session,
+                schema=self._schema,
+                path=path,
             )
             return transformed, session.session_id
         stored = await self._engine.get_or_create_session(session_id, source=source)
         transformed = await transform_request(
-            payload, self._engine, stored.session_id, schema=self._schema
+            payload, self._engine, stored.session_id, schema=self._schema, path=path
         )
         return transformed, stored.session_id
 
@@ -92,9 +104,25 @@ class HTTPProxy:
         *,
         session: Session | None = None,
     ) -> Any:
-        """Deanonymize a batch response; ``session``, when held, skips the vault read."""
+        """Deanonymize a batch response; ``session``, when held, skips the vault read.
+
+        A Gemini stream asked for without ``alt=sse`` comes back as a JSON
+        array of chunks, restored in order like a stream (not counted in the
+        audit trail, like a gateway stream).
+        """
+        if self._schema == "gemini" and isinstance(response, list):
+            if session is None:
+                session = await self._engine.vault.get(session_id)
+            if session is None:
+                return response
+            restored, _ = restore_chunks(
+                response, self._engine.operator, self._engine.codec, session.mapping
+            )
+            return restored
         if isinstance(response, dict):
-            return await restore_response(response, self._engine, session_id, session=session)
+            return await restore_response(
+                response, self._engine, session_id, session=session, schema=self._schema
+            )
         return response
 
     async def process_stream(

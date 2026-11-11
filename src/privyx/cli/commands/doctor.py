@@ -297,7 +297,8 @@ def _check_routes(config_path: str | None) -> tuple[bool, str]:
     from privyx.config.schema import ProxyConfig
     from privyx.proxy.schemas import KNOWN_SCHEMAS
 
-    proxy = _settings(config_path).proxy
+    settings = _settings(config_path)
+    proxy = settings.proxy
     invalid = [
         path
         for path, schema in proxy.routes.items()
@@ -313,9 +314,9 @@ def _check_routes(config_path: str | None) -> tuple[bool, str]:
 
     routes = proxy.routes
     if proxy.mode == "gateway":
-        from privyx.gateway.server import _AUXILIARY_ROUTES
+        from privyx.gateway.server import served_routes
 
-        routes = {p: s for p, s in routes.items() if p not in _AUXILIARY_ROUTES}
+        routes = served_routes(routes, google=settings.provider.type == "google")
         disposition = "unlisted paths return 404; auxiliary routes are not served"
     elif proxy.passthrough_unknown:
         disposition = (
