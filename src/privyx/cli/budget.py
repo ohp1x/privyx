@@ -24,7 +24,17 @@ from privyx.observability.usage import merge_usage, usage_tokens
 from privyx.proxy.schemas import detect_schema
 
 #: Schemas whose requests are model turns.
-_CHAT = frozenset({"openai", "anthropic", "responses"})
+_CHAT = frozenset({"openai", "anthropic", "responses", "gemini"})
+#: Path endings of routes that are not model turns: token counting, and
+#: Gemini's embeddings and cached contents, which share the chat schema.
+_FREE = (
+    "/count_tokens",
+    "/input_tokens",
+    ":countTokens",
+    ":embedContent",
+    ":batchEmbedContents",
+    "/cachedContents",
+)
 
 
 class Budget:
@@ -50,9 +60,7 @@ class Budget:
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         path = scope.get("path", "") if scope["type"] == "http" else ""
-        if detect_schema(path, self.routes) not in _CHAT or path.endswith(
-            ("/count_tokens", "/input_tokens")
-        ):
+        if detect_schema(path, self.routes) not in _CHAT or path.endswith(_FREE):
             await self.app(scope, receive, send)
             return
         reached = self._reached()
@@ -127,7 +135,10 @@ class Budget:
                 if not message.get("more_body", False):
                     if pending.startswith(b"data:"):
                         pending = pending[5:]
-                    merge_usage(fields, _loads(pending))
+                    body = _loads(pending)
+                    # A Gemini stream asked for without SSE is one JSON array.
+                    for item in body if isinstance(body, list) else [body]:
+                        merge_usage(fields, item)
                     self.tokens += usage_tokens(fields)
                     # A reply that ends, not one the client cancelled midway.
                     if 200 <= status < 300 and not fields:

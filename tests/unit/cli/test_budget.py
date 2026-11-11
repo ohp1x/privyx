@@ -110,6 +110,39 @@ async def test_token_budget_counts_a_stream_split_anywhere() -> None:
     assert app.exceeded == "token budget (200 tokens) is reached"
 
 
+GEMINI_SSE = (
+    b'data: {"candidates":[],"usageMetadata":{"promptTokenCount":40,"totalTokenCount":40}}\r\n\r\n'
+    b'data: {"candidates":[],"usageMetadata":{"promptTokenCount":40,"candidatesTokenCount":20,'
+    b'"thoughtsTokenCount":10,"totalTokenCount":70}}\r\n\r\n'
+)
+GEMINI_ARRAY = b'[{"candidates":[]},{"usageMetadata":{"totalTokenCount":70}}]'
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "content_type"),
+    [
+        ("/v1beta/models/gemini-2.5-flash:streamGenerateContent", GEMINI_SSE, b"text/event-stream"),
+        (
+            "/v1beta/models/gemini-2.5-flash:streamGenerateContent",
+            GEMINI_ARRAY,
+            b"application/json",
+        ),
+    ],
+    ids=["gemini-sse", "gemini-array"],
+)
+async def test_gemini_turns_are_counted(
+    path: str, body: bytes, content_type: bytes
+) -> None:
+    app = Budget(
+        _upstream(body, content_type), BudgetConfig(max_tokens=100), ROUTES, AuditLogger(None), "x"
+    )
+
+    assert [(await _call(app, path))[0] for _ in range(3)] == [200, 200, 400]
+    assert (app.turns, app.tokens, app.unmeasured) == (2, 140, False)
+    for free in (":countTokens", ":embedContent", ":batchEmbedContents"):
+        assert (await _call(app, f"/v1beta/models/m{free}"))[0] == 200  # not a turn, not refused
+
+
 CHAT_SSE_WITH_USAGE = (
     b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
     b'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":1,"total_tokens":5}}\n\n'

@@ -79,6 +79,21 @@ model and method is cut back to the part before `/models/`. The gateway serves G
 `provider.type: google`, and streams as SSE when the client asks for
 `alt=sse`.
 
+## Gemini CLI
+
+```bash
+export GEMINI_API_KEY=<your Gemini API key>
+privyx run gemini
+```
+
+Gemini CLI goes through Privyx when it signs in with an API key; pick that in
+its `/auth` menu if it signs in with Google. With Google sign-in or Vertex AI
+it calls other endpoints, which the `gemini` profile also points at Privyx;
+they are not masked, so Privyx refuses them with a `403` and Gemini CLI stops
+with an error before any prompt leaves. For that launch, every path outside
+`proxy.routes` is refused the same way. See
+[`privyx run`](../guide/cli.md#privyx-run).
+
 ## OpenAI-compatible endpoint
 
 Gemini also speaks the `openai` wire schema at

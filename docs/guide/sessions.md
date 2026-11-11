@@ -26,7 +26,9 @@ session:
 With `ephemeral`, a multi-turn conversation is masked from scratch every turn
 and shows up as many sessions. `conversation` keeps one session per
 conversation; two conversations that open with the same first message under the
-same key share one. The trade-offs are covered in
+same key share one. Gemini CLI opens each chat with the same message about
+its environment (date, directory, files), so its chats in one directory on
+one day share a session. The trade-offs are covered in
 [Proxy: Sessions](../architecture/proxy.md#sessions).
 
 To keep tokens stable across sessions and restarts regardless of strategy, set

@@ -688,6 +688,10 @@ def test_run_unknown_target_without_env_var_is_a_usage_error(runner: CliRunner) 
             "anthropic",
             ["ANTHROPIC_BASE_URL=http://127.0.0.1:<auto> [unknown command, provider anthropic]"],
         ),
+        (
+            "google",
+            ["GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [unknown command, provider google]"],
+        ),
     ],
 )
 def test_run_unknown_target_gets_the_usual_variables_of_its_provider(
@@ -698,6 +702,33 @@ def test_run_unknown_target_gets_the_usual_variables_of_its_provider(
     assert result.exit_code == 0, result.output
     env = result.output.split("Environment injected:\n")[1].splitlines()
     assert [line.strip() for line in env] == injected
+
+
+def test_run_gemini_points_every_endpoint_at_privyx_and_refuses_unrouted_paths(
+    runner: CliRunner,
+) -> None:
+    from privyx.config.loader import load_config
+    from privyx.proxy.schemas import detect_schema
+
+    result = runner.invoke(cli, ["run", "--dry-run", "gemini"])
+
+    assert result.exit_code == 0, result.output
+    assert "Upstream: https://generativelanguage.googleapis.com [" in result.output
+    env = result.output.split("Environment injected:\n")[1].splitlines()
+    assert [line.split("=")[0].strip() for line in env] == [
+        "CODE_ASSIST_ENDPOINT",
+        "GOOGLE_GEMINI_BASE_URL",
+        "GOOGLE_VERTEX_BASE_URL",
+    ]
+    settings = load_config(None, agent="gemini")
+    assert settings.proxy.passthrough_unknown is False
+    # Google login and Vertex paths are not routed, so they are refused.
+    for path in (
+        "/v1internal:streamGenerateContent",
+        "/v1/projects/p/locations/l/publishers/google/models/m:generateContent",
+    ):
+        assert detect_schema(path, settings.proxy.routes) is None
+    assert load_config(None, agent="claude").proxy.passthrough_unknown is True
 
 
 def test_run_unknown_target_with_env_var_gets_only_that_variable(runner: CliRunner) -> None:

@@ -42,6 +42,15 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "env_vars": ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"],
         "base_path": "/v1",
     },
+    # API-key mode only.  Its Google-login (Code Assist) and Vertex endpoints
+    # point at Privyx too, which refuses their paths (403), so those modes fail
+    # rather than reach Google unmasked.
+    "gemini": {
+        "command": "gemini",
+        "provider": "google",
+        "env_vars": ["GOOGLE_GEMINI_BASE_URL", "CODE_ASSIST_ENDPOINT", "GOOGLE_VERTEX_BASE_URL"],
+        "privyx": {"proxy": {"passthrough_unknown": False}},
+    },
     "grok": {
         "command": "grok",
         "provider": "openai",
