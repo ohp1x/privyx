@@ -446,6 +446,28 @@ async def test_auth_query_params_are_not_masked() -> None:
     assert sent_params["q"].startswith("<PRIVYX_EMAIL_")
 
 
+@pytest.mark.parametrize(
+    "options",
+    [{"api_key": "configured-key"}, {"forward_client_auth": False}],
+    ids=["key", "no-auth"],
+)
+async def test_the_clients_query_key_is_dropped_with_its_headers(options: dict[str, Any]) -> None:
+    capture: list[httpx.Request] = []
+    proxy = TransparentProxy(
+        _engine(), origin="https://up.test", client=_mock_client(capture), **options
+    )
+
+    await proxy.handle(
+        method="POST",
+        path="v1beta/models/gemini-pro:generateContent",
+        headers={"content-type": "application/json"},
+        body=b"{}",
+        query_params=[("key", "client-key"), ("alt", "sse")],
+    )
+
+    assert dict(capture[0].url.params) == {"alt": "sse"}
+
+
 class _BrokenDetector:
     name = "broken"
 

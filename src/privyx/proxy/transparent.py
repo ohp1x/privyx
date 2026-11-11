@@ -50,6 +50,7 @@ from privyx.observability.usage import UsageMeter
 from privyx.providers.generic import upstream_client
 from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import (
+    AUTH_QUERY_PARAMS,
     MASKED_HEADERS,
     detect_schema,
     has_token_ids,
@@ -349,6 +350,10 @@ class TransparentProxy:
             out_params: list[tuple[str, Any]] | None = (
                 list(parsed_params.multi_items()) if parsed_params else None
             )
+            if out_params and (self._api_key or not self._forward_client_auth):
+                # The client's key in the query (Gemini's `?key=`) goes with its
+                # headers: Privyx's key replaces it, or none is relayed.
+                out_params = [(k, v) for k, v in out_params if k.lower() not in AUTH_QUERY_PARAMS]
             transform_ms: float | None = None
             # A masked header comes on body-less requests too, and on unrouted
             # paths.

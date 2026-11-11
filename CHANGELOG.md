@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **Proxy:** with `proxy.forward_client_auth: false`, or a key Privyx holds, the client's `key` query parameter is dropped like its credential headers, so the client's own key no longer reaches the upstream
+
 ## [0.1.31] - 2026-11-11
 
 ### Added
