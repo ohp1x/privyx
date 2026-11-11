@@ -61,6 +61,10 @@ _AUXILIARY_ROUTES = frozenset(
         "/v1/responses/compact",
         "/responses/input_tokens",
         "/responses/compact",
+        # Ollama's API, served by the transparent proxy only: posted to one
+        # chat endpoint, an embedding request would be a wrong-format reply.
+        "/api/embed",
+        "/api/embeddings",
     }
 )
 
@@ -375,12 +379,13 @@ class Gateway:
 def served_routes(routes: dict[str, str], *, google: bool) -> dict[str, str]:
     """The ``routes`` the gateway serves, with or without the Google provider.
 
-    Not the auxiliary ones.  Gemini's only with the Google provider
-    (``google``): it alone posts each request to its own model and method, and
-    posted to one fixed endpoint, a ``countTokens`` call could become a billed
-    reply.
+    Not the auxiliary ones, nor Ollama's API, which the transparent proxy
+    serves: its streams are JSON lines, and an Ollama server has no base path
+    or key to hold.  Gemini's only with the Google provider (``google``): it
+    alone posts each request to its own model and method, and posted to one
+    fixed endpoint, a ``countTokens`` call could become a billed reply.
     """
-    unserved = set() if google else {"gemini"}
+    unserved = {"ollama"} if google else {"ollama", "gemini"}
     return {p: s for p, s in routes.items() if p not in _AUXILIARY_ROUTES and s not in unserved}
 
 

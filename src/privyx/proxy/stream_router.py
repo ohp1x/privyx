@@ -46,7 +46,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
-from privyx.proxy.object_stream import GeminiStream
+from privyx.proxy.object_stream import GeminiStream, OllamaStream
 from privyx.proxy.schemas import remember_thinking, walk_sync
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 from privyx.streaming.deanonymizer import (
@@ -594,6 +594,51 @@ class StreamRouter:
         if restored == payload:
             return event
         return replace(event, data=_dumps(restored))
+
+
+class LineRouter:
+    """Rewrites an upstream JSON-lines stream (Ollama's), deanonymizing it.
+
+    The same contract as :class:`StreamRouter`: feed raw chunks in any
+    splitting, get back whole lines to forward, then :meth:`flush` at the end.
+    Each line is one object, restored by
+    :class:`~privyx.proxy.object_stream.OllamaStream`, and re-serialized; a
+    line that is not JSON is forwarded as it came, after any held-back text.
+    """
+
+    def __init__(
+        self,
+        codec: TokenCodec,
+        resolve: Callable[[str], str | None],
+        make_processor: Callable[[], StreamDeanonymizer] | None = None,
+    ) -> None:
+        make = make_processor or (lambda: TokenStreamProcessor(codec, resolve))
+        full = make()
+        self._objects = OllamaStream(make, lambda text: full.feed(text) + full.flush())
+        self._utf8 = codecs.getincrementaldecoder("utf-8")("replace")
+        self._buffer = ""
+
+    def feed(self, chunk: bytes | str) -> list[str]:
+        """Feed one raw upstream chunk; return the lines it completes."""
+        text = self._utf8.decode(chunk) if isinstance(chunk, (bytes, bytearray)) else chunk
+        *lines, self._buffer = (self._buffer + text).split("\n")
+        return [out for line in lines for out in self._line(line)]
+
+    def flush(self) -> list[str]:
+        """The last line, if it came without a newline, and any held-back text."""
+        rest = self._buffer + self._utf8.decode(b"", final=True)
+        self._buffer = ""
+        out = self._line(rest) if rest.strip() else []
+        return out + [_dumps(obj) + "\n" for obj in self._objects.flush()]
+
+    def _line(self, line: str) -> list[str]:
+        if not line.strip():
+            return [line + "\n"]
+        try:
+            payload = json.loads(line)
+        except ValueError:
+            return [_dumps(obj) + "\n" for obj in self._objects.flush()] + [line + "\n"]
+        return [_dumps(obj) + "\n" for obj in self._objects.feed(payload)]
 
 
 def resolver_for(operator: object, mapping: dict[str, str]) -> Callable[[str], str | None]:

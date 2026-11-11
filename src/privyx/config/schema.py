@@ -176,7 +176,8 @@ def _default_routes() -> dict[str, str]:
     # Unlisted paths (files, batches) are forwarded without
     # pseudonymization; see docs/architecture/proxy.md.  The
     # paths without /v1 are what the OpenAI SDK calls when its base URL lacks
-    # the /v1 it expects.  A `*` stands for the model in a Gemini path.
+    # the /v1 it expects.  A `*` stands for the model in a Gemini path.  The
+    # /api paths are Ollama's own API.
     # The first `*` is the API version (v1, v1beta, v1alpha).
     chat = ("generateContent", "streamGenerateContent", "countTokens")
     gemini = {
@@ -200,6 +201,10 @@ def _default_routes() -> dict[str, str]:
         "/responses/input_tokens": "responses",
         "/responses/compact": "responses",
         **gemini,
+        "/api/chat": "ollama",
+        "/api/generate": "ollama",
+        "/api/embed": "embeddings",
+        "/api/embeddings": "embeddings",
     }
 
 
