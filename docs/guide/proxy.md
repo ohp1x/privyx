@@ -243,14 +243,15 @@ make Privyx reveal a value from another session.
 1. `provider.<type>_api_key` for the configured `provider.type`
    (`PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`);
 2. `provider.api_key` (`PRIVYX_API_KEY`);
-3. in transparent mode, the client's own `Authorization` or `x-api-key`; in
-   gateway mode, none.
+3. in transparent mode, the client's own `Authorization` or `x-api-key`
+   header, or `key` query parameter; in gateway mode, none.
 
 A key held by Privyx replaces the client's on every request. The transparent
 proxy sends it as `x-api-key` on Anthropic paths and as a bearer token
 elsewhere; the gateway sends it as `x-api-key` when `provider.type` is
 `anthropic`. `proxy.forward_client_auth: false` drops the client's credential
-headers before anything else, so only a configured key can go upstream.
+headers and key query parameters before anything else, so only a configured
+key can go upstream.
 
 **Headers Privyx adds or removes.**
 
