@@ -351,15 +351,19 @@ def _pretty(line: str) -> str:
     """One audit record as ``time  event  request  session  key=value …``."""
     try:
         record = json.loads(line)
-        event = record["event"]
-        extras = " ".join(f"{k}={_value(v)}" for k, v in record.items() if k not in _ENVELOPE)
-        text = (
-            f"{_ts(record['ts'])}  {event:<17}  {record.get('request_id') or '-':<16}  "
-            f"{record.get('session_id') or '-'}  {extras}"
-        )
+        text = _line(record)
     except Exception:  # not a record we can read: show it as written
         return line.rstrip("\n")
-    return click.style(text, fg="red") if event == "proxy.error" else text
+    return click.style(text, fg="red") if record["event"] == "proxy.error" else text
+
+
+def _line(record: dict[str, Any]) -> str:
+    """``record`` as one plain line; raises on a record it cannot read."""
+    extras = " ".join(f"{k}={_value(v)}" for k, v in record.items() if k not in _ENVELOPE)
+    return (
+        f"{_ts(record['ts'])}  {record['event']:<17}  {record.get('request_id') or '-':<16}  "
+        f"{record.get('session_id') or '-'}  {extras}"
+    )
 
 
 def _value(value: Any) -> str:

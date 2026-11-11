@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **CLI:** `privyx mcp serve` runs a local MCP server with tools to scan text, mask files, and check diffs for secrets
+- **CLI:** `privyx mcp serve` offers `status` and `audit-tail` prompts, which MCP clients such as Claude Code list as commands, showing vault sessions and audit events without the masked values
 - **CLI:** `privyx pipe` masks or restores standard input line by line, writing each line as soon as it is read
 - **CLI:** `privyx mcp wrap -- <command>` runs a stdio MCP server, masking what it sends to the client and restoring tokens in what the client sends it
 

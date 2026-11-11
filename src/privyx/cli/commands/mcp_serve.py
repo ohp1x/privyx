@@ -9,7 +9,7 @@ import os
 import re
 import signal
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +67,26 @@ _TOOLS = [
         },
     },
 ]
+
+#: Commands for the person at the client (Claude Code lists them as
+#: `/privyx:status`).  None takes arguments: a client may send them on to the
+#: model, so a prompt that masked or restored text would hand it over anyway.
+_PROMPTS = [
+    {
+        "name": "status",
+        "description": "Vault sessions and audit trail totals, never the masked values.",
+    },
+    {
+        "name": "audit-tail",
+        "description": "The latest audit events, which never hold the masked values.",
+    },
+]
+
+#: Audit events `audit-tail` shows, as many as `privyx audit tail` does.
+_TAIL = 10
+
+#: Sessions `status` lists, most recently active first.
+_RECENT = 5
 
 #: Protocol versions this server speaks; a client asking for another gets the
 #: newest.  2025-03-26 allows batches, which are answered.
@@ -246,13 +266,24 @@ async def _handle(
         version = params.get("protocolVersion")
         result: Any = {
             "protocolVersion": version if version in _VERSIONS else _VERSIONS[-1],
-            "capabilities": {"tools": {}},
+            "capabilities": {"tools": {}, "prompts": {}},
             "serverInfo": {"name": "privyx", "version": __version__},
         }
     elif method == "ping":
         result = {}
     elif method == "tools/list":
         result = {"tools": _TOOLS}
+    elif method == "prompts/list":
+        result = {"prompts": _PROMPTS}
+    elif method == "prompts/get":
+        name = params.get("name")
+        if name == "status":
+            text = await _status(engine, settings)
+        elif name == "audit-tail":
+            text = _audit_tail(settings)
+        else:
+            return _error(request_id, -32602, "Unknown prompt")
+        result = {"messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
     elif method == "tools/call":
         try:
             result = await _tool_result(params, engine, settings, root)
@@ -417,6 +448,108 @@ async def _call(
         for line, what in _findings(lines, engine.codec)
     ]
     return {"ok": not findings, "findings": findings}
+
+
+async def _status(engine: PrivacyEngine, settings: Settings) -> str:
+    from privyx.cli.commands.audit import _breakdown
+    from privyx.cli.commands.session import _ts
+    from privyx.observability.metrics import AuditStats
+
+    lines = ["Privyx status, which never holds the masked values:", ""]
+    vault = settings.vault.type
+    if vault == "memory":
+        lines.append(
+            "Vault: memory, which each privyx process keeps to itself: "
+            "the proxy's sessions are not listed"
+        )
+    else:
+        try:
+            sessions = await engine.vault.list_sessions()
+        except Exception as exc:
+            # Only the type: the message may quote the vault's DSN, password
+            # included.
+            lines.append(f"Vault: {vault}, sessions cannot be listed ({type(exc).__name__})")
+        else:
+            sessions.sort(key=lambda s: s.updated_at, reverse=True)
+            mappings = sum(len(s.mapping) for s in sessions)
+            lines.append(f"Vault: {vault}, {len(sessions)} session(s), {mappings} mapping(s)")
+            lines += [
+                f"  {s.session_id}  last active {_ts(s.updated_at)}  {len(s.mapping)} mapping(s)"
+                for s in sessions[:_RECENT]
+            ]
+            if len(sessions) > _RECENT:
+                lines.append(f"  and {len(sessions) - _RECENT} more")
+    if not settings.audit.enabled:
+        lines.append("Audit trail: off (audit.enabled is false)")
+        return "\n".join(lines)
+    totals, skipped = AuditStats(), 0
+    try:
+        for record in _audit_records(settings):
+            try:
+                if record is None:
+                    raise ValueError
+                totals.add(record)
+            except (KeyError, TypeError, ValueError):
+                skipped += 1
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        lines.append(f"Audit trail: cannot be read ({exc.strerror or type(exc).__name__})")
+        return "\n".join(lines)
+    events = totals.events
+    if not events:
+        lines.append("Audit trail: no events yet")
+    else:
+        period = ""
+        if totals.first_ts is not None and totals.last_ts is not None:
+            period = f", {_ts(totals.first_ts)} to {_ts(totals.last_ts)}"
+        lines += [
+            f"Audit trail: {events.total()} event(s){period}",
+            f"  Requests: {events['proxy.request']}, "
+            f"errors: {events['proxy.error']}{_breakdown(totals.errors)}",
+            f"  Masked: {totals.entities.total()} entities{_breakdown(totals.entities)}",
+            f"  Restored: {totals.restored} pseudonyms",
+        ]
+    if skipped:
+        lines.append(f"  Skipped {skipped} unreadable line(s)")
+    return "\n".join(lines)
+
+
+def _audit_tail(settings: Settings) -> str:
+    from collections import deque
+
+    from privyx.cli.commands.audit import _line
+
+    if not settings.audit.enabled:
+        return "The Privyx audit trail is off (audit.enabled is false)."
+    recent: deque[str] = deque(maxlen=_TAIL)
+    try:
+        for record in _audit_records(settings):
+            # A line that is not a record is left out, not shown as written.
+            if record is not None:
+                with contextlib.suppress(Exception):
+                    recent.append(_line(record))
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        return f"The Privyx audit trail cannot be read ({exc.strerror or type(exc).__name__})."
+    if not recent:
+        return "No Privyx audit events yet."
+    return "The latest Privyx audit events, which never hold the masked values:\n\n" + "\n".join(
+        recent
+    )
+
+
+def _audit_records(settings: Settings) -> Iterator[dict[str, Any] | None]:
+    """Each line of the audit trail as a record, or None for one that is not."""
+    path = Path(settings.audit.path).expanduser()
+    with path.open(encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                record = json.loads(line)
+            except (ValueError, RecursionError):
+                record = None
+            yield record if isinstance(record, dict) else None
 
 
 def _inside(root: Path, path: str) -> Path:
