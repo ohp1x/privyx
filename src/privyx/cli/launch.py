@@ -43,6 +43,7 @@ def pi_args(base_url: str, argv: list[str]) -> list[str]:
 FALLBACK_ENV: dict[str, tuple[tuple[str, ...], str]] = {
     "openai": (("OPENAI_BASE_URL", "OPENAI_API_BASE"), "/v1"),
     "anthropic": (("ANTHROPIC_BASE_URL",), ""),
+    "google": (("GOOGLE_GEMINI_BASE_URL",), ""),
 }
 
 ADAPTERS: dict[str, Callable[[str, list[str]], list[str]]] = {

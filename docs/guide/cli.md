@@ -100,6 +100,14 @@ Known targets, and where each gets the proxy's URL:
 | `pi` | `anthropic` | `-e` with an extension Privyx ships, which sets the `baseUrl` of the pi provider named in `PRIVYX_PI_PROVIDER` (`anthropic`) to `PRIVYX_PI_BASE_URL` |
 | `opencode` | `anthropic` | `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL`, ending in `/v1`. For a model of OpenAI, add `--provider openai`. |
 | `grok` | `openai`, upstream `https://api.x.ai/v1` | `GROK_XAI_API_BASE_URL`, ending in `/v1`, used when Grok Build signs in with an API key (`XAI_API_KEY`) |
+| `gemini` | `google` | `GOOGLE_GEMINI_BASE_URL`, used when Gemini CLI signs in with an API key (`GEMINI_API_KEY`); also `CODE_ASSIST_ENDPOINT` and `GOOGLE_VERTEX_BASE_URL`, so the other sign-ins reach Privyx and are refused |
+
+Gemini CLI goes through Privyx only when it signs in with an API key. Signed
+in with Google, it calls Google's Code Assist service, and with Vertex AI
+another endpoint; the `gemini` profile points both at Privyx too and sets
+`proxy.passthrough_unknown: false` for its launch, so those requests are
+refused with a `403` instead of reaching Google unmasked. Choose the API key
+sign-in in Gemini CLI (`/auth`) to use it through Privyx.
 
 pi has no base-URL variable or flag; the extension changes its provider for
 this run only, never `models.json`. Only that one provider goes through
