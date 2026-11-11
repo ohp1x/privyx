@@ -352,6 +352,160 @@ async def test_unexpected_tool_error_logs_only_its_type(capsys):
 
 
 # --------------------------------------------------------------------------
+# Prompts
+
+
+def _record(event, ts, **fields):
+    record = {"schema_version": 1, "ts": ts, "event": event, "request_id": None}
+    return json.dumps({**record, "session_id": "s1", **fields})
+
+
+async def _prompt(name, config=None, engine=None):
+    """The text of a prompts/get answer."""
+    from privyx.config.loader import load_config
+    from privyx.core.builder import build_engine
+
+    settings = load_config(str(config) if config else None)
+    built, close = await build_engine(settings)
+    try:
+        request = {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": name}}
+        answer = await _handle(request, engine or built, settings, Path.cwd())
+    finally:
+        await close()
+    (message,) = answer["result"]["messages"]
+    assert message["role"] == "user"
+    return message["content"]["text"]
+
+
+@pytest.mark.asyncio
+async def test_status_counts_sessions_and_audit_without_values(tmp_path):
+    from privyx.cli.commands.mask import _mask_async
+
+    config = _sqlite(tmp_path)
+    audit = tmp_path / "audit.log"
+    config.write_text(config.read_text() + f"audit:\n  path: {audit}\n")
+    await _mask_async(
+        "ana@example.com and bob@example.com",
+        "text",
+        (),
+        None,
+        "s1",
+        str(config),
+        warn_unpersisted=False,
+    )
+    audit.write_text(
+        "\n".join(
+            [
+                _record("proxy.request", 1000.0, status=200),
+                _record("session.transform", 1001.0, entity_counts={"EMAIL": 2, "PERSON": 1}),
+                _record("proxy.error", 1002.0, phase="upstream", error_type="ConnectError"),
+                _record("session.restore", 1003.0, transformations=2),
+                "ana@example.com is not a record",
+                "[1, 2]",
+            ]
+        )
+        + "\n"
+    )
+    text = await _prompt("status", config)
+    assert "Vault: sqlite, 1 session(s), 2 mapping(s)" in text
+    assert "  s1  last active " in text
+    assert "Audit trail: 4 event(s)" in text
+    assert "Requests: 1, errors: 1 (upstream 1)" in text
+    assert "Masked: 3 entities (EMAIL 2, PERSON 1)" in text
+    assert "Restored: 2 pseudonyms" in text
+    assert "Skipped 2 unreadable line(s)" in text
+    assert "@example.com" not in text
+
+
+@pytest.mark.asyncio
+async def test_status_lists_only_the_latest_sessions(tmp_path):
+    from privyx.cli.commands.mask import _mask_async
+
+    config = _sqlite(tmp_path)
+    for i in range(7):
+        await _mask_async(
+            f"user{i}@example.com", "text", (), None, f"s{i}", str(config), warn_unpersisted=False
+        )
+    text = await _prompt("status", config)
+    assert "7 session(s)" in text
+    assert "  s6  last active" in text
+    assert "  s1  last active" not in text
+    assert "  and 2 more" in text
+
+
+@pytest.mark.asyncio
+async def test_status_with_memory_vault_and_no_audit_trail(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(f"audit:\n  path: {tmp_path / 'missing.log'}\n")
+    text = await _prompt("status", config)
+    assert "Vault: memory, which each privyx process keeps to itself" in text
+    assert "Audit trail: no events yet" in text
+    assert await _prompt("audit-tail", config) == "No Privyx audit events yet."
+
+
+@pytest.mark.asyncio
+async def test_status_names_only_the_type_of_a_vault_error(tmp_path):
+    class Vault:
+        async def list_sessions(self):
+            raise RuntimeError("redis://:hunter2@cache.example.com")
+
+    text = await _prompt("status", _sqlite(tmp_path), SimpleNamespace(vault=Vault()))
+    assert "Vault: sqlite, sessions cannot be listed (RuntimeError)" in text
+    assert "hunter2" not in text
+
+
+@pytest.mark.asyncio
+async def test_audit_prompts_report_an_unreadable_or_disabled_trail(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(f"audit:\n  path: {tmp_path}\n")  # a directory
+    assert "Audit trail: cannot be read (Is a directory)" in await _prompt("status", config)
+    assert await _prompt("audit-tail", config) == (
+        "The Privyx audit trail cannot be read (Is a directory)."
+    )
+    config.write_text("audit:\n  enabled: false\n")
+    assert "Audit trail: off (audit.enabled is false)" in await _prompt("status", config)
+    assert await _prompt("audit-tail", config) == (
+        "The Privyx audit trail is off (audit.enabled is false)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_audit_tail_shows_the_latest_records_and_skips_other_lines(tmp_path):
+    audit = tmp_path / "audit.log"
+    config = tmp_path / "config.yaml"
+    config.write_text(f"audit:\n  path: {audit}\n")
+    lines = [_record("session.restore", 1000.0 + i, transformations=i) for i in range(12)]
+    lines += ["ana@example.com", '{"event": "no ts"}']
+    lines.insert(11, _record("proxy.error", 1011.5, phase="upstream"))
+    audit.write_text("\n".join(lines) + "\n")
+    text = await _prompt("audit-tail", config)
+    head, events = text.split("\n\n")
+    assert head == "The latest Privyx audit events, which never hold the masked values:"
+    events = events.splitlines()
+    assert len(events) == 10
+    assert "transformations=3" in events[0]  # 13 records, the last 10
+    assert "proxy.error" in events[-2]
+    assert "\x1b[" not in text  # no terminal colors
+    assert "ana@example.com" not in text
+    assert "no ts" not in text
+
+
+@pytest.mark.asyncio
+async def test_prompts_are_listed_and_an_unknown_one_is_an_error():
+    request = {"jsonrpc": "2.0", "id": 1}
+    initialize, listed, unknown = await _answers(
+        json.dumps({**request, "method": "initialize", "params": {}}),
+        json.dumps({**request, "method": "prompts/list"}),
+        json.dumps({**request, "method": "prompts/get", "params": {"name": "protect"}}),
+    )
+    assert "prompts" in initialize["result"]["capabilities"]
+    prompts = listed["result"]["prompts"]
+    assert [p["name"] for p in prompts] == ["status", "audit-tail"]
+    assert not any("arguments" in p for p in prompts)
+    assert unknown["error"] == {"code": -32602, "message": "Unknown prompt"}
+
+
+# --------------------------------------------------------------------------
 # Protocol
 
 

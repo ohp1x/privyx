@@ -351,6 +351,28 @@ the default memory vault, the mapping is dropped after the call and the result
 includes a warning instead. Review the output before sharing it: detection and
 policy configuration determine what is masked.
 
+The server also offers two prompts, which a client lists as commands. With the
+server named `privyx` as above, Claude Code lists them as `/privyx:status` and
+`/privyx:audit-tail`, and `/mcp__privyx__status` and `/mcp__privyx__audit-tail`
+run them too. A prompt's text goes into the conversation and on to the model,
+so both show what `privyx session list` and `privyx audit tail` show: ids,
+times, counts, and entity types, never the masked values. A session id goes as
+it is, so one a client chose with an `x-privyx-session` header reaches the
+model too.
+
+| Prompt | Description |
+|---|---|
+| `status` | The vault's sessions (how many, their mappings, the five most recently active) and the audit trail's totals: events, requests, errors, masked entities by type, and restored pseudonyms. |
+| `audit-tail` | The 10 latest audit events, one line each, as `privyx audit tail` prints them. |
+
+With the default memory vault each privyx process keeps its own sessions, so
+`status` lists none. With a persistent vault, start the server with the
+proxy's `--config` to see the proxy's sessions. Neither prompt takes
+arguments, and none masks or restores text: a client may send a command's
+arguments to the model along with the prompt's result, as Claude Code does, and
+a restored text would reach the model too. Use `privyx mask` and
+`privyx unmask --session` in a terminal for that.
+
 A failed call names the problem (file not found, output exists, path outside
 the root, ...). When the cause could quote file content, the client is only
 told that the call failed, and the server logs the error type to standard
