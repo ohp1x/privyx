@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.32] - 2026-11-11
+
 ### Added
 
 - **Proxy:** a `*` in a `proxy.routes` path matches any characters except `/`, such as the model name in a Gemini path
@@ -581,7 +583,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.31...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.32...HEAD
+[0.1.32]: https://github.com/ohp1x/privyx/compare/v0.1.31...v0.1.32
 [0.1.31]: https://github.com/ohp1x/privyx/compare/v0.1.30...v0.1.31
 [0.1.30]: https://github.com/ohp1x/privyx/compare/v0.1.29...v0.1.30
 [0.1.29]: https://github.com/ohp1x/privyx/compare/v0.1.28...v0.1.29
