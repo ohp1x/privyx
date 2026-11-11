@@ -41,6 +41,7 @@ from privyx.cli.launch import (
     Target,
     build_launch_plan,
     codex_args,
+    ollama_url,
     profile_target,
 )
 from privyx.cli.native import can_exec_agent, exec_agent, wait_for_agent_exit
@@ -177,6 +178,28 @@ def run(
         return
 
     assert target is not None
+    try:
+        ollama = _ollama_launch(target, args, upstream, settings, sources)
+    except PrivyxError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if ollama is not None:
+        target, args, upstream, upstream_from_env = ollama
+        sources = {}
+        try:
+            settings = _run_settings(
+                config_path,
+                provider,
+                upstream,
+                session_strategy,
+                no_anchor,
+                harvest=harvest,
+                agent=target,
+                sources=sources,
+            )
+        except PrivyxError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if upstream is not None and upstream_from_env:
+            sources["upstream_url"] = "environment OLLAMA_HOST"
     profile = settings.agents.get(target)
     spec = (
         profile_target(target, profile)
@@ -240,6 +263,8 @@ def run(
     if shutil.which(plan.command, path=plan.environment.get("PATH")) is None:
         click.echo(f"Error: {spec.command!r} not found on PATH", err=True)
         sys.exit(127)
+    if Path(plan.command).name == "ollama":
+        _check_ollama(plan.upstream)
 
     target_run = partial(
         _run_target,
@@ -266,6 +291,65 @@ def run(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     sys.exit(code)
+
+
+def _ollama_launch(
+    target: str,
+    args: tuple[str, ...],
+    upstream: str | None,
+    settings: Settings,
+    sources: dict[str, str],
+) -> tuple[str, tuple[str, ...], str | None, bool] | None:
+    """``ollama:<model>`` as ``ollama run <model>``, and the server it goes to.
+
+    A profile of the user's own by that name wins.  The ``ollama`` profile goes
+    to the server ``OLLAMA_HOST`` names, as the tool would, unless
+    ``--upstream`` or a configured profile upstream says otherwise; for the
+    launch, the tool's own ``OLLAMA_HOST`` then points at Privyx.  Returns the
+    new target, arguments, upstream, and whether the upstream came from
+    ``OLLAMA_HOST``, or ``None`` when nothing changes.
+
+    Raises:
+        ConfigError: If ``OLLAMA_HOST`` is not an address.
+    """
+    expanded = target.startswith("ollama:") and target not in settings.agents
+    if expanded:
+        model = target.removeprefix("ollama:")
+        if not model:
+            raise click.UsageError("name a model after ollama:, as in ollama:llama3.2")
+        target, args = "ollama", ("run", model, *args)
+    host = os.environ.get("OLLAMA_HOST", "").strip()
+    from_env = (
+        target == "ollama"
+        and upstream is None
+        and bool(host)
+        and sources.get("agents.ollama.upstream", "defaults") == "defaults"
+    )
+    if from_env:
+        upstream = ollama_url(host)
+    if not (expanded or from_env):
+        return None
+    return target, args, upstream, from_env
+
+
+def _check_ollama(upstream: str) -> None:
+    """Exit with a hint when no Ollama server answers at ``upstream``.
+
+    Any HTTP answer will do: a server behind an authenticating proxy may
+    answer this one with a ``401`` and still serve the tool.
+    """
+    import httpx
+
+    url = upstream.rstrip("/") + "/api/version"
+    try:
+        httpx.get(url, timeout=3.0)
+    except (httpx.TransportError, httpx.InvalidURL) as exc:
+        click.echo(
+            f"Error: no Ollama server answers at {upstream} ({type(exc).__name__}); "
+            "start one with `ollama serve`, or name another with --upstream or OLLAMA_HOST",
+            err=True,
+        )
+        sys.exit(1)
 
 
 def _harvest(settings: Settings) -> str:

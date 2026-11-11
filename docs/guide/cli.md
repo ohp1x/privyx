@@ -101,6 +101,7 @@ Known targets, and where each gets the proxy's URL:
 | `opencode` | `anthropic` | `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL`, ending in `/v1`. For a model of OpenAI, add `--provider openai`. |
 | `grok` | `openai`, upstream `https://api.x.ai/v1` | `GROK_XAI_API_BASE_URL`, ending in `/v1`, used when Grok Build signs in with an API key (`XAI_API_KEY`) |
 | `gemini` | `google` | `GOOGLE_GEMINI_BASE_URL`, used when Gemini CLI signs in with an API key (`GEMINI_API_KEY`); also `CODE_ASSIST_ENDPOINT` and `GOOGLE_VERTEX_BASE_URL`, so the other sign-ins reach Privyx and are refused |
+| `ollama` | `generic`, upstream `http://127.0.0.1:11434` or the server `OLLAMA_HOST` names | `OLLAMA_HOST`. `ollama:<model>` runs `ollama run <model>`. |
 
 Gemini CLI goes through Privyx only when it signs in with an API key. Signed
 in with Google, it calls Google's Code Assist service, and with Vertex AI
@@ -108,6 +109,12 @@ another endpoint; the `gemini` profile points both at Privyx too and sets
 `proxy.passthrough_unknown: false` for its launch, so those requests are
 refused with a `403` instead of reaching Google unmasked. Choose the API key
 sign-in in Gemini CLI (`/auth`) to use it through Privyx.
+
+`ollama:<model>` checks that an Ollama server answers before it starts the
+tool, at `http://127.0.0.1:11434`, or at the server `OLLAMA_HOST` names when
+it is set (read as Ollama reads it). `--upstream` or an `upstream` in your
+`ollama` profile wins over `OLLAMA_HOST`. A profile of your own named
+`ollama:<something>` is used as it is, not as a model name.
 
 pi has no base-URL variable or flag; the extension changes its provider for
 this run only, never `models.json`. Only that one provider goes through

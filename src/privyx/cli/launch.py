@@ -53,6 +53,31 @@ ADAPTERS: dict[str, Callable[[str, list[str]], list[str]]] = {
 }
 
 
+def ollama_url(host: str) -> str:
+    """The server URL an ``OLLAMA_HOST`` value names, read as Ollama reads it.
+
+    No scheme means ``http`` on port 11434; ``http://`` or ``https://`` without
+    a port means 80 or 443; no host, or the any-address a server binds to
+    (``0.0.0.0``), means ``127.0.0.1``.
+    """
+    from urllib.parse import urlsplit
+
+    value = host.strip()
+    scheme, sep, rest = value.partition("://")
+    port = {"http": 80, "https": 443}.get(scheme, 11434) if sep else 11434
+    if not sep:
+        scheme, rest = "http", value
+    parts = urlsplit(f"{scheme}://{rest}")
+    try:
+        port = parts.port or port
+    except ValueError as exc:
+        raise ConfigError(f"OLLAMA_HOST is not a valid address: {host!r}") from exc
+    name = parts.hostname or "127.0.0.1"
+    name = "127.0.0.1" if name in ("0.0.0.0", "::") else name
+    name = f"[{name}]" if ":" in name else name
+    return f"{scheme}://{name}:{port}{parts.path.rstrip('/')}"
+
+
 @dataclass(frozen=True)
 class Target:
     """A tool's launch specification; argv is always passed without a shell."""

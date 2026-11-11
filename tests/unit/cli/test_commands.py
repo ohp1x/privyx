@@ -731,6 +731,150 @@ def test_run_gemini_points_every_endpoint_at_privyx_and_refuses_unrouted_paths(
     assert load_config(None, agent="claude").proxy.passthrough_unknown is True
 
 
+@pytest.mark.parametrize(
+    ("host", "url"),
+    [
+        ("", "http://127.0.0.1:11434"),
+        ("0.0.0.0", "http://127.0.0.1:11434"),  # what a server binds to
+        (":9000", "http://127.0.0.1:9000"),
+        ("gpu.example.test", "http://gpu.example.test:11434"),
+        ("gpu.example.test:8080", "http://gpu.example.test:8080"),
+        ("http://gpu.example.test", "http://gpu.example.test:80"),
+        ("https://gpu.example.test/", "https://gpu.example.test:443"),
+        ("[::1]:9000", "http://[::1]:9000"),
+    ],
+)
+def test_ollama_host_is_read_as_ollama_reads_it(host: str, url: str) -> None:
+    from privyx.cli.launch import ollama_url
+
+    assert ollama_url(host) == url
+
+
+def _dry_run(runner: CliRunner, *argv: str) -> dict[str, str]:
+    result = runner.invoke(cli, ["run", "--dry-run", *argv])
+    assert result.exit_code == 0, result.output
+    head = result.output.split("Environment injected:\n")[0]
+    return dict(line.split(": ", 1) for line in head.splitlines() if ": " in line)
+
+
+def test_run_ollama_model_runs_ollama_run(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+    plan = _dry_run(runner, "ollama:llama3.2", "--verbose")
+
+    assert plan["Profile"] == "ollama"
+    assert plan["Command"] == "ollama run llama3.2 --verbose"
+    assert plan["Upstream"] == "http://127.0.0.1:11434 [defaults]"
+    result = runner.invoke(cli, ["run", "--dry-run", "ollama:llama3.2"])
+    assert "OLLAMA_HOST=http://127.0.0.1:<auto>" in result.output
+    error = runner.invoke(cli, ["run", "--dry-run", "ollama:"])
+    assert error.exit_code != 0
+    assert "name a model after ollama:" in error.output
+
+
+def test_run_ollama_goes_to_the_server_ollama_host_names_unless_told_otherwise(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OLLAMA_HOST", "gpu.example.test")
+
+    from_env = _dry_run(runner, "ollama:qwen")["Upstream"]
+    flag = _dry_run(runner, "-u", "http://other.test:1", "ollama:qwen")["Upstream"]
+    config = tmp_path / "privyx.yaml"
+    config.write_text("agents:\n  ollama:\n    upstream: http://cfg.test:11434\n")
+    configured = _dry_run(runner, "-c", str(config), "ollama")["Upstream"]
+
+    assert from_env == "http://gpu.example.test:11434 [environment OLLAMA_HOST]"
+    assert flag.startswith("http://other.test:1 ")
+    assert configured.startswith("http://cfg.test:11434 ")
+    monkeypatch.setenv("OLLAMA_HOST", "gpu.example.test:port")
+    assert "OLLAMA_HOST is not a valid address" in runner.invoke(cli, ["run", "ollama"]).output
+
+
+def test_run_a_colon_profile_of_the_users_own_wins_over_ollama_model(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    config = tmp_path / "privyx.yaml"
+    config.write_text('agents:\n  "ollama:work":\n    args: [run, mistral]\n')
+
+    plan = _dry_run(runner, "-c", str(config), "ollama:work")
+
+    assert plan["Profile"] == "ollama:work"
+    assert plan["Command"] == "ollama run mistral"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a shell script stands in for ollama")
+def test_run_ollama_without_a_server_stops_before_starting_the_tool(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import socket
+
+    marker = tmp_path / "started"
+    tool = tmp_path / "ollama"
+    tool.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    tool.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    with socket.socket() as sock:  # a port nothing listens on
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+
+    result = runner.invoke(cli, ["run", "-u", f"http://127.0.0.1:{port}", "ollama:llama3.2"])
+
+    assert result.exit_code == 1
+    assert f"no Ollama server answers at http://127.0.0.1:{port}" in result.output
+    assert "ollama serve" in result.output
+    assert not marker.exists()
+
+
+def test_run_ollama_sends_no_key_of_privyx_to_the_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from privyx.config.loader import load_config
+    from privyx.providers.registry import resolve_api_key
+
+    monkeypatch.setenv("PRIVYX_API_KEY", "router-key")
+
+    assert resolve_api_key(load_config(None, agent="ollama")) is None
+    assert resolve_api_key(load_config(None)) == "router-key"
+
+
+def test_check_ollama_reports_an_address_httpx_cannot_use(runner: CliRunner) -> None:
+    from privyx.cli.commands.run import _check_ollama
+
+    with pytest.raises(SystemExit) as exit_:
+        _check_ollama("http://bad host:11434")
+    assert exit_.value.code == 1
+
+
+def test_check_ollama_passes_when_the_server_answers() -> None:
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from privyx.cli.commands.run import _check_ollama
+
+    class Server(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = b'{"error": "unauthorized"}'  # behind a proxy that wants a login
+            self.send_response(401)
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Server)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        _check_ollama(f"http://127.0.0.1:{server.server_address[1]}")  # any answer will do
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_run_unknown_target_with_env_var_gets_only_that_variable(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["run", "--dry-run", "-p", "openai", "--env-var", "X", "some-tool"])
 
