@@ -302,6 +302,47 @@ session per conversation and stable tokens. A base URL in Claude Code's own
 `settings.json` outranks the environment variable; `privyx run` handles that
 for you, a shared proxy does not.
 
+## 6. Tell the agent about placeholders
+
+A model that has never seen a Privyx placeholder may take one for a typo or a
+template variable and "fix" it, or try to work out the value behind it. Paste
+these rules where your agent reads its instructions:
+
+```markdown
+## Privyx placeholders
+
+Requests may go through Privyx, which replaces personal data and secrets with
+placeholders such as `<PRIVYX_EMAIL_1>` before they reach you, and puts the
+real values back into your replies and tool calls.
+
+- Treat a placeholder as the value itself. Copy it exactly as written,
+  brackets included, wherever that value is needed: replies, code, commands,
+  file contents, and tool calls.
+- A placeholder is not a typo or a template variable. Do not fix it, split
+  it, or replace it with an example value.
+- Do not guess, decode, or reconstruct the value behind a placeholder, and do
+  not ask for it.
+- Do not make up placeholders. Only the ones you were given are restored; an
+  invented one stays in the output as written.
+- When code, tests, or docs only need an example value, write an obviously
+  fake one (`ana@example.com`, `+15550100`), not a placeholder: a placeholder
+  written into a file becomes the real value there.
+```
+
+| Agent | For every project | For one project |
+|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` | `CLAUDE.md` |
+| Codex | `~/.codex/AGENTS.md` | `AGENTS.md` |
+| Cursor | User Rules, in Cursor's settings | `AGENTS.md` |
+
+Other agents have a file of their own for project instructions; the rules go
+there. If you changed `token.namespace`, `token.format`, or `token.compact`,
+change the example placeholder to match. The
+[placeholder directive](../guide/masking.md#placeholder-directive) sends a
+short form of the first three rules with every request, which covers any
+client without a file; the two work together. The last rule matters with every operator: a
+`faker` or `fpe` substitute is restored in a file just as a placeholder is.
+
 ## What Privyx covers for these tools
 
 - **Masked:** the system prompt, your messages, file contents and command
