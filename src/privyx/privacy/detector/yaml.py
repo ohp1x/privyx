@@ -231,12 +231,18 @@ def backtracks(pattern: str) -> bool:
     return walk(_parser.parse(pattern))
 
 
+#: The ``patterns``-over-``terms`` warnings given in this process.
+_OVERRIDES_WARNED: set[tuple[str, int]] = set()
+
+
 def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
     """Collect ``terms`` and ``patterns`` into a single entity -> regex map.
 
     A hand-written ``patterns`` entry wins over a ``terms`` entry for the same
     entity: writing the regex yourself is the deliberate choice.  Entities that
-    appear in only one of the two are all kept.
+    appear in only one of the two are all kept.  The terms a regex replaces are
+    named in a warning, by count: one regex added to complete them, such as
+    from an ``include:``, would otherwise drop them without a word.
     """
     patterns = config.get("patterns", {})
     if not isinstance(patterns, dict):
@@ -247,6 +253,16 @@ def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
         bool(config.get("term_variants")),
         underscore=bool(config.get("underscore_separates_words")),
     )
+    listed = {str(entity): values for entity, values in config["terms"].items()} if terms else {}
+    for entity in sorted(terms.keys() & compiled.keys()):
+        warning = (entity, len(listed[entity]))
+        if warning not in _OVERRIDES_WARNED:  # once, not per detector built
+            _OVERRIDES_WARNED.add(warning)
+            _log.warning(
+                "detector: the patterns regex for %r replaces its %d terms, which are no "
+                "longer matched; give the regex an entity name of its own to keep both",
+                *warning,
+            )
     return {**terms, **compiled}
 
 

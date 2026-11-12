@@ -206,7 +206,8 @@ detector:
 ```
 
 `terms` and `patterns` can be used together. If both name the same entity, the
-`patterns` regex wins.
+`patterns` regex wins and the terms are not matched; Privyx warns when it loads
+such a config. Give the regex an entity name of its own to keep both.
 
 ## Presidio
 
