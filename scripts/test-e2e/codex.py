@@ -10,14 +10,22 @@ from typing import Any
 from common import DUMMY_KEY, PROMPT, TOKEN, Agent, Record
 
 
+def offered(body: dict[str, Any]) -> set[str]:
+    """Names of the tools in ``body``, also those Codex sends as an ``input`` item."""
+    tools = list(body.get("tools", []))
+    for item in body.get("input", []):
+        if item.get("type") == "additional_tools":
+            tools += item.get("tools", [])
+    # A namespace holds its tools; a plain tool stands for itself.
+    return {t.get("name") for tool in tools for t in tool.get("tools", [tool])}
+
+
 def script(body: dict[str, Any]) -> list[dict[str, Any]]:
     """Ask for MCP lookup, read the workspace, then echo the received tokens."""
-    tools = {tool.get("name", ""): tool for tool in body.get("tools", [])}
-    lookup = next((name for name in tools if "canary" in name and "lookup" in name), None)
-    if lookup is None:
-        raise ValueError("Codex did not advertise the canary MCP tool")
+    if "exec" not in offered(body):
+        raise ValueError("Codex did not advertise its exec tool")
     items = body.get("input", [])
-    done = sum(item.get("type") == "function_call_output" for item in items)
+    done = sum(item.get("type") == "custom_tool_call_output" for item in items)
     tokens = " ".join(dict.fromkeys(TOKEN.findall(json.dumps(body))))
     if done >= 2:
         return [
@@ -29,24 +37,19 @@ def script(body: dict[str, Any]) -> list[dict[str, Any]]:
                 "content": [{"type": "output_text", "text": f"Echo: {tokens}", "annotations": []}],
             }
         ]
-    if done == 0:
-        name, args = lookup, {"query": tokens}
-    else:
-        name = next((n for n in ("shell_command", "exec_command", "shell") if n in tools), None)
-        if name is None:
-            raise ValueError("Codex did not advertise a shell tool")
-        args = (
-            {"command": ["cat", "notes.txt"]}
-            if name == "shell"
-            else {"command" if name == "shell_command" else "cmd": "cat notes.txt"}
-        )
+    # Every tool but exec, the deferred MCP one too, is called from its JavaScript.
+    code = (
+        f"text(await tools.mcp__canary__lookup({{ query: {json.dumps(tokens)} }}))"
+        if done == 0
+        else 'text(await tools.exec_command({ cmd: "cat notes.txt" }))'
+    )
     return [
         {
-            "type": "function_call",
-            "id": f"fc_e2e_{done}",
+            "type": "custom_tool_call",
+            "id": f"ctc_e2e_{done}",
             "call_id": f"call_e2e_{done}",
-            "name": name,
-            "arguments": json.dumps(args),
+            "name": "exec",
+            "input": code,
             "status": "completed",
         }
     ]
@@ -74,13 +77,13 @@ def fake(path: str, body: dict[str, Any]) -> tuple[bytes, str]:
         }
     ]
     for index, item in enumerate(output):
-        is_call = item["type"] == "function_call"
-        initial = {**item, "arguments": ""} if is_call else {**item, "content": []}
+        is_call = item["type"] == "custom_tool_call"
+        initial = {**item, "input": ""} if is_call else {**item, "content": []}
         events.append(
             {"type": "response.output_item.added", "output_index": index, "item": initial}
         )
-        text = item["arguments"] if is_call else item["content"][0]["text"]
-        prefix = "response.function_call_arguments" if is_call else "response.output_text"
+        text = item["input"] if is_call else item["content"][0]["text"]
+        prefix = "response.custom_tool_call_input" if is_call else "response.output_text"
         common = {"item_id": item["id"], "output_index": index}
         if not is_call:
             common["content_index"] = 0
@@ -93,9 +96,7 @@ def fake(path: str, body: dict[str, Any]) -> tuple[bytes, str]:
             )
         for start in range(0, len(text), 5):
             events.append({"type": f"{prefix}.delta", **common, "delta": text[start : start + 5]})
-        events.append(
-            {"type": f"{prefix}.done", **common, "arguments" if is_call else "text": text}
-        )
+        events.append({"type": f"{prefix}.done", **common, "input" if is_call else "text": text})
         if not is_call:
             events.append(
                 {"type": "response.content_part.done", **common, "part": item["content"][0]}
@@ -114,7 +115,7 @@ def checks(records: list[Record]) -> Iterator[tuple[bool, str, str]]:
         item
         for body in bodies
         for item in body.get("input", [])
-        if item.get("type") == "function_call_output"
+        if item.get("type") == "custom_tool_call_output"
     ]
     yield (
         len(bodies) >= 3
@@ -135,6 +136,8 @@ def checks(records: list[Record]) -> Iterator[tuple[bool, str, str]]:
 def setup(root: Path, server: dict[str, Any], transparent: bool) -> dict[str, str]:
     home = root / "home" / ".codex"
     home.mkdir(parents=True)
+    # Its tools run unasked, as Claude's --allowedTools lets them: codex exec cannot ask.
+    server = {**server, "default_tools_approval_mode": "approve"}
     # A JSON string or list of strings is also valid TOML.
     toml = "".join(f"{k} = {json.dumps(v)}\n" for k, v in server.items())
     (home / "config.toml").write_text(f"[mcp_servers.canary]\n{toml}")

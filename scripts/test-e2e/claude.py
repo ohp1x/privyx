@@ -12,6 +12,7 @@ from common import DUMMY_KEY, PROMPT, TOKEN, Agent, Record
 # Not a canary: the model's own output, which must come back byte-identical.
 MODEL_EMAIL = "support@vendor.test"
 MCP_TOOL = "mcp__canary__lookup"
+SEARCH_TOOL = "ToolSearch"  # Claude Code defers MCP tools until the model loads them
 
 SENT: list[list[dict[str, Any]]] = []  # assistant turns the upstream sent in the main loop
 
@@ -40,24 +41,25 @@ def args(root: Path) -> list[str]:
 
 def is_main(body: dict[str, Any]) -> bool:
     """Whether ``body`` is a turn of the agent loop (not a title/summary side call)."""
-    return any(t.get("name") == MCP_TOOL for t in body.get("tools", []))
+    return any(t.get("name") in (MCP_TOOL, SEARCH_TOOL) for t in body.get("tools", []))
 
 
 def script(body: dict[str, Any]) -> list[dict[str, Any]]:
     """Content blocks for this turn of the scripted agent loop."""
     if not is_main(body):
         return [{"type": "text", "text": "ok"}]
-    done = sum(
-        block.get("type") == "tool_result"
+    called = [
+        block.get("name")
         for m in body.get("messages", [])
-        if isinstance(m.get("content"), list)
+        if m.get("role") == "assistant" and isinstance(m.get("content"), list)
         for block in m["content"]
-    )
+        if block.get("type") == "tool_use"
+    ]
 
     def tokens(value: Any) -> str:
         return " ".join(dict.fromkeys(TOKEN.findall(json.dumps(value)))) or "none"
 
-    if done >= 2:
+    if "Bash" in called:
         return [{"type": "text", "text": f"Echo: {tokens(body)}"}]
     # Mid-loop, mention only what the conversation said, not the system prompt,
     # as a model would — echoing a system value would mask its renumbering.
@@ -65,14 +67,17 @@ def script(body: dict[str, Any]) -> list[dict[str, Any]]:
     thinking = {
         "type": "thinking",
         "thinking": f"Noting {seen}; vendor contact is {MODEL_EMAIL}.",
-        "signature": f"sig-e2e-{done + 1}",
+        "signature": f"sig-e2e-{len(called) + 1}",
     }
-    call: dict[str, Any] = (
-        {"name": MCP_TOOL, "input": {"query": seen}}
-        if done == 0
-        else {"name": "Bash", "input": {"command": "cat notes.txt", "description": "Read notes"}}
-    )
-    blocks = [thinking, {"type": "tool_use", "id": f"toolu_e2e_{done + 1}", **call}]
+    offered = any(t.get("name") == MCP_TOOL for t in body.get("tools", []))
+    call: dict[str, Any]
+    if MCP_TOOL in called:
+        call = {"name": "Bash", "input": {"command": "cat notes.txt", "description": "Read notes"}}
+    elif offered or SEARCH_TOOL in called:
+        call = {"name": MCP_TOOL, "input": {"query": seen}}
+    else:  # deferred: load its schema first, as a model would
+        call = {"name": SEARCH_TOOL, "input": {"query": f"select:{MCP_TOOL}", "max_results": 1}}
+    blocks = [thinking, {"type": "tool_use", "id": f"toolu_e2e_{len(called) + 1}", **call}]
     SENT.append(blocks)
     return blocks
 

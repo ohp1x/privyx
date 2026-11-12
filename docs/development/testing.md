@@ -134,8 +134,8 @@ buffer growth. The sequential batch results here do not cover those cases.
 `scripts/test-e2e/run.py` runs the real `claude` CLI through `privyx run` (or, with
 `--transparent`, through `privyx proxy` on its defaults: ephemeral sessions, no
 anchor) against a local fake Anthropic API. `--agent codex` runs `codex exec` against a
-fake Responses API: MCP lookup, a shell read of `notes.txt`, then an answer
-echoing the masked values. SSE deltas split tokens and arguments across frames.
+fake Responses API: MCP lookup and a shell read of `notes.txt`, both from
+JavaScript in Codex's `exec` tool, then an answer echoing the masked values. SSE deltas split tokens and arguments across frames.
 Neither scripted run needs a provider key or account. `make e2e` runs both agents
 in both modes. HOME,
 `CLAUDE_CONFIG_DIR`, and `XDG_CONFIG_HOME` all point into a fresh temp dir, so your
@@ -144,8 +144,9 @@ own `~/.claude` and `~/.privyx` are left alone.
 The script plants canary values everywhere Claude Code gathers context: the
 prompt, `CLAUDE.md`, the workspace path, the git branch and log, an MCP server's
 instructions, tool description, schema, and output, and a file read through Bash.
-The fake upstream plays one agent loop (thinking + MCP call → thinking + Bash call
-→ an answer that echoes every token) and records each request Privyx forwards.
+The fake upstream plays one agent loop (thinking + a ToolSearch call that loads
+the deferred MCP tool → thinking + MCP call → thinking + Bash call → an answer
+that echoes every token) and records each request Privyx forwards.
 The run fails if:
 
 - a canary shows up in a forwarded request (a **leak**; the JSON path is printed);
@@ -154,18 +155,18 @@ The run fails if:
 - an assistant turn Claude Code echoes back differs from what the upstream sent.
   The provider rejects a `thinking` block whose text no longer matches its
   signature, and the fake thinking includes an email the model wrote itself;
-- `system` or `tools` changes between turns (a prompt-cache miss every turn).
+- `system` or `tools` changes between turns (a prompt-cache miss every turn). A
+  tool that ToolSearch loads is added with `defer_loading` and does not count;
+  the tools sent before it must stay the same.
 
 The temp dir is kept after the run: `upstream.jsonl` shows exactly what reached
-the provider. Install `claude` and `codex` on PATH before running `make e2e`.
-The separate `Agent CLI compatibility` workflow installs the verified baseline
-(Claude Code `2.1.301`, Codex `0.114.0`) and runs all four combinations only
-on manual dispatch. Dispatch inputs can select newer versions, including
-`latest`, before updating the baseline. It reports CLI versions and retains
-synthetic request, audit, and CLI logs for seven days,
-including failed runs. Codex `0.163.0` was also tried locally but did not
-advertise the MCP tool in the expected format; its compatibility remains unverified.
-Ordinary CI continues to run the synthetic protocol tests
+the provider. Install the latest `claude` and `codex` on PATH (`claude update`,
+`codex update`) before running `make e2e`: the harness follows the request
+format of their current releases. The separate `Agent CLI compatibility`
+workflow installs the latest release of each and runs all four combinations
+only on manual dispatch. Dispatch inputs can pin an older version to find the
+release that changed something. It reports CLI versions and retains synthetic
+request, audit, and CLI logs for seven days, including failed runs. Ordinary CI continues to run the synthetic protocol tests
 without installing either CLI. A nonzero CLI exit always fails the harness.
 
 ### A real provider (`--upstream`)
