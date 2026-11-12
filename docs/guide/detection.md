@@ -179,6 +179,24 @@ detector:
   and stall the proxy. Make the inner quantifier possessive (`(\d++)+`) or
   drop the outer one. The check misses alternatives that overlap, like `(a|a)+`.
 
+## Turning a built-in off
+
+`disable` turns off built-in entities of the `regex` detector:
+
+```yaml
+detector:
+  type: regex
+  disable: [CREDIT_CARD]
+```
+
+- Only the built-in pattern goes: your own `patterns` and `terms` for the
+  entity still apply.
+- A name that is not a built-in on by default, such as a typo, stops the
+  config from loading.
+- Built-in patterns overlap. With `CREDIT_CARD` off, `PHONE` can find part of
+  a card number written in groups and send the rest as is:
+  `4111 1111 1111 1111` becomes `<PRIVYX_PHONE_1> 1111`.
+
 ## Word lists
 
 `terms` maps an entity name to plain strings. Privyx escapes them, so no regex

@@ -67,6 +67,7 @@ class DetectorConfig(PluggableConfig):
     # regex/yaml: entity -> words, one of which must be near a match
     context: dict[str, list[str]] = Field(default_factory=dict)
     enable: list[str] = Field(default_factory=list)  # regex/yaml: opt-in built-in entities
+    disable: list[str] = Field(default_factory=list)  # regex: built-in entities to turn off
     entropy_threshold: float = Field(default=3.0, gt=0)  # HIGH_ENTROPY: bits per character
     decode: bool = False  # regex/yaml: also scan split strings and Base64/hex/URL-encoded text
     normalize: bool = False  # regex/yaml: also scan with fullwidth and zero-width characters folded

@@ -68,7 +68,7 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
     if dtype in ("regex", "yaml"):
         combined = {**_enabled(config), **patterns}
         if dtype == "regex":
-            combined = {**DEFAULT_PATTERNS, **combined}
+            combined = {**_builtins(config), **combined}
         _validate(combined)
         options = _pattern_options(config, combined)
         cls = RegexDetector if dtype == "regex" else YamlDetector
@@ -119,6 +119,18 @@ def _enabled(config: dict[str, Any]) -> dict[str, str]:
             f"the opt-in built-ins are {sorted(OPTIONAL_PATTERNS)}"
         )
     return {entity: OPTIONAL_PATTERNS[entity] for entity in enable}
+
+
+def _builtins(config: dict[str, Any]) -> dict[str, str]:
+    """The built-in patterns of a ``regex`` detector, but those ``disable`` lists."""
+    disable = config.get("disable") or []
+    unknown = sorted(set(disable) - DEFAULT_PATTERNS.keys())
+    if unknown:
+        raise ConfigError(
+            f"detector 'disable' lists unknown entities {unknown}; "
+            f"the built-ins on by default are {sorted(DEFAULT_PATTERNS)}"
+        )
+    return {entity: regex for entity, regex in DEFAULT_PATTERNS.items() if entity not in disable}
 
 
 def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[str, Any]:
