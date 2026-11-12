@@ -107,7 +107,8 @@ to a name such as `password`, `token`, `secret`, `api_key`, or an upper-case
 `…_KEY`. It leaves alone what cannot be the secret:
 
 - a variable that holds it: `api_key=api_key`, `SECRET_KEY = os.environ[…]`;
-- a name that describes it: `TOKEN_URL`, `token_type`, `KEY_FILE`;
+- a name that describes it: `TOKEN_URL`, `token_type`, `KEY_FILE`, or counts
+  it: `token_count`, `pass_rate`, `TOKEN_LIMIT`, `session_token_ttl`;
 - a placeholder or punctuation: `sk-...`, `${API_KEY:-}`, `**Token:**`;
 - a sentence after a colon, as in a docstring: `api_key: When set, …`.
 
