@@ -262,10 +262,13 @@ def _parse_spans(
     models miscount characters, and a wrong offset inside ``text`` would mask
     the wrong words and let the real value through.  Every whole-word occurrence
     with the same case is masked (case-insensitive would turn every "may" into
-    a token once "May" is a name), and reported text that does not occur at all
-    is a hallucination and is dropped.  Offsets are used only for a
-    ``[start, end, type]`` span without text, and only when they are in range.
-    With ``underscore``, ``_`` separates words.
+    a token once "May" is a name).  The model's offsets count too where the
+    reported text is there as reported, whole word or not (``JOHN`` in
+    ``JOHN_SMITH``), and then so does every occurrence ``_`` joins on;
+    reported text found in neither way is a hallucination or a miscount, and
+    is dropped.  Offsets alone are used for a ``[start, end,
+    type]`` span without text, when they are in range.  With ``underscore``,
+    ``_`` separates words.
     A malformed span is dropped; it does not fail the reply.  ``offset`` shifts
     the spans of a chunk back to positions in the full text.
 
@@ -287,16 +290,27 @@ def _parse_spans(
             continue
         entity = _entity_type(item[2])
         reported = item[3].strip() if len(item) > 3 and isinstance(item[3], str) else ""
-        if reported:
-            for match in re.finditer(_bounded(reported, underscore=underscore), text):
-                detection.add(match.start() + offset, match.end() + offset, entity, match[0])
-            continue
+        found: set[tuple[int, int]] = set()
+        for match in (
+            re.finditer(_bounded(reported, underscore=underscore), text) if reported else ()
+        ):
+            found.add(match.span())
         try:
             first, last = int(item[0]), int(item[1])
         except (TypeError, ValueError):
-            continue
-        if 0 <= first < last <= len(text):
-            detection.add(first + offset, last + offset, entity, text[first:last])
+            first = last = -1
+        if 0 <= first < last <= len(text) and text[first:last] == (reported or text[first:last]):
+            if reported and (first, last) not in found:
+                # Inside a longer word where the model points, so also wherever
+                # `_` joins it on: JOHN_SMITH twice, and the check never sees one.
+                pattern = _bounded(reported, underscore=True)
+                found.update(match.span() for match in re.finditer(pattern, text))
+            found.add((first, last))
+        if reported and not found:
+            # Never the value: logs leave the machine more often than requests.
+            _log.debug("LLM detector: a reported %s value is not in the text; dropped", entity)
+        for start, end in sorted(found):
+            detection.add(start + offset, end + offset, entity, text[start:end])
     return detection
 
 
