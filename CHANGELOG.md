@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.34] - 2026-11-12
+
 ### Added
 
 - **Detection:** `detector.disable` turns off built-in entities of the `regex` detector, such as `CREDIT_CARD`; until now a built-in could only be replaced by a pattern of your own
@@ -614,7 +616,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.33...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.34...HEAD
+[0.1.34]: https://github.com/ohp1x/privyx/compare/v0.1.33...v0.1.34
 [0.1.33]: https://github.com/ohp1x/privyx/compare/v0.1.32...v0.1.33
 [0.1.32]: https://github.com/ohp1x/privyx/compare/v0.1.31...v0.1.32
 [0.1.31]: https://github.com/ohp1x/privyx/compare/v0.1.30...v0.1.31
