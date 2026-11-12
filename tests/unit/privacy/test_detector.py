@@ -468,6 +468,26 @@ def test_empty_detector_list_raises_config_error() -> None:
         build_detector([])
 
 
+def test_disable_turns_a_built_in_off() -> None:
+    text = "card 378282246310005, mail alice@example.com"
+    detector = build_detector({"type": "regex", "cache": False, "disable": ["CREDIT_CARD"]})
+    spans = detector.detect_sync(text, Context()).spans
+    assert [(s.entity_type, s.text) for s in spans] == [("EMAIL", "alice@example.com")]
+
+
+def test_disable_keeps_your_own_pattern_for_the_entity() -> None:
+    config = {"disable": ["CREDIT_CARD"], "patterns": {"CREDIT_CARD": r"\bCC-\d{4}\b"}}
+    detector = build_detector({"type": "regex", "cache": False, **config})
+    spans = detector.detect_sync("card CC-1234 or 378282246310005", Context()).spans
+    assert [(s.entity_type, s.text) for s in spans] == [("CREDIT_CARD", "CC-1234")]
+
+
+@pytest.mark.parametrize("entity", ["CREDITCARD", "MRN"])  # a typo, an opt-in one
+def test_disable_rejects_what_is_not_a_built_in_on_by_default(entity: str) -> None:
+    with pytest.raises(ConfigError, match=entity):
+        build_detector({"type": "regex", "disable": [entity]})
+
+
 def test_custom_secret_pattern_retains_heuristic_checks() -> None:
     custom_secret_pattern = (
         r"(?i)(?P<name>[a-z_]+)\s*(?P<sep>[:=])\s*(?P<q>['\"]?)(?P<value>[^\s'\";]+)(?P=q)"

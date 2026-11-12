@@ -320,6 +320,13 @@
           "title": "Enable",
           "type": "array"
         },
+        "disable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Disable",
+          "type": "array"
+        },
         "entropy_threshold": {
           "title": "Entropy Threshold",
           "anyOf": [

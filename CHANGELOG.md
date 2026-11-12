@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Detection:** `detector.disable` turns off built-in entities of the `regex` detector, such as `CREDIT_CARD`; until now a built-in could only be replaced by a pattern of your own
+
 ### Fixed
 
 - **Proxy:** with the default fresh session per request, a tool that Claude Code loads through tool search no longer renumbers the system prompt and history on that turn, which made the turn miss the prompt cache

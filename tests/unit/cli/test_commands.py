@@ -347,6 +347,13 @@ def test_inspect_regex_by_entity_and_by_pattern(runner: CliRunner, tmp_path: Pat
     assert runner.invoke(cli, [*args, "("]).exit_code == 1
 
 
+def test_inspect_regex_leaves_out_a_disabled_built_in(runner: CliRunner, tmp_path: Path) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text("detector:\n  disable: [EMAIL]\n", encoding="utf-8")
+    result = runner.invoke(cli, ["inspect", "regex", "-c", str(config), "EMAIL"])
+    assert "Entity" not in result.output and "Pattern: EMAIL" in result.output
+
+
 def test_inspect_regex_reports_a_stall_the_check_misses(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
