@@ -207,6 +207,28 @@ async def test_reported_text_is_found_where_underscore_separates_words() -> None
     assert (await whole.detect("export JOHN_SMITH=1", Context())).spans == []
 
 
+async def test_reported_text_inside_a_word_is_taken_where_the_offsets_say(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``JOHN`` in ``JOHN_SMITH`` is no whole word: the offsets find it, also
+    beside a whole-word ``JOHN`` elsewhere.  Offsets that miss are dropped,
+    and the log does not name the value."""
+    text = "export JOHN_SMITH=1; JOHN said hi; JOHN_SMITH again, not JOHNSON"
+    found = await LLMDetector(client=_FakeLLMClient('[[7, 11, "PERSON", "JOHN"]]')).detect(
+        text, Context()
+    )
+    # Every whole-word JOHN, and every one `_` joins on, as the model pointed
+    # at one: the leak check would not see the second JOHN_SMITH.
+    assert [(s.start, s.text) for s in found.spans] == [(7, "JOHN"), (21, "JOHN"), (35, "JOHN")]
+
+    with caplog.at_level("DEBUG", logger="privyx.privacy.detector.llm"):
+        missed = await LLMDetector(client=_FakeLLMClient('[[0, 4, "PERSON", "JOHN"]]')).detect(
+            "export JOHN_SMITH=1", Context()
+        )
+    assert missed.spans == []
+    assert "PERSON" in caplog.text and "JOHN" not in caplog.text
+
+
 async def test_offsets_are_used_for_a_span_without_text() -> None:
     detector = LLMDetector(client=_FakeLLMClient('[[5, 8, "PERSON"], [0, 999, "PERSON"]]'))
 
