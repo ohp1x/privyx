@@ -174,10 +174,24 @@ def test_secret_literals_and_cli_values_are_masked_whole(text: str, secret: str)
         'API_KEY_PATTERN = r"""(?x)',
         'TOKEN_REGEX = r"[a-z]+"',
         'const passwordPattern: string = "[a-z]+";',
+        "token_count: 5",
+        "pass_rate: 0.9",
+        "TOKEN_LIMIT = 4096",
+        "secret_level: 3",
+        'session_token_ttl: "3600"',
+        "ACCESS_TOKEN_EXPIRY=1700000000",
+        "apiKeyCount: 7",
+        "PASSWORD_MAX_SIZE=64",
     ],
 )
 def test_secret_declarations_and_references_are_kept(text: str) -> None:
     assert not RegexDetector().detect_sync(text, Context())
+
+
+def test_a_secret_named_after_a_limit_is_still_masked() -> None:
+    """Only the name's end describes it: ``RATE_LIMIT_TOKEN`` holds a token."""
+    found = RegexDetector().detect_sync("RATE_LIMIT_TOKEN=abc123def456", Context())
+    assert [(s.entity_type, s.text) for s in found.spans] == [("SECRET", "abc123def456")]
 
 
 def _fill(unit: str, size: int = 100_000) -> str:

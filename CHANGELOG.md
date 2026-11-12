@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Detection:** a value assigned to a name that counts or limits a secret, such as `token_count`, `pass_rate`, or `TOKEN_LIMIT`, is no longer masked as `SECRET`
 - **Detection:** a value the LLM detector reports inside a longer word, such as `JOHN` in `JOHN_SMITH`, is masked where the model points instead of dropped
 
 ### Security

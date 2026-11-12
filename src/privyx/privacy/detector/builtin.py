@@ -209,10 +209,13 @@ def _phone_number(match: re.Match[str]) -> bool:
 
 
 #: Names that describe a secret rather than hold it: ``TOKEN_URL``, ``token_type``,
-#: ``KEY_FILE``, ``passwordLength``, ``API_KEY_PATTERN``.
+#: ``KEY_FILE``, ``passwordLength``, ``API_KEY_PATTERN``, and counts, rates, and
+#: limits: ``token_count``, ``pass_rate``, ``TOKEN_LIMIT``, ``tokenTtl``.
 _SECRET_METADATA = re.compile(
-    r"(?:[_.-](?i:url|uri|endpoint|path|file|header|name|type|length|prefix|pattern|regex)"
-    r"|Url|Uri|Endpoint|Path|File|Header|Name|Type|Length|Prefix|Pattern|Regex)$"
+    r"(?:[_.-](?i:url|uri|endpoint|path|file|header|name|type|length|prefix|pattern|regex"
+    r"|count|rate|limit|level|size|max|min|ttl|expiry)"
+    r"|Url|Uri|Endpoint|Path|File|Header|Name|Type|Length|Prefix|Pattern|Regex"
+    r"|Count|Rate|Limit|Level|Size|Max|Min|Ttl|Expiry)$"
 )
 _IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 _DOTTED_IDENTIFIER = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+")
