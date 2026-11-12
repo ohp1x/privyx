@@ -244,6 +244,14 @@ guessable key.
 Anchoring applies to the `pseudonym` operator. `privyx run` creates a secret in
 `~/.privyx/anchor.key` on first use; pass `--no-anchor` to skip that.
 
+Without an anchor, a counter token only means something in its own session.
+Text masked in one session and pasted into another, such as the output of
+`privyx mask` pasted into a conversation that goes through the proxy, is
+restored there as that session's value: `<PRIVYX_EMAIL_1>` from the first comes
+back as the first email of the second, with no warning. Set an anchor whenever
+output from several sessions is mixed: different values then get different
+tokens, and a token a session did not make is left as it is.
+
 ## Leak check
 
 A value is masked where it is detected. The same value can also reach the

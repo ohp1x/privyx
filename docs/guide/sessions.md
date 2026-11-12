@@ -128,3 +128,7 @@ privyx mask -c privyx.yaml --session demo -i request.json --path '$.messages'
 A map file is self-contained and needs no vault. `--session` needs a
 persistent vault, since a `memory` vault is gone when the command exits. See
 the [CLI reference](cli.md#privyx-mask).
+
+Unmask with the session or map file that masked the text. Without an
+[anchor](masking.md#anchors), counter tokens are the same in every session, so
+the wrong one can restore them as other values instead of failing.

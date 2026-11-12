@@ -331,8 +331,8 @@ Behind `privyx run` or the proxy, tool results are masked on their way to the
 model already. `privyx mcp wrap` is for clients that cannot use the proxy, such
 as Claude Desktop, and keeps the values out of the client's own transcripts
 too. To use both, give `privyx mcp wrap` a config with its own
-`token.namespace` (for example `MCP`), so the proxy never restores one of its
-tokens from the proxy's own session.
+`token.namespace` (for example `MCP`), or an [anchor](masking.md#anchors), so
+the proxy never restores one of its tokens from the proxy's own session.
 
 ## `privyx mcp serve`
 
