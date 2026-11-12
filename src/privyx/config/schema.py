@@ -69,6 +69,7 @@ class DetectorConfig(PluggableConfig):
     enable: list[str] = Field(default_factory=list)  # regex/yaml: opt-in built-in entities
     entropy_threshold: float = Field(default=3.0, gt=0)  # HIGH_ENTROPY: bits per character
     decode: bool = False  # regex/yaml: also scan split strings and Base64/hex/URL-encoded text
+    normalize: bool = False  # regex/yaml: also scan with fullwidth and zero-width characters folded
     cache: DetectorCacheConfig | bool = Field(default_factory=DetectorCacheConfig)
     language: str = "en"  # presidio detector
     model: str = ""  # presidio detector: spaCy model (empty → {language}_core_web_sm)

@@ -97,6 +97,8 @@ detector:
   #   EMPLOYEE_ID: [employee, nip]
   # Also find values split into strings ('s' + 'k' + ...) or Base64/hex/URL encoded.
   # decode: false
+  # Also find values in fullwidth letters or with zero-width characters inside.
+  # normalize: false
 
 # --- Policy ---
 policy:

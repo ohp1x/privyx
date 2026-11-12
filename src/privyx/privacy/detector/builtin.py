@@ -13,7 +13,7 @@ from typing import Any
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Span
-from privyx.privacy.detector import catalog, decode
+from privyx.privacy.detector import catalog, decode, normalize
 from privyx.privacy.detector.base import BaseDetector, Detector
 
 #: The phone pattern accepts an optional ``+<country>`` prefix and 2-3 groups
@@ -421,6 +421,9 @@ class _PatternDetector(BaseDetector):
         entropy_threshold: Bits per character ``HIGH_ENTROPY`` needs.
         decode: Also find values split into string literals or encoded
             (:func:`privyx.privacy.detector.decode.hidden`).
+        normalize: Also find values written with fullwidth or other
+            compatibility characters, or with zero-width characters inside
+            (:func:`privyx.privacy.detector.normalize.normalized`).
         underscore: ``_`` separates words for the built-in patterns in
             :data:`UNDERSCORE_SPLIT` (:func:`split_underscore`).
     """
@@ -432,10 +435,12 @@ class _PatternDetector(BaseDetector):
         context: dict[str, list[str]] | None = None,
         entropy_threshold: float = catalog.ENTROPY_THRESHOLD,
         decode: bool = False,
+        normalize: bool = False,
         underscore: bool = False,
     ) -> None:
         super().__init__()
         self._decode = decode
+        self._normalize = normalize
         checks = {**_CHECKS, "HIGH_ENTROPY": catalog.high_entropy(entropy_threshold)}
         words = {entity: frozenset(w.lower() for w in v) for entity, v in (context or {}).items()}
         self._compiled = []
@@ -458,6 +463,13 @@ class _PatternDetector(BaseDetector):
         detection = _detect(self._compiled, text)
         if self._decode:
             detection.spans += decode.hidden(text, lambda t: _detect(self._compiled, t)).spans
+        if self._normalize:
+            found = normalize.normalized(text, lambda t: _detect(self._compiled, t))
+            # What the scan of the text as written found already: counted once.
+            seen = {(s.start, s.end, s.entity_type) for s in detection.spans}
+            detection.spans += [
+                s for s in found.spans if (s.start, s.end, s.entity_type) not in seen
+            ]
         return detection
 
 
