@@ -137,7 +137,7 @@ anchor) against a local fake Anthropic API. `--agent codex` runs `codex exec` ag
 fake Responses API: MCP lookup and a shell read of `notes.txt`, both from
 JavaScript in Codex's `exec` tool, then an answer echoing the masked values. SSE deltas split tokens and arguments across frames.
 Neither scripted run needs a provider key or account. `make e2e` runs both agents
-in both modes. HOME,
+in both modes, and Claude Code also in its auto permission mode (`--auto`). HOME,
 `CLAUDE_CONFIG_DIR`, and `XDG_CONFIG_HOME` all point into a fresh temp dir, so your
 own `~/.claude` and `~/.privyx` are left alone.
 
@@ -159,11 +159,16 @@ The run fails if:
   tool that ToolSearch loads is added with `defer_loading` and does not count;
   the tools sent before it must stay the same.
 
+In auto mode Claude Code adds a `safeguards` block to every request: what its
+tool-call classifier sees of the machine, such as the working directory and the
+git branch, both of which hold canaries. With `--auto` the run also fails if no
+request carried that block, since the run would then check nothing new.
+
 The temp dir is kept after the run: `upstream.jsonl` shows exactly what reached
 the provider. Install the latest `claude` and `codex` on PATH (`claude update`,
 `codex update`) before running `make e2e`: the harness follows the request
 format of their current releases. The separate `Agent CLI compatibility`
-workflow installs the latest release of each and runs all four combinations
+workflow installs the latest release of each and runs all six combinations
 only on manual dispatch. Dispatch inputs can pin an older version to find the
 release that changed something. It reports CLI versions and retains synthetic
 request, audit, and CLI logs for seven days, including failed runs. Ordinary CI continues to run the synthetic protocol tests

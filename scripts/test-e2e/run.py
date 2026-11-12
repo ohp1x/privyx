@@ -4,6 +4,7 @@
     uv run python scripts/test-e2e/run.py --transparent   # `privyx proxy`, its defaults
     uv run python scripts/test-e2e/run.py --upstream https://api.anthropic.com
     uv run python scripts/test-e2e/run.py --agent codex
+    uv run python scripts/test-e2e/run.py --auto          # Claude Code's auto mode
 
 Each agent has its own file next to this one (claude.py, codex.py) and is an
 ``Agent`` from common.py; this file is the run they share.
@@ -26,6 +27,10 @@ forwards is recorded.  The run fails on:
 - an echoed assistant turn that differs from what the upstream sent — the
   provider rejects a modified thinking block (its signature covers the text);
 - ``system`` / ``tools`` changing between turns — every turn misses the prompt cache.
+
+``--auto`` starts the agent in its auto permission mode, in which Claude Code
+adds ``safeguards`` to every request: the working directory and git state its
+tool-call classifier sees.  The run also fails if no request carried it.
 
 ``--upstream ORIGIN`` puts a real provider behind the recorder: each request is
 recorded, then relayed with the credential taken from the environment
@@ -273,9 +278,11 @@ def start_proxy(
     raise SystemExit(f"privyx proxy did not start; see {root / 'proxy.log'}")
 
 
-def main(name: str, transparent: bool, real: str, model: str | None) -> int:
+def main(name: str, transparent: bool, real: str, model: str | None, auto: bool = False) -> int:
     global REAL, FAKE
     agent = AGENTS[name]
+    if auto and not agent.auto:
+        raise SystemExit(f"{name} has no auto permission mode here")
     REAL, FAKE = real.rstrip("/"), agent.fake
     RECORDS.clear()
     if not REAL and not FAKE:
@@ -307,7 +314,8 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     upstream = f"http://127.0.0.1:{server.server_address[1]}"
 
-    argv = agent.args(root) + (["--model", model] if model else [])
+    argv = agent.args(root) + list(agent.auto if auto else ())
+    argv += ["--model", model] if model else []
     proxy = None
     if transparent:
         proxy, url = start_proxy(root, env, upstream)
@@ -350,6 +358,7 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
             found.setdefault((path, canary), ([], context))[0].append(n)
     paths = ", ".join(dict.fromkeys(r["path"] for r in RECORDS))
     mode = "privyx proxy --transparent" if transparent else "privyx run"
+    mode += ", auto mode" if auto else ""
     print(f"{mode}, {name}: upstream saw {len(RECORDS)} request(s) [{paths}]; "
           f"exit {proc.returncode}")  # fmt: skip
     for (path, canary), (reqs, context) in found.items():
@@ -398,6 +407,9 @@ def main(name: str, transparent: bool, real: str, model: str | None) -> int:
     elif agent.checks:
         for result in agent.checks(main_records):
             check(*result)
+    if auto:
+        sent = sum(agent.auto_key in body for body in bodies)
+        check(sent > 0, f"{agent.auto_key} sent", f"{sent} of {len(bodies)} turn(s)")
     for key in agent.stable:
         moved = drift(bodies, key)
         check(not moved, f"{key} stable across turns", moved or f"{len(bodies)} turn(s)")
@@ -415,5 +427,6 @@ if __name__ == "__main__":
         parser.add_argument("--transparent", action="store_true", help="through `privyx proxy`")
         parser.add_argument("--upstream", default="", help="origin of a real provider to relay to")
         parser.add_argument("--model", help="model the agent asks for")
+        parser.add_argument("--auto", action="store_true", help="the agent's auto permission mode")
         opts = parser.parse_args()
-        sys.exit(main(opts.agent, opts.transparent, opts.upstream, opts.model))
+        sys.exit(main(opts.agent, opts.transparent, opts.upstream, opts.model, opts.auto))

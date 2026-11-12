@@ -24,6 +24,10 @@ jobs:
       matrix:
         agent: [claude, codex]
         mode: [run, transparent]
+        permission: [default, auto]
+        exclude:
+          - agent: codex  # Claude Code's permission mode
+            permission: auto
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -50,14 +54,16 @@ jobs:
         env:
           AGENT: ${{ matrix.agent }}
           MODE: ${{ matrix.mode }}
+          PERMISSION: ${{ matrix.permission }}
         run: |
           args=(--agent "$AGENT")
           if [ "$MODE" = transparent ]; then args+=(--transparent); fi
+          if [ "$PERMISSION" = auto ]; then args+=(--auto); fi
           uv run python scripts/test-e2e/run.py "${args[@]}"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: agent-e2e-${{ matrix.agent }}-${{ matrix.mode }}
+          name: agent-e2e-${{ matrix.agent }}-${{ matrix.mode }}-${{ matrix.permission }}
           path: |
             /tmp/privyx-e2e-*/agent.out
             /tmp/privyx-e2e-*/upstream.jsonl

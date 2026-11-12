@@ -165,3 +165,10 @@ def test_tools_drift_allows_a_newly_loaded_deferred_tool(run_harness: ModuleType
     renumbered = {**lookup, "description": "<PRIVYX_ORGANIZATION_2>"}
     assert run_harness.drift([*turns, {"tools": [bash, write, placeholder, renumbered]}], "tools")
     assert run_harness.drift([turns[0], {"tools": [bash, placeholder]}], "tools")
+
+
+def test_auto_mode_is_refused_for_an_agent_without_one(run_harness: ModuleType) -> None:
+    # Codex has no such mode: a run that claimed to cover it would check nothing new.
+    assert run_harness.AGENTS["claude"].auto
+    with pytest.raises(SystemExit, match="codex has no auto permission mode"):
+        run_harness.main("codex", False, "", None, auto=True)

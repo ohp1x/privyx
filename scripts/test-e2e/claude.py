@@ -173,4 +173,6 @@ AGENT = Agent(
     main=lambda r: bool(r["body"]) and is_main(r["body"]),
     fake=fake,
     checks=checks,
+    auto=("--permission-mode", "auto"),
+    auto_key="safeguards",
 )

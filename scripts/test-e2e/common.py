@@ -42,6 +42,10 @@ class Agent:
         fake: The scripted upstream's reply to a path and body, as payload and
             content type.  Without one the agent needs a real upstream.
         checks: Results only a scripted run can give, as ``(ok, what, detail)``.
+        auto: Arguments that start it in its auto permission mode, in which a
+            classifier approves tool calls; empty if it has none.
+        auto_key: The body key that mode adds: the classifier's view of the
+            machine (working directory, git state), which must be masked too.
     """
 
     creds: tuple[str, ...]
@@ -53,3 +57,5 @@ class Agent:
     main: Callable[[Record], bool]
     fake: Callable[[str, dict[str, Any]], tuple[bytes, str]] | None = None
     checks: Callable[[list[Record]], Iterator[tuple[bool, str, str]]] | None = None
+    auto: tuple[str, ...] = ()
+    auto_key: str = ""

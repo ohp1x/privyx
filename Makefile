@@ -17,6 +17,8 @@ e2e:
 	uv run python scripts/test-e2e/run.py --transparent
 	uv run python scripts/test-e2e/run.py --agent codex
 	uv run python scripts/test-e2e/run.py --agent codex --transparent
+	uv run python scripts/test-e2e/run.py --auto
+	uv run python scripts/test-e2e/run.py --transparent --auto
 
 # Timing of the request path; numbers vary by machine, so not run in CI.
 bench:
