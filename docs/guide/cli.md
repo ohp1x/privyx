@@ -252,6 +252,12 @@ cat events.jsonl | privyx mask --map map.json -f jsonl -i - -o masked.jsonl
 | `-f`, `--format` | `auto` (default, from the file extension), `text`, `json`, or `jsonl`. |
 | `--path` | Only mask under this JSON path, e.g. `$.messages`. Repeatable. |
 
+In JSON, each string of up to 256 characters is also checked together with its
+key, as the proxy does with tool arguments, so the value in
+`{"password": "..."}` is masked as a secret. Numbers are checked alone, so a
+card number is masked and `{"token_limit": 4000}` is not; a masked number
+becomes its token, a string.
+
 ## `privyx unmask`
 
 Put the original values back, from a `--map` file or a `--session`. Tokens the

@@ -211,8 +211,18 @@ def _dumps(payload: Any, indent: int | None = None) -> str:
 # Walking the input
 
 
-async def _apply(source: str, fmt: str, paths: tuple[str, ...], fn: Transform) -> str:
-    """Apply ``fn`` to every string the chosen format exposes."""
+async def _apply(
+    source: str,
+    fmt: str,
+    paths: tuple[str, ...],
+    fn: Transform,
+    under: Callable[[str, str], Awaitable[str]] | None = None,
+) -> str:
+    """Apply ``fn`` to every string the chosen format exposes.
+
+    ``under(key, text)``, when given, stands in for ``fn`` on a JSON string or
+    number under a key (see :func:`~privyx.privacy.transform.json.map_values`).
+    """
     if fmt == "text":
         return await fn(source)
     if fmt == "jsonl":
@@ -221,28 +231,21 @@ async def _apply(source: str, fmt: str, paths: tuple[str, ...], fn: Transform) -
             if not line.strip():
                 lines.append(line)
                 continue
-            lines.append(_dumps(await _apply_json(json.loads(line), paths, fn)))
+            lines.append(_dumps(await _apply_json(json.loads(line), paths, fn, under)))
         return "\n".join(lines)
-    return _dumps(await _apply_json(json.loads(source), paths, fn), indent=2)
+    return _dumps(await _apply_json(json.loads(source), paths, fn, under), indent=2)
 
 
-async def _apply_json(payload: Any, paths: tuple[str, ...], fn: Transform) -> Any:
+async def _apply_json(
+    payload: Any,
+    paths: tuple[str, ...],
+    fn: Transform,
+    under: Callable[[str, str], Awaitable[str]] | None,
+) -> Any:
     """Apply ``fn`` to every string leaf of a JSON document."""
-    from privyx.privacy.transform.json import map_strings
+    from privyx.privacy.transform.json import map_values
 
-    selector = list(paths) or None
-    # ponytail: two passes (collect, then substitute) because map_strings takes a
-    # sync callable while the engine is async, and the leaves go through fn
-    # serially.  Add an async map_strings if either ever costs anything real.
-    leaves: list[str] = []
-
-    def collect(leaf: str) -> str:
-        leaves.append(leaf)
-        return leaf
-
-    map_strings(payload, collect, paths=selector)
-    replaced = iter([await fn(leaf) for leaf in leaves])
-    return map_strings(payload, lambda _leaf: next(replaced), paths=selector)
+    return await map_values(payload, fn, under, paths=list(paths) or None)
 
 
 # --------------------------------------------------------------------------
@@ -279,7 +282,11 @@ async def _mask_async(
         async def transform(leaf: str) -> str:
             return (await engine.transform(leaf, session=session)).text
 
-        return await _apply(source, fmt, paths, transform), session
+        async def under(key: str, leaf: str) -> str:
+            # `{"password": "hunter2"}`: the value is a secret by its key.
+            return (await engine.transform(leaf, session=session, key=key)).text
+
+        return await _apply(source, fmt, paths, transform, under), session
     finally:
         await close()
 

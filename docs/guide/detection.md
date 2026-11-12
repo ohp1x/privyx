@@ -111,6 +111,10 @@ to a name such as `password`, `token`, `secret`, `api_key`, or an upper-case
 - a placeholder or punctuation: `sk-...`, `${API_KEY:-}`, `**Token:**`;
 - a sentence after a colon, as in a docstring: `api_key: When set, …`.
 
+In JSON, such as tool arguments or `privyx mask -f json`, the key is the name:
+the string in `{"password": "hunter2"}` is masked too. A number is checked
+alone, so `{"password": 123456}` is not.
+
 ## Detector types
 
 | `type` | Finds | Needs |

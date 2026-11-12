@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **CLI:** `privyx mcp wrap` checks a JSON number, and a string longer than 256 characters, alone instead of with its key, so `{"token_limit": 4000}` stays a number and `{"password": 123456}` is no longer masked; card numbers and other values found alone are masked as before
+
+### Security
+
+- **Proxy:** a short tool-argument string that only its key marks as sensitive, such as `{"password": "hunter2"}`, is masked instead of sent as is, and numbers in tool arguments are checked too, on their own
+- **CLI:** `privyx mask -f json` and `-f jsonl`, and the `privyx mcp serve` sanitize tool, check each short string together with its key, and check numbers, as the proxy does
+
 ## [0.1.32] - 2026-11-11
 
 ### Added

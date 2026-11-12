@@ -1756,6 +1756,31 @@ def test_mask_json_path_limits_the_walk(runner: CliRunner, tmp_path: Path) -> No
     assert payload["other"] == "bob@example.com"
 
 
+def test_mask_json_sees_a_value_with_its_key(runner: CliRunner, tmp_path: Path) -> None:
+    """``{"password": "hunter2"}`` is a secret by its key, also in a list under it
+    and in JSON Lines; a number is checked alone, and masked becomes its token."""
+    record = {
+        "password": "hunter2",
+        "pins": ["letmein"],
+        "card": 4111111111111111,
+        "token_limit": 4000,
+    }
+    for fmt, source in (("json", json.dumps(record)), ("jsonl", json.dumps(record) + "\n")):
+        result = runner.invoke(
+            cli,
+            ["mask", "--map", str(tmp_path / f"{fmt}.json"), "-f", fmt, "--stdin"],
+            input=source,
+        )
+
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == {
+            "password": "<PRIVYX_SECRET_1>",
+            "pins": ["letmein"],  # `pins` names no secret
+            "card": "<PRIVYX_CREDIT_CARD_2>",
+            "token_limit": 4000,
+        }
+
+
 def test_mask_jsonl_keeps_one_record_per_line(runner: CliRunner, tmp_path: Path) -> None:
     source = tmp_path / "in.jsonl"
     source.write_text(f'{{"e": "{EMAIL}"}}\n{{"e": "bob@example.com"}}\n', encoding="utf-8")
