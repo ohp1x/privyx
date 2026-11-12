@@ -361,13 +361,24 @@ async def test_terms_and_patterns_coexist() -> None:
 
 
 @pytest.mark.asyncio
-async def test_patterns_win_over_terms_for_the_same_entity() -> None:
-    found = await _detect_terms(
-        "ann and bob",
-        terms={"PERSON": ["ann"]},
-        patterns={"PERSON": r"\bbob\b"},
-    )
+async def test_patterns_win_over_terms_for_the_same_entity(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """And say so, by count, once: the terms themselves are what the config protects."""
+    from privyx.privacy.detector import yaml as yaml_detector
+
+    monkeypatch.setattr(yaml_detector, "_OVERRIDES_WARNED", set())
+    config = {
+        "terms": {"PERSON": ["ann", "cy"], "ORG": ["acme"], True: ["x"]},  # YAML `yes:`
+        "patterns": {"PERSON": r"\bbob\b", "True": r"\bseven\b"},
+    }
+    with caplog.at_level("WARNING", logger="privyx"):
+        found = await _detect_terms("ann and bob", **config)
+        build_detector({"type": "regex", **config})  # built again: no second warning
     assert found == {"PERSON": ["bob"]}
+    assert len(caplog.records) == 2  # PERSON, and the entity the `yes:` key names
+    assert "'PERSON' replaces its 2 terms" in caplog.text
+    assert "ann" not in caplog.text and "ORG" not in caplog.text
 
 
 @pytest.mark.asyncio
