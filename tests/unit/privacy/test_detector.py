@@ -84,6 +84,30 @@ def test_credit_card_must_pass_the_luhn_check(text: str, cards: list[str]) -> No
     assert [s.text for s in detection.spans if s.entity_type == "CREDIT_CARD"] == cards
 
 
+def test_credit_card_skips_a_unix_time_that_passes_the_luhn_check() -> None:
+    # Codex sends the start of each turn in milliseconds; both pass the Luhn check.
+    text = '{"turn_started_at_unix_ms":1794459442510} at 1794459442510000 us'
+    assert RegexDetector().detect_sync(text, Context()).spans == []
+
+
+@pytest.mark.parametrize(
+    "card",
+    [
+        "4111111111111111",  # Visa
+        "5555555555554444",  # Mastercard
+        "2223003122003222",  # Mastercard 2-series
+        "378282246310005",  # Amex
+        "6011111111111117",  # Discover
+        "3530111333300000",  # JCB
+        "6200000000000005",  # UnionPay
+        "36227206271667",  # Diners Club
+    ],
+)
+def test_credit_card_still_finds_every_network(card: str) -> None:
+    detection = RegexDetector().detect_sync(f"card {card} on file", Context())
+    assert [(s.entity_type, s.text) for s in detection.spans] == [("CREDIT_CARD", card)]
+
+
 @pytest.mark.parametrize(
     ("text", "phones"),
     [
