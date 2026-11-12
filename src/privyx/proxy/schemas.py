@@ -27,9 +27,12 @@ default rather than leaking:
 Two things keep a multi-turn conversation byte-stable, which prompt caching and
 Anthropic's thinking signatures both need: the request is walked in cache-prefix
 order (``tools``, then ``system`` / ``instructions``, then the rest, client
-metadata last), so a value first seen later cannot renumber the system prompt;
-and an echoed ``thinking`` block gets back the exact text the upstream signed
-(:func:`remember_thinking`) instead of a re-pseudonymization of its restored form.
+metadata last), so a value first seen later cannot renumber the system prompt
+(a ``defer_loading`` tool is not part of that prefix: the provider renders it
+where a ``tool_reference`` loads it, so it is walked right after the message
+that does, see :func:`_loading`); and an echoed ``thinking`` block gets back
+the exact text the upstream signed (:func:`remember_thinking`) instead of a
+re-pseudonymization of its restored form.
 
 Streaming responses are handled by
 :class:`~privyx.proxy.stream_router.StreamRouter`, which reuses the same walk
@@ -298,16 +301,25 @@ async def transform_request(
             return await transform(_unescaped(text))
 
         content_keys = GEMINI_CONTENT_KEYS if schema == "gemini" else CONTENT_KEYS
+        deferred: dict[str, Any] = {}  # deferred tools by name, walked where they load
+        loaded: dict[str, Any] = {}  # ... and once walked
         for key in sorted(payload, key=rank):  # stable: the rest keep their order
             value = payload[key]
             if key == "tools":
-                rebuilt[key] = await _drive(_descriptions(value), transform)
+                rebuilt[key] = await _drive(_tools(value, deferred), transform)
+            elif key == "messages" and deferred and isinstance(value, list):
+                rebuilt[key] = await _drive(_loading(value, schema, deferred, loaded), transform)
             elif key in content_keys:
                 rebuilt[key] = await _drive(_content(value, key, schema), transform)
             elif key in METADATA_KEYS:
                 rebuilt[key] = await _drive(_walk(value, key, True), metadata)
             else:
                 rebuilt[key] = value
+        for name, tool in deferred.items():  # not loaded yet: the provider renders it nowhere
+            if name not in loaded:
+                loaded[name] = await _drive(_descriptions(tool), transform)
+        if loaded:
+            rebuilt["tools"] = [loaded[t["name"]] if _deferred(t) else t for t in rebuilt["tools"]]
         if headers:
             for name in MASKED_HEADERS & headers.keys():
                 headers[name] = _header_value(await metadata(headers[name]))
@@ -713,6 +725,63 @@ def _gemini_request(value: dict[str, Any]) -> _Walk:
         else:
             out[k] = v
     return {k: out[k] for k in value}
+
+
+def _deferred(tool: Any) -> bool:
+    """Whether ``tool`` is loaded on demand (``defer_loading``) instead of up front."""
+    return (
+        isinstance(tool, dict)
+        and tool.get("defer_loading") is True
+        and isinstance(tool.get("name"), str)
+    )
+
+
+def _tools(value: Any, deferred: dict[str, Any]) -> _Walk:
+    """Walk the descriptions in ``tools``, leaving its deferred tools to ``deferred``.
+
+    A client adds a tool it loaded with tool search to ``tools`` on a later turn
+    (Claude Code's ToolSearch).  Numbered here, a value it names would renumber
+    the system prompt and every message on that turn: a prompt-cache miss.
+    """
+    if not isinstance(value, list):
+        return (yield from _descriptions(value))
+    out = []
+    for tool in value:
+        if _deferred(tool):
+            deferred[tool["name"]] = tool
+            out.append(tool)  # replaced once walked
+        else:
+            out.append((yield from _descriptions(tool)))
+    return out
+
+
+def _loading(
+    messages: list[Any], schema: str | None, deferred: dict[str, Any], loaded: dict[str, Any]
+) -> _Walk:
+    """Walk ``messages``, and each ``deferred`` tool right after the message that loads it.
+
+    That is where the provider renders it.  Every turn walks the same messages
+    in the same order, so the tool keeps its tokens when later turns add values.
+    """
+    out = []
+    for message in messages:
+        out.append((yield from _content(message, "messages", schema)))
+        for name in _references(message):
+            if name in deferred and name not in loaded:
+                loaded[name] = yield from _descriptions(deferred[name])
+    return out
+
+
+def _references(value: Any) -> Iterator[str]:
+    """Names of the tools the ``tool_reference`` blocks in ``value`` load."""
+    if isinstance(value, list):
+        for item in value:
+            yield from _references(item)
+    elif isinstance(value, dict):
+        if value.get("type") == "tool_reference" and isinstance(value.get("tool_name"), str):
+            yield value["tool_name"]
+        for item in value.values():
+            yield from _references(item)
 
 
 def _descriptions(value: Any, key: str | None = None) -> _Walk:

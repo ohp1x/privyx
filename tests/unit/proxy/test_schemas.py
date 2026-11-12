@@ -476,6 +476,67 @@ async def test_transform_numbers_the_cache_prefix_first() -> None:
     assert list(outs[1]) == ["messages", "system"]  # key order kept
 
 
+async def test_a_tool_loaded_by_tool_search_does_not_renumber_the_conversation() -> None:
+    # Claude Code adds the tool its ToolSearch loads to `tools`, `defer_loading`,
+    # and the provider renders it where the `tool_reference` is.  Numbered with
+    # `tools`, its values would renumber the system prompt: a cache miss.
+    bash = {"name": "Bash", "description": "Run a command", "input_schema": {"type": "object"}}
+    lookup = {
+        "name": "lookup",
+        "description": f"Look up {EMAIL}; escalate to carol@example.net",
+        "input_schema": {"type": "object"},
+        "defer_loading": True,
+    }
+    use = {"type": "tool_use", "id": "t1", "name": "ToolSearch", "input": {"query": "lookup"}}
+    reference = {"type": "tool_reference", "tool_name": "lookup"}
+    history = [
+        {"role": "user", "content": f"mail {EMAIL}"},
+        {"role": "assistant", "content": [use]},
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [reference]}],
+        },
+    ]
+    system = f"owner {PHONE}"
+    turns = [
+        {"tools": [bash], "system": system, "messages": history[:1]},
+        {"tools": [bash, lookup], "system": system, "messages": history},
+        {
+            "tools": [bash, lookup],
+            "system": system,
+            "messages": [*history, {"role": "user", "content": "cc bob@example.com"}],
+        },
+    ]
+    outs = []
+    for payload in turns:
+        engine = _engine()
+        outs.append(await transform_request(payload, engine, await _session(engine)))
+
+    assert outs[0]["system"] == outs[1]["system"] == outs[2]["system"]
+    assert outs[0]["messages"][0] == outs[1]["messages"][0] == outs[2]["messages"][0]
+    # A value first seen after the tool loaded does not renumber the tool.
+    assert outs[1]["tools"] == outs[2]["tools"]
+    assert [t["name"] for t in outs[2]["tools"]] == ["Bash", "lookup"]
+    token = outs[1]["messages"][0]["content"].removeprefix("mail ")
+    assert outs[1]["tools"][1]["description"].startswith(f"Look up {token}; escalate to <")
+    assert outs[1]["tools"][1]["defer_loading"] is True
+
+
+async def test_a_deferred_tool_not_loaded_yet_is_masked_last() -> None:
+    # Sent from the first turn for server-side tool search, but rendered nowhere
+    # until loaded: masked, without renumbering what comes before it.
+    tool = {"name": "lookup", "description": f"Look up {EMAIL}", "defer_loading": True}
+    conversation = {"system": f"owner {PHONE}", "messages": [{"role": "user", "content": "hi"}]}
+    outs = []
+    for payload in ({"tools": [tool], **conversation}, conversation):
+        engine = _engine()
+        outs.append(await transform_request(payload, engine, await _session(engine)))
+
+    assert outs[0]["system"] == outs[1]["system"]
+    assert outs[0]["tools"][0]["description"].startswith("Look up <PRIVYX_EMAIL_")
+    assert list(outs[0]) == ["tools", "system", "messages"]
+
+
 async def test_transform_masks_what_the_client_reports_about_its_machine() -> None:
     engine = _engine()
     sid = await _session(engine)

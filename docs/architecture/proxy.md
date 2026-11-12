@@ -101,7 +101,10 @@ per field, so a field a provider adds later is covered by default:
 - **A conversation stays byte-stable across turns.** The request is walked in
   cache-prefix order (`tools`, `system` / `instructions`, then the rest), so a
   per-session counter cannot renumber the system prompt when a later message
-  brings a new value. An echoed Anthropic `thinking` block gets back the exact
+  brings a new value. A tool sent with `defer_loading` (one a client loaded
+  with tool search) is not part of that prefix: it is walked right after the
+  message whose `tool_reference` loads it, where the provider renders it, or
+  last while nothing loads it. An echoed Anthropic `thinking` block gets back the exact
   text the upstream signed, remembered by `signature` from the batch or
   streamed response. Re-pseudonymizing its restored form is not always the
   inverse (a value the model wrote itself is new to the detector), and the

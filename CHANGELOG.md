@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Proxy:** with the default fresh session per request, a tool that Claude Code loads through tool search no longer renumbers the system prompt and history on that turn, which made the turn miss the prompt cache
+
 ## [0.1.33] - 2026-11-12
 
 ### Added
