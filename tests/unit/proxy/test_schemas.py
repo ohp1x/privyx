@@ -904,6 +904,10 @@ def test_find_leaks_counts_whole_words_only() -> None:
     # A masked tool-argument number sent elsewhere as a number.
     assert schemas.find_leaks({"a": 4111111111111111, "b": True}, {"4111111111111111"}) == 1
     assert schemas.find_leaks({"a": True}, {"True"}) == 0
+    # As the detector has it: with `_` separating words, `Bob` is in `DB_BOB`.
+    assert schemas.find_leaks("DB_Bob", {"Bob"}) == 0
+    assert schemas.find_leaks("DB_Bob", {"Bob"}, underscore=True) == 1
+    assert schemas.find_leaks("Bobby", {"Bob"}, underscore=True) == 0
 
 
 async def test_dlp_check_looks_in_every_header_sent_but_the_credentials() -> None:

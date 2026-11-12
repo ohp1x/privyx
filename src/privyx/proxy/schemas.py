@@ -323,7 +323,7 @@ async def transform_request(
                 [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
             ]
             sent += [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS]
-            leaks = find_leaks(sent, masked)
+            leaks = find_leaks(sent, masked, underscore=engine.underscore_separates_words)
             if leaks:
                 raise LeakError(f"{leaks} masked value(s) still in the request")
     result = {key: rebuilt[key] for key in payload}
@@ -460,27 +460,29 @@ def _role(message: Any) -> Any:
     return message.get("role") if isinstance(message, dict) else None
 
 
-def find_leaks(value: Any, masked: set[str]) -> int:
+def find_leaks(value: Any, masked: set[str], *, underscore: bool = False) -> int:
     """How many of the ``masked`` values are still in ``value``'s strings.
 
     The check behind ``proxy.dlp_check``: a value masked in one place of a
     request but sent as is in another (a field that is not walked, a URL, a
     header, signed thinking text) is found here, and the request is refused.  Keys count as strings,
     and a value that starts or ends with a letter or digit must stand as a
-    whole word there (``Bob`` is not found in ``Bobby``).
+    whole word there (``Bob`` is not found in ``Bobby``).  With ``underscore``,
+    as the detector has it, ``_`` separates words (``Bob`` is in ``DB_BOB``).
     """
     sent = "\0".join(_strings(value))
     # A plain substring search first: most values are not there at all.
     words = sorted((w for w in masked if w in sent), key=len, reverse=True)
     if not words:
         return 0
-    pattern = re.compile("|".join(_whole(word) for word in words))  # the longest first
+    pattern = re.compile("|".join(_whole(word, underscore) for word in words))  # longest first
     return len(set(pattern.findall(sent)))
 
 
-def _whole(word: str) -> str:
-    left = r"(?<!\w)" if word[0].isalnum() else ""
-    right = r"(?!\w)" if word[-1].isalnum() else ""
+def _whole(word: str, underscore: bool = False) -> str:
+    word_char = r"[^\W_]" if underscore else r"\w"
+    left = rf"(?<!{word_char})" if word[0].isalnum() else ""
+    right = rf"(?!{word_char})" if word[-1].isalnum() else ""
     return f"{left}{re.escape(word)}{right}"
 
 

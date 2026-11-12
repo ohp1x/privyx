@@ -63,6 +63,8 @@ class PrivacyEngine:
         dlp_check: Ask transports to check a masked request for the values it
             masked before sending it on
             (:func:`privyx.proxy.schemas.find_leaks`).
+        underscore_separates_words: In that check, ``_`` separates words, as it does for a
+            detector with ``underscore_separates_words``.
         directive: Ask transports to add :func:`privyx.proxy.schemas.directive`
             to each chat request they mask.
         cache_control: Ask transports to mark a large Anthropic prefix for
@@ -80,6 +82,7 @@ class PrivacyEngine:
         dlp_check: bool = False,
         directive: bool = False,
         cache_control: bool = False,
+        underscore_separates_words: bool = False,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -96,6 +99,7 @@ class PrivacyEngine:
         self._codec = codec or FormatCodec.default()
         self._audit = audit or AuditLogger(None)
         self.dlp_check = dlp_check
+        self.underscore_separates_words = underscore_separates_words
         self.directive = directive
         self.cache_control = cache_control
         # One lock per live session id; an entry disappears once nobody holds it.

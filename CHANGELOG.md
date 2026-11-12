@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Detection:** `detector.underscore_separates_words: true` makes `_` separate words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, and `host_10.0.0.1`, and the DLP check follows it
+
 ### Changed
 
 - **CLI:** `privyx mcp wrap` checks a JSON number, and a string longer than 256 characters, alone instead of with its key, so `{"token_limit": 4000}` stays a number and `{"password": 123456}` is no longer masked; card numbers and other values found alone are masked as before

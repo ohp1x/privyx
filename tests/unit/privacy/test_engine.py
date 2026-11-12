@@ -348,6 +348,21 @@ async def test_dlp_check_comes_from_proxy_config() -> None:
     assert (off.dlp_check, on.dlp_check) == (False, True)
 
 
+async def test_the_dlp_check_splits_at_underscores_when_a_detector_does() -> None:
+    from privyx.config.schema import Settings
+    from privyx.core.builder import build_engine
+
+    flags = []
+    for detector in (
+        {"type": "regex"},
+        [{"type": "regex"}, {"type": "yaml", "underscore_separates_words": True}],
+    ):
+        engine, close = await build_engine(Settings(vault={"type": "memory"}, detector=detector))
+        await close()
+        flags.append(engine.underscore_separates_words)
+    assert flags == [False, True]
+
+
 async def test_transform_takes_spans_already_decided() -> None:
     """``detection=`` (since 0.1.31) still replaces the detection step."""
     from privyx.core.result import Detection, Span

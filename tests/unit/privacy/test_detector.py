@@ -12,8 +12,10 @@ from privyx.core.errors import ConfigError
 from privyx.privacy.detector.builtin import (
     DEFAULT_PATTERNS,
     OPTIONAL_PATTERNS,
+    UNDERSCORE_SPLIT,
     RegexDetector,
     YamlDetector,
+    split_underscore,
 )
 from privyx.privacy.detector.yaml import build_detector
 
@@ -297,6 +299,47 @@ async def test_terms_split_only_into_words_of_two_letters_or_more() -> None:
         term_variants=True,
     )
     assert found == {}
+
+
+@pytest.mark.asyncio
+async def test_underscore_separates_words_in_terms() -> None:
+    text = "ACME_API_KEY acme_billing DB_JOHN JOHN__SMITH x_acme_corp johnson john2"
+    terms = {"ORG": ["acme", "acme_corp"], "PERSON": ["john", "smith"]}
+
+    assert await _detect_terms(text, terms=terms) == {}
+    found = await _detect_terms(text, terms=terms, underscore_separates_words=True)
+    assert found == {"ORG": ["ACME", "acme", "acme_corp"], "PERSON": ["JOHN", "JOHN", "SMITH"]}
+
+
+@pytest.mark.asyncio
+async def test_underscore_separates_words_in_builtin_patterns_and_keeps_their_checks() -> None:
+    key = "sk-" + "proj-abcdefghijklmnop1234"
+    text = (
+        f"host_10.0.0.1 ssn_123-45-6789 card_4111111111111111 my_{key} "
+        "bad_4111111111111112 v_999.1.2.3 task-abcdefghijklmnopqrstuv password=str_abc123"
+    )
+
+    assert await _detect_terms(text) == {"SECRET": ["str_abc123"]}
+    found = await _detect_terms(text, underscore_separates_words=True)
+    # Luhn and the address check still apply; `task-` is no `sk-`, and a
+    # secret's value keeps its `_`.
+    assert found == {
+        "IP_ADDRESS": ["10.0.0.1"],
+        "SSN": ["123-45-6789"],
+        "CREDIT_CARD": ["4111111111111111"],
+        "API_KEY": [key],
+        "SECRET": ["str_abc123"],
+    }
+
+
+def test_split_underscore_changes_each_pattern_it_applies_to() -> None:
+    """A built-in in the set whose boundary form changed would be skipped silently."""
+    for entity in UNDERSCORE_SPLIT:
+        pattern = DEFAULT_PATTERNS.get(entity) or OPTIONAL_PATTERNS[entity]
+        split = split_underscore(pattern)
+        assert split != pattern, entity
+        assert r"(?<!\w" not in split and r"\b" not in split, entity
+        re.compile(split)
 
 
 @pytest.mark.asyncio

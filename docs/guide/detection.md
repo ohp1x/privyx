@@ -189,6 +189,22 @@ A word is split at a case change only when each part keeps two letters, so
 `iPhone` stays one word. A term with other characters, such as a
 URL, matches only as written.
 
+By default `_` counts as part of a word, so a term is not found in a name such
+as `ACME_API_KEY` or `DB_JOHN`. With `underscore_separates_words: true`, `_` separates
+words: `acme` matches in `ACME_API_KEY` and `acme_billing`, `john` and `smith`
+in `JOHN__SMITH`, and still not in `johnson`. The text itself is not changed:
+`ACME_API_KEY` is sent as `<PRIVYX_ORGANIZATION_1>_API_KEY`. The built-in patterns
+follow it too, so `host_10.0.0.1` and `my_sk-…` are found, while a secret
+assigned to `DB_PASSWORD` keeps its name as before:
+
+```yaml
+detector:
+  type: regex
+  underscore_separates_words: true
+  terms:
+    ORGANIZATION: [acme]
+```
+
 `terms` and `patterns` can be used together. If both name the same entity, the
 `patterns` regex wins.
 

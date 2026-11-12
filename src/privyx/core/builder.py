@@ -291,5 +291,11 @@ async def build_engine(
         dlp_check=settings.proxy.dlp_check,
         directive=settings.proxy.directive,
         cache_control=settings.proxy.cache_control,
+        underscore_separates_words=any(
+            d.underscore_separates_words
+            for d in (
+                settings.detector if isinstance(settings.detector, list) else [settings.detector]
+            )
+        ),
     )
     return engine, closer

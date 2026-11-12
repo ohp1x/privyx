@@ -166,6 +166,8 @@ class LLMDetector:
         max_chars: Longest text sent in one call; longer text is chunked.
         fallback_on_error: On failure, scan with the built-in regex patterns
             instead of raising :class:`~privyx.core.errors.DetectorError`.
+        underscore: ``_`` separates words when a reported value is looked up
+            (``JOHN`` in ``DB_JOHN``), and for the fallback's patterns.
 
     Raises:
         ConfigError: If ``client`` is omitted and ``provider``'s SDK is not
@@ -184,12 +186,14 @@ class LLMDetector:
         timeout: float = 30.0,
         max_chars: int = 4000,
         fallback_on_error: bool = False,
+        underscore: bool = False,
     ) -> None:
         self._client = client if client is not None else _load_client(provider, model, api_key)
         self._instructions = instructions or _DEFAULT_INSTRUCTIONS
         self._timeout = timeout
         self._max_chars = max_chars
-        self._fallback = RegexDetector() if fallback_on_error else None
+        self._underscore = underscore
+        self._fallback = RegexDetector(underscore=underscore) if fallback_on_error else None
 
     async def detect(self, text: str, context: Context) -> Detection:
         try:
@@ -229,7 +233,7 @@ class LLMDetector:
         context.counters["llm_calls"] += 1
         context.counters["llm_input_tokens"] += len(prompt) // 4
         context.counters["llm_output_tokens"] += len(response) // 4
-        return _parse_spans(response, chunk, offset)
+        return _parse_spans(response, chunk, offset, underscore=self._underscore)
 
 
 def _chunks(text: str, size: int) -> list[tuple[int, str]]:
@@ -244,7 +248,9 @@ def _chunks(text: str, size: int) -> list[tuple[int, str]]:
     return [(i, text[i : i + size]) for i in range(0, len(text) - overlap, size - overlap)]
 
 
-def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
+def _parse_spans(
+    response: str, text: str, offset: int = 0, *, underscore: bool = False
+) -> Detection:
     """Parse an LLM reply into a Detection over ``text``.
 
     A reply with no JSON array in it means the model did not do the scan (it
@@ -259,6 +265,7 @@ def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
     a token once "May" is a name), and reported text that does not occur at all
     is a hallucination and is dropped.  Offsets are used only for a
     ``[start, end, type]`` span without text, and only when they are in range.
+    With ``underscore``, ``_`` separates words.
     A malformed span is dropped; it does not fail the reply.  ``offset`` shifts
     the spans of a chunk back to positions in the full text.
 
@@ -281,7 +288,7 @@ def _parse_spans(response: str, text: str, offset: int = 0) -> Detection:
         entity = _entity_type(item[2])
         reported = item[3].strip() if len(item) > 3 and isinstance(item[3], str) else ""
         if reported:
-            for match in re.finditer(_bounded(reported), text):
+            for match in re.finditer(_bounded(reported, underscore=underscore), text):
                 detection.add(match.start() + offset, match.end() + offset, entity, match[0])
             continue
         try:

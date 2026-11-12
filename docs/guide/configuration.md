@@ -445,6 +445,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 | `patterns` | `{}` | Entity → regular expression. |
 | `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
 | `term_variants` | `false` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
+| `underscore_separates_words` | `false` | `regex`, `yaml`, `llm`: `_` separates words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, or `host_10.0.0.1`. The [leak check](masking.md#leak-check) follows it. |
 | `context` | `{}` | `regex`, `yaml`: entity → words, one of which must be within five words of a match for it to count. |
 | `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`, `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`. |
 | `entropy_threshold` | `3.0` | `HIGH_ENTROPY`: bits per character a string needs. |
