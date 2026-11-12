@@ -450,6 +450,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 | `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`, `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`. |
 | `entropy_threshold` | `3.0` | `HIGH_ENTROPY`: bits per character a string needs. |
 | `decode` | `false` | `regex`, `yaml`: also find values split into string literals (`'s' + 'k' + …`) or encoded as Base64, hex, or URL escapes. |
+| `normalize` | `false` | `regex`, `yaml`: also find values written with fullwidth or other look-alike compatibility characters, or with zero-width characters inside (`ｊｏｈｎ`). See [Look-alike characters](detection.md#look-alike-characters). |
 | `cache` | `true` | Reuse detections for text seen before. `true`/`false`, or `{enabled, max_size}` (`max_size` defaults to `10000`). An entry keeps a digest of the text and what was found in it, not the text. |
 | `language` | `en` | `presidio`: language of the text. |
 | `model` | empty | `presidio`: spaCy model. Empty uses `{language}_core_web_sm`. |

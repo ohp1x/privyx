@@ -122,8 +122,8 @@ def _enabled(config: dict[str, Any]) -> dict[str, str]:
 
 
 def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[str, Any]:
-    """The ``context``, ``entropy_threshold``, ``decode``, and ``underscore`` of a
-    regex or yaml detector."""
+    """The ``context``, ``entropy_threshold``, ``decode``, ``normalize``, and
+    ``underscore`` of a regex or yaml detector."""
     context = config.get("context") or {}
     unknown = sorted(set(context) - patterns.keys())
     if unknown:
@@ -132,6 +132,7 @@ def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[s
     options: dict[str, Any] = {
         "context": context,
         "decode": bool(config.get("decode")),
+        "normalize": bool(config.get("normalize")),
         "underscore": bool(config.get("underscore_separates_words")),
     }
     if config.get("entropy_threshold") is not None:

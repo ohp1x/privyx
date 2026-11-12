@@ -98,6 +98,29 @@ itself is masked. Blobs over 64 KiB are not decoded, and a scan decodes at most
 1,000,000 characters in all, so the cost stays bounded; it is still extra work on
 every request, which is why it is off by default.
 
+## Look-alike characters
+
+Text copied from a web page, a PDF, or an input method can spell a value with
+characters that look the same but match no pattern or term: fullwidth letters
+(`ｊｏｈｎ`), ligatures (`ﬁ`), or an invisible zero-width space or soft hyphen
+inside a word. With `normalize: true`, a `regex` or `yaml` detector also scans
+the text with each character folded to its plain form (Unicode NFKC) and those
+invisible format characters dropped. What it finds there is masked as written:
+`ｊｏｈｎ` becomes the token, and restoring brings back `ｊｏｈｎ`. A value whose
+name or context word is written that way, as in `ｐａｓｓｗｏｒｄ: …`, is found too.
+
+```yaml
+detector:
+  type: regex
+  normalize: true
+  terms:
+    PERSON: [john]
+```
+
+Accents are not folded (`jóhn` is another name), nor are letters from other
+scripts that look Latin, such as a Cyrillic `о`. Text with nothing to fold costs
+almost nothing more; text with such characters is scanned twice.
+
 ## Secrets
 
 Most built-in secret patterns match a recognizable shape, such as a vendor

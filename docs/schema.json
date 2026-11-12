@@ -347,6 +347,19 @@
             }
           ]
         },
+        "normalize": {
+          "title": "Normalize",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
         "cache": {
           "anyOf": [
             {

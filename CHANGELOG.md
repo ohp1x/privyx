@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Detection:** `detector.underscore_separates_words: true` makes `_` separate words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, and `host_10.0.0.1`, and the DLP check follows it
 - **Detection:** a `patterns` regex that replaces the `terms` of the same entity is reported with a warning when the config is loaded
+- **Detection:** `detector.normalize: true` also finds values written in fullwidth or other look-alike compatibility characters, or with a zero-width character inside, and masks them as written
 
 ### Changed
 

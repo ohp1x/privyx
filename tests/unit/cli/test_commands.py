@@ -163,6 +163,24 @@ def test_detect_explain_names_a_decoded_finding(runner: CliRunner, tmp_path: Pat
     assert "found by  regex: built-in pattern EMAIL, once joined or decoded" in result.output
 
 
+@pytest.mark.parametrize("decode", ["false", "true"])
+def test_detect_explain_names_a_folded_finding(
+    runner: CliRunner, tmp_path: Path, decode: str
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        f"detector:\n  type: regex\n  normalize: true\n  decode: {decode}\n", encoding="utf-8"
+    )
+    hidden = base64.b64encode(EMAIL.encode()).decode()
+    text = f"mail ａｎａ@ｅｘａｍｐｌｅ.ｃｏｍ, blob {hidden}"
+    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), text])
+
+    assert result.exit_code == 0, result.output
+    assert "found by  regex: built-in pattern EMAIL, once folded" in result.output
+    decoded = "found by  regex: built-in pattern EMAIL, once joined or decoded"
+    assert (decoded in result.output) == (decode == "true")
+
+
 def test_detect_explain_without_policy_masks_everything(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["detect", "--explain", "--no-policy", f"mail {EMAIL}"])
     assert "found by  regex: built-in pattern EMAIL" in result.output

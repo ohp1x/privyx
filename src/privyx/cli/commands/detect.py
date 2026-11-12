@@ -113,14 +113,22 @@ async def _explain(text: str, settings: Settings, apply_policy: bool, context: C
         label = section.type if len(sections) == 1 else f"#{i} {section.type}"
         config = section.model_dump()
         detection = await build_detector(config).detect(text, context)
-        plain = detection
-        if section.decode:
-            plain = await build_detector({**config, "decode": False}).detect(text, context)
+        plain = decoded = detection
+        if section.decode or section.normalize:
+            plain = await build_detector({**config, "decode": False, "normalize": False}).detect(
+                text, context
+            )
+        if section.decode and section.normalize:
+            decoded = await build_detector({**config, "normalize": False}).detect(text, context)
         direct = {(s.start, s.end, s.entity_type) for s in plain.spans}
+        hidden = (
+            {(s.start, s.end, s.entity_type) for s in decoded.spans} if section.decode else set()
+        )
         for s in detection.spans:
             reason = f"{label}: {_origin(section, s.entity_type)}"
-            if (s.start, s.end, s.entity_type) not in direct:
-                reason += ", once joined or decoded"
+            where = (s.start, s.end, s.entity_type)
+            if where not in direct:
+                reason += ", once joined or decoded" if where in hidden else ", once folded"
             found.append((s, reason))
 
     raw = Detection([span for span, _ in found])
