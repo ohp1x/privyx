@@ -285,9 +285,10 @@ Providers cache a prompt by its exact bytes, so masking must give a turn the
 client sends again the same bytes on every later turn. It does: a value keeps
 its token for the whole session, and a request is masked in the order the
 provider caches it (`tools`, then `system`, then the messages), so a value
-that first appears later never renumbers what came before. That holds for the
-default fresh session per request too, since values are numbered in the order
-they appear. `privyx audit stats` and `privyx session show` report the cache
+that first appears later never renumbers what came before. A tool the client
+loads later through tool search is masked where the conversation loads it, so
+it does not renumber the system prompt either. That holds for the default fresh
+session per request too, since values are numbered in the order they appear. `privyx audit stats` and `privyx session show` report the cache
 hit rate from the usage the upstream returns.
 
 Anthropic caches only what a request marks with `cache_control`. A client that
