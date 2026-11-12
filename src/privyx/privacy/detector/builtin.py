@@ -313,19 +313,63 @@ def _secret_matches(pattern: re.Pattern[str], text: str) -> Iterator[re.Match[st
 Check = Callable[[re.Match[str]], bool]
 
 
+#: A letter or digit: ``\w`` without ``_``.
+_ALNUM = r"[^\W_]"
+
+#: Built-in entities whose word boundaries also fall at ``_`` with
+#: ``underscore_separates_words``: ``host_10.0.0.1``, ``my_sk-…``.  Not ``SECRET``,
+#: ``HIGH_ENTROPY``, or ``ASSIGNED_SECRET``, whose matches hold ``_`` themselves
+#: (a name such as ``DB_PASSWORD``, a token's characters), nor ``EMAIL``,
+#: ``PRIVATE_KEY``, and the rest, which have no word boundary to move.
+UNDERSCORE_SPLIT: frozenset[str] = frozenset(
+    {
+        "PHONE",
+        "CREDIT_CARD",
+        "IP_ADDRESS",
+        "SSN",
+        "API_KEY",
+        "JWT",
+        "CRYPTO_WALLET",
+        "SG_NRIC_FIN",
+        "ES_NIF",
+        "ES_NIE",
+        "MRN",
+        "ICD10",
+    }
+)
+
+#: Each word-boundary form those patterns use, and the same with ``_`` as a
+#: separator, in the order they are replaced.
+_UNDERSCORE_FORMS = (
+    ("\\b", f"(?:(?<!{_ALNUM})(?={_ALNUM})|(?<={_ALNUM})(?!{_ALNUM}))"),
+    ("(?<![\\w-])", f"(?<!{_ALNUM}|-)"),
+    ("[\\w\\d]", _ALNUM),
+    ("[\\w]", _ALNUM),
+    ("(?<!\\w", f"(?<!{_ALNUM}"),
+)
+
+
+def split_underscore(pattern: str) -> str:
+    """``pattern``, a built-in in :data:`UNDERSCORE_SPLIT`, with ``_`` as a word separator."""
+    for old, new in _UNDERSCORE_FORMS:
+        pattern = pattern.replace(old, new)
+    return pattern
+
+
 def _builtin(entity: str, pattern: str) -> bool:
     return pattern in (DEFAULT_PATTERNS.get(entity), OPTIONAL_PATTERNS.get(entity))
 
 
-def _check_for(entity: str, pattern: re.Pattern[str], checks: dict[str, Check]) -> Check | None:
+def _check_for(
+    entity: str, pattern: re.Pattern[str], checks: dict[str, Check], builtin: bool
+) -> Check | None:
     """The check a match of ``pattern`` must pass: its built-in entity's, if it is one.
 
+    ``builtin`` says whether it is, also once :func:`split_underscore` changed it.
     A custom ``SECRET`` pattern with ``name`` and ``value`` groups keeps the
     built-in check too, so ``password: str`` stays unmasked.
     """
-    if _builtin(entity, pattern.pattern) or (
-        entity == "SECRET" and {"name", "value"} <= pattern.groupindex.keys()
-    ):
+    if builtin or (entity == "SECRET" and {"name", "value"} <= pattern.groupindex.keys()):
         return checks.get(entity)
     return None
 
@@ -374,6 +418,8 @@ class _PatternDetector(BaseDetector):
         entropy_threshold: Bits per character ``HIGH_ENTROPY`` needs.
         decode: Also find values split into string literals or encoded
             (:func:`privyx.privacy.detector.decode.hidden`).
+        underscore: ``_`` separates words for the built-in patterns in
+            :data:`UNDERSCORE_SPLIT` (:func:`split_underscore`).
     """
 
     def __init__(
@@ -383,6 +429,7 @@ class _PatternDetector(BaseDetector):
         context: dict[str, list[str]] | None = None,
         entropy_threshold: float = catalog.ENTROPY_THRESHOLD,
         decode: bool = False,
+        underscore: bool = False,
     ) -> None:
         super().__init__()
         self._decode = decode
@@ -390,10 +437,18 @@ class _PatternDetector(BaseDetector):
         words = {entity: frozenset(w.lower() for w in v) for entity, v in (context or {}).items()}
         self._compiled = []
         for entity, raw in patterns.items():
+            builtin = _builtin(entity, raw)
+            if underscore and builtin and entity in UNDERSCORE_SPLIT:
+                raw = split_underscore(raw)
             pattern = re.compile(raw)
-            default = catalog.CONTEXT.get(entity, frozenset()) if _builtin(entity, raw) else None
+            default = catalog.CONTEXT.get(entity, frozenset()) if builtin else None
             self._compiled.append(
-                (entity, pattern, _check_for(entity, pattern, checks), words.get(entity, default))
+                (
+                    entity,
+                    pattern,
+                    _check_for(entity, pattern, checks, builtin),
+                    words.get(entity, default),
+                )
             )
 
     def detect_sync(self, text: str, context: Context) -> Detection:

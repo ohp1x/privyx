@@ -85,6 +85,8 @@ detector:
   #   ORGANIZATION: [acme, initech]
   #   URL:          ["https://git.internal.example/team"]
   # term_variants: false     # true: "Acme Corp" also matches acme-corp, acme_corp, ...
+  # underscore_separates_words: false  # true: _ separates words, so acme is found in
+  #                                    # ACME_API_KEY, an IP in host_10.0.0.1
   # Opt-in built-ins: wallets and national IDs (checked by checksum or
   # structure), then detectors that also catch more of what is not sensitive.
   # enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE,

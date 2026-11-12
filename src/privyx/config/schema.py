@@ -62,6 +62,8 @@ class DetectorConfig(PluggableConfig):
     patterns: dict[str, str] = Field(default_factory=dict)
     terms: dict[str, list[str]] = Field(default_factory=dict)
     term_variants: bool = False  # terms also match acme-corp, acme_corp, … for "Acme Corp"
+    # regex/yaml/llm: `_` separates words, so acme is found in ACME_API_KEY
+    underscore_separates_words: bool = False
     # regex/yaml: entity -> words, one of which must be near a match
     context: dict[str, list[str]] = Field(default_factory=dict)
     enable: list[str] = Field(default_factory=list)  # regex/yaml: opt-in built-in entities

@@ -290,6 +290,19 @@
             }
           ]
         },
+        "underscore_separates_words": {
+          "title": "Underscore Separates Words",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
         "context": {
           "additionalProperties": {
             "items": {

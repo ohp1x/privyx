@@ -261,4 +261,6 @@ proxy:
 The check covers values that were detected somewhere in the request, not
 values no detector found. The credential headers (`Authorization`,
 `x-api-key`, `api-key`, `x-goog-api-key`) are not checked. A value that starts or ends with a letter or digit
-must stand as a whole word to count (`Bob` is not found in `Bobby`).
+must stand as a whole word to count (`Bob` is not found in `Bobby`). With
+`detector.underscore_separates_words`, `_` separates words here too (`Bob` is found in
+`DB_Bob`).

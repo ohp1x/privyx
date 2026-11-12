@@ -197,6 +197,16 @@ async def test_reported_text_that_does_not_occur_is_dropped() -> None:
     assert detection.spans == []
 
 
+async def test_reported_text_is_found_where_underscore_separates_words() -> None:
+    """With ``underscore``, ``JOHN`` is found in ``JOHN_SMITH``, not in ``JOHNSON``."""
+    split = LLMDetector(client=_FakeLLMClient('[[0, 4, "PERSON", "JOHN"]]'), underscore=True)
+    found = await split.detect("export JOHN_SMITH=1, JOHNSON", Context())
+    assert [(s.start, s.text) for s in found.spans] == [(7, "JOHN")]
+
+    whole = LLMDetector(client=_FakeLLMClient('[[0, 4, "PERSON", "JOHN"]]'))
+    assert (await whole.detect("export JOHN_SMITH=1", Context())).spans == []
+
+
 async def test_offsets_are_used_for_a_span_without_text() -> None:
     detector = LLMDetector(client=_FakeLLMClient('[[5, 8, "PERSON"], [0, 999, "PERSON"]]'))
 

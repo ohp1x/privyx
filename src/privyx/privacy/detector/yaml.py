@@ -93,6 +93,7 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
             timeout=float(config.get("llm_timeout", 30.0)),
             max_chars=int(config.get("llm_max_chars", 4000)),
             fallback_on_error=bool(config.get("llm_fallback_on_error", False)),
+            underscore=bool(config.get("underscore_separates_words")),
         )
     elif dtype in PLUGINS.detectors:
         detector = PLUGINS.detectors.build(config)
@@ -121,13 +122,18 @@ def _enabled(config: dict[str, Any]) -> dict[str, str]:
 
 
 def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[str, Any]:
-    """The ``context``, ``entropy_threshold``, and ``decode`` of a regex or yaml detector."""
+    """The ``context``, ``entropy_threshold``, ``decode``, and ``underscore`` of a
+    regex or yaml detector."""
     context = config.get("context") or {}
     unknown = sorted(set(context) - patterns.keys())
     if unknown:
         # Context only narrows an entity; one the detector lacks is a typo.
         raise ConfigError(f"detector 'context' names entities it does not detect: {unknown}")
-    options: dict[str, Any] = {"context": context, "decode": bool(config.get("decode"))}
+    options: dict[str, Any] = {
+        "context": context,
+        "decode": bool(config.get("decode")),
+        "underscore": bool(config.get("underscore_separates_words")),
+    }
     if config.get("entropy_threshold") is not None:
         options["entropy_threshold"] = float(config["entropy_threshold"])
     return options
@@ -236,11 +242,17 @@ def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
     if not isinstance(patterns, dict):
         raise ConfigError("detector 'patterns' must be a mapping of entity -> regex")
     compiled = {str(k): str(v) for k, v in patterns.items()}
-    terms = _terms_to_patterns(config.get("terms", {}), bool(config.get("term_variants")))
+    terms = _terms_to_patterns(
+        config.get("terms", {}),
+        bool(config.get("term_variants")),
+        underscore=bool(config.get("underscore_separates_words")),
+    )
     return {**terms, **compiled}
 
 
-def _terms_to_patterns(terms: Any, variants: bool = False) -> dict[str, str]:
+def _terms_to_patterns(
+    terms: Any, variants: bool = False, *, underscore: bool = False
+) -> dict[str, str]:
     """Compile literal term lists into one case-insensitive regex per entity.
 
     Matching is case-insensitive via an inline ``(?i:...)`` group rather than a
@@ -251,7 +263,8 @@ def _terms_to_patterns(terms: Any, variants: bool = False) -> dict[str, str]:
     itself, and each one gets word boundaries only on the sides where it ends in
     a word character — that keeps ``ann`` out of ``annual`` while still matching
     a URL that ends in ``/``.  With ``variants``, a term of several words also
-    matches its other spellings (:func:`_variants`).
+    matches its other spellings (:func:`_variants`).  With ``underscore``, ``_``
+    separates words (:func:`_bounded`).
     """
     if not isinstance(terms, dict):
         raise ConfigError("detector 'terms' must be a mapping of entity -> list of strings")
@@ -273,7 +286,7 @@ def _terms_to_patterns(terms: Any, variants: bool = False) -> dict[str, str]:
         # Longest first; the alphabetical tie-break keeps the pattern stable
         # across runs, since `cleaned` is a set.
         ordered = sorted(cleaned, key=lambda term: (-len(term), term))
-        alternatives = [_bounded(term) for term in ordered]
+        alternatives = [_bounded(term, underscore=underscore) for term in ordered]
         patterns[str(entity)] = "(?i:" + "|".join(alternatives) + ")"
     return patterns
 
@@ -304,10 +317,18 @@ def _variants(term: str) -> set[str]:
     return {term} | {sep.join(words) for sep in ("", " ", "-", "_", ".")}
 
 
-def _bounded(term: str) -> str:
-    """Escape ``term`` and guard the sides that would otherwise match mid-word."""
-    prefix = r"(?<!\w)" if _is_word_char(term[0]) else ""
-    suffix = r"(?!\w)" if _is_word_char(term[-1]) else ""
+def _bounded(term: str, *, underscore: bool = False) -> str:
+    """Escape ``term`` and guard the sides that would otherwise match mid-word.
+
+    With ``underscore``, ``_`` separates words: ``john`` is found in
+    ``DB_JOHN`` and ``JOHN__SMITH``, still not in ``johnson``.
+    """
+    if underscore:
+        prefix = r"(?<![^\W_])" if term[0].isalnum() else ""
+        suffix = r"(?![^\W_])" if term[-1].isalnum() else ""
+    else:
+        prefix = r"(?<!\w)" if _is_word_char(term[0]) else ""
+        suffix = r"(?!\w)" if _is_word_char(term[-1]) else ""
     return f"{prefix}{re.escape(term)}{suffix}"
 
 
