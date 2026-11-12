@@ -200,10 +200,29 @@ def leaks(obj: Any, path: str = "$") -> Iterator[tuple[str, str, str]]:
                 yield path, canary, obj[max(0, at - 30) : at + len(canary) + 30]
 
 
+def deferred(item: Any) -> bool:
+    return isinstance(item, dict) and bool(item.get("defer_loading"))
+
+
+def settle(items: list[Any], known: set[str]) -> list[Any]:
+    """``items`` with only the ``known`` deferred ones, moved last by name."""
+    later = [t for t in items if deferred(t) and t.get("name") in known]
+    return [t for t in items if not deferred(t)] + sorted(later, key=lambda t: t["name"])
+
+
 def drift(bodies: list[dict[str, Any]], key: str) -> str:
-    """The first difference in ``key`` between consecutive turns, or ``""``."""
+    """The first difference in ``key`` between consecutive turns, or ``""``.
+
+    Claude Code adds each tool its ToolSearch loads with ``defer_loading`` and
+    sends the deferred ones after the rest: one is compared by name with its
+    earlier copy, and a newly loaded one is no difference.
+    """
     for a, b in zip(bodies, bodies[1:], strict=False):
-        x, y = json.dumps(a.get(key)), json.dumps(b.get(key))
+        old, new = a.get(key), b.get(key)
+        if isinstance(old, list) and isinstance(new, list):
+            known = {t.get("name") for t in old if deferred(t)}
+            old, new = settle(old, known), settle(new, known)
+        x, y = json.dumps(old), json.dumps(new)
         if x != y:
             pairs = enumerate(zip(x, y, strict=False))
             at = next((i for i, (p, q) in pairs if p != q), min(len(x), len(y)))

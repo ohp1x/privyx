@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       codex_version:
-        description: Codex CLI version (use latest to probe a new release)
-        default: "0.114.0"
+        description: Codex CLI version (pin an older one to find a breaking release)
+        default: "latest"
         type: string
       claude_version:
-        description: Claude Code version (use latest to probe a new release)
-        default: "2.1.301"
+        description: Claude Code version (pin an older one to find a breaking release)
+        default: "latest"
         type: string
 
 permissions:
@@ -33,12 +33,12 @@ jobs:
         with:
           node-version: "24"
       - run: uv sync --locked
-      # Keep a verified baseline; manual dispatch can probe newer releases.
+      # The releases users install today; a dispatch input can pin an older one.
       - name: Install and report CLI version
         env:
           AGENT: ${{ matrix.agent }}
-          CODEX_VERSION: ${{ inputs.codex_version || '0.114.0' }}
-          CLAUDE_VERSION: ${{ inputs.claude_version || '2.1.301' }}
+          CODEX_VERSION: ${{ inputs.codex_version || 'latest' }}
+          CLAUDE_VERSION: ${{ inputs.claude_version || 'latest' }}
         run: |
           if [ "$AGENT" = codex ]; then
             npm install --global "@openai/codex@$CODEX_VERSION"
