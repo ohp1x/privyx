@@ -113,6 +113,11 @@ per field, so a field a provider adds later is covered by default:
   them is opaque (a `name` argument is PII). A string `arguments` is parsed,
   walked, and re-serialized — never transformed as one blob, where a match could
   straddle a JSON escape — and walked as plain text if it does not parse.
+  Each string of up to 256 characters in one is also checked together with its
+  key, so a value that only its key marks, as in `{"password": "hunter2"}`, or
+  whose context word is the key, is masked. Numbers are checked alone, so
+  `{"token_limit": 4000}` stays a number and a card number is still masked; a
+  masked number becomes its token, a string, and is restored as one.
 - **What a client reports about its machine is masked whole, and last.** Claude
   Code's `safeguards` (working directory, home, user name, git branch and
   remotes) and Codex's `client_metadata` (workspace paths, git remote URLs) are

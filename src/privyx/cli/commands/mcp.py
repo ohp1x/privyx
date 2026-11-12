@@ -8,26 +8,21 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import bisect
 import contextlib
 import json
 import os
 import queue
-import re
 import signal
 import sys
 import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 
 from privyx.cli.commands.mask import _dumps
 from privyx.cli.commands.mcp_serve import serve
 from privyx.cli.commands.pipe import _drop_stdout
-
-if TYPE_CHECKING:
-    from privyx.core.result import Span
 
 #: Values in a JSON-RPC message that are protocol, not content: its own
 #: members, the version MCP's initialize negotiates, and the ids notifications
@@ -52,9 +47,6 @@ _MEMBERS = frozenset({"jsonrpc", "id", "method", "params", "result", "error"})
 #: Seconds a stopped server has to exit before it and its group are killed:
 #: under the 2 an MCP client gives this process before killing it.
 _GRACE = 1.0
-
-#: What ``json.dumps`` escapes in a string (``ensure_ascii=False``).
-_ESCAPED = re.compile(r'["\\\x00-\x1f]')
 
 #: Longest line read from the server: asyncio's 64 KiB default is less than
 #: one tool result holding a file.
@@ -105,7 +97,6 @@ async def _wrap(command: tuple[str, ...], session_id: str | None, config_path: s
     from privyx.core.builder import build_engine
     from privyx.core.context import Context
     from privyx.core.errors import SessionNotFoundError
-    from privyx.core.result import Detection
     from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
@@ -126,25 +117,10 @@ async def _wrap(command: tuple[str, ...], session_id: str | None, config_path: s
                 async def one(text: str) -> str:
                     return (await engine.transform(text, session=session, persist=False)).text
 
-                async def found(text: str) -> Detection:
-                    return await engine.policy.decide(
-                        await engine.detector.detect(text, context), context
-                    )
-
                 async def under(key: str, value: str) -> str:
                     # Alone, a value may not say what it is: `{"password":
-                    # "hunter2"}` is a secret by its key, and a context word
-                    # may be the key.  What is found with the key, whole or in
-                    # part, is added to what is found alone, and the value is
-                    # masked as it was sent.
-                    spans = (await found(value)).spans
-                    spans += _value_spans(key, value, (await found(_probe(key, value))).spans)
-                    result = await engine.transform(
-                        value,
-                        session=session,
-                        persist=False,
-                        detection=Detection(spans).merged(value),  # alone and with the key overlap
-                    )
+                    # "hunter2"}` is a secret by its key.
+                    result = await engine.transform(value, session=session, persist=False, key=key)
                     return result.text
 
                 # Not JSON: a server logging to stdout.  Masked as text.
@@ -353,50 +329,6 @@ def _client_writer() -> Callable[[bytes], Awaitable[None]]:
     return write
 
 
-def _probe(key: str, value: str) -> str:
-    """``value`` with its key in front, as text: ``key: "value"``, JSON-escaped."""
-    return f"{key}: {json.dumps(value, ensure_ascii=False)}"
-
-
-def _value_spans(key: str, value: str, spans: list[Span]) -> list[Span]:
-    """``spans`` found in ``_probe(key, value)``, cut to the value, at its offsets.
-
-    A span ending inside an escape (``\\n`` for a newline) takes the character.
-    """
-    from privyx.core.result import Span
-
-    start = len(key) + 3
-    end = start + len(json.dumps(value, ensure_ascii=False)) - 2
-    # Each character JSON escaped: where its escape starts, how long it is,
-    # and how many characters escapes added before it.
-    at: list[int] = []
-    size: list[int] = []
-    before: list[int] = []
-    added = 0
-    for match in _ESCAPED.finditer(value):
-        length = len(json.dumps(match.group(), ensure_ascii=False)) - 2
-        at.append(match.start() + added)
-        size.append(length)
-        before.append(added)
-        added += length - 1
-
-    def raw(offset: int) -> int:
-        k = bisect.bisect_right(at, offset) - 1
-        if k < 0:
-            return offset
-        if offset < at[k] + size[k]:
-            return at[k] - before[k]
-        return offset - before[k] - size[k] + 1
-
-    out = []
-    for span in spans:
-        low, high = max(span.start, start) - start, min(span.end, end) - start
-        if low < high:
-            first, last = raw(low), raw(high - 1) + 1
-            out.append(Span(first, last, span.entity_type, value[first:last]))
-    return out
-
-
 def _binary(parent: dict[str, Any], key: str, value: Any) -> bool:
     """Whether ``value`` is an MCP base64 payload: image or audio ``data``, a ``blob``.
 
@@ -418,23 +350,6 @@ def _binary(parent: dict[str, Any], key: str, value: Any) -> bool:
     return True
 
 
-def _text(value: Any) -> str | None:
-    """A string, or a number as text (a card number may come as one); else ``None``."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return str(value)
-    return None
-
-
-def _back(value: Any, text: str, changed: str) -> Any:
-    """``changed`` in place of ``value``; a number stays one unless it was masked.
-
-    A masked number becomes its token, a string, and is restored as a string.
-    """
-    return changed if isinstance(value, str) or changed != text else value
-
-
 async def _rewrite(
     line: bytes,
     fn: Callable[[str], Awaitable[str]],
@@ -442,8 +357,8 @@ async def _rewrite(
 ) -> bytes | None:
     """``line`` with ``fn`` applied to its content; ``None`` when it is not JSON.
 
-    ``under(key, value)``, when given, stands in for ``fn`` on a string or
-    number under a key, to see it with that key.
+    ``under(key, value)``, when given, stands in for ``fn`` on a string under
+    a key, to see it with that key; a number is checked alone.
 
     Every string but the protocol members is content, object keys included (a
     tool's structured result may key on an email), so a server that prints
@@ -452,6 +367,7 @@ async def _rewrite(
     keep, such as the first of two duplicate keys, unchecked.
     """
     from privyx.core.errors import OperatorError
+    from privyx.privacy.transform.json import leaf_text, put_back
 
     try:
         message = json.loads(line)
@@ -464,10 +380,10 @@ async def _rewrite(
         (``{"passwords": ["..."]}``)."""
         if path in _PROTOCOL:
             return value
-        if (text := _text(value)) is not None:
-            if under is not None and owner is not None:
-                return _back(value, text, await under(owner, text))
-            return _back(value, text, await fn(text))
+        if (text := leaf_text(value)) is not None:
+            if under is not None and owner is not None and isinstance(value, str):
+                return put_back(value, text, await under(owner, text))
+            return put_back(value, text, await fn(text))
         if isinstance(value, list):
             return [await strings(item, None, owner) for item in value]
         if isinstance(value, dict):

@@ -415,7 +415,12 @@ async def _call(
                 async def transform(leaf: str) -> str:
                     return (await engine.transform(leaf, session=session, persist=False)).text
 
-                result = await _apply(source, _resolve_format(fmt, path), (), transform)
+                async def under(key: str, leaf: str) -> str:
+                    # `{"password": "hunter2"}`: the value is a secret by its key.
+                    result = await engine.transform(leaf, session=session, persist=False, key=key)
+                    return result.text
+
+                result = await _apply(source, _resolve_format(fmt, path), (), transform, under)
             if output_path is not None:
                 await asyncio.to_thread(_write_new, output_path, result)
         except BaseException:

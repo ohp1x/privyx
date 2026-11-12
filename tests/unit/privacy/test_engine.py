@@ -7,11 +7,11 @@ import json
 
 import pytest
 
-from privyx.core.engine import PrivacyEngine
+from privyx.core.engine import KEY_PROBE_LIMIT, PrivacyEngine
 from privyx.core.errors import SessionNotFoundError, VaultError
 from privyx.core.session import Session
 from privyx.observability.audit import AuditLogger
-from privyx.privacy.detector.builtin import RegexDetector
+from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
 from privyx.privacy.policy.default import DefaultPolicy
@@ -132,6 +132,64 @@ async def test_engine_emits_pii_safe_audit_events() -> None:
     transform = next(r for r in records if r["event"] == "session.transform")
     assert transform["entity_counts"] == {"EMAIL": 1}
     assert transform["transformations"] == 1
+
+
+async def test_transform_with_a_key_finds_what_only_the_key_tells() -> None:
+    """``{"password": "hunter2"}``: alone the value is nothing, with its key a
+    secret.  A context word in the key counts, and so does what only the value
+    alone matches (an anchored pattern)."""
+    buf = io.StringIO()
+    engine = PrivacyEngine(
+        detector=RegexDetector(
+            {"SECRET": DEFAULT_PATTERNS["SECRET"], "EMAIL": DEFAULT_PATTERNS["EMAIL"]}
+            | {"BADGE": r"^EMP\d{4}$"},
+            context={"EMAIL": ["owner"]},
+        ),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=AuditLogger(buf),
+    )
+    session = await engine.get_or_create_session()
+
+    assert (await engine.transform("hunter2", session=session)).text == "hunter2"
+    assert (await engine.transform("hunter2", session=session, key="password")).text == (
+        "<PRIVYX_SECRET_1>"
+    )
+    owner = await engine.transform("contact bob@example.com", session=session, key="owner")
+    assert owner.text == "contact <PRIVYX_EMAIL_2>"
+    assert (await engine.transform("EMP1234", session=session, key="badge")).text == (
+        "<PRIVYX_BADGE_3>"
+    )
+    # The key's span holds the whole value: no part of it is left out.
+    whole = await engine.transform("a bob@example.com b", session=session, key="password")
+    assert whole.text == "<PRIVYX_SECRET_4>"
+
+    records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
+    counts = [r["entity_counts"] for r in records if r["event"] == "session.transform"]
+    assert counts == [{"SECRET": 1}, {"EMAIL": 1}, {"BADGE": 1}, {"SECRET": 1}]
+    assert "hunter2" not in buf.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_transform_detects_only_a_short_value_with_its_key() -> None:
+    """A value longer than ``KEY_PROBE_LIMIT`` (a file's content) is detected
+    alone, once: the key is not looked at."""
+    engine = PrivacyEngine(
+        detector=RegexDetector({"SECRET": DEFAULT_PATTERNS["SECRET"]}),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        audit=AuditLogger(io.StringIO()),
+    )
+    session = await engine.get_or_create_session()
+    short = "x" * KEY_PROBE_LIMIT
+    long = "x" * (KEY_PROBE_LIMIT + 1)
+
+    assert (await engine.transform(short, session=session, key="password")).text == (
+        "<PRIVYX_SECRET_1>"
+    )
+    assert (await engine.transform(long, session=session, key="password")).text == long
 
 
 @pytest.mark.asyncio
@@ -288,3 +346,23 @@ async def test_dlp_check_comes_from_proxy_config() -> None:
     await close_off()
     await close_on()
     assert (off.dlp_check, on.dlp_check) == (False, True)
+
+
+async def test_transform_takes_spans_already_decided() -> None:
+    """``detection=`` (since 0.1.31) still replaces the detection step."""
+    from privyx.core.result import Detection, Span
+
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+    )
+    session = await engine.get_or_create_session()
+    spans = [Span(5, 8, "PERSON", "Ana")]
+    out = await engine.transform(
+        "call Ana, ana@example.com", session=session, detection=Detection(spans)
+    )
+    assert out.text == "call <PRIVYX_PERSON_1>, ana@example.com"
+    with pytest.raises(ValueError, match="not both"):
+        await engine.transform("x", session=session, detection=Detection(), key="password")

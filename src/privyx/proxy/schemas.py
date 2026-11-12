@@ -48,6 +48,7 @@ from typing import Any
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import LeakError
 from privyx.core.session import Session
+from privyx.privacy.transform.json import leaf_text, put_back
 from privyx.token.codec import TokenCodec
 from privyx.token.model import LogicalToken
 
@@ -173,6 +174,20 @@ _THINKING_MAX_CHARS = 16_000_000
 _Walk = Generator[str, str, Any]
 
 
+class _Keyed(str):
+    """A leaf of a tool-argument document, with the key it is under.
+
+    Yielded only to :func:`transform_request`, which masks it seen with the key.
+    """
+
+    key: str
+
+    def __new__(cls, text: str, key: str) -> _Keyed:
+        leaf = super().__new__(cls, text)
+        leaf.key = key
+        return leaf
+
+
 def detect_schema(path: str, routes: dict[str, str]) -> str | None:
     """Return the wire schema configured for ``path``, or ``None``.
 
@@ -272,7 +287,9 @@ async def transform_request(
     async with scope as held:
 
         async def transform(text: str) -> str:
-            result = await engine.transform(text, session=held, persist=False)
+            # `{"password": "hunter2"}`: a tool argument may be a secret by its key.
+            key = text.key if isinstance(text, _Keyed) else None
+            result = await engine.transform(str(text), session=held, persist=False, key=key)
             if engine.dlp_check:
                 masked.update(t.original for t in result.transformations)
             return result.text
@@ -470,6 +487,8 @@ def _whole(word: str) -> str:
 def _strings(value: Any) -> Iterator[str]:
     if isinstance(value, str):
         yield value
+    elif isinstance(value, int | float) and not isinstance(value, bool):
+        yield str(value)  # a masked tool-argument number, sent as one elsewhere
     elif isinstance(value, dict):
         for key, item in value.items():
             yield from _strings(key)
@@ -608,7 +627,12 @@ async def _drive(walker: _Walk, fn: Callable[[str], Awaitable[str]]) -> Any:
 
 
 def _walk(
-    value: Any, key: str | None, document: bool = False, *, schema: str | None = None
+    value: Any,
+    key: str | None,
+    document: bool = False,
+    *,
+    schema: str | None = None,
+    keyed: bool = False,
 ) -> _Walk:
     """Yield every content string leaf of ``value`` and return the rebuilt value.
 
@@ -620,6 +644,12 @@ def _walk(
     PII).  A string ``arguments`` is walked parsed and re-serialized, never as
     one text blob (a match could straddle a JSON escape); unparseable arguments
     are walked as plain text, never passed through raw.
+
+    With ``keyed`` (masking), a string in a document under a key, also from
+    inside a list, is yielded as a :class:`_Keyed`: a value may only say what
+    it is with its key.  A number in a document is yielded as text, alone
+    (with its key, ``{"token_limit": 4000}`` would read as a secret), and goes
+    back as it was unless masked.
     """
     if isinstance(value, str):
         if not value:
@@ -629,13 +659,17 @@ def _walk(
                 parsed = json.loads(value)
             except ValueError:
                 return (yield value)
-            rebuilt = yield from _walk(parsed, None, True, schema=schema)
+            rebuilt = yield from _walk(parsed, None, True, schema=schema, keyed=keyed)
             return value if rebuilt == parsed else json.dumps(rebuilt, ensure_ascii=False)
+    if keyed and document and key is not None and (text := leaf_text(value)) is not None:
+        leaf = _Keyed(text, key) if isinstance(value, str) else text
+        return put_back(value, text, (yield leaf))
+    if isinstance(value, str):
         return (yield value)
     if isinstance(value, list):
         items = []
         for item in value:
-            items.append((yield from _walk(item, key, document, schema=schema)))
+            items.append((yield from _walk(item, key, document, schema=schema, keyed=keyed)))
         return items
     if isinstance(value, dict):
         documents = _DOCUMENT_KEYS.get(schema, _DEFAULT_DOCUMENT_KEYS)
@@ -645,7 +679,7 @@ def _walk(
                 out[k] = v
             else:
                 nested = document or (k in documents and isinstance(v, dict))
-                out[k] = yield from _walk(v, k, nested, schema=schema)
+                out[k] = yield from _walk(v, k, nested, schema=schema, keyed=keyed)
         return out
     return value
 
@@ -663,7 +697,7 @@ def _content(value: Any, key: str, schema: str | None) -> _Walk:
     """
     if schema == "gemini" and key in _GEMINI_WRAPPED and isinstance(value, dict):
         return (yield from _gemini_request(value))
-    return (yield from _walk(value, key, schema=schema))
+    return (yield from _walk(value, key, schema=schema, keyed=True))
 
 
 def _gemini_request(value: dict[str, Any]) -> _Walk:

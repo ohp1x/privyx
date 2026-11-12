@@ -268,6 +268,21 @@ async def test_sanitize_session_restores_with_persistent_vault(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sanitize_sees_a_json_value_with_its_key(tmp_path):
+    """`{"password": "hunter2"}` is a secret by its key; a number is checked alone."""
+    (tmp_path / "input.json").write_text(
+        json.dumps({"password": "hunter2", "card": 4111111111111111, "token_limit": 4000})
+    )
+    result, error = await _run(
+        "privyx_sanitize_file", {"path": "input.json"}, _sqlite(tmp_path), tmp_path
+    )
+    assert not error
+    masked = json.loads(result["text"])
+    assert "hunter2" not in result["text"] and "4111111111111111" not in result["text"]
+    assert masked["token_limit"] == 4000
+
+
+@pytest.mark.asyncio
 async def test_sanitize_memory_vault_warns_and_keeps_nothing(tmp_path):
     from privyx.config.loader import load_config
     from privyx.core.builder import build_engine

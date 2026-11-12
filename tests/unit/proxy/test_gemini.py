@@ -179,6 +179,34 @@ async def test_count_tokens_wrapping_a_request_is_masked_as_one() -> None:
     assert list(request) == list(payload["generateContentRequest"])
 
 
+async def test_function_args_and_responses_are_seen_with_their_keys() -> None:
+    """``{"password": "hunter2"}`` in a ``functionCall`` or ``functionResponse``."""
+    payload = {
+        "contents": [
+            {
+                "role": "model",
+                "parts": [{"functionCall": {"name": "login", "args": {"password": "hunter2"}}}],
+            },
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "functionResponse": {
+                            "name": "login",
+                            "response": {"api_key": "abc123", "n": 2},
+                        }
+                    }
+                ],
+            },
+        ]
+    }
+
+    out, _, _ = await _mask(payload)
+
+    assert "hunter2" not in json.dumps(out) and "abc123" not in json.dumps(out)
+    assert out["contents"][1]["parts"][0]["functionResponse"]["response"]["n"] == 2
+
+
 async def test_other_schemas_keep_their_document_and_opaque_keys() -> None:
     """`args` / `response` / `mimeType` mean nothing special outside Gemini."""
     engine = _engine()

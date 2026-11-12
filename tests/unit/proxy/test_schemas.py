@@ -193,6 +193,58 @@ async def test_transform_request_covers_echoed_and_tool_fields() -> None:
     assert out["messages"][0]["content"][0]["signature"] == "s"
 
 
+async def test_transform_masks_tool_arguments_their_key_says_are_secret() -> None:
+    """``{"password": "hunter2"}`` in a tool call is a secret by its key: in an
+    Anthropic ``input``, an OpenAI ``arguments`` string, and in a list under the
+    key.  Numbers are checked alone, and stay numbers unless masked, also under
+    a key that names a secret; a masked one comes back a string."""
+    engine = _engine()
+    sid = await _session(engine)
+    tool_input = {
+        "user": {"password": "hunter2"},
+        "passwords": ["letmein", ["s3cr3t!"]],
+        "card": 4111111111111111,
+        "retries": 3,
+        "token_limit": 4000,
+    }
+    payload = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "login", "input": tool_input}],
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "set",
+                            "arguments": json.dumps({"api_key": "abc123", "n": 2}),
+                        },
+                    }
+                ],
+            },
+        ]
+    }
+
+    out = await transform_request(payload, engine, sid)
+
+    sent = json.dumps(out)
+    for raw in ("hunter2", "letmein", "s3cr3t!", "4111111111111111", "abc123"):
+        assert raw not in sent
+    masked = out["messages"][0]["content"][0]["input"]
+    assert masked["retries"] == 3
+    assert masked["token_limit"] == 4000
+    assert masked["card"].startswith("<PRIVYX_CREDIT_CARD_")
+    assert json.loads(out["messages"][1]["tool_calls"][0]["function"]["arguments"])["n"] == 2
+
+    back = await restore_response({"content": [{"type": "tool_use", "input": masked}]}, engine, sid)
+    assert back["content"][0]["input"] == {**tool_input, "card": "4111111111111111"}
+
+
 async def test_restore_openai_content_and_tool_arguments() -> None:
     engine = _engine()
     sid = await _session(engine)
@@ -849,6 +901,9 @@ def test_find_leaks_counts_whole_words_only() -> None:
     assert schemas.find_leaks(sent, {"Bob"}) == 1
     assert schemas.find_leaks("Bobby", {"Bob"}) == 0
     assert schemas.find_leaks("+1-555-0142x", {"+1-555-0142"}) == 0
+    # A masked tool-argument number sent elsewhere as a number.
+    assert schemas.find_leaks({"a": 4111111111111111, "b": True}, {"4111111111111111"}) == 1
+    assert schemas.find_leaks({"a": True}, {"True"}) == 0
 
 
 async def test_dlp_check_looks_in_every_header_sent_but_the_credentials() -> None:

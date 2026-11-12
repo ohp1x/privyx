@@ -234,7 +234,8 @@ def test_masks_a_value_its_key_says_is_secret(config: Path, tmp_path: Path) -> N
 
 
 def test_masks_numbers_that_hold_a_value(config: Path, tmp_path: Path) -> None:
-    """A card number sent as a JSON number; numbers that hold none stay numbers."""
+    """A card number sent as a JSON number; numbers that hold none stay numbers,
+    also under a key that names a secret."""
     proc = _wrap(config, tmp_path / "server.log")
     assert proc.stdout is not None
     try:
@@ -242,7 +243,7 @@ def test_masks_numbers_that_hold_a_value(config: Path, tmp_path: Path) -> None:
         content = json.loads(proc.stdout.readline())["result"]["structuredContent"]
         assert content == {
             "card": "<PRIVYX_CREDIT_CARD_1>",
-            "password": "<PRIVYX_SECRET_2>",  # one counter for every type
+            "password": 123456,  # a number is checked alone, without its key
             "count": 3,
             "ratio": 0.5,
             "ok": True,
@@ -264,25 +265,6 @@ def test_passes_base64_payloads_on_unread(config: Path, tmp_path: Path) -> None:
         assert result["content"][1]["data"] == "<PRIVYX_EMAIL_1>"
     finally:
         proc.kill()
-
-
-def test_value_spans_land_on_the_characters_json_escaped() -> None:
-    """Every character, escaped or not, maps back to itself; a span cut inside
-    an escape takes the character."""
-    from privyx.cli.commands.mcp import _probe, _value_spans
-    from privyx.core.result import Span
-
-    key, value = "k", 'a"b\\c\nd\x01e\u2713'
-    start = len(key) + 3
-    for i, char in enumerate(value):
-        at = start + len(json.dumps(value[:i], ensure_ascii=False)) - 2
-        size = len(json.dumps(char, ensure_ascii=False)) - 2
-        for low, high in ((at, at + size), (at + size - 1, at + size)):
-            (span,) = _value_spans(key, value, [Span(low, high, "X", "")])
-            assert (span.start, span.end, span.text) == (i, i + 1, char)
-    # Cut to the value: the key and the quotes are not part of it.
-    (span,) = _value_spans(key, value, [Span(0, len(_probe(key, value)), "X", "")])
-    assert (span.start, span.end) == (0, len(value))
 
 
 def test_keeps_the_protocol_version_and_context_in_the_key(tmp_path: Path) -> None:

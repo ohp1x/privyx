@@ -30,8 +30,14 @@ from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.operator.base import Operator
 from privyx.privacy.policy.base import Policy
+from privyx.privacy.transform.json import value_spans, with_key
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.vault.base import Vault
+
+#: Longest value :meth:`PrivacyEngine.transform` also detects with its key.  A
+#: secret a key names is short; a file's content in a tool argument is not,
+#: and detecting it twice doubles the cost (two calls with the LLM detector).
+KEY_PROBE_LIMIT = 256
 
 
 def _entity_counts(detection: Detection) -> dict[str, int]:
@@ -225,6 +231,7 @@ class PrivacyEngine:
         *,
         persist: bool = True,
         detection: Detection | None = None,
+        key: str | None = None,
     ) -> TransformResult:
         """Pseudonymize sensitive spans in ``text``.
 
@@ -236,8 +243,14 @@ class PrivacyEngine:
             persist: Save the session afterwards.  False inside
                 :meth:`session_scope`, which saves once for the whole batch.
             detection: The spans to replace, already decided by the policy,
-                instead of detecting them in ``text``: found with context
-                ``text`` lacks, such as the key of a JSON value.
+                instead of detecting them in ``text``.
+            key: The JSON key ``text`` is the value of.  A value may only say
+                what it is with its key (``{"password": "hunter2"}``), or have
+                its context word there: ``text`` is also detected as
+                ``key: "text"``, and what is found there, whole or in part, is
+                added to what is found in ``text`` alone.  Only for a
+                ``text`` of at most :data:`KEY_PROBE_LIMIT` characters; a longer
+                one is detected alone.  Not used with ``detection``.
 
         Returns:
             A :class:`TransformResult` with the pseudonymized text.
@@ -247,8 +260,15 @@ class PrivacyEngine:
         context = Context(session_id=session.session_id, vault=self._vault, metadata=metadata or {})
 
         if detection is None:
-            detection = await self._detector.detect(text, context)
-            detection = await self._policy.decide(detection, context)
+            detection = await self._decide(text, context)
+        elif key is not None:
+            raise ValueError("transform takes `detection` or `key`, not both")
+        if key is not None and len(text) <= KEY_PROBE_LIMIT:
+            # Both: a pattern anchored to the whole value (`^EMP\d{4}$`) only
+            # matches it alone, a key name or context word only with the key.
+            probe = await self._decide(with_key(key, text), context)
+            spans = detection.spans + value_spans(key, text, probe.spans)
+            detection = Detection(spans).merged(text)
         result = await self._operator.pseudonymize(text, detection, session, context)
         if persist:
             # Every turn counts as activity, not only turns that add a mapping,
@@ -262,6 +282,10 @@ class PrivacyEngine:
             detector_counts=context.counters,
         )
         return result
+
+    async def _decide(self, text: str, context: Context) -> Detection:
+        """The spans of ``text`` to replace: detected, then kept by the policy."""
+        return await self._policy.decide(await self._detector.detect(text, context), context)
 
     async def delete_session(
         self,
