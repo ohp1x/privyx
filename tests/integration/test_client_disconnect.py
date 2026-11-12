@@ -79,8 +79,10 @@ async def _drop_after_first_chunk(client: httpx.AsyncClient, url: str) -> None:
 
 
 async def _drop_before_headers(client: httpx.AsyncClient, url: str) -> None:
+    # Only the wait for the response is short: under load, 80 connections can
+    # take longer than that to be accepted, and a connect timeout is no drop.
     with contextlib.suppress(httpx.ReadTimeout):
-        await client.post(url, json=BODY, timeout=0.2)
+        await client.post(url, json=BODY, timeout=httpx.Timeout(10.0, read=0.2))
 
 
 @pytest.mark.parametrize(
@@ -126,6 +128,9 @@ async def test_dropped_streams_leave_no_session(mode: str, path: str, early: boo
             await asyncio.sleep(0.05)
         left = len(await vault.list_sessions())
     finally:
+        # Requests still waiting on the upstream would hold the server's
+        # shutdown forever: a failure above must fail the test, not hang it.
+        headers_sent.set()
         server.should_exit = True
         await serving
         sock.close()
