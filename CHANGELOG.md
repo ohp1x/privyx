@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.33] - 2026-11-12
+
 ### Added
 
 - **Detection:** `detector.underscore_separates_words: true` makes `_` separate words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, and `host_10.0.0.1`, and the DLP check follows it
@@ -603,7 +605,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.32...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.33...HEAD
+[0.1.33]: https://github.com/ohp1x/privyx/compare/v0.1.32...v0.1.33
 [0.1.32]: https://github.com/ohp1x/privyx/compare/v0.1.31...v0.1.32
 [0.1.31]: https://github.com/ohp1x/privyx/compare/v0.1.30...v0.1.31
 [0.1.30]: https://github.com/ohp1x/privyx/compare/v0.1.29...v0.1.30
