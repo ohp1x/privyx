@@ -158,6 +158,16 @@ def _luhn(match: re.Match[str]) -> bool:
     return (sum(digits[-1::-2]) + sum(doubled)) % 10 == 0
 
 
+def _card_number(match: re.Match[str]) -> bool:
+    """Whether the digits can be a card number: not a Unix time, and Luhn-valid.
+
+    Unix time in milliseconds (13 digits) or microseconds (16) starts with a 1
+    until 2033, and one in ten passes the Luhn check.  Of the card networks only
+    UATP, an airline card, starts with a 1.
+    """
+    return not match[0].startswith("1") and _luhn(match)
+
+
 #: Set aside for documentation and examples (RFC 5737).
 _DOCUMENTATION_NETWORKS = tuple(
     ipaddress.IPv4Network(network)
@@ -278,7 +288,7 @@ def _named_for(variable: str, name: str) -> bool:
 _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "EMAIL": _email_address,
     # Timestamps, long IDs, and a `git log` hash next to its date are digit runs too.
-    "CREDIT_CARD": _luhn,
+    "CREDIT_CARD": _card_number,
     "IP_ADDRESS": _host_address,
     "PHONE": _phone_number,
     "SECRET": _secret_value,
