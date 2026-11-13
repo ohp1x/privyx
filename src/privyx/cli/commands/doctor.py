@@ -19,6 +19,9 @@ import click
 
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
+    from privyx.core.result import Detection
+    from privyx.privacy.detector.base import Detector
+    from privyx.privacy.policy.base import Policy
 
 Check = Callable[["Settings"], tuple[bool, str]]
 
@@ -91,16 +94,57 @@ def _check_plugins(settings: Settings) -> tuple[bool, str]:
 
 
 def _check_detector(settings: Settings) -> tuple[bool, str]:
-    """The configured detector compiles and finds a known entity."""
+    """The configured detector compiles and scans a diagnostic sample."""
     from privyx.core.builder import build_detector_from
-    from privyx.core.context import Context
 
     detector = build_detector_from(settings)
-    result = asyncio.run(detector.detect("mail alice@example.com", Context()))
+    _, result = asyncio.run(_probe_sample(settings, detector))
     if not result.spans:
-        return (False, "configured detector found nothing in a known-PII sample")
+        sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
+        if any(
+            section.type == "regex"
+            and not any(
+                "EMAIL" in rules
+                for rules in (section.disable, section.patterns, section.terms, section.context)
+            )
+            for section in sections
+        ):
+            return (False, "configured detector missed the built-in email sample")
+        return (True, "skipped: no diagnostic sample matched the configured detector")
     types = sorted({span.entity_type for span in result.spans})
     return (True, f"{settings.detector_type}: {len(result.spans)} span(s) {types}")
+
+
+async def _probe_sample(
+    settings: Settings, detector: Detector, policy: Policy | None = None
+) -> tuple[str, Detection]:
+    """Find a covered sample without assuming that every setup masks email.
+
+    Try a synthetic email, then configured terms only for regex/yaml pipelines.
+    Other detectors may send their input elsewhere. Callers must report a lack
+    of matching samples explicitly rather than claiming coverage. Sample values
+    are never included in diagnostic output.
+    """
+    from privyx.core.context import Context
+    from privyx.core.result import Detection
+
+    samples = ["mail alice@example.com"]
+    sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
+    # Composite detectors send every candidate to every member.
+    if all(section.type in {"regex", "yaml"} for section in sections):
+        for section in sections:
+            for terms in section.terms.values():
+                term = next((value for value in terms if value.strip()), "")
+                if term:
+                    samples.append(term)
+    for text in samples:
+        context = Context()
+        detection = await detector.detect(text, context)
+        if policy is not None:
+            detection = await policy.decide(detection, context)
+        if detection.spans:
+            return text, detection.merged(text)
+    return "", Detection()
 
 
 def _check_permissions(settings: Settings) -> tuple[bool, str]:
@@ -171,20 +215,22 @@ def _check_vault(settings: Settings) -> tuple[bool, str]:
 
     async def _probe() -> tuple[bool, str]:
         vault, close = await build_vault(settings)
+        session = Session()
         try:
-            session = Session()
             # An arbitrary mapping entry: the vault stores opaque key→value pairs
             # and neither knows nor cares about token syntax.
             session.put("doctor-probe-key", "probe")
             await vault.create(session)
             await vault.save(session)
             loaded = await vault.get(session.session_id)
-            await vault.delete(session.session_id)
             if loaded is None or loaded.get("doctor-probe-key") != "probe":
                 return (False, f"{settings.vault.type}: round-trip lost the mapping")
             return (True, f"{settings.vault.type}: round-trip ok")
         finally:
-            await close()
+            try:
+                await vault.delete(session.session_id)
+            finally:
+                await close()
 
     return asyncio.run(_probe())
 
@@ -194,6 +240,7 @@ def _check_provider(settings: Settings) -> tuple[bool, str]:
     if importlib.util.find_spec("httpx") is None:
         return (False, "httpx not installed")
 
+    from privyx.config.redact import redact
     from privyx.plugins.registry import PLUGINS
     from privyx.providers.registry import build_provider, default_registry, resolve_base_url
 
@@ -203,33 +250,50 @@ def _check_provider(settings: Settings) -> tuple[bool, str]:
         available = known + [f"{n} (plugin)" for n in PLUGINS.providers.names()]
         return (False, f"unknown provider {ptype!r} (known: {', '.join(available)})")
     build_provider(settings)
-    return (True, f"{ptype} → {resolve_base_url(settings)}")
+    return (True, f"{ptype} → {redact(resolve_base_url(settings), 'url')}")
 
 
 def _check_proxy(settings: Settings) -> tuple[bool, str]:
     """A request payload survives the proxy with no PII left in it."""
     from privyx.core.builder import build_engine
+    from privyx.core.session import Session
     from privyx.proxy.http import HTTPProxy
     from privyx.streaming.adapters.registry import build_stream_adapter
 
     async def _probe() -> tuple[bool, str]:
         engine, close = await build_engine(settings)
+        session = Session()
         try:
+            await engine.vault.create(session)
+            text, detection = await _probe_sample(settings, engine.detector, engine.policy)
+            if not detection.spans:
+                return (True, "skipped: no diagnostic sample is masked by the detector and policy")
             proxy = HTTPProxy(
                 engine=engine,
                 provider=_ReplayProvider([]),
                 stream_adapter=build_stream_adapter(settings.provider.type),
             )
             payload, session_id = await proxy.process_request(
-                {"messages": [{"role": "user", "content": "contact alice@example.com"}]}
+                {"messages": [{"role": "user", "content": text}]}, session.session_id
             )
-            if "alice@example.com" in payload["messages"][0]["content"]:
-                return (False, "PII survived the request transform")
-            session = await engine.vault.get(session_id or "")
-            count = len(session.mapping) if session else 0
+            stored = await engine.vault.get(session_id or "")
+            transformed = payload["messages"][0]["content"]
+            remainder = transformed
+            if stored:
+                # A token's entity name can itself be a configured term.
+                for replacement in sorted(stored.mapping, key=len, reverse=True):
+                    remainder = remainder.replace(replacement, "")
+            if settings.operator.type == "redact":
+                remainder = remainder.replace(settings.operator.token, "")
+            if transformed == text or any(span.text in remainder for span in detection.spans):
+                return (False, "diagnostic sample survived the request transform")
+            count = len(stored.mapping) if stored else 0
             return (True, f"request transformed, {count} mapping(s) vaulted")
         finally:
-            await close()
+            try:
+                await engine.vault.delete(session.session_id)
+            finally:
+                await close()
 
     return asyncio.run(_probe())
 
@@ -243,43 +307,54 @@ def _check_streaming(settings: Settings) -> tuple[bool, str]:
     import json
 
     from privyx.core.builder import build_engine
+    from privyx.core.session import Session
     from privyx.proxy.http import HTTPProxy
     from privyx.proxy.stream_router import resolver_for
     from privyx.streaming.adapters.openai import OpenAIStreamAdapter
-
-    email = "alice@example.com"
+    from privyx.streaming.sse import parse_sse
 
     async def _probe() -> tuple[bool, str]:
         engine, close = await build_engine(settings)
+        session = Session()
         try:
-            session = await engine.get_or_create_session()
-            await engine.transform(f"mail {email}", session=session)
-            if not session.mapping:
-                return (True, "skipped: configured detector found no PII to stream")
-            pseudonym = next(iter(session.mapping))
+            await engine.vault.create(session)
+            text, detection = await _probe_sample(settings, engine.detector, engine.policy)
+            if not detection.spans:
+                return (True, "skipped: no diagnostic sample is masked by the detector and policy")
+            result = await engine.transform(text, session=session)
+            if not result.transformations or result.text == text:
+                return (False, "diagnostic sample was not transformed for streaming")
+            pseudonym = result.transformations[0].replacement
+            original = result.transformations[0].original
             # Reversibility is "can the streaming resolver recover the original?",
             # not "is the plaintext stored verbatim" — encrypt stores ciphertext
             # and decrypts through its resolver.
             resolve = resolver_for(engine.operator, session.mapping)
-            if resolve(pseudonym) != email:
+            if resolve(pseudonym) != original:
                 return (True, f"skipped: operator {settings.operator.type!r} is not reversible")
 
             payload = {"choices": [{"delta": {"content": f"to {pseudonym} ok"}}]}
             body = f"data: {json.dumps(payload)}\n\n"
-            midpoint = body.index(pseudonym) + len(pseudonym) // 2
+            encoded = json.dumps(pseudonym)[1:-1]
+            midpoint = body.index(encoded) + len(encoded) // 2
+            adapter = OpenAIStreamAdapter()
             proxy = HTTPProxy(
                 engine=engine,
                 provider=_ReplayProvider([body[:midpoint], body[midpoint:]]),
-                stream_adapter=OpenAIStreamAdapter(),
+                stream_adapter=adapter,
             )
             out = "".join([c async for c in proxy.process_stream({}, session.session_id)])
-            if pseudonym in out:
+            restored = "".join(adapter.extract_delta(event) for event in parse_sse(out))
+            if pseudonym in restored:
                 return (False, "pseudonym leaked through the stream")
-            if email not in out:
+            if restored != f"to {original} ok":
                 return (False, "stream did not restore the original value")
             return (True, "pseudonym restored across a split chunk")
         finally:
-            await close()
+            try:
+                await engine.vault.delete(session.session_id)
+            finally:
+                await close()
 
     return asyncio.run(_probe())
 
