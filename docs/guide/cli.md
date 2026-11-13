@@ -1,9 +1,26 @@
 # CLI reference
 
-Every command that reads configuration takes `-c` / `--config FILE`, which
-defaults to `PRIVYX_CONFIG`. Without either, Privyx reads
+Use `privyx -c FILE <command>` (or `--config FILE`) to select configuration
+for any command, including nested commands and `hook`:
+
+```bash
+privyx -c config.yaml mask "alice@example.com"
+privyx -c config.yaml inspect regex EMAIL
+privyx -c config.yaml run codex
+```
+
+Existing `-c` / `--config` options on subcommands still work. Precedence is:
+subcommand `-c` > global `-c` > `PRIVYX_CONFIG` > config discovery.
+A subcommand override wins without a warning. Without an explicit file, Privyx reads
 `~/.privyx/config.yaml` and the trusted config files of the working directory.
 See [Configuration](configuration.md). `privyx --version` prints the version.
+
+The global option sets `PRIVYX_CONFIG` to an absolute path for the duration of
+the command. Child processes inherit it, including agents launched by `run`;
+their own Privyx commands use that file unless overridden. A subcommand's `-c`
+does not replace that inherited global value. Options after the agent name
+belong to the agent: `privyx -c config.yaml run codex -c ...` passes the second
+`-c` to Codex. Commands that do not read configuration ignore the global option.
 
 ## `privyx proxy`
 

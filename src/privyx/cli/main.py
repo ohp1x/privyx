@@ -52,8 +52,24 @@ from privyx.cli.commands.trust import trust
 
 @click.group()
 @click.version_option(version=__version__, prog_name="privyx")
-def cli() -> None:
+@click.option(
+    "--config", "-c", "config_path", default=None, help="Config file path for subcommands"
+)
+@click.pass_context
+def cli(ctx: click.Context, config_path: str | None) -> None:
     """Privyx — AI data privacy gateway."""
+    if config_path is not None:
+        previous = os.environ.get("PRIVYX_CONFIG")
+
+        def restore_config() -> None:
+            if previous is None:
+                os.environ.pop("PRIVYX_CONFIG", None)
+            else:
+                os.environ["PRIVYX_CONFIG"] = previous
+
+        ctx.call_on_close(restore_config)
+        # Keep symlinks intact: relative includes use the given config's parent.
+        os.environ["PRIVYX_CONFIG"] = str(Path(config_path).absolute())
     _adopt_earlier_files()
 
 
