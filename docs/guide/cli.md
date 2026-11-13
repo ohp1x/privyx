@@ -494,6 +494,10 @@ privyx config --path     # the config files in use, or "defaults"
 privyx config --schema   # the JSON Schema of a config file
 ```
 
+`--path` lists files without validating setting values or contacting password
+managers. Included files appear before the file that includes them. File and
+include errors are still reported.
+
 ## `privyx trust`
 
 Trust the config files of the working directory: `privyx.yaml` and
