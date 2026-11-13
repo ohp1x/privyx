@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.35] - 2026-11-13
+
 ### Added
 
 - **Masking:** `anchor.secret: auto` lets all commands reuse the same per-user secret as `privyx run`, keeping tokens stable across invocations. Automatic key storage failures now stop the command instead of silently using a temporary secret
@@ -633,7 +635,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.34...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.35...HEAD
+[0.1.35]: https://github.com/ohp1x/privyx/compare/v0.1.34...v0.1.35
 [0.1.34]: https://github.com/ohp1x/privyx/compare/v0.1.33...v0.1.34
 [0.1.33]: https://github.com/ohp1x/privyx/compare/v0.1.32...v0.1.33
 [0.1.32]: https://github.com/ohp1x/privyx/compare/v0.1.31...v0.1.32
