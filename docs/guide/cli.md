@@ -618,6 +618,11 @@ restore. The `routes` check lists masking paths, gaps in the default route map,
 and the disposition of unlisted paths. Passthrough prints a warning; invalid
 routes fail. Exits with a non-zero status if any check fails.
 
+Configuration is loaded once per invocation, including password-manager
+references, and all checks use the same settings. A later invocation reads
+configuration again. If loading fails, doctor reports a single configuration
+failure and stops before running component checks.
+
 ```console
 $ privyx doctor
 Privyx Doctor
