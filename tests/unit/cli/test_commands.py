@@ -1643,6 +1643,187 @@ def test_config_show_outputs_settings(runner: CliRunner) -> None:
     assert "detector" in result.output or "vault" in result.output
 
 
+def test_config_sources_reports_winning_layers(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    included = tmp_path / "included.yaml"
+    included.write_text("port: 9001\nvault:\n  ttl: 60\n  type: sqlite\n", encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text("include: included.yaml\nport: 9002\nvault:\n  ttl: 120\n", encoding="utf-8")
+    monkeypatch.setenv("PRIVYX_PORT", "9003")
+
+    result = runner.invoke(cli, ["-c", str(config), "config", "--sources"])
+
+    assert result.exit_code == 0, result.output
+    shown = json.loads(result.output)
+    assert shown["port"] == {"value": 9003, "source": "environment"}
+    assert shown["vault.ttl"] == {"value": 120, "source": str(config)}
+    assert shown["vault.type"] == {"value": "sqlite", "source": str(included)}
+    assert shown["host"] == {"value": "127.0.0.1", "source": "defaults"}
+    assert shown["provider.api_key"] == {"value": "", "source": "defaults"}
+    assert shown["plugins.paths"] == {"value": [], "source": "defaults"}
+
+
+@pytest.mark.parametrize("environment", [False, True])
+def test_config_sources_tracks_fields_in_detector_lists(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment: bool
+) -> None:
+    included = tmp_path / "included.yaml"
+    included.write_text(
+        "detector:\n  - type: yaml\n    cache: true\n    terms: {PERSON: [john smith]}\n"
+        "  - type: regex\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text("include: included.yaml\ndetector:\n  cache: true\n", encoding="utf-8")
+    if environment:
+        monkeypatch.setenv("PRIVYX_DETECTOR_CACHE", "false")
+
+    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    shown = json.loads(result.output)
+    for index in (0, 1):
+        assert shown[f"detector.{index}.cache.enabled"] == {
+            "value": not environment,
+            "source": "environment" if environment else str(config),
+        }
+        assert shown[f"detector.{index}.cache.max_size"] == {"value": 10000, "source": "defaults"}
+        assert shown[f"detector.{index}.type"]["source"] == str(included)
+        assert shown[f"detector.{index}.normalize"] == {"value": False, "source": "defaults"}
+    assert shown["detector.0.terms.PERSON"] == {"value": ["***"], "source": str(included)}
+
+
+def test_config_sources_discards_origins_of_replaced_detector_lists(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    (tmp_path / "included.yaml").write_text(
+        "detector:\n  - type: yaml\n    cache: false\n  - type: regex\n", encoding="utf-8"
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text("include: included.yaml\ndetector:\n  - type: regex\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    shown = json.loads(result.output)
+    assert shown["detector.0.type"] == {"value": "regex", "source": str(config)}
+    assert shown["detector.0.cache.enabled"] == {"value": True, "source": "defaults"}
+    assert not any(path.startswith("detector.1.") for path in shown)
+
+
+def test_config_sources_tracks_inherited_profile_fields(runner: CliRunner, tmp_path: Path) -> None:
+    included = tmp_path / "included.yaml"
+    included.write_text(
+        "agents:\n  base:\n    command: example\n    privyx:\n"
+        "      session:\n        strategy: client\n"
+        "      detector:\n        - type: yaml\n        - type: regex\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "include: included.yaml\nagents:\n  work:\n    extends: base\n"
+        "    privyx:\n      detector:\n        cache: false\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    shown = json.loads(result.output)
+    assert shown["agents.work.command"] == {"value": "example", "source": str(included)}
+    assert shown["agents.work.extends"] == {"value": "base", "source": str(config)}
+    assert shown["agents.work.privyx.session.strategy"] == {
+        "value": "client",
+        "source": str(included),
+    }
+    assert shown["agents.work.privyx.detector.0.type"] == {
+        "value": "yaml",
+        "source": str(included),
+    }
+    assert shown["agents.work.privyx.detector.0.cache"] == {
+        "value": False,
+        "source": str(config),
+    }
+
+
+def test_config_sources_clears_shorthand_when_replaced_by_mapping(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    included = tmp_path / "included.yaml"
+    included.write_text("detector:\n  cache: false\n", encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "include: included.yaml\ndetector:\n  cache:\n    max_size: 200\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    shown = json.loads(result.output)
+    assert shown["detector.cache.enabled"] == {"value": True, "source": "defaults"}
+    assert shown["detector.cache.max_size"] == {"value": 200, "source": str(config)}
+
+
+@pytest.mark.parametrize("flags", [[], ["--show"], ["--path"], ["--show", "--path"]])
+def test_config_sources_takes_precedence_over_show_and_path(
+    runner: CliRunner, flags: list[str]
+) -> None:
+    result = runner.invoke(cli, ["config", "--sources", *flags])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["port"] == {"value": 8000, "source": "defaults"}
+
+
+def test_config_schema_takes_precedence_over_sources(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PRIVYX_PORT", "invalid")
+    result = runner.invoke(cli, ["config", "--sources", "--schema"])
+
+    assert result.exit_code == 0, result.output
+    assert "properties" in json.loads(result.output)
+
+
+def test_config_sources_does_not_print_secret_values_in_errors(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "sk-" + "proj-abc123"
+    monkeypatch.setenv("TEST_SECRET_PORT", secret)
+    config = tmp_path / "config.yaml"
+    config.write_text("port: ${TEST_SECRET_PORT}\nprovider:\n  api_key: ${TEST_SECRET_PORT}\n")
+
+    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+
+    assert result.exit_code == 1
+    assert "Error: invalid configuration" in result.output
+    assert "Traceback" not in result.output
+    assert secret not in result.output
+
+
+def test_config_sources_masks_resolved_secrets(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "sk-" + "proj-abc123"
+    calls: list[str] = []
+
+    def resolve(reference: str, path: str) -> str:
+        calls.append(path)
+        return secret
+
+    monkeypatch.setattr("privyx.security.secrets._op_read", resolve)
+    config = tmp_path / "config.yaml"
+    config.write_text("provider:\n  api_key: op://example/item/credential\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["provider.api_key"]
+    assert secret not in result.output
+    assert "op://" not in result.output
+    assert json.loads(result.output)["provider.api_key"] == {"value": "***", "source": str(config)}
+
+
 def test_config_path_names_the_files_in_use_or_defaults(
     runner: CliRunner, home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1736,8 +1917,9 @@ def test_config_reports_bad_config_without_traceback(
     assert "Traceback" not in result.output
 
 
+@pytest.mark.parametrize("flag", ["--show", "--sources"])
 def test_config_show_masks_secrets(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str
 ) -> None:
     # The last two come from detector config, which spells out what it hides.
     secrets = ["sk-env-key", "hunter2", "anchor-secret", "Bearer hdr-token", "llm-key"]
@@ -1760,11 +1942,18 @@ def test_config_show_masks_secrets(
     monkeypatch.setenv("PRIVYX_OPENAI_API_KEY", "sk-env-key")
     monkeypatch.delenv("PRIVYX_API_KEY", raising=False)
 
-    result = runner.invoke(cli, ["config", "--show", "-c", str(config)])
+    result = runner.invoke(cli, ["config", flag, "-c", str(config)])
 
     assert result.exit_code == 0, result.output
     assert not [s for s in secrets if s in result.output]
     shown = json.loads(result.output)
+    if flag == "--sources":
+        assert shown["vault.redis_url"]["value"] == "redis://:***@cache:6379/0"
+        assert shown["provider.openai_api_key"] == {"value": "***", "source": "environment"}
+        assert shown["provider.api_key"] == {"value": "", "source": "defaults"}
+        assert shown["detector.0.patterns.CODENAME"]["value"] == "***"
+        assert shown["detector.0.terms.PERSON"]["value"] == ["***"]
+        return
     assert shown["vault"]["redis_url"] == "redis://:***@cache:6379/0"
     assert shown["provider"]["openai_api_key"] == "***"
     assert shown["provider"]["api_key"] == ""  # unset stays visible as unset

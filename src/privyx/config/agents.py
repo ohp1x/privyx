@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from privyx.core.errors import ConfigError
@@ -17,7 +18,7 @@ def resolve_profiles(
     overriding its parent's even when it changes between env and env_from;
     ``budget`` and ``privyx`` merge deeply.
     """
-    from privyx.config.loader import _deep_merge
+    from privyx.config.loader import _deep_merge, _record_sources
 
     resolved: dict[str, Any] = {}
     origins: dict[str, str] = {}
@@ -58,11 +59,15 @@ def resolve_profiles(
                 profile_origins.get(parent_name, {}) if isinstance(parent_name, str) else {}
             )
             own_origins = dict(inherited_origins)
-            for key, value in child.items():
-                paths = [f"{key}.{entry}" for entry in value] if isinstance(value, dict) else [key]
-                for path in paths:
-                    if prefix + path in sources:
-                        own_origins[path] = sources[prefix + path]
+            _record_sources(child, "", own_origins, base=parent)
+            for path, origin in own_origins.items():
+                if not origin:
+                    # A mapping override of an inherited detector list has no index
+                    # in the child's original source paths.
+                    unindexed = re.sub(r"(^|\.)detector\.\d+\.", r"\1detector.", path)
+                    own_origins[path] = sources.get(
+                        prefix + path, sources.get(prefix + unindexed, "defaults")
+                    )
             for field in ("env", "env_from"):
                 other = "env_from" if field == "env" else "env"
                 own = child.get(field, {})
