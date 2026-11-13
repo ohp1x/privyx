@@ -490,6 +490,7 @@ Show the configuration.
 ```bash
 privyx config            # a summary
 privyx config --show     # every setting as JSON, credentials masked
+privyx config --sources  # each setting's masked value and winning source as JSON
 privyx config --path     # the config files in use, or "defaults"
 privyx config --schema   # the JSON Schema of a config file
 ```
@@ -497,6 +498,19 @@ privyx config --schema   # the JSON Schema of a config file
 `--path` lists files without validating setting values or contacting password
 managers. Included files appear before the file that includes them. File and
 include errors are still reported.
+
+`--sources` maps dotted field paths to `value` and `source`, for example
+`"port": {"value": 9000, "source": "environment"}`. Sources are `defaults`,
+absolute file paths (including included files), or `environment`. The source
+identifies the layer that supplied the setting; a `${VAR}` substitution inside
+a file still belongs to that file. Fields filled by the settings schema are
+reported as `defaults`. Detector lists use zero-based paths such as
+`detector.0.type`; lists of scalar values stay together. Credentials, header
+values, and detector rules use the same masking as `--show`.
+
+Unlike `--path`, `--sources` loads and validates settings and resolves secret
+references. When inspection flags are combined, the order is `--schema`,
+`--sources`, `--show`, then `--path`.
 
 ## `privyx trust`
 

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **CLI:** `privyx config --sources` shows each setting's effective value and whether it came from defaults, a configuration file, or the environment, with sensitive values masked
 - **CLI:** `privyx -c FILE <command>` selects configuration before any subcommand, including nested commands and hooks; existing subcommand options take precedence
 
 ### Fixed

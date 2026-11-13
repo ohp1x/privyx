@@ -192,8 +192,8 @@ def load_config(
     def apply(data: dict[str, Any], source: str) -> None:
         nonlocal merged
         layers.append((source, data))
+        _record_sources(data, source, origins, base=merged)
         merged = _deep_merge(merged, data)
-        _record_sources(data, source, origins)
 
     apply(DEFAULTS, "defaults")
     apply(base_extra or {}, "run defaults")
@@ -241,8 +241,8 @@ def load_config(
                     if inherited_sources.get(f"agents.{agent}.{field}") == source:
                         projection[field] = selected[field]
             layer = _agent_layer(data, agent, projection)
+            _record_sources(layer, source, effective_sources, base=effective)
             effective = _deep_merge(effective, layer)
-            _record_sources(layer, source, effective_sources)
         effective["agents"] = profiles
         effective_sources.update(inherited_sources)
         merged, origins = effective, effective_sources
@@ -312,18 +312,47 @@ def _agent_layer(
 
 
 def _record_sources(
-    data: dict[str, Any], source: str, sources: dict[str, str], prefix: str = ""
+    data: dict[str, Any],
+    source: str,
+    sources: dict[str, str],
+    prefix: str = "",
+    *,
+    base: dict[str, Any] | None = None,
 ) -> None:
     for key, value in data.items():
         path = f"{prefix}{key}"
+        current = (base or {}).get(key)
         if isinstance(value, dict):
-            _record_sources(value, source, sources, path + ".")
+            if key == "detector" and isinstance(current, list):
+                # Match the mapping override that _deep_merge applies to each detector.
+                for index, item in enumerate(current):
+                    if isinstance(item, dict):
+                        _record_sources(value, source, sources, f"{path}.{index}.", base=item)
+            else:
+                if not isinstance(current, dict):
+                    for old in list(sources):
+                        if old == path or old.startswith(path + "."):
+                            del sources[old]
+                _record_sources(
+                    value,
+                    source,
+                    sources,
+                    path + ".",
+                    base=current if isinstance(current, dict) else None,
+                )
         else:
             # A replaced list/scalar invalidates any old nested provenance.
             for old in list(sources):
                 if old.startswith(path + "."):
                     del sources[old]
             sources[path] = source
+            if key == "cache" and isinstance(value, bool):
+                # Detector cache shorthand sets enabled; max_size still uses its default.
+                sources[path + ".enabled"] = source
+            if isinstance(value, list):
+                for index, item in enumerate(value):
+                    if isinstance(item, dict):
+                        _record_sources(item, source, sources, f"{path}.{index}.")
 
 
 def _unknown_keys(model: type[BaseModel], data: Any, path: str = "") -> list[str]:
