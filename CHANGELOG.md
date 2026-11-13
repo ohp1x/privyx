@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Masking:** `anchor.secret: auto` lets all commands reuse the same per-user secret as `privyx run`, keeping tokens stable across invocations. Automatic key storage failures now stop the command instead of silently using a temporary secret
 - **CLI:** `privyx config --sources` shows each setting's effective value and whether it came from defaults, a configuration file, or the environment, with sensitive values masked
 - **CLI:** `privyx -c FILE <command>` selects configuration before any subcommand, including nested commands and hooks; existing subcommand options take precedence
 

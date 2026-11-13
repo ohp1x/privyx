@@ -241,8 +241,29 @@ check a guessed value against a token, so keep it as private as an API key.
 With an empty secret there is no anchoring at all, rather than anchoring with a
 guessable key.
 
-Anchoring applies to the `pseudonym` operator. `privyx run` creates a secret in
-`~/.privyx/anchor.key` on first use; pass `--no-anchor` to skip that.
+To create and reuse a secret automatically, opt in with:
+
+```yaml
+anchor:
+  secret: auto
+```
+
+Or set `PRIVYX_ANCHOR_SECRET=auto`. All commands that use HMAC anchoring,
+including `proxy`, `mask`, `pipe`, and `mcp wrap`, then share the per-user key
+in `~/.privyx/anchor.key`. It is created with owner-only permissions on first
+use, and concurrent processes use the same complete key. Different users or
+machines need the same explicit secret to share tokens.
+
+Anchoring applies to the `pseudonym` operator. `privyx run` defaults to `auto`;
+`--no-anchor` skips that default, while an explicit config or environment
+setting still applies. An explicit empty secret in the config disables anchoring. Other
+commands keep using counters unless a secret is configured. `config --show`,
+`config --sources`, and `run --dry-run` do not create the key file.
+
+If the automatic key cannot be read or saved, the command fails instead of
+using a temporary secret that would change tokens on the next invocation.
+An existing empty key file is also an error; remove it to generate a new key.
+Do not delete a nonempty key file: replacing it changes every anchored token.
 
 Without an anchor, a counter token only means something in its own session.
 Text masked in one session and pasted into another, such as the output of

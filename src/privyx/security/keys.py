@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hmac
 import os
-import time
+import tempfile
 from hashlib import sha256
 from pathlib import Path
 
@@ -77,38 +77,39 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
 
     The secret (64 hex chars) lives at ``path`` (default
     :func:`default_anchor_secret_path`) with owner-only permissions, so
-    pseudonyms stay stable across runs.  Used by ``privyx run`` to make aliases
-    stable out of the box without changing the library default (an empty
-    ``anchor.secret`` still means "no anchoring").  If the secret cannot be
-    persisted, a fresh in-memory one is returned so the current run is still
-    internally consistent.
+    pseudonyms stay stable across commands using ``anchor.secret: auto`` and
+    across runs of ``privyx run``. An empty configured secret still means
+    "no anchoring". A complete key is published atomically without replacing
+    another process's key. Unreadable or empty files and persistence failures
+    raise ``ConfigError`` rather than silently using a temporary secret.
     """
     target = Path(path) if path is not None else default_anchor_secret_path()
     try:
-        existing = target.read_text(encoding="utf-8").strip()
-        if existing:
-            return existing
-    except OSError:
-        pass  # missing or unreadable — fall through and (re)create
-
-    secret = generate_key()
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
         try:
-            # Created owner-only; of two first runs, the second reads the first's.
-            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            # Empty until its creator writes the secret; still empty after
-            # 0.1 s, it is a leftover and gets ours.
-            for _ in range(10):
-                existing = target.read_text(encoding="utf-8").strip()
-                if existing:
-                    return existing
-                time.sleep(0.01)
-            os.chmod(target, 0o600)  # the leftover may be readable by others
-            fd = os.open(target, os.O_WRONLY | os.O_TRUNC)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(secret)
-    except OSError:
-        pass  # best effort: an unwritable location still yields a working secret
-    return secret
+            existing = target.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # A private temporary file is fully written before it becomes visible.
+            fd, name = tempfile.mkstemp(dir=target.parent)
+            temporary = Path(name)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as pending:
+                    pending.write(generate_key())
+                try:
+                    os.link(temporary, target)
+                except FileExistsError:
+                    pass  # another process published first; read its complete key
+            finally:
+                temporary.unlink()
+            existing = target.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        raise ConfigError(
+            "cannot read or persist automatic anchor secret; check "
+            "~/.privyx/anchor.key permissions or set anchor.secret explicitly"
+        ) from None
+    if not existing:
+        raise ConfigError(
+            "automatic anchor secret file is empty; remove the empty file "
+            "at ~/.privyx/anchor.key to create a new key, or set anchor.secret explicitly"
+        )
+    return existing

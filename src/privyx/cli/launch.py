@@ -14,7 +14,7 @@ from privyx.config.schema import AgentConfig, BudgetConfig, Settings
 from privyx.core.errors import ConfigError
 from privyx.providers.registry import resolve_base_url, resolve_origin
 
-AUTO_ANCHOR = "__privyx_auto_anchor__"
+AUTO_ANCHOR = "auto"
 
 
 def claude_args(base_url: str, argv: list[str]) -> list[str]:
