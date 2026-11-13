@@ -78,7 +78,8 @@ def custom_provider(environment: Mapping[str, str], argv: list[str]) -> tuple[st
         ConfigError: If a config file is unreadable, or the provider ID cannot
             be addressed by a ``-c`` override.
     """
-    root = Path(environment.get("CODEX_HOME") or Path.home() / ".codex")
+    home = Path(environment["HOME"]) if environment.get("HOME") else Path.home()
+    root = Path(environment.get("CODEX_HOME") or home / ".codex")
     overrides, profile = _options(argv)
     layers = [_read(Path("/etc/codex/config.toml")), _read(root / "config.toml")]
     if profile:

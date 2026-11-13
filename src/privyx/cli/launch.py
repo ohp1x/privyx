@@ -7,6 +7,7 @@ import os
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 
@@ -165,6 +166,48 @@ class LaunchPlan:
         return {**self.inherited_env, **self.injected_env}
 
 
+def _route_codex_provider(
+    spec: Target,
+    argv: list[str],
+    settings: Settings,
+    sources: dict[str, str],
+    environment: Mapping[str, str],
+) -> Target:
+    """Point a custom Codex provider at the proxy, and the proxy at that provider.
+
+    Without this, a ``model_provider`` of the user's own reaches its endpoint
+    directly, unmasked. The upstream follows the provider unless one is set
+    explicitly; Privyx's own key, when configured, must not reach that host.
+
+    Raises:
+        ConfigError: If the Codex config cannot be read or routed.
+    """
+    from urllib.parse import urlsplit
+
+    from privyx.cli.codex import custom_provider
+    from privyx.providers.registry import resolve_api_key
+
+    found = custom_provider(environment, [*spec.default_args, *argv])
+    if found is None:
+        return spec
+    name, base_url = found
+    explicit = settings.upstream_url or settings.provider.base_url
+    if settings.proxy.mode == "transparent" and not explicit:
+        if resolve_api_key(settings):
+            raise ConfigError(
+                f"Codex provider {name!r} would receive Privyx's own API key; "
+                "pass its URL as --upstream to confirm"
+            )
+        if urlsplit(base_url).path.rstrip("/") != spec.base_path:
+            raise ConfigError(
+                f"cannot route Codex provider {name!r}: Privyx forwards Codex requests "
+                f"under {spec.base_path}, and its base_url is {base_url}"
+            )
+        settings.upstream_url = base_url
+        sources["upstream_url"] = f"Codex config (model_providers.{name})"
+    return replace(spec, args=partial(codex_args, provider=name))
+
+
 def build_launch_plan(
     spec: Target,
     argv: list[str],
@@ -196,6 +239,8 @@ def build_launch_plan(
         custom[destination] = inherited[reference]
         origin = provenance.get(prefix + "env_from." + destination, "profile")
         env_sources[destination] = f"{origin}; env_from {reference}"
+    if spec.adapter == "codex":
+        spec = _route_codex_provider(spec, argv, settings, provenance, {**inherited, **custom})
     for key in env_vars:
         env_sources[key] = (
             "CLI" if key in extra_env_vars else provenance.get(prefix + "env_vars", "defaults")
