@@ -141,11 +141,19 @@ def build_anchor(settings: Settings) -> Anchor | None:
     guessable key".  This gate is specific to ``hmac``; a plugin anchor decides
     for itself whether it needs a secret.
 
+    ``auto`` uses the persisted per-user key, shared with ``privyx run``.
+    Settings retain the marker so inspection cannot expose that key.
+
     Raises:
-        ConfigError: If ``anchor.type`` is unknown.
+        ConfigError: If ``anchor.type`` is unknown or the automatic key cannot
+            be read or persisted.
     """
     atype = settings.anchor.type
     secret = settings.anchor.secret
+    if secret == "auto" and (atype == "hmac" or atype in PLUGINS.anchors):
+        from privyx.security.keys import read_or_create_anchor_secret
+
+        secret = read_or_create_anchor_secret()
     if atype == "hmac":
         if not secret:
             return None
@@ -153,7 +161,7 @@ def build_anchor(settings: Settings) -> Anchor | None:
     if atype == "pasp":
         raise ConfigError("anchor type 'pasp' is not implemented yet; use 'hmac'")
     if atype in PLUGINS.anchors:
-        return PLUGINS.anchors.build(settings.anchor.model_dump())
+        return PLUGINS.anchors.build({**settings.anchor.model_dump(), "secret": secret})
     raise ConfigError(f"unknown anchor type: {atype!r}")
 
 
@@ -275,16 +283,16 @@ async def build_engine(
         must be awaited on shutdown.
 
     Raises:
-        ConfigError: If any component's config names an unknown type.
+        ConfigError: If a component's config names an unknown type or the
+            automatic anchor key cannot be read or persisted.
     """
+    anchor = build_anchor(settings)
     vault, closer = await build_vault(settings)
     codec = build_codec(settings)
     engine = PrivacyEngine(
         detector=build_detector_from(settings),
         policy=build_policy_from(settings),
-        operator=build_operator(
-            settings.operator.model_dump(), anchor=build_anchor(settings), codec=codec
-        ),
+        operator=build_operator(settings.operator.model_dump(), anchor=anchor, codec=codec),
         vault=vault,
         codec=codec,
         audit=audit,

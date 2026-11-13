@@ -498,14 +498,11 @@ async def _run_target(
     from privyx.observability.logging import configure_logging
     from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider
-    from privyx.security.keys import read_or_create_anchor_secret
 
     if settings is None:
         settings = _run_settings(config_path, spec.provider, upstream, session_strategy, no_anchor)
     if plan is None:
         plan = build_launch_plan(spec, argv, settings, port, env_vars)
-    if settings.anchor.secret == AUTO_ANCHOR:
-        settings.anchor.secret = read_or_create_anchor_secret()
     # The child tool owns the terminal: log lines go to log_file if one is set,
     # else nowhere, and the audit trail still records every error.
     configure_logging(settings, console=False)

@@ -492,7 +492,7 @@ What a detected value becomes. See [Masking](masking.md).
 | Key | Default | Description |
 |---|---|---|
 | `type` | `hmac` | `hmac`, or a plugin anchor. |
-| `secret` | empty | HMAC key. Set, pseudonyms derive from the value and stay the same across sessions; empty uses a per-session counter. See [Anchors](masking.md#anchors). |
+| `secret` | empty | HMAC key. `auto` creates or reuses the per-user key in `~/.privyx/anchor.key`, shared with `privyx run`. An explicit key derives stable tokens across sessions; empty uses a per-session counter. See [Anchors](masking.md#anchors). |
 
 ### `token`
 

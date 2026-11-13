@@ -101,7 +101,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--port` | Proxy port. `0` (default) picks a free one. |
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
-| `--no-anchor` | Do not create an anchor secret in `~/.privyx/anchor.key`. |
+| `--no-anchor` | Skip the default automatic anchor; an explicit config or environment setting still applies. See [Anchors](masking.md#anchors). |
 | `--harvest` / `--no-harvest` | Also mask what the working directory tells: the authors of its last 1000 commits, the owner and name of each git remote, and the values in its `.env` files. Read at launch and kept in memory, never written. Default: the `harvest` setting, off. |
 | `--list` | List the known targets and exit. |
 | `--dry-run` | Print the launch plan and winning configuration sources, then exit. Opens no port, starts no tool, imports no plugins, and creates no log, vault, or anchor file. Works even if the executable is not installed. |
