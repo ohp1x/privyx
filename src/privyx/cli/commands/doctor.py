@@ -20,15 +20,23 @@ import click
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
 
-Check = Callable[[str | None], tuple[bool, str]]
+Check = Callable[["Settings"], tuple[bool, str]]
 
 
 @click.command()
 @click.option("--config", "-c", "config_path", default=None, help="Config file path")
 def doctor(config_path: str | None) -> None:
     """Run diagnostic checks system-wide."""
+    from privyx.config.loader import load_config
+
     click.echo("Privyx Doctor")
     click.echo("=============")
+    try:
+        settings = load_config(config_path)
+    except Exception as exc:
+        click.echo(f"  ✗ configuration: {type(exc).__name__}: {exc}")
+        sys.exit(1)
+
     checks: list[tuple[str, Check]] = [
         # First: loads plugins into the registry so the component checks below
         # can see plugin-provided types.
@@ -45,7 +53,7 @@ def doctor(config_path: str | None) -> None:
     all_ok = True
     for name, check in checks:
         try:
-            ok, msg = check(config_path)
+            ok, msg = check(settings)
         except Exception as exc:  # a check that blew up is a failed check
             ok, msg = False, f"{type(exc).__name__}: {exc}"
         status = "✓" if ok else "✗"
@@ -55,13 +63,7 @@ def doctor(config_path: str | None) -> None:
         sys.exit(1)
 
 
-def _settings(config_path: str | None) -> Settings:
-    from privyx.config.loader import load_config
-
-    return load_config(config_path)
-
-
-def _check_plugins(config_path: str | None) -> tuple[bool, str]:
+def _check_plugins(settings: Settings) -> tuple[bool, str]:
     """Configured plugins load, and report what each family gained.
 
     Runs first so the detector/vault/provider checks below resolve plugin types.
@@ -69,7 +71,6 @@ def _check_plugins(config_path: str | None) -> tuple[bool, str]:
     from privyx.plugins.loader import load_plugins
     from privyx.plugins.registry import PLUGINS
 
-    settings = _settings(config_path)
     if not settings.plugins.enabled or not settings.plugins.paths:
         return (True, "no plugin paths configured")
 
@@ -89,12 +90,11 @@ def _check_plugins(config_path: str | None) -> tuple[bool, str]:
     return (True, f"{total} plugin(s) — {summary}")
 
 
-def _check_detector(config_path: str | None) -> tuple[bool, str]:
+def _check_detector(settings: Settings) -> tuple[bool, str]:
     """The configured detector compiles and finds a known entity."""
     from privyx.core.builder import build_detector_from
     from privyx.core.context import Context
 
-    settings = _settings(config_path)
     detector = build_detector_from(settings)
     result = asyncio.run(detector.detect("mail alice@example.com", Context()))
     if not result.spans:
@@ -103,7 +103,7 @@ def _check_detector(config_path: str | None) -> tuple[bool, str]:
     return (True, f"{settings.detector_type}: {len(result.spans)} span(s) {types}")
 
 
-def _check_permissions(config_path: str | None) -> tuple[bool, str]:
+def _check_permissions(settings: Settings) -> tuple[bool, str]:
     """Sensitive files (.db, audit log, anchor.key) must be owner-only (0600)."""
     import os
     from pathlib import Path
@@ -113,8 +113,6 @@ def _check_permissions(config_path: str | None) -> tuple[bool, str]:
 
     from privyx.core.builder import _sqlite_path
     from privyx.security.keys import default_anchor_secret_path
-
-    settings = _settings(config_path)
 
     candidates: list[Path] = [
         default_anchor_secret_path(),
@@ -162,7 +160,7 @@ def _check_permissions(config_path: str | None) -> tuple[bool, str]:
     return (True, "sensitive files owner-only (0600)")
 
 
-def _check_vault(config_path: str | None) -> tuple[bool, str]:
+def _check_vault(settings: Settings) -> tuple[bool, str]:
     """The configured vault round-trips a session.
 
     This is where a bad DSN, a missing driver or an unreachable Redis shows up
@@ -170,8 +168,6 @@ def _check_vault(config_path: str | None) -> tuple[bool, str]:
     """
     from privyx.core.builder import build_vault
     from privyx.core.session import Session
-
-    settings = _settings(config_path)
 
     async def _probe() -> tuple[bool, str]:
         vault, close = await build_vault(settings)
@@ -193,7 +189,7 @@ def _check_vault(config_path: str | None) -> tuple[bool, str]:
     return asyncio.run(_probe())
 
 
-def _check_provider(config_path: str | None) -> tuple[bool, str]:
+def _check_provider(settings: Settings) -> tuple[bool, str]:
     """The configured provider is registered and constructible."""
     if importlib.util.find_spec("httpx") is None:
         return (False, "httpx not installed")
@@ -201,7 +197,6 @@ def _check_provider(config_path: str | None) -> tuple[bool, str]:
     from privyx.plugins.registry import PLUGINS
     from privyx.providers.registry import build_provider, default_registry, resolve_base_url
 
-    settings = _settings(config_path)
     ptype = settings.provider.type
     known = default_registry().names()
     if ptype not in known and ptype not in PLUGINS.providers:
@@ -211,13 +206,11 @@ def _check_provider(config_path: str | None) -> tuple[bool, str]:
     return (True, f"{ptype} → {resolve_base_url(settings)}")
 
 
-def _check_proxy(config_path: str | None) -> tuple[bool, str]:
+def _check_proxy(settings: Settings) -> tuple[bool, str]:
     """A request payload survives the proxy with no PII left in it."""
     from privyx.core.builder import build_engine
     from privyx.proxy.http import HTTPProxy
     from privyx.streaming.adapters.registry import build_stream_adapter
-
-    settings = _settings(config_path)
 
     async def _probe() -> tuple[bool, str]:
         engine, close = await build_engine(settings)
@@ -241,7 +234,7 @@ def _check_proxy(config_path: str | None) -> tuple[bool, str]:
     return asyncio.run(_probe())
 
 
-def _check_streaming(config_path: str | None) -> tuple[bool, str]:
+def _check_streaming(settings: Settings) -> tuple[bool, str]:
     """A pseudonym split across SSE chunks is restored before the client sees it.
 
     The split lands inside the pseudonym on purpose: that is exactly the case a
@@ -254,7 +247,6 @@ def _check_streaming(config_path: str | None) -> tuple[bool, str]:
     from privyx.proxy.stream_router import resolver_for
     from privyx.streaming.adapters.openai import OpenAIStreamAdapter
 
-    settings = _settings(config_path)
     email = "alice@example.com"
 
     async def _probe() -> tuple[bool, str]:
@@ -292,12 +284,11 @@ def _check_streaming(config_path: str | None) -> tuple[bool, str]:
     return asyncio.run(_probe())
 
 
-def _check_routes(config_path: str | None) -> tuple[bool, str]:
+def _check_routes(settings: Settings) -> tuple[bool, str]:
     """Describe effective masking coverage and expose unmasked forwarding."""
     from privyx.config.schema import ProxyConfig
     from privyx.proxy.schemas import KNOWN_SCHEMAS
 
-    settings = _settings(config_path)
     proxy = settings.proxy
     invalid = [
         path
@@ -335,7 +326,7 @@ def _check_routes(config_path: str | None) -> tuple[bool, str]:
     )
 
 
-def _check_configuration(config_path: str | None) -> tuple[bool, str]:
+def _check_configuration(settings: Settings) -> tuple[bool, str]:
     """Settings load and validate, and every named component can be built.
 
     ``build_anchor`` is called here rather than getting a check of its own: an
@@ -345,13 +336,12 @@ def _check_configuration(config_path: str | None) -> tuple[bool, str]:
     """
     from privyx.core.builder import build_anchor
 
-    s = _settings(config_path)
-    anchor = build_anchor(s)  # raises ConfigError on an unknown type
-    anchoring = f"anchor={s.anchor.type}" if anchor else "anchor=off"
+    anchor = build_anchor(settings)  # raises ConfigError on an unknown type
+    anchoring = f"anchor={settings.anchor.type}" if anchor else "anchor=off"
     return (
         True,
-        f"valid: detector={s.detector_type} policy={s.policy.type} "
-        f"operator={s.operator.type} vault={s.vault.type} {anchoring}",
+        f"valid: detector={settings.detector_type} policy={settings.policy.type} "
+        f"operator={settings.operator.type} vault={settings.vault.type} {anchoring}",
     )
 
 

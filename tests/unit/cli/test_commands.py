@@ -574,6 +574,72 @@ def test_doctor_all_checks_pass_with_defaults(runner: CliRunner) -> None:
         assert f"✓ {check}" in result.output
 
 
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_doctor_resolves_secrets_once_per_invocation(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unavailable: bool
+) -> None:
+    from privyx.core.errors import ConfigError
+
+    calls: list[str] = []
+
+    def resolve(reference: str, path: str) -> str:
+        calls.append(reference)
+        if unavailable:
+            raise ConfigError("password manager unavailable")
+        return "example-credential"
+
+    monkeypatch.setattr("privyx.security.secrets._op_read", resolve)
+    config = tmp_path / "config.yaml"
+    for item in ("first", "second"):
+        reference = f"op://example/{item}/credential"
+        config.write_text(f"provider:\n  api_key: {reference}\n")
+        result = runner.invoke(cli, ["doctor", "-c", str(config)])
+        assert result.exit_code == (1 if unavailable else 0), result.output
+        if unavailable:
+            assert "configuration: ConfigError: password manager unavailable" in result.output
+            assert result.output.count("✗") == 1
+        else:
+            assert result.output.count("✓") == 9
+        assert "example-credential" not in result.output
+        assert calls.count(reference) == 1
+    assert len(calls) == 2
+
+
+def test_doctor_shares_settings_between_checks(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    from privyx.config.schema import Settings
+
+    module = importlib.import_module("privyx.cli.commands.doctor")
+    snapshots: list[Settings] = []
+    for name in (
+        "plugins",
+        "detector",
+        "permissions",
+        "vault",
+        "provider",
+        "proxy",
+        "streaming",
+        "routes",
+        "configuration",
+    ):
+        original = getattr(module, f"_check_{name}")
+
+        def record(settings: Settings, check=original) -> tuple[bool, str]:
+            snapshots.append(settings)
+            return check(settings)
+
+        monkeypatch.setattr(module, f"_check_{name}", record)
+
+    result = runner.invoke(cli, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert len(snapshots) == 9
+    assert isinstance(snapshots[0], Settings)
+    assert all(settings is snapshots[0] for settings in snapshots)
+
+
 def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
     """All component checks plus effective route coverage are visible."""
     result = runner.invoke(cli, ["doctor"])
