@@ -17,7 +17,10 @@ import pytest
 import yaml
 
 
-def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(tmp_path: Path) -> None:
+@pytest.mark.parametrize("home_source", ["shell", "env", "env_from"])
+def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
+    tmp_path: Path, home_source: str
+) -> None:
     # Privyx takes the upstream from the provider's own base_url.
     codex = shutil.which("codex")
     if codex is None:
@@ -103,7 +106,17 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(tmp_path: Path)
     config.write_text(
         yaml.safe_dump(
             {
-                "agents": {"codex": {"command": codex}},
+                "agents": {
+                    "codex": {
+                        "command": codex,
+                        **({"env": {"CODEX_HOME": str(root)}} if home_source == "env" else {}),
+                        **(
+                            {"env_from": {"CODEX_HOME": "TEST_CODEX_HOME"}}
+                            if home_source == "env_from"
+                            else {}
+                        ),
+                    }
+                },
                 "audit": {"path": str(tmp_path / "audit.log")},
             }
         )
@@ -114,7 +127,10 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(tmp_path: Path)
         for key, value in os.environ.items()
         if not key.startswith(("OPENAI_", "CODEX_", "PRIVYX_", "ANTHROPIC_"))
     }
-    env["CODEX_HOME"] = str(root)
+    if home_source == "shell":
+        env["CODEX_HOME"] = str(root)
+    elif home_source == "env_from":
+        env["TEST_CODEX_HOME"] = str(root)
     try:
         result = subprocess.run(
             [

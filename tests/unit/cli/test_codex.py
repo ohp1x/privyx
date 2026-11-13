@@ -8,7 +8,9 @@ import pytest
 from click.testing import CliRunner
 
 from privyx.cli.codex import custom_provider
+from privyx.cli.launch import build_launch_plan, profile_target
 from privyx.cli.main import cli
+from privyx.config.schema import AgentConfig, Settings
 from privyx.core.errors import ConfigError
 
 ROUTER = """
@@ -95,3 +97,42 @@ def test_custom_provider_never_receives_privyx_key(
 def test_custom_provider_under_another_path_is_refused(codex_home: Path) -> None:
     output = _dry_run("codex", "--", "-c", 'model_providers.router.base_url="http://r.test/api/v1"')
     assert "cannot route Codex provider 'router'" in output
+
+
+@pytest.mark.parametrize("variable", ["CODEX_HOME", "HOME"])
+def test_provider_detection_and_launch_share_child_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    root = tmp_path if variable == "CODEX_HOME" else tmp_path / ".codex"
+    root.mkdir(exist_ok=True)
+    (root / "config.toml").write_text(ROUTER)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setenv(variable, str(tmp_path / "unused"))
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path))
+    monkeypatch.setenv("AGENT_PATH", str(tmp_path / "bin"))
+    target = profile_target(
+        "work",
+        AgentConfig(
+            command="codex",
+            adapter="codex",
+            base_path="/v1",
+            env_from={variable: "AGENT_HOME", "PATH": "AGENT_PATH"},
+        ),
+    )
+
+    def detect(environment: dict[str, str], argv: list[str]) -> tuple[str, str] | None:
+        assert environment[variable] == str(tmp_path)
+        found = custom_provider(environment, argv)
+        monkeypatch.setenv("AGENT_HOME", str(tmp_path / "changed"))
+        monkeypatch.setenv("AGENT_PATH", str(tmp_path / "changed-bin"))
+        return found
+
+    monkeypatch.setattr("privyx.cli.codex.custom_provider", detect)
+    plan = build_launch_plan(target, [], Settings(), 0, (), name="work")
+    bound = plan.bind_port(12345)
+    assert plan.upstream == "http://router.test:20128/v1"
+    assert plan.sources["run.upstream"] == "Codex config (model_providers.router)"
+    assert 'model_providers.router.base_url="http://127.0.0.1:12345/v1"' in bound.argv
+    assert bound.environment[variable] == str(tmp_path)
+    assert bound.environment["PATH"] == str(tmp_path / "bin")
+    assert "env_from AGENT_HOME" in bound.env_sources[variable]

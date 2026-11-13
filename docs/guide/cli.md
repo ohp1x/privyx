@@ -154,7 +154,10 @@ provider keeps its headers and authentication. Unless you set an upstream,
 Privyx forwards to the provider's own `base_url`, which must end in `/v1`.
 Privyx reads `/etc/codex/config.toml`, `$CODEX_HOME/config.toml`, a `-p`
 profile, and `-c` overrides; a provider set only in a project's
-`.codex/config.toml` is not detected. If your Claude Code settings point
+`.codex/config.toml` is not detected. Provider detection uses the child's
+environment, including profile `env` and `env_from`; `CODEX_HOME` (or `HOME`
+when `CODEX_HOME` is unset) is resolved before reading the Codex config.
+If your Claude Code settings point
 `ANTHROPIC_BASE_URL` at a router or another proxy, give that URL to
 `privyx run` as `--upstream`: Privyx now takes that place and forwards to its
 own upstream. If the tool exits without having sent Privyx a single request,
