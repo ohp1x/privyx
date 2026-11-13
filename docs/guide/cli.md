@@ -637,6 +637,21 @@ references, and all checks use the same settings. A later invocation reads
 configuration again. If loading fails, doctor reports a single configuration
 failure and stops before running component checks.
 
+Doctor tries a sample email. When every detector is a built-in `regex` or `yaml`
+detector, it also tries the first nonempty term of each configured entity. With
+any other detector, including LLM and plugin detectors, it uses only the
+synthetic email so configured terms are not sent to those detectors. The
+detector check scans without the policy; the proxy and streaming checks use
+only samples the configured detector and policy select for masking.
+If no sample applies, the check explicitly reports `skipped`. This does not
+verify coverage for arbitrary patterns or other input. Sample values are not
+printed. Streaming restore is also skipped for an irreversible operator.
+
+Credentials, query strings, and fragments in the displayed upstream URL are
+masked. Doctor deletes its test sessions after each check, including failures,
+and leaves existing sessions untouched. A cleanup failure is a failed check;
+the vault connection is still closed.
+
 ```console
 $ privyx doctor
 Privyx Doctor

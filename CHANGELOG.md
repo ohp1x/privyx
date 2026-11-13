@@ -14,8 +14,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **CLI:** `privyx doctor` honors the configured detector, policy, and redaction tokens when testing masking, and reports skipped checks when no diagnostic sample applies
+- **CLI:** `privyx doctor` removes its test sessions from the vault on success and failure without changing existing sessions
 - **CLI:** `privyx doctor` loads configuration once for all checks, avoiding repeated password-manager requests; each invocation reads configuration afresh
 - **CLI:** `privyx config --path` lists configuration files without opening a password manager or requiring valid setting values
+
+### Security
+
+- **CLI:** `privyx doctor` masks user credentials, query strings, and fragments when displaying the upstream URL
 
 ## [0.1.34] - 2026-11-12
 
