@@ -1578,8 +1578,9 @@ def test_config_show_outputs_settings(runner: CliRunner) -> None:
 
 
 def test_config_path_names_the_files_in_use_or_defaults(
-    runner: CliRunner, home: Path, tmp_path: Path
+    runner: CliRunner, home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     assert runner.invoke(cli, ["config", "--path"]).output.strip() == "defaults"
 
     named = tmp_path / "custom.yaml"
@@ -1593,8 +1594,70 @@ def test_config_path_names_the_files_in_use_or_defaults(
     home_config.write_text("port: 9001\n", encoding="utf-8")
     assert runner.invoke(cli, ["config", "--path"]).output.strip() == str(home_config)
 
+    included = tmp_path / "extra.yaml"
+    included.write_text("log_level: debug\n", encoding="utf-8")
+    project = tmp_path / "privyx.yaml"
+    project.write_text("include: extra.yaml\nport: 9002\n", encoding="utf-8")
+    assert runner.invoke(cli, ["config", "--path"]).output.strip() == str(home_config)
 
-@pytest.mark.parametrize("args", [["config"], ["config", "--show"]])
+    trusted = runner.invoke(cli, ["trust"])
+    assert trusted.exit_code == 0, trusted.output
+    result = runner.invoke(cli, ["config", "--path"])
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [str(home_config), str(included), str(project)]
+
+
+@pytest.mark.parametrize("reference", ["op://example/item/credential", "keychain://example/account"])
+def test_config_path_does_not_resolve_secrets(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
+) -> None:
+    from privyx.core.errors import ConfigError
+
+    def unavailable(reference: str, path: str) -> str:
+        raise ConfigError("password manager unavailable")
+
+    monkeypatch.setattr("privyx.security.secrets._op_read", unavailable)
+    monkeypatch.setattr("privyx.security.secrets._keychain", unavailable)
+    included = tmp_path / "credentials.yaml"
+    included.write_text(f"provider:\n  api_key: {reference}\n", encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text("include: credentials.yaml\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["config", "--path", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [str(included), str(config)]
+
+
+def test_config_path_does_not_validate_settings(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text("port: invalid\n", encoding="utf-8")
+    monkeypatch.setenv("PRIVYX_SESSION_STRATEGY", "bogus")
+
+    result = runner.invoke(cli, ["-c", str(config), "config", "--path"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == str(config)
+
+
+@pytest.mark.parametrize("content", [None, "include: missing.yaml\n", "port: [\n"])
+def test_config_path_reports_file_errors_without_traceback(
+    runner: CliRunner, tmp_path: Path, content: str | None
+) -> None:
+    config = tmp_path / "config.yaml"
+    if content is not None:
+        config.write_text(content, encoding="utf-8")
+
+    result = runner.invoke(cli, ["config", "--path", "-c", str(config)])
+
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("args", [["config"], ["config", "--show"], ["config", "--show", "--path"]])
 def test_config_reports_bad_config_without_traceback(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, args: list[str]
 ) -> None:

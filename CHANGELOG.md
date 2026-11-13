@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **CLI:** `privyx -c FILE <command>` selects configuration before any subcommand, including nested commands and hooks; existing subcommand options take precedence
 
+### Fixed
+
+- **CLI:** `privyx config --path` lists configuration files without opening a password manager or requiring valid setting values
+
 ## [0.1.34] - 2026-11-12
 
 ### Added

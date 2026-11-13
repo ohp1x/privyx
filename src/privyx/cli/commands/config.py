@@ -28,15 +28,16 @@ def config_cmd(show: bool, path: bool, schema: bool, config_path: str | None) ->
     from privyx.providers.registry import resolve_base_url
 
     try:
+        if path and not show:
+            active = active_config_paths(config_path)
+            click.echo("\n".join(str(p) for p in active) or "defaults")
+            return
         settings = load_config(config_path)
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     if show:
         click.echo(json.dumps(redact(settings.model_dump(mode="json")), indent=2))
-    elif path:
-        active = active_config_paths(config_path)
-        click.echo("\n".join(str(p) for p in active) or "defaults")
     else:
         click.echo(f"Privyx {__version__}")
         click.echo(f"  Host: {settings.host}:{settings.port}")
