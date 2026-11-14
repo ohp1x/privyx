@@ -644,8 +644,10 @@ async def test_metadata_json_escapes_are_decoded_before_masking() -> None:
     assert header.isascii()  # a header value is one line of ASCII
 
 
-async def test_echoed_thinking_gets_the_signed_text_back() -> None:
+@pytest.mark.parametrize("dlp_check", [False, True])
+async def test_echoed_thinking_gets_the_signed_text_back(dlp_check: bool) -> None:
     engine = _engine()
+    engine.dlp_check = dlp_check
     sid = await _session(engine)
     request = await transform_request(_mail_request(), engine, sid)
     token = request["messages"][0]["content"].removeprefix("mail ")
@@ -979,25 +981,69 @@ async def test_dlp_check_looks_in_every_header_sent_but_the_credentials() -> Non
         await transform_request(_mail_request(), engine, await _session(engine), headers=headers)
 
 
-async def test_dlp_check_looks_at_signed_thinking_as_it_is_sent(
+@pytest.mark.parametrize("elsewhere", [None, "body", "block", "key", "header", "param"])
+async def test_dlp_check_exempts_only_remembered_thinking_text(
     monkeypatch: pytest.MonkeyPatch,
+    elsewhere: str | None,
 ) -> None:
     monkeypatch.setattr(schemas, "_THINKING", {})
     monkeypatch.setattr(schemas, "_THINKING_CHARS", 0)
     schemas.remember_thinking("sig-1", f"the user is {EMAIL}")
-    engine = _dlp_engine()
     payload = {
         "messages": [
             {
                 "role": "assistant",
-                "content": [{"type": "thinking", "thinking": "restored", "signature": "sig-1"}],
+                "content": [
+                    {"type": "thinking", "thinking": "client changed this", "signature": "sig-1"}
+                ],
             },
             {"role": "user", "content": f"mail {EMAIL}"},
         ]
     }
 
+    block = payload["messages"][0]["content"][0]
+    headers = {"x-user-email": EMAIL} if elsewhere == "header" else {}
+    params = [(EMAIL, "1")] if elsewhere == "param" else []
+    if elsewhere == "body":
+        payload["user"] = EMAIL
+    elif elsewhere == "block":
+        block["name"] = EMAIL  # an opaque field beside the remembered text
+    elif elsewhere == "key":
+        block[EMAIL] = "value"
+
+    engine = _dlp_engine()
+    sid = await _session(engine)
+    if elsewhere is not None:
+        with pytest.raises(LeakError):
+            await transform_request(payload, engine, sid, headers=headers, params=params)
+    else:
+        out = await transform_request(payload, engine, sid)
+        assert out["messages"][0]["content"][0]["thinking"] == f"the user is {EMAIL}"
+        assert EMAIL not in out["messages"][1]["content"]
+        assert block["thinking"] == "client changed this"  # no mutation or client text forwarded
+
+
+@pytest.mark.parametrize("evicted", [False, True])
+async def test_dlp_check_does_not_exempt_unknown_thinking(
+    monkeypatch: pytest.MonkeyPatch, evicted: bool
+) -> None:
+    monkeypatch.setattr(schemas, "_THINKING", {})
+    monkeypatch.setattr(schemas, "_THINKING_CHARS", 0)
+    monkeypatch.setattr(schemas, "_THINKING_MAX", 1)
+    if evicted:
+        schemas.remember_thinking("unknown", f"the user is {EMAIL}")
+        schemas.remember_thinking("newer", "newer thinking")
+    engine = _dlp_engine()
+    sid = await _session(engine)
+    block = {"type": "thinking", "thinking": f"the user is {EMAIL}", "signature": "unknown"}
+    payload = {"messages": [{"role": "assistant", "content": [block]}]}
+
+    out = await transform_request(payload, engine, sid)
+    assert EMAIL not in out["messages"][0]["content"][0]["thinking"]
+
+    block["signature"] = EMAIL  # unknown signatures remain part of the DLP scan
     with pytest.raises(LeakError):
-        await transform_request(payload, engine, await _session(engine))
+        await transform_request(payload, engine, sid)
 
 
 async def test_dlp_check_looks_in_query_parameter_names() -> None:

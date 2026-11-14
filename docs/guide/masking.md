@@ -277,8 +277,7 @@ tokens, and a token a session did not make is left as it is.
 
 A value is masked where it is detected. The same value can also reach the
 provider somewhere Privyx does not mask: a field outside the conversation, a
-URL, a message `name`, a request header, or a thinking block sent back with its
-signature (which must stay as the provider wrote it). With `proxy.dlp_check`
+URL, a message `name`, or a request header. With `proxy.dlp_check`
 set, the proxy looks for every value a request masked in all of that request as
 it will be sent, and refuses the request with `422` if one is still there:
 
@@ -293,3 +292,12 @@ values no detector found. The credential headers (`Authorization`,
 must stand as a whole word to count (`Bob` is not found in `Bobby`). With
 `detector.underscore_separates_words`, `_` separates words here too (`Bob` is found in
 `DB_Bob`).
+
+Echoed Anthropic thinking is an exception only when Privyx remembers its
+signature from an upstream response. After the DLP check, Privyx replaces the
+thinking text with that exact upstream text to preserve the signature, even if
+the model wrote a value that is masked elsewhere in the request. Client edits
+to that text are discarded; other fields in the block and the rest of the
+request remain checked. An unknown or evicted signature grants no exception:
+the thinking is masked normally. The signature cache is bounded and per
+process, so a restart or another worker can lose it.

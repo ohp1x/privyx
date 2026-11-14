@@ -189,10 +189,10 @@ restore checks look for, and making `merge_terms` a default is undecided.
 
 The checks and exit codes are the same as for current defaults. A failed
 candidate run blocks adopting those defaults; it is not an expected success
-or an ignored CI failure. In particular, DLP can reject an echoed signed
-Claude thinking block containing an original value. Such a block must be
-returned unchanged for its signature to remain valid. Keep DLP opt-in until
-that compatibility issue is resolved.
+or an ignored CI failure. The Claude loop includes signed thinking containing
+an original email. With DLP enabled, the loop must still complete: Privyx checks
+the masked request before reinstating the exact thinking remembered from the
+upstream response, preserving its signature.
 
 ### A real provider (`--upstream`)
 

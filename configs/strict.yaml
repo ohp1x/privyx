@@ -25,7 +25,7 @@ proxy:
   # including models and files, return 403.
   passthrough_unknown: false
   # Refuse (422) a masked request that still holds a value it masked
-  # somewhere Privyx does not mask, instead of forwarding it.  Left off: signed
-  # thinking text must be sent back as the model wrote it, so a detected value
-  # the model wrote there ends a Claude Code session.
+  # somewhere Privyx does not mask, instead of forwarding it. Only exact signed
+  # thinking remembered from the upstream is reinstated after the check.
+  # Opt in after testing with your agent.
   # dlp_check: true

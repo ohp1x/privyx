@@ -327,8 +327,6 @@ async def transform_request(
             for idx, (name, val) in enumerate(list(params)):
                 if name.lower() not in AUTH_QUERY_PARAMS:
                     params[idx] = (name, await metadata(val))
-        # Checked as it will be sent: signed thinking text is put back first.
-        _pin_thinking(rebuilt.get("messages"))
         if masked:
             sent = [
                 rebuilt,
@@ -338,6 +336,9 @@ async def transform_request(
             leaks = find_leaks(sent, masked, underscore=engine.underscore_separates_words)
             if leaks:
                 raise LeakError(f"{leaks} masked value(s) still in the request")
+        # Only text remembered from an upstream response may bypass DLP: it
+        # must match its signature. All client fields have been checked above.
+        _pin_thinking(rebuilt.get("messages"))
     result = {key: rebuilt[key] for key in payload}
     if engine.directive:
         _add_directive(result, schema, directive(engine.codec), path)
@@ -477,7 +478,8 @@ def find_leaks(value: Any, masked: set[str], *, underscore: bool = False) -> int
 
     The check behind ``proxy.dlp_check``: a value masked in one place of a
     request but sent as is in another (a field that is not walked, a URL, a
-    header, signed thinking text) is found here, and the request is refused.  Keys count as strings,
+    header) is found here, and the request is refused. The caller reinstates
+    remembered upstream thinking only after this check. Keys count as strings,
     and a value that starts or ends with a letter or digit must stand as a
     whole word there (``Bob`` is not found in ``Bobby``).  With ``underscore``,
     as the detector has it, ``_`` separates words (``Bob`` is in ``DB_BOB``).
