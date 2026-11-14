@@ -1,15 +1,13 @@
-# Example: custom provider endpoint
+# Example: a router or other OpenAI/Anthropic-compatible endpoint
 #
-# Any endpoint that speaks the OpenAI or Anthropic chat format works: point a
-# client at Privyx and it forwards to `base_url`.  Requests on the paths in
-# `proxy.routes` are masked; other paths are forwarded as sent.
+#   privyx proxy -c configs/examples/custom.yaml
+#   privyx run -c configs/examples/custom.yaml claude
+#
+# The transparent proxy forwards to the origin of `base_url` and keeps the
+# client's own path.  Requests on the paths in `proxy.routes` are masked.
+# For one agent only, set `upstream` in its profile instead (agents.yaml).
 
 provider:
-  type: generic
-  base_url: http://localhost:20128    # any upstream endpoint
-  api_key: ""
+  base_url: https://router.example.com
   headers:
-    x-custom-header: "value"
-
-vault:
-  type: memory
+    x-custom-header: "value"   # sent with every upstream request

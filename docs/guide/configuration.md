@@ -186,9 +186,11 @@ privyx proxy -c privyx.yaml --upstream https://api.anthropic.com
 ```
 
 The repository's
-[`configs/`](https://github.com/ohp1x/privyx/tree/main/configs) folder has an
-annotated `default.yaml`, a `strict.yaml`, and small examples. The Docker image
-ships them under `/app/configs`.
+[`configs/`](https://github.com/ohp1x/privyx/tree/main/configs) folder has
+`default.yaml`, a template that lists every setting with its default value,
+commented out, so loading it changes nothing; a `strict.yaml`; and small
+examples, agent profiles among them. The Docker image ships them under
+`/app/configs`.
 
 ## Reference
 

@@ -1,52 +1,31 @@
 # Privyx strict configuration
 #
-# Stricter defaults for higher-sensitivity deployments.
+# For higher-sensitivity work.  It changes only how strictly Privyx masks and
+# forwards: the upstream, provider, and anchor stay as they would be without
+# it, so `privyx run -c configs/strict.yaml claude` still reaches Anthropic.
+# Every setting is listed in configs/default.yaml.
 
-host: 127.0.0.1
-port: 8000
-log_level: info
-
-# Empty → falls through to provider.base_url below.
-upstream_url: ""
-
+# Persist sessions in ~/.privyx/privyx.db across restarts (privyx[sqlite]).
 vault:
-  type: sqlite           # persist sessions across restarts
-  dsn: sqlite+aiosqlite:///privyx.db
+  type: sqlite
 
-# `regex` patterns are layered over the built-in set, so only the additions
-# need listing here.
+# The default policy masks everything detected: the built-ins, your own
+# `terms` and `patterns`, and what `privyx run --harvest` finds.
 detector:
   type: regex
   patterns:
     DATE_OF_BIRTH: "\\b\\d{4}-\\d{2}-\\d{2}\\b"
+  # Also find values split into strings or Base64/hex/URL encoded, and values
+  # written in fullwidth letters or with zero-width characters inside.
+  decode: true
+  normalize: true
 
-policy:
-  type: strict
-  allowed: [EMAIL, PHONE, SSN, CREDIT_CARD, IP_ADDRESS, DATE_OF_BIRTH,
-            API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, SECRET]
-
-operator:
-  type: pseudonym
-
-# Empty secret → per-session counters.  Set one (or PRIVYX_ANCHOR_SECRET) to
-# make pseudonyms deterministic across sessions.
-anchor:
-  type: hmac
-  secret: ""
-
-provider:
-  type: generic
-  base_url: http://localhost:20128
-  api_key: ""
-  headers: {}
-
-# Only routes with a configured masking schema may reach the upstream.
-# Unlisted endpoints (including models and files) return 403.
 proxy:
-  mode: transparent
+  # Only routes with a masking schema may reach the upstream.  Other paths,
+  # including models and files, return 403.
   passthrough_unknown: false
-
-# Keep the PII-safe audit trail on for higher-sensitivity deployments.
-audit:
-  enabled: true
-  # path defaults to ~/.privyx/audit.log
+  # Refuse (422) a masked request that still holds a value it masked
+  # somewhere Privyx does not mask, instead of forwarding it.  Left off: signed
+  # thinking text must be sent back as the model wrote it, so a detected value
+  # the model wrote there ends a Claude Code session.
+  # dlp_check: true

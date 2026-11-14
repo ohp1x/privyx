@@ -1,171 +1,195 @@
-# Privyx default configuration
+# Privyx configuration template
 #
-# Precedence: defaults < global YAML < trusted project YAML < environment < CLI
+# Every setting is listed with its default value, commented out, so loading
+# this file as it is changes nothing.  Copy it to ~/.privyx/config.yaml (or a
+# project's privyx.yaml) and uncomment only what you want to change.
+#
+# Precedence: defaults < global file < trusted project files < environment
+# (PRIVYX_*) < CLI flags.  Reference docs: docs/guide/configuration.md.
+#
+# Any value may be ${NAME} or ${NAME:-fallback}, read from the environment.
+# Credential settings (api_key, secret, headers, env, ...) may also name a
+# 1Password item (op://vault/item/field) or a keychain entry
+# (keychain://service/account, privyx[keychain]).  Keep API keys out of this file.
+
+# --- Other files ---
+# Files or globs merged below this one, relative to it.
+# include: []
+
+# --- Server and logging ---
+# host: 127.0.0.1
+# port: 8000
+# log_level: info          # debug | info | warning | error
+# logging: text            # console format: text | json
+# Debug log file (or PRIVYX_LOG_FILE).  It also receives third-party logs at
+# log_level.  At debug it holds raw vault rows (original values): it is
+# created 0600, keep it local.
+# log_file: ""
+
+# --- Upstream ---
+# Explicit upstream, the same as --upstream or PRIVYX_UPSTREAM_URL.  Empty
+# uses provider.base_url, then the default for provider.type.  In transparent
+# `privyx run`, a native agent endpoint comes before that default.
+# upstream_url: ""
 
 # --- Agent launch profiles (`privyx run NAME`) ---
-# Built-ins (claude, codex, openai, aider) are merged field by field.
-# New profiles need command and env_vars, or inherit them with extends.
-agents: {}
+# Built-in profiles: claude, codex, openai, aider, pi, opencode, gemini, ollama,
+# and grok.  Override them field by field, add your own with `extends`, or add
+# a variant named base:variant (claude:work inherits claude).  Each profile
+# can set command, provider, upstream, env_vars, base_path, extends, adapter,
+# args, env, env_from, budget (max_turns, max_tokens), and privyx (settings for
+# that profile only).  See configs/examples/agents.yaml.
 # agents:
-#   claude-work:
-#     extends: claude
-#     adapter: claude       # inherited; explicit for wrappers too
-#     upstream: https://router.example.com
-#     args: ["--verbose"]   # replaces inherited args; CLI args follow
-#     env:
-#       MY_CUSTOM_FLAG: "enabled"
-#     env_from:
-#       ANTHROPIC_AUTH_TOKEN: WORK_ANTHROPIC_TOKEN  # source variable in shell
-
-# --- Server ---
-host: 127.0.0.1
-port: 8000
-log_level: info
-logging: text
-# Debug log file (or PRIVYX_LOG_FILE).  The console only shows Privyx's own logs
-# plus third-party warnings; this file also gets third-party logs at log_level.
-# At debug it contains raw vault rows (original PII) — created 0600, keep local.
-log_file: ""             # e.g. privyx-debug.log
-
-# --- TLS / HTTPS ---
-tls:
-  certfile: ""           # path to cert.pem (enables HTTPS)
-  keyfile: ""            # path to key.pem
-  keyfile_password: ""   # optional password for private key
-  ca_certs: ""           # optional CA bundle
-
-# --- Upstream provider ---
-# Explicit override, equivalent to `--upstream` / PRIVYX_UPSTREAM_URL.  Leave
-# it empty to use `provider.base_url` below, or — if that is empty too — the
-# default endpoint for `provider.type`. In transparent `run`, supported native
-# agent endpoints take precedence over that default (see docs/guide/cli.md).
-upstream_url: ""
-
-# --- Vault ---
-vault:
-  type: memory          # memory | sqlite | redis
-  dsn: sqlite+aiosqlite:///~/.privyx/privyx.db
-  redis_url: redis://localhost:6379/0
-  # ttl: 604800         # expire sessions idle this many seconds (unset = keep)
-
-# --- Detector ---
-# Omit `patterns` to use the built-in set (EMAIL, PHONE, CREDIT_CARD,
-# IP_ADDRESS, SSN, API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, SECRET).
-# Any patterns listed here are merged over the built-ins,
-# so you only need to name the ones you want to override or add.
 #
-# `terms` is the same idea for literal strings: give it a list and Privyx
-# escapes each one, orders the longest first, and adds word boundaries for you.
-# Matching is case-insensitive (`patterns` regexes stay case-sensitive).  The
-# entity name is whatever you write — it is the {type} in the token, so it must
-# start with a letter and contain only letters, digits, or underscores.
-#
-# `terms` and `patterns` can both be set; they are merged.  If the same entity
-# appears in both, the hand-written `patterns` regex wins.
-#
-# Note: with `policy.type: strict`, any entity you add here must also be listed
-# in `policy.allowed` or it will be detected and then silently dropped.
-detector:
-  type: regex
-  # Turn / Detection caching — skips redundant regex scanning on previous turns
-  # in multi-turn conversations.
-  cache:
-    enabled: true
-    max_size: 10000
-  # The built-ins also cover secrets: API_KEY (vendor-prefixed keys), JWT,
-  # PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, and SECRET (a value assigned to a
-  # secret-looking name, such as `DB_PASSWORD=…`).  A `(?P<value>...)` group
-  # masks only that part (the variable name stays readable for the model).
-  patterns: {}
-  # patterns:
-  #   EMPLOYEE_ID: '\bEMP-\d{6}\b'
-  #   PASSWORD: 'PASSWORD=(?P<value>\S+)'
-  terms: {}
-  # terms:
-  #   PERSON:       [ann, bob]
-  #   ORGANIZATION: [acme, initech]
-  #   URL:          ["https://git.internal.example/team"]
-  # term_variants: false     # true: "Acme Corp" also matches acme-corp, acme_corp, ...
-  # underscore_separates_words: false  # true: _ separates words, so acme is found in
-  #                                    # ACME_API_KEY, an IP in host_10.0.0.1
-  # Opt-in built-ins: wallets and national IDs (checked by checksum or
-  # structure), then detectors that also catch more of what is not sensitive.
-  # enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE,
-  #          UK_NHS, IN_AADHAAR, HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10]
-  # entropy_threshold: 3.0   # HIGH_ENTROPY: bits per character
-  # An entity counts only with one of its words within five words of the match.
-  # context:
-  #   EMPLOYEE_ID: [employee, nip]
-  # Also find values split into strings ('s' + 'k' + ...) or Base64/hex/URL encoded.
-  # decode: false
-  # Also find values in fullwidth letters or with zero-width characters inside.
-  # normalize: false
-
-# --- Policy ---
-policy:
-  type: default          # default | strict
-  # allowed: [EMAIL, PHONE, SSN]
-
-# --- Operator ---
-# `pseudonym`, `hash`, `encrypt`, and `faker` are reversible through the
-# session vault; `redact` destroys the original, so responses referring to a
-# redacted value cannot be restored.
-operator:
-  type: pseudonym        # pseudonym | hash | encrypt | faker | redact
-  # token: "[REDACTED]"  # redact: replacement text
-  # length: 12           # hash: digest length
-
-# --- Anchor ---
-# With a secret set, pseudonyms are derived from the value itself, so the same
-# input gets the same pseudonym in every session.  Empty (the default) means no
-# anchoring at all — per-session counters — rather than anchoring with a
-# guessable key.  Only the `pseudonym` operator uses this.
-anchor:
-  type: hmac             # hmac
-  secret: ""             # set via PRIVYX_ANCHOR_SECRET, or `openssl rand -hex 32`
-
-# --- Session ---
-# How a session is identified when the client sends no `x-privyx-session` header
-# (Claude Code, codex, aider, ... never do).  An explicit header always wins.
-#   ephemeral    — a fresh session per request (default; safe, but a multi-turn
-#                  conversation is re-tokenized each turn and shows as many sessions)
-#   client       — one reused session per client credential (Authorization/x-api-key)
-#   conversation — one reused session per conversation (credential + first user
-#                  message); different conversations stay isolated
-# `privyx run` defaults this to `conversation`.  See PRIVYX_SESSION_STRATEGY and
-# docs/architecture/proxy.md.
-session:
-  strategy: ephemeral    # ephemeral | client | conversation
-
-# --- Token syntax ---
-# How placeholder tokens look in text.  Purely a serialization choice: the
-# privacy engine, detectors, policies, proxy, and storage never see it.
-# `format` must contain {type} and {id}; {namespace} is optional; adjacent
-# fields need a delimiter between them.
-token:
-  namespace: PRIVYX
-  format: "<{namespace}_{type}_{id}>"   # -> <PRIVYX_EMAIL_1>
-  # Alternatives (change without touching any code):
-  # format: "[[{namespace}:{type}:{id}]]"  # -> [[PRIVYX:EMAIL:1]]
-  # format: "<{namespace}:{type}:{id}>"    # -> <PRIVYX:EMAIL:1>
+# `privyx run`: also mask the workspace's git authors, remote owners, project
+# names, and .env values, read at launch and kept in memory (--harvest).
+# harvest: false
 
 # --- Provider ---
-# Resolution order, the same in gateway and transparent mode:
-#   URL:  upstream_url  →  provider.base_url  →  the default for provider.type
-#   key:  PRIVYX_<TYPE>_API_KEY  →  provider.api_key / PRIVYX_API_KEY  →  none
-# <TYPE> is provider.type (OPENAI, ANTHROPIC).  With no key the transparent
-# proxy relays the client's own.  Keys have no CLI flag: a command line leaks
-# into shell history and `ps`.
-provider:
-  type: generic          # generic | openai | anthropic
-  base_url: ""           # empty → http://localhost:20128 for `generic`
-  api_key: ""            # or PRIVYX_API_KEY; keep real keys out of this file
-  headers: {}
+# Where requests go and which key they carry.  Leave type unset for
+# `privyx run`: each agent profile picks its own provider.
+#   URL  upstream_url, then provider.base_url, then the default for the type
+#        (generic http://localhost:20128, openai api.openai.com,
+#        anthropic api.anthropic.com, google generativelanguage.googleapis.com)
+#   key  provider.<type>_api_key, then provider.api_key (or PRIVYX_<TYPE>_API_KEY,
+#        PRIVYX_API_KEY); with neither the transparent proxy relays the client's own
+# provider:
+#   type: generic          # generic | openai | anthropic | google
+#   base_url: ""
+#   api_key: ""
+#   openai_api_key: ""
+#   anthropic_api_key: ""
+#   google_api_key: ""
+#   headers: {}            # extra headers on every upstream request
+
+# --- Proxy ---
+# proxy:
+#   mode: transparent      # transparent | gateway
+#   # Path -> wire schema of the requests Privyx masks.  A map given here
+#   # replaces the 27 default paths (see docs/guide/proxy.md#routes).
+#   routes:
+#   passthrough_unknown: true   # false: paths not in routes get 403
+#   forward_client_auth: true   # false: drop the client's key, send only provider's
+#   timeout: 300           # seconds between bytes, read or write
+#   connect_timeout: 10
+#   max_connections: null  # null: no limit
+#   dlp_check: false       # refuse a masked request that still holds a masked value
+#   directive: false       # tell the model to keep placeholders as written
+#   cache_control: false   # mark a large Anthropic tools/system prefix for caching
+
+# --- TLS (HTTPS when certfile and keyfile are set) ---
+# tls:
+#   certfile: ""
+#   keyfile: ""
+#   keyfile_password: ""
+#   ca_certs: ""
+
+# --- Vault ---
+# Where sessions and their mappings live.
+# vault:
+#   type: memory           # memory | sqlite (privyx[sqlite]) | redis (privyx[redis])
+#   dsn: sqlite+aiosqlite:///~/.privyx/privyx.db
+#   redis_url: redis://localhost:6379/0
+#   ttl: null              # expire a session idle this many seconds; null keeps it
+
+# --- Session ---
+# How a request without an x-privyx-session header picks its session:
+#   ephemeral     a fresh session per request
+#   client        one session per client credential
+#   conversation  one session per conversation (credential + first user message)
+# `privyx run` uses conversation unless this is set.
+# session:
+#   strategy: ephemeral
+
+# --- Detector ---
+# What counts as sensitive.  One mapping, or a list of them whose findings are
+# pooled.  The regex built-ins cover EMAIL, PHONE, CREDIT_CARD, IP_ADDRESS, SSN,
+# API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, and SECRET.
+# detector:
+#   type: regex            # regex | yaml | presidio (privyx[presidio]) | llm
+#   # Entity -> regex, merged over the built-ins.  A (?P<value>...) group masks
+#   # only that part.  Example, EMPLOYEE_ID: '\bEMP-\d{6}\b'
+#   patterns: {}
+#   # Entity -> literal strings, matched case-insensitively with word
+#   # boundaries.  Example, PERSON: [ann, bob].  The same entity in patterns wins.
+#   terms: {}
+#   term_variants: false   # "Acme Corp" also matches acme-corp, acme_corp, ...
+#   underscore_separates_words: false  # acme is found in ACME_API_KEY
+#   # Entity -> words; a match counts only with one within five words.
+#   context: {}
+#   # Opt-in built-ins: CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC,
+#   # ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR, HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10.
+#   enable: []
+#   disable: []            # built-in entities to turn off, such as CREDIT_CARD
+#   entropy_threshold: 3.0 # HIGH_ENTROPY: bits per character
+#   decode: false          # also scan split strings and Base64/hex/URL encoding
+#   normalize: false       # also scan fullwidth and zero-width characters folded
+#   cache:                 # or true / false
+#     enabled: true
+#     max_size: 10000
+#   # presidio
+#   language: en
+#   model: ""              # spaCy model; empty: {language}_core_web_sm
+#   entities: []           # empty: every recognizer
+#   score_threshold: 0.35
+#   # llm
+#   llm_provider: openai   # openai | anthropic
+#   llm_model: ""          # empty: a small default model per provider
+#   llm_api_key: ""        # empty: the SDK's own environment variable
+#   llm_instructions: ""   # empty: the built-in prompt
+#   llm_timeout: 30.0
+#   llm_max_chars: 4000
+#   llm_fallback_on_error: false  # true: built-in patterns when the LLM fails
+
+# --- Policy ---
+# Which detections are masked: default masks all, strict only `allowed`.
+# policy:
+#   type: default          # default | strict
+#   allowed: []            # strict: empty means every built-in entity
+
+# --- Operator ---
+# What a detected value becomes.  Every type but redact is restored in replies.
+# operator:
+#   type: pseudonym        # pseudonym | hash | encrypt | faker | fpe | partial | redact
+#   token: "[REDACTED]"    # redact: replacement text
+#   length: 12             # hash: digest characters kept
+#   locale: ""             # faker: Faker locale, such as en_US
+#   seed: null             # faker, fpe: same value, same fake across runs
+#   key: ""                # encrypt: 64 hex chars (privyx[crypto]), or PRIVYX_ENCRYPT_KEY
+
+# --- Anchor ---
+# With a secret, the same value gets the same pseudonym in every session.
+# Empty: a per-session counter.  `auto` creates or reuses ~/.privyx/anchor.key,
+# which `privyx run` uses unless this is set.
+# anchor:
+#   type: hmac
+#   secret: ""             # or PRIVYX_ANCHOR_SECRET; `openssl rand -hex 32`
+
+# --- Token syntax ---
+# The format must contain {type} and {id}; {namespace} is optional.  Two
+# other formats: "[[{namespace}:{type}:{id}]]" and "<{namespace}:{type}:{id}>".
+# token:
+#   namespace: PRIVYX
+#   format: "<{namespace}_{type}_{id}>"
+#   compact: false         # short tokens such as <E~1>; format tokens still restore
 
 # --- Audit ---
-# PII-safe audit trail: one JSON object per line, appended to `path`.  Records
-# entity *types* and *counts* (never payload content) plus request metadata.
-# Separate from application logs (log_level / logging above).
-audit:
-  enabled: true            # or PRIVYX_AUDIT_ENABLED
-  # path: ~/.privyx/audit.log # the default, or PRIVYX_AUDIT_PATH
+# PII-safe trail: entity types and counts, never content, as JSON lines.
+# audit:
+#   enabled: true
+#   path: ~/.privyx/audit.log
+#   tap: false             # each masked exchange before and after masking; holds originals
+#   tap_dir: ~/.privyx/tap
+#   # Model-id prefix -> USD per million tokens, for `privyx session show`.
+#   # Example, claude-sonnet: {input: 3, output: 15}
+#   prices: {}
+
+# --- Tracing (OpenTelemetry, privyx[otel]; exporter set by OTEL_* variables) ---
+# tracing:
+#   enabled: false
+
+# --- Plugins ---
+# Directories or .py files whose components become selectable as a `type`.
+# plugins:
+#   enabled: true
+#   paths: []

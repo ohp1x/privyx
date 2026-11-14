@@ -172,7 +172,7 @@ def test_shipped_example_configs_resolve_to_their_documented_endpoint() -> None:
     expectations = {
         "configs/examples/openai.yaml": "https://api.openai.com/v1/chat/completions",
         "configs/examples/anthropic.yaml": "https://api.anthropic.com/v1/messages",
-        "configs/examples/custom.yaml": "http://localhost:20128",
+        "configs/examples/custom.yaml": "https://router.example.com",
     }
 
     for path, expected in expectations.items():
