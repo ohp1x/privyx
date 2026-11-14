@@ -71,6 +71,7 @@ nav:
   - Get started:
       - Quickstart: guide/getting-started.md
       - Installation: guide/installation.md
+      - Upgrading: guide/upgrading.md
       - How it works: guide/how-it-works.md
   - Tutorials:
       - tutorials/index.md
