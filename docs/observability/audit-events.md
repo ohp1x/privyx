@@ -79,7 +79,9 @@ The upstream returned response headers (time to first byte).
 | `upstream` | string | Upstream host. |
 
 ### `proxy.passthrough` / `proxy.blocked`
-An unknown route was allowed without body masking or refused with `403`.
+An unknown route was allowed without body masking or refused with `403`, or
+a path outside [`proxy.path_mapping.strip_prefix`](../guide/configuration.md#upstream-with-a-path)
+was refused with `404`.
 Emitted at classification, before reading its body or contacting upstream, so
 an upstream failure does not hide the decision. `body_masked: false` describes
 the body; machine metadata headers can still be masked on allowed requests.
@@ -87,7 +89,7 @@ the body; machine metadata headers can still be masked on allowed requests.
 | field | type | notes |
 |---|---|---|
 | `method` | string | Standard HTTP method, or `OTHER` for an unrecognized method. |
-| `reason` | string | `unknown_route`. |
+| `reason` | string | `unknown_route`, or `outside_prefix` for a path outside `proxy.path_mapping.strip_prefix`. |
 | `body_masked` | bool | Always `false`. |
 
 No path, query, body, headers, credentials, or original values are recorded.
@@ -130,7 +132,7 @@ called its provider, it did so directly, or on a path Privyx does not mask.
 | `profile` | string | The agent profile, or the base name of the command run without one. |
 | `requests` | int | HTTP requests that reached Privyx during the launch. |
 | `passthrough` | int | Requests on paths outside `proxy.routes`, forwarded without masking. |
-| `blocked` | int | Requests on paths outside `proxy.routes`, refused because `proxy.passthrough_unknown` is false. |
+| `blocked` | int | Requests on paths outside `proxy.routes`, refused because `proxy.passthrough_unknown` is false, or outside `proxy.path_mapping.strip_prefix`. |
 | `failed` | int | [`proxy.error`](#proxyerror) events. A `transform` failure was refused without forwarding; an `upstream` failure of a request passed through also counts in `passthrough`. |
 
 ### `run.budget_exceeded`

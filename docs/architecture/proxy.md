@@ -32,8 +32,10 @@ up HTTPS, or look up an error, see [Proxy modes and routes](../guide/proxy.md),
 
 Pick `gateway` when the upstream endpoint carries a **base path** —
 `https://api.deepseek.com/anthropic/v1/messages`, an Azure deployment path, an
-OpenRouter prefix. Transparent mode cannot express one: `resolve_origin` strips
-`base_url` back to `scheme://host` and appends the client's path. Pick
+OpenRouter prefix. By default transparent mode cannot express one:
+`resolve_origin` strips `base_url` back to `scheme://host` and appends the
+client's path. With `proxy.path_mapping.mode: prefix` it keeps the upstream's
+path and appends the client's path after `strip_prefix`. Pick
 `transparent` when the client's paths must be mirrored, or when non-chat paths
 (models, files) have to reach the upstream too.
 

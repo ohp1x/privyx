@@ -40,7 +40,8 @@ Privyx  → https://api.openai.com/v1/models                (as sent)
 ```
 
 Only the scheme, host, and port of the upstream URL are used; a path in it is
-ignored. "Transparent" means drop-in: this is an ordinary reverse proxy that
+ignored, unless [`proxy.path_mapping`](configuration.md#upstream-with-a-path)
+keeps it. "Transparent" means drop-in: this is an ordinary reverse proxy that
 your client addresses on purpose, not a network-level interceptor.
 
 ### Gateway
@@ -49,7 +50,8 @@ Some providers serve their API under a base path:
 `https://api.deepseek.com/anthropic/v1/messages`, an Azure deployment URL, a
 router's prefix. Transparent mode mirrors the client's path, so it reaches
 such an endpoint only when the client itself sends that prefix and a
-[route](#adding-a-route) names it. In gateway mode Privyx posts every request
+[route](#adding-a-route) names it, or with
+[`proxy.path_mapping`](configuration.md#upstream-with-a-path). In gateway mode Privyx posts every request
 to the one URL you configure, whatever path the client used:
 
 ```yaml

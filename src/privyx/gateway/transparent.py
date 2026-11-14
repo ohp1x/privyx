@@ -56,6 +56,7 @@ def create_transparent_app(
             body=request.stream(),
             query_params=list(request.query_params.multi_items()),
             session_id=request.headers.get("x-privyx-session"),
+            raw_path=(request.scope.get("raw_path") or b"").decode("latin-1") or None,
         )
         if result.stream is not None:
             return StreamingResponse(

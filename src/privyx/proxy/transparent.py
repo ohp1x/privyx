@@ -154,6 +154,11 @@ class TransparentProxy:
         engine: Configured privacy engine.
         origin: Upstream origin (``scheme://host[:port]``); the request path is
             appended to it.  See :func:`privyx.providers.registry.resolve_origin`.
+            With ``strip_prefix``, the upstream URL including its path.
+        strip_prefix: When set (``""`` included), the request path must lie
+            under this prefix, which is removed before the rest is appended to
+            ``origin``.  Paths outside it, or that could leave it, are refused.
+            ``None`` appends the whole path (``proxy.path_mapping.mode: origin``).
         routes: Path → wire-schema map (defaults to ``proxy.routes``' default:
             OpenAI Chat and Responses, Anthropic Messages and token counting).
         passthrough_unknown: Forward paths missing from ``routes`` verbatim.  When
@@ -193,8 +198,10 @@ class TransparentProxy:
         audit: AuditLogger | None = None,
         session_strategy: str = "ephemeral",
         tap: Tap | None = None,
+        strip_prefix: str | None = None,
     ) -> None:
         self._engine = engine
+        self._strip_prefix = strip_prefix
         self._tap = tap
         self._origin = origin.rstrip("/")
         self._audit = audit or AuditLogger(None)
@@ -229,11 +236,13 @@ class TransparentProxy:
         body: bytes | AsyncIterator[bytes],
         query_params: Any | None = None,
         session_id: str | None = None,
+        raw_path: str | None = None,
     ) -> ProxyResponse:
         """Run the full per-request pipeline and return a :class:`ProxyResponse`.
 
         ``body`` may be the chunks as they arrive: a routed body is read whole to
-        be masked, any other is streamed upstream as it comes.
+        be masked, any other is streamed upstream as it comes.  ``raw_path`` is
+        the path as sent, before percent-decoding, when the server has it.
         """
         span = tracing.start("privyx.request", headers=headers, **{"http.request.method": method})
         try:
@@ -245,6 +254,7 @@ class TransparentProxy:
                 body=body,
                 query_params=query_params,
                 session_id=session_id,
+                raw_path=raw_path,
             )
         except BaseException as exc:
             tracing.end(span, error=exc)
@@ -267,6 +277,7 @@ class TransparentProxy:
         body: bytes | AsyncIterator[bytes],
         query_params: Any | None,
         session_id: str | None,
+        raw_path: str | None = None,
     ) -> ProxyResponse:
         start = time.perf_counter()
         req_id = new_request_id()
@@ -285,6 +296,18 @@ class TransparentProxy:
                 message = "privyx: WebSocket is not supported; use HTTP"
                 return ProxyResponse(
                     status_code=426,
+                    media_type=_JSON,
+                    body=json.dumps({"error": {"message": message}}).encode(),
+                )
+            upstream_path = _upstream_path(path, raw_path, self._strip_prefix)
+            if upstream_path is None:
+                self._audit.route_decision(allowed=False, method=method, reason="outside_prefix")
+                message = (
+                    f"privyx: the path is outside proxy.path_mapping.strip_prefix "
+                    f"{self._strip_prefix or '/'!r} or could leave it"
+                )
+                return ProxyResponse(
+                    status_code=404,
                     media_type=_JSON,
                     body=json.dumps({"error": {"message": message}}).encode(),
                 )
@@ -415,7 +438,7 @@ class TransparentProxy:
                         )
             self._audit.flush_transform()
 
-            url = f"{self._origin}/{path.lstrip('/')}"
+            url = self._origin + upstream_path
             length = _ci_get(headers, "content-length")
             if not isinstance(out_body, bytes) and length:
                 # Streamed unchanged, so its length still holds; without it
@@ -905,6 +928,29 @@ def log_vault_failure(exc: VaultError) -> None:
     """Log a failed vault call: its cause at WARNING, the traceback only at DEBUG."""
     _log.warning("request failed: %s from the session vault", type(exc.__cause__ or exc).__name__)
     _log.debug("vault call failed", exc_info=exc)
+
+
+def _upstream_path(path: str, raw_path: str | None, prefix: str | None) -> str | None:
+    """The path to append to the upstream URL, or ``None`` to refuse the request.
+
+    Without a prefix, the whole path.  With one, the rest after it, cut at a
+    segment boundary (``/v1`` takes ``/v1/messages``, not ``/v10/messages``).
+    A dot segment, backslash, or percent sign (once decoded), or an encoded
+    ``/``, is refused rather than normalized: the joined URL could then leave
+    the upstream's own path.
+    """
+    path = "/" + path.lstrip("/")
+    if prefix is None:
+        return path
+    if (
+        any(c in path for c in "\\%?#")
+        or any(segment in (".", "..") for segment in path.split("/"))
+        or (raw_path is not None and "%2f" in raw_path.lower())
+    ):
+        return None
+    if path != prefix and not path.startswith(prefix + "/"):
+        return None
+    return path[len(prefix) :]
 
 
 def _ci_get(headers: Mapping[str, str], name: str) -> str:

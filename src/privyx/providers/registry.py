@@ -161,6 +161,40 @@ def resolve_origin(settings: Any) -> str:
     return base.rstrip("/")
 
 
+def resolve_transparent_upstream(settings: Any) -> str:
+    """Return the URL the transparent proxy appends a request path to.
+
+    The origin (:func:`resolve_origin`) unless ``proxy.path_mapping.mode`` is
+    ``prefix``; then the explicit upstream URL itself, path included.
+
+    Raises:
+        ConfigError: If prefix mode has no explicit upstream, or one whose
+            query, fragment, or credentials a joined path could not keep.
+    """
+    if settings.proxy.path_mapping.mode == "origin":
+        return resolve_origin(settings)
+    # A provider type's default is a gateway endpoint, not a base to join.
+    base: str = settings.upstream_url or settings.provider.base_url
+    if not base:
+        raise ConfigError(
+            "proxy.path_mapping.mode prefix needs an upstream URL "
+            "(--upstream, upstream_url, or provider.base_url)"
+        )
+    parts = urlsplit(base)
+    if (
+        parts.scheme not in ("http", "https")
+        or not parts.hostname
+        or parts.query
+        or parts.fragment
+        or "@" in parts.netloc
+    ):
+        raise ConfigError(
+            "proxy.path_mapping.mode prefix needs an HTTP(S) upstream URL "
+            "without query, fragment, or credentials"
+        )
+    return base.rstrip("/")
+
+
 def build_provider(settings: Any) -> Any:
     """Build the provider described by ``settings``.
 
