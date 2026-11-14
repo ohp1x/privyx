@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI:** Agent launches follow supported native endpoints when no upstream is explicit, keeping requests and agent credentials on their intended destination through masking. Claude settings that would override proxy routing are rejected before launch
+
 ### Security
 
 - **CLI:** Codex custom providers selected through profile environment references now route through masking instead of calling the upstream directly

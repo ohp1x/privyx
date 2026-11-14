@@ -37,7 +37,8 @@ tls:
 # --- Upstream provider ---
 # Explicit override, equivalent to `--upstream` / PRIVYX_UPSTREAM_URL.  Leave
 # it empty to use `provider.base_url` below, or — if that is empty too — the
-# default endpoint for `provider.type`.
+# default endpoint for `provider.type`. In transparent `run`, supported native
+# agent endpoints take precedence over that default (see docs/guide/cli.md).
 upstream_url: ""
 
 # --- Vault ---

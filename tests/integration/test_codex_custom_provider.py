@@ -17,9 +17,18 @@ import pytest
 import yaml
 
 
-@pytest.mark.parametrize("home_source", ["shell", "env", "env_from"])
+@pytest.mark.parametrize(
+    ("home_source", "endpoint_source"),
+    [
+        ("shell", "custom"),
+        ("env", "custom"),
+        ("env_from", "custom"),
+        ("shell", "config"),
+        ("shell", "override"),
+    ],
+)
 def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
-    tmp_path: Path, home_source: str
+    tmp_path: Path, home_source: str, endpoint_source: str
 ) -> None:
     # Privyx takes the upstream from the provider's own base_url.
     codex = shutil.which("codex")
@@ -101,6 +110,13 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
         f'base_url="{base}/v1"\nrequires_openai_auth=false\n'
         'http_headers={Authorization="Bearer dummy-router-credential"}\n'
     )
+    extra_args: list[str] = []
+    if endpoint_source != "custom":
+        original = "check_for_update_on_startup=false\n"
+        if endpoint_source == "config":
+            original += f'openai_base_url="{base}/v1"\n'
+        elif endpoint_source == "override":
+            extra_args = ["-c", f'openai_base_url="{base}/v1"']
     (root / "config.toml").write_text(original)
     config = tmp_path / "privyx.yaml"
     config.write_text(
@@ -131,7 +147,34 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
         env["CODEX_HOME"] = str(root)
     elif home_source == "env_from":
         env["TEST_CODEX_HOME"] = str(root)
+    if endpoint_source != "custom":
+        env["CODEX_API_KEY"] = "dummy-router-credential"
     try:
+        if endpoint_source != "custom":
+            if endpoint_source in ("config", "override"):
+                env["OPENAI_BASE_URL"] = "http://127.0.0.1:9/v1"
+            direct = subprocess.run(
+                [
+                    codex,
+                    "exec",
+                    "--skip-git-repo-check",
+                    "--sandbox",
+                    "read-only",
+                    "--model",
+                    "test",
+                    *extra_args,
+                    "Reply with alice@example.com.",
+                ],
+                cwd=tmp_path,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert direct.returncode == 0, direct.stdout + direct.stderr
+            assert seen and "alice@example.com" in json.dumps(seen)
+            seen.clear()
         result = subprocess.run(
             [
                 sys.executable,
@@ -149,6 +192,7 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
                 "read-only",
                 "--model",
                 "test",
+                *extra_args,
                 "Reply with alice@example.com.",
             ],
             cwd=tmp_path,

@@ -68,11 +68,11 @@ def ollama_url(host: str) -> str:
     port = {"http": 80, "https": 443}.get(scheme, 11434) if sep else 11434
     if not sep:
         scheme, rest = "http", value
-    parts = urlsplit(f"{scheme}://{rest}")
     try:
+        parts = urlsplit(f"{scheme}://{rest}")
         port = parts.port or port
     except ValueError as exc:
-        raise ConfigError(f"OLLAMA_HOST is not a valid address: {host!r}") from exc
+        raise ConfigError("OLLAMA_HOST is not a valid address") from exc
     name = parts.hostname or "127.0.0.1"
     name = "127.0.0.1" if name in ("0.0.0.0", "::") else name
     name = f"[{name}]" if ":" in name else name
@@ -139,6 +139,7 @@ class LaunchPlan:
     proxy_mode: str
     session: str
     anchor: str
+    native_endpoint: tuple[str, str] | None = field(default=None, repr=False)
 
     def bind_port(self, port: int) -> LaunchPlan:
         return replace(self, port=port)
@@ -172,7 +173,7 @@ def _route_codex_provider(
     settings: Settings,
     sources: dict[str, str],
     environment: Mapping[str, str],
-) -> Target:
+) -> tuple[Target, tuple[str, str] | None]:
     """Point a custom Codex provider at the proxy, and the proxy at that provider.
 
     Without this, a ``model_provider`` of the user's own reaches its endpoint
@@ -182,30 +183,72 @@ def _route_codex_provider(
     Raises:
         ConfigError: If the Codex config cannot be read or routed.
     """
-    from urllib.parse import urlsplit
-
     from privyx.cli.codex import custom_provider
-    from privyx.providers.registry import resolve_api_key
 
     found = custom_provider(environment, [*spec.default_args, *argv])
     if found is None:
-        return spec
+        return spec, None
     name, base_url = found
-    explicit = settings.upstream_url or settings.provider.base_url
-    if settings.proxy.mode == "transparent" and not explicit:
-        if resolve_api_key(settings):
-            raise ConfigError(
-                f"Codex provider {name!r} would receive Privyx's own API key; "
-                "pass its URL as --upstream to confirm"
-            )
-        if urlsplit(base_url).path.rstrip("/") != spec.base_path:
-            raise ConfigError(
-                f"cannot route Codex provider {name!r}: Privyx forwards Codex requests "
-                f"under {spec.base_path}, and its base_url is {base_url}"
-            )
-        settings.upstream_url = base_url
-        sources["upstream_url"] = f"Codex config (model_providers.{name})"
-    return replace(spec, args=partial(codex_args, provider=name))
+    _follow_endpoint(
+        spec,
+        settings,
+        sources,
+        (base_url, f"Codex config (model_providers.{name})"),
+        label=f"Codex provider {name!r}",
+    )
+    return replace(spec, args=partial(codex_args, provider=name)), (
+        base_url,
+        f"Codex config (model_providers.{name})",
+    )
+
+
+def _follow_endpoint(
+    spec: Target,
+    settings: Settings,
+    sources: dict[str, str],
+    endpoint: tuple[str, str],
+    *,
+    label: str = "agent endpoint",
+) -> None:
+    from urllib.parse import urlsplit
+
+    from privyx.providers.registry import resolve_api_key
+
+    explicit = any(
+        value and sources.get(key, "explicit") != "defaults"
+        for key, value in (
+            ("upstream_url", settings.upstream_url),
+            ("provider.base_url", settings.provider.base_url),
+        )
+    )
+    if explicit or settings.proxy.mode != "transparent":
+        return
+    base_url, origin = endpoint
+    if resolve_api_key(settings):
+        raise ConfigError(
+            f"{label} would receive Privyx's own API key; pass its URL as --upstream to confirm"
+        )
+    # Custom header names can carry credentials too; do not infer their safety.
+    if any(settings.provider.headers.values()):
+        raise ConfigError(
+            f"{label} would receive Privyx's configured provider headers; "
+            "pass its URL as --upstream to confirm"
+        )
+    try:
+        parsed = urlsplit(base_url)
+        valid = parsed.scheme in ("http", "https") and bool(parsed.hostname)
+        _ = parsed.port
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ConfigError(f"cannot route {label}: expected an HTTP(S) endpoint")
+    if parsed.path.rstrip("/") != spec.base_path.rstrip("/"):
+        raise ConfigError(
+            f"cannot route {label}: its path must match the agent base_path; "
+            "set base_path to the endpoint path and configure matching proxy.routes"
+        )
+    settings.upstream_url = base_url
+    sources["upstream_url"] = origin
 
 
 def build_launch_plan(
@@ -239,8 +282,44 @@ def build_launch_plan(
         custom[destination] = inherited[reference]
         origin = provenance.get(prefix + "env_from." + destination, "profile")
         env_sources[destination] = f"{origin}; env_from {reference}"
+    environment = {**inherited, **custom}
+    native_endpoint = None
     if spec.adapter == "codex":
-        spec = _route_codex_provider(spec, argv, settings, provenance, {**inherited, **custom})
+        from privyx.cli.codex import openai_endpoint
+
+        spec, native_endpoint = _route_codex_provider(spec, argv, settings, provenance, environment)
+        if native_endpoint is None:
+            native_endpoint = openai_endpoint(environment, [*spec.default_args, *argv])
+    elif spec.adapter == "claude":
+        from privyx.cli.claude import endpoint
+
+        native_endpoint = endpoint(environment, [*spec.default_args, *argv])
+        if native_endpoint is None and environment.get("ANTHROPIC_BASE_URL"):
+            native_endpoint = (environment["ANTHROPIC_BASE_URL"], "environment ANTHROPIC_BASE_URL")
+    elif spec.adapter == "env":
+        # Multi-provider endpoints and the Gemini login traps cannot identify
+        # the model's destination without reading their native configuration.
+        candidates = {
+            "openai": ("OPENAI_BASE_URL",),
+            "aider": ("OPENAI_API_BASE", "OPENAI_BASE_URL"),
+            "grok": ("GROK_XAI_API_BASE_URL",),
+            "gemini": ("GOOGLE_GEMINI_BASE_URL",),
+            "ollama": ("OLLAMA_HOST",),
+        }.get(Path(spec.command).name, ())
+        for key in candidates:
+            if environment.get(key):
+                value = environment[key]
+                native_endpoint = (
+                    ollama_url(value) if key == "OLLAMA_HOST" else value,
+                    f"environment {key}",
+                )
+                break
+    if native_endpoint:
+        value, origin = native_endpoint
+        key = origin.removeprefix("environment ")
+        if key in env_sources:
+            native_endpoint = (value, f"{origin} ({env_sources[key]})")
+        _follow_endpoint(spec, settings, provenance, native_endpoint)
     for key in env_vars:
         env_sources[key] = (
             "CLI" if key in extra_env_vars else provenance.get(prefix + "env_vars", "defaults")
@@ -277,4 +356,5 @@ def build_launch_plan(
         proxy_mode=settings.proxy.mode,
         session=settings.session.strategy,
         anchor=anchor,
+        native_endpoint=native_endpoint,
     )

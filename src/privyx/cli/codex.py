@@ -68,6 +68,30 @@ def _options(argv: list[str]) -> tuple[list[str], str | None]:
     return overrides, profile
 
 
+def _config(environment: Mapping[str, str], argv: list[str]) -> dict[str, Any]:
+    home = Path(environment["HOME"]) if environment.get("HOME") else Path.home()
+    root = Path(environment.get("CODEX_HOME") or home / ".codex")
+    overrides, profile = _options(argv)
+    layers = [_read(Path("/etc/codex/config.toml")), _read(root / "config.toml")]
+    if profile:
+        layers.append(_read(root / f"{Path(profile).name}.config.toml"))
+    config: dict[str, Any] = {}
+    for layer in [*layers, *map(_override, overrides)]:
+        _merge(config, layer)
+    return config
+
+
+def openai_endpoint(environment: Mapping[str, str], argv: list[str]) -> tuple[str, str] | None:
+    """Read the built-in OpenAI provider's base URL."""
+    config = _config(environment, argv)
+    if config.get("model_provider", "openai") != "openai":
+        return None
+    value = config.get("openai_base_url")
+    if isinstance(value, str) and value:
+        return value, "Codex config (openai_base_url)"
+    return None
+
+
 def custom_provider(environment: Mapping[str, str], argv: list[str]) -> tuple[str, str] | None:
     """Return the ID and base URL of the custom provider Codex will call, if any.
 
@@ -78,16 +102,7 @@ def custom_provider(environment: Mapping[str, str], argv: list[str]) -> tuple[st
         ConfigError: If a config file is unreadable, or the provider ID cannot
             be addressed by a ``-c`` override.
     """
-    home = Path(environment["HOME"]) if environment.get("HOME") else Path.home()
-    root = Path(environment.get("CODEX_HOME") or home / ".codex")
-    overrides, profile = _options(argv)
-    layers = [_read(Path("/etc/codex/config.toml")), _read(root / "config.toml")]
-    if profile:
-        layers.append(_read(root / f"{Path(profile).name}.config.toml"))
-    config: dict[str, Any] = {}
-    for layer in [*layers, *map(_override, overrides)]:
-        _merge(config, layer)
-
+    config = _config(environment, argv)
     name = config.get("model_provider")
     providers = config.get("model_providers")
     if not isinstance(name, str) or name in _BUILTIN or not isinstance(providers, dict):

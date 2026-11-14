@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from privyx.cli.codex import custom_provider
+from privyx.cli.codex import custom_provider, openai_endpoint
 from privyx.cli.launch import build_launch_plan, profile_target
 from privyx.cli.main import cli
 from privyx.config.schema import AgentConfig, Settings
@@ -22,6 +22,15 @@ http_headers = { Authorization = "Bearer router-credential" }
 [model_providers.other]
 base_url = "http://other.test/v1"
 """
+
+
+def test_openai_endpoint_uses_config_not_sdk_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://ignored.example.com/v1")
+    assert openai_endpoint({"OPENAI_BASE_URL": "https://ignored.example.com/v1"}, []) is None
+    assert openai_endpoint({}, ["-c", 'openai_base_url="https://router.example.com/v1"']) == (
+        "https://router.example.com/v1",
+        "Codex config (openai_base_url)",
+    )
 
 
 @pytest.fixture

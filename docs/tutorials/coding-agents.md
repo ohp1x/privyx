@@ -225,11 +225,11 @@ Two things to look for:
     ```
 
     That happens when the tool's own configuration outranks what `privyx run`
-    sets: a `model_provider` set only in a project's `.codex/config.toml`,
-    or a `--settings` of your own after `--` for Claude Code. If your Claude
-    Code settings point `ANTHROPIC_BASE_URL` at a router or another proxy,
-    give that URL to Privyx instead, as `privyx run -u URL claude`: Privyx
-    then sits in front of it.
+    sets, such as a `model_provider` set only in a project's `.codex/config.toml`.
+    Supported native endpoints, including Claude's `ANTHROPIC_BASE_URL`
+    settings, are followed automatically unless you set an explicit upstream.
+    Claude settings that would override proxy routing are rejected before
+    launch. Check `run --dry-run` and the [routing rules](../guide/cli.md#privyx-run).
 
 - **The entity types you expect.** Emails, keys, and IP addresses show up
   without configuration. Names do not; that is the next step.
