@@ -425,6 +425,67 @@ async def test_empty_term_list_matches_nothing() -> None:
     assert found == {}
 
 
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize(
+    ("pattern", "text", "expected"),
+    [
+        (r"\bbob\b", "ANN bob BOB annual", ["ANN", "bob"]),
+        (r"(?i)\bbob\b", "ANN bob BOB", ["ANN", "bob", "BOB"]),
+        (r"(?x) (?i) bob # a trailing comment", "ANN BOB", ["ANN", "BOB"]),
+        (r"(?# flags follow)(?i)bob", "ANN BOB", ["ANN", "BOB"]),
+        (r"(?a)\bbob\b", "éanné ANN bob", ["ANN", "bob"]),
+        (r"^bob$", "ANN bob", ["ANN"]),
+        (r"label=(?P<value>bob)", "ANN label=bob", ["ANN", "bob"]),
+        (r"(bo)\1", "ANN bobo", ["ANN", "bobo"]),
+    ],
+)
+async def test_merge_terms_keeps_both_branches_and_regex_semantics(
+    dtype: str, pattern: str, text: str, expected: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    detector = build_detector(
+        {
+            "type": dtype,
+            "merge_terms": True,
+            "terms": {"PERSON": ["ann"]},
+            "patterns": {"PERSON": pattern},
+        }
+    )
+    found = await detector.detect(text, Context())
+    assert [s.text for s in found.spans if s.entity_type == "PERSON"] == expected
+    assert "replaces" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_merge_terms_tries_the_term_before_a_shorter_regex() -> None:
+    found = await _detect_terms(
+        "john smith",
+        merge_terms=True,
+        terms={"PERSON": ["john smith"]},
+        patterns={"PERSON": r"\bjohn\b"},
+    )
+    assert found == {"PERSON": ["john smith"]}
+
+
+@pytest.mark.asyncio
+async def test_merge_terms_keeps_variants_and_underscore_boundaries() -> None:
+    found = await _detect_terms(
+        "DB_ACME_CORP acmeCorp ORG-123",
+        merge_terms=True,
+        term_variants=True,
+        underscore_separates_words=True,
+        terms={"ORGANIZATION": ["Acme Corp"]},
+        patterns={"ORGANIZATION": r"ORG-\d{3}"},
+    )
+    assert found == {"ORGANIZATION": ["ACME_CORP", "acmeCorp", "ORG-123"]}
+
+
+def test_merge_terms_reports_an_invalid_original_regex() -> None:
+    with pytest.raises(ConfigError, match="invalid regex for entity 'PERSON'"):
+        build_detector(
+            {"merge_terms": True, "terms": {"PERSON": ["ann"]}, "patterns": {"PERSON": "("}}
+        )
+
+
 @pytest.mark.parametrize(
     "terms",
     [

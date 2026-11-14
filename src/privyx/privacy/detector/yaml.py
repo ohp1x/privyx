@@ -263,8 +263,8 @@ def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
     """Collect ``terms`` and ``patterns`` into a single entity -> regex map.
 
     A hand-written ``patterns`` entry wins over a ``terms`` entry for the same
-    entity: writing the regex yourself is the deliberate choice.  Entities that
-    appear in only one of the two are all kept.  The terms a regex replaces are
+    entity unless ``merge_terms`` opts into trying terms before that regex.
+    Entities that appear in only one of the two are all kept. The terms a regex replaces are
     named in a warning, by count: one regex added to complete them, such as
     from an ``include:``, would otherwise drop them without a word.
     """
@@ -279,15 +279,46 @@ def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
     )
     listed = {str(entity): values for entity, values in config["terms"].items()} if terms else {}
     for entity in sorted(terms.keys() & compiled.keys()):
+        if config.get("merge_terms"):
+            compiled[entity] = f"(?:{terms[entity]})|{_scoped_pattern(entity, compiled[entity])}"
+            continue
         warning = (entity, len(listed[entity]))
         if warning not in _OVERRIDES_WARNED:  # once, not per detector built
             _OVERRIDES_WARNED.add(warning)
             _log.warning(
                 "detector: the patterns regex for %r replaces its %d terms, which are no "
-                "longer matched; give the regex an entity name of its own to keep both",
+                "longer matched; set detector.merge_terms: true or give the regex "
+                "an entity name of its own to keep both",
                 *warning,
             )
     return {**terms, **compiled}
+
+
+def _scoped_pattern(entity: str, pattern: str) -> str:
+    """Scope global flags before placing a user's regex in an alternation."""
+    try:
+        flags = re.compile(pattern).flags
+    except re.error as exc:
+        raise ConfigError(f"invalid regex for entity {entity!r}: {exc}") from exc
+    # Global flag groups may follow comments, or whitespace in verbose mode.
+    # Remove only those groups; preserve comments and escaped characters.
+    preamble = r"\(\?[aiLmsux]+\)|\(\?#(?:\\.|[^\\)])*\)"
+    if flags & re.X:
+        preamble += r"|\s+|\#[^\n]*(?:\n|$)"
+    kept = ""
+    while match := re.match(preamble, pattern):
+        token = match[0]
+        if not re.fullmatch(r"\(\?[aiLmsux]+\)", token):
+            kept += token
+        pattern = pattern[match.end() :]
+    names = "".join(
+        name
+        for flag, name in ((re.A, "a"), (re.I, "i"), (re.M, "m"), (re.S, "s"), (re.X, "x"))
+        if flags & flag
+    )
+    # End a verbose trailing comment before closing the scoped group.
+    end = "\n" if flags & re.X else ""
+    return f"(?{names}:{kept}{pattern}{end})" if names else f"(?:{kept}{pattern})"
 
 
 def _terms_to_patterns(

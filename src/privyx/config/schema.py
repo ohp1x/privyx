@@ -54,13 +54,14 @@ class DetectorConfig(PluggableConfig):
     is entity -> regex, the second entity -> a list of literal strings that
     Privyx escapes and compiles for you (case-insensitively).  They are merged
     into one pattern map; a hand-written ``patterns`` entry wins over a ``terms``
-    entry for the same entity.
+    entry for the same entity unless ``merge_terms`` is enabled.
     """
 
     builtin_types = frozenset({"regex", "yaml", "presidio", "llm"})
     type: str = "regex"
     patterns: dict[str, str] = Field(default_factory=dict)
     terms: dict[str, list[str]] = Field(default_factory=dict)
+    merge_terms: bool = False  # regex/yaml: match terms before patterns for the same entity
     term_variants: bool = False  # terms also match acme-corp, acme_corp, … for "Acme Corp"
     # regex/yaml/llm: `_` separates words, so acme is found in ACME_API_KEY
     underscore_separates_words: bool = False
