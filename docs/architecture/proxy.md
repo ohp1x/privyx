@@ -121,7 +121,9 @@ per field, so a field a provider adds later is covered by default:
   inverse (a value the model wrote itself is new to the detector), and the
   provider rejects thinking whose text no longer matches its signature. The
   memory is per process: after a restart, or on another worker, the block falls
-  back to being re-pseudonymized.
+  back to being re-pseudonymized. With `proxy.dlp_check`, the masked request is
+  checked before remembered thinking is reinstated: only the upstream's exact
+  text bypasses the check, while all client fields remain checked.
 - **Tool arguments are documents.** An Anthropic `input` object and a parsed
   `arguments` string are user data with no wire structure, so no key inside
   them is opaque (a `name` argument is PII). A string `arguments` is parsed,

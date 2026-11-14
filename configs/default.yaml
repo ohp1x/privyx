@@ -90,6 +90,7 @@
 #   connect_timeout: 10
 #   max_connections: null  # null: no limit
 #   dlp_check: false       # refuse a masked request that still holds a masked value
+#                          # exact signed thinking remembered from upstream is exempt
 #   directive: false       # tell the model to keep placeholders as written
 #   cache_control: false   # mark a large Anthropic tools/system prefix for caching
 

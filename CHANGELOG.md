@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Proxy:** DLP no longer rejects echoed Claude thinking whose signature Privyx remembers, preserving the signed text while still blocking leaks elsewhere in the request
 - **Config:** An explicitly empty `PRIVYX_ANCHOR_SECRET` disables HMAC anchoring, overriding automatic anchoring in `run` and secrets set in configuration files
 - **CLI:** Agent launches follow supported native endpoints when no upstream is explicit, keeping requests and agent credentials on their intended destination through masking. Claude settings that would override proxy routing are rejected before launch
 - **Config:** A variable or secret reference in an agent profile's `env`, `args`, or `privyx` settings is resolved only when that profile runs, so an unset variable or a password manager prompt no longer affects every other command, and `config --path` no longer reads variables
