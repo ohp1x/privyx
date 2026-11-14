@@ -178,6 +178,7 @@
 # With a secret, the same value gets the same pseudonym in every session.
 # Empty: a per-session counter.  `auto` creates or reuses ~/.privyx/anchor.key,
 # which `privyx run` uses unless this is set.
+# An explicitly empty PRIVYX_ANCHOR_SECRET also disables HMAC anchoring.
 # anchor:
 #   type: hmac
 #   secret: ""             # or PRIVYX_ANCHOR_SECRET; `openssl rand -hex 32`

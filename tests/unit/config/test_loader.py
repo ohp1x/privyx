@@ -42,6 +42,23 @@ def test_env_overrides_base_extra(monkeypatch: pytest.MonkeyPatch) -> None:
     assert load_config(base_extra=_CONVO).session.strategy == "client"
 
 
+@pytest.mark.parametrize("yaml_secret", ["auto", "example-anchor-secret"])
+@pytest.mark.parametrize("env_secret", [None, "", "auto", "other-anchor-secret"])
+def test_env_anchor_secret_overrides_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, yaml_secret: str, env_secret: str | None
+) -> None:
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(f"anchor:\n  secret: {yaml_secret}\n", encoding="utf-8")
+    if env_secret is None:
+        monkeypatch.delenv("PRIVYX_ANCHOR_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("PRIVYX_ANCHOR_SECRET", env_secret)
+
+    settings = load_config(cfg)
+
+    assert settings.anchor.secret == (yaml_secret if env_secret is None else env_secret)
+
+
 def test_env_sets_the_vault_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRIVYX_VAULT_TTL", "604800")
     assert load_config().vault.ttl == 604800

@@ -1161,17 +1161,21 @@ async def test_run_spawns_target_against_a_live_proxy(
     assert recorded["url"].startswith(origin)
 
 
+@pytest.mark.parametrize("anchor_env", [None, ""], ids=["default", "empty-env"])
 async def test_run_provisions_anchor_secret_by_default(
-    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, anchor_env: str | None
 ) -> None:
-    """By default `privyx run` persists an anchor secret, so aliases stay stable."""
+    """The default persists a key; an empty environment override disables it."""
     import sys
 
     pytest.importorskip("uvicorn")
     pytest.importorskip("fastapi")
 
     monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
-    monkeypatch.delenv("PRIVYX_ANCHOR_SECRET", raising=False)
+    if anchor_env is None:
+        monkeypatch.delenv("PRIVYX_ANCHOR_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("PRIVYX_ANCHOR_SECRET", anchor_env)
 
     from privyx.cli.commands.run import Target, _run_target
 
@@ -1183,7 +1187,7 @@ async def test_run_provisions_anchor_secret_by_default(
     )
     spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
 
-    # Defaults: session=conversation, auto-anchor on.
+    # No anchor flag: the environment can override automatic provisioning.
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
@@ -1195,6 +1199,9 @@ async def test_run_provisions_anchor_secret_by_default(
 
     assert code == 0
     anchor_key = home / ".privyx" / "anchor.key"
+    if anchor_env == "":
+        assert not anchor_key.exists()
+        return
     assert anchor_key.exists()
     secret = anchor_key.read_text(encoding="utf-8").strip()
     assert len(secret) == 64

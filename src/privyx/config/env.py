@@ -33,7 +33,7 @@ def discovery_disabled() -> bool:
 
 
 def env_config() -> dict[str, Any]:
-    """Load configuration from environment variables (non-empty only)."""
+    """Load non-empty environment values, allowing an empty anchor secret."""
     cfg: dict[str, Any] = {}
     agents = _env("AGENTS")
     if agents:
@@ -73,9 +73,8 @@ def env_config() -> dict[str, Any]:
         if value:
             provider_type = key.split("_")[0].lower()
             cfg.setdefault("provider", {})[f"{provider_type}_api_key"] = value
-    anchor_secret = _env("ANCHOR_SECRET")
-    if anchor_secret:
-        cfg.setdefault("anchor", {})["secret"] = anchor_secret
+    if "PRIVYX_ANCHOR_SECRET" in os.environ:
+        cfg.setdefault("anchor", {})["secret"] = _env("ANCHOR_SECRET")
     session_strategy = _env("SESSION_STRATEGY")
     if session_strategy:
         cfg.setdefault("session", {})["strategy"] = session_strategy
