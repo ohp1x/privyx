@@ -202,7 +202,7 @@ examples, agent profiles among them. The Docker image ships them under
 | `port` | `8000` | Port the proxy listens on. |
 | `log_level` | `info` | `debug`, `info`, `warning`, or `error`, for Privyx's own logs. |
 | `logging` | `text` | Console format: `text` lines or `json` objects. |
-| `log_file` | empty | File that also receives third-party logs at `log_level`. At `debug` it holds raw vault rows, which include original values; it is created with mode `0600`. |
+| `log_file` | empty | File that also receives third-party logs at `log_level`. At `debug` it holds raw vault rows, which include original values; it must be a regular file and is created with mode `0600`. On POSIX systems, existing files must belong to the current user and have no permissions beyond `0600`; otherwise startup fails before writing. Use `chmod 600` to fix overly broad permissions. |
 | `upstream_url` | empty | Explicit upstream, the same as `--upstream`. Wins over `provider.base_url`. |
 
 ### `agents`

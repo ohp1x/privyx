@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import os
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -93,6 +94,74 @@ def test_log_file_gets_third_party_debug_console_does_not(
 def test_an_unwritable_log_file_is_a_config_error(_root_logging: None, tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="cannot write log_file"):
         configure_logging(Settings(log_file=str(tmp_path / "missing" / "privyx.log")))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permissions")
+@pytest.mark.parametrize("mode", [0o644, 0o640, 0o666, 0o700])
+def test_log_file_rejects_broad_permissions(_root_logging: None, tmp_path: Path, mode: int) -> None:
+    path = tmp_path / "debug.log"
+    path.write_text("existing\n")
+    path.chmod(mode)
+
+    with pytest.raises(ConfigError, match="chmod 600"):
+        configure_logging(Settings(log_file=str(path)))
+
+    assert path.read_text() == "existing\n"
+    assert path.stat().st_mode & 0o777 == mode
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file ownership")
+def test_log_file_rejects_another_owner(
+    _root_logging: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "debug.log"
+    path.write_text("existing\n")
+    path.chmod(0o600)
+    monkeypatch.setattr(os, "geteuid", lambda: path.stat().st_uid + 1)
+
+    with pytest.raises(ConfigError, match="owned by the current user"):
+        configure_logging(Settings(log_file=str(path)))
+
+    assert path.read_text() == "existing\n"
+
+
+def test_log_file_appends_to_private_file(_root_logging: None, tmp_path: Path) -> None:
+    path = tmp_path / "debug.log"
+    path.write_text("existing\n")
+    path.chmod(0o600)
+    configure_logging(Settings(log_file=str(path)), console=False)
+    logging.getLogger("privyx").warning("new record")
+    assert path.read_text().startswith("existing\n")
+    assert "new record" in path.read_text()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX open file replacement")
+def test_log_file_writes_to_the_checked_descriptor(
+    _root_logging: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "debug.log"
+    original = tmp_path / "original.log"
+    open_file = os.open
+
+    def replace_after_open(filename: str, flags: int, mode: int) -> int:
+        fd = open_file(filename, flags, mode)
+        path.rename(original)
+        path.write_text("replacement\n")
+        path.chmod(0o644)
+        return fd
+
+    monkeypatch.setattr(os, "open", replace_after_open)
+    configure_logging(Settings(log_file=str(path)), console=False)
+    logging.getLogger("privyx").warning("private record")
+
+    assert path.read_text() == "replacement\n"
+    assert "private record" in original.read_text()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX device file")
+def test_log_file_rejects_device(_root_logging: None) -> None:
+    with pytest.raises(ConfigError, match="regular file"):
+        configure_logging(Settings(log_file=os.devnull))
 
 
 def test_log_file_trims_third_party_chatter(_root_logging: None, tmp_path: Path) -> None:
