@@ -25,6 +25,7 @@ jobs:
         agent: [claude, codex]
         mode: [run, transparent]
         permission: [default, auto]
+        defaults: [current, next]
         exclude:
           - agent: codex  # Claude Code's permission mode
             permission: auto
@@ -55,15 +56,17 @@ jobs:
           AGENT: ${{ matrix.agent }}
           MODE: ${{ matrix.mode }}
           PERMISSION: ${{ matrix.permission }}
+          DEFAULTS: ${{ matrix.defaults }}
         run: |
           args=(--agent "$AGENT")
           if [ "$MODE" = transparent ]; then args+=(--transparent); fi
           if [ "$PERMISSION" = auto ]; then args+=(--auto); fi
+          if [ "$DEFAULTS" = next ]; then args+=(--next-defaults); fi
           uv run python scripts/test-e2e/run.py "${args[@]}"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: agent-e2e-${{ matrix.agent }}-${{ matrix.mode }}-${{ matrix.permission }}
+          name: agent-e2e-${{ matrix.agent }}-${{ matrix.mode }}-${{ matrix.permission }}-${{ matrix.defaults }}
           path: |
             /tmp/privyx-e2e-*/agent.out
             /tmp/privyx-e2e-*/upstream.jsonl

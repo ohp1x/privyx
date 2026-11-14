@@ -1,4 +1,4 @@
-.PHONY: install dev test coverage e2e bench bench-requests lint format check vulns docs run proxy clean
+.PHONY: install dev test coverage e2e e2e-next-defaults bench bench-requests lint format check vulns docs run proxy clean
 
 install:
 	uv sync --all-extras
@@ -13,12 +13,15 @@ coverage:
 	uv run pytest --cov=privyx --cov-report=term --cov-report=html
 
 e2e:
-	uv run python scripts/test-e2e/run.py
-	uv run python scripts/test-e2e/run.py --transparent
-	uv run python scripts/test-e2e/run.py --agent codex
-	uv run python scripts/test-e2e/run.py --agent codex --transparent
-	uv run python scripts/test-e2e/run.py --auto
-	uv run python scripts/test-e2e/run.py --transparent --auto
+	uv run python scripts/test-e2e/run.py $(E2E_ARGS)
+	uv run python scripts/test-e2e/run.py --transparent $(E2E_ARGS)
+	uv run python scripts/test-e2e/run.py --agent codex $(E2E_ARGS)
+	uv run python scripts/test-e2e/run.py --agent codex --transparent $(E2E_ARGS)
+	uv run python scripts/test-e2e/run.py --auto $(E2E_ARGS)
+	uv run python scripts/test-e2e/run.py --transparent --auto $(E2E_ARGS)
+
+e2e-next-defaults:
+	$(MAKE) e2e E2E_ARGS=--next-defaults
 
 # Timing of the request path; numbers vary by machine, so not run in CI.
 bench:

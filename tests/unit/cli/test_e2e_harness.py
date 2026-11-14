@@ -9,6 +9,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+import yaml
 
 from privyx.streaming.sse import SSEDecoder
 
@@ -172,3 +173,24 @@ def test_auto_mode_is_refused_for_an_agent_without_one(run_harness: ModuleType) 
     assert run_harness.AGENTS["claude"].auto
     with pytest.raises(SystemExit, match="codex has no auto permission mode"):
         run_harness.main("codex", False, "", None, auto=True)
+
+
+@pytest.mark.parametrize("next_defaults", [False, True])
+def test_seed_selects_candidate_defaults_without_changing_the_base(
+    run_harness: ModuleType, tmp_path: Path, next_defaults: bool
+) -> None:
+    from privyx.config.loader import load_config
+    from privyx.core.builder import build_detector_from
+    from privyx.core.context import Context
+
+    run_harness.seed(tmp_path, {}, next_defaults)
+    settings = load_config(tmp_path / "privyx.yaml")
+    assert settings.detector.underscore_separates_words is next_defaults
+    assert settings.detector.term_variants is next_defaults
+    assert settings.proxy.dlp_check is next_defaults
+    assert settings.anchor.secret == ("auto" if next_defaults else "")
+    assert len(settings.detector.enable) == (9 if next_defaults else 0)
+    base = yaml.safe_load(run_harness.CONFIG)
+    assert "anchor" not in base and "enable" not in base["detector"]
+    detector = build_detector_from(settings)
+    assert detector.detect_sync("ordinary prose", Context()).spans == []
