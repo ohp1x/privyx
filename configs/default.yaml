@@ -23,7 +23,8 @@
 # logging: text            # console format: text | json
 # Debug log file (or PRIVYX_LOG_FILE).  It also receives third-party logs at
 # log_level.  At debug it holds raw vault rows (original values): it is
-# created 0600, keep it local.
+# created 0600, keep it local. On POSIX, existing files must belong to you
+# with no permissions beyond 0600, or startup fails (fix with chmod 600).
 # log_file: ""
 
 # --- Upstream ---

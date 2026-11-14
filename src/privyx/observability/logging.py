@@ -17,8 +17,10 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
+import stat
 import sys
-from pathlib import Path
+from io import TextIOWrapper
 from typing import Any
 
 from privyx.config.schema import Settings
@@ -75,6 +77,26 @@ def _tidy_third_party(record: logging.LogRecord) -> bool | logging.LogRecord:
     return True
 
 
+class _PrivateFileHandler(logging.FileHandler):
+    def _open(self) -> TextIOWrapper:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(self.baseFilename, flags, 0o600)
+        try:
+            # Validate the descriptor we write to, without reopening its path.
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise ConfigError("log_file must be a regular file")
+            if os.name == "posix":
+                if info.st_uid != os.geteuid():
+                    raise ConfigError("log_file must be owned by the current user")
+                if stat.S_IMODE(info.st_mode) & ~0o600:
+                    raise ConfigError("log_file permissions are too broad; use chmod 600 on it")
+            return open(fd, "a", encoding=self.encoding, errors=self.errors)
+        except BaseException:
+            os.close(fd)
+            raise
+
+
 def configure_logging(settings: Settings, *, console: bool = True) -> None:
     """Set up application logging from Privyx settings.
 
@@ -103,8 +125,7 @@ def configure_logging(settings: Settings, *, console: bool = True) -> None:
     if settings.log_file:
         # Third-party debug output includes raw vault rows (original PII): owner-only.
         try:
-            Path(settings.log_file).touch(mode=0o600)
-            log_file = logging.FileHandler(settings.log_file, encoding="utf-8")
+            log_file = _PrivateFileHandler(settings.log_file, encoding="utf-8")
         except OSError as exc:
             msg = f"cannot write log_file {settings.log_file}: {exc.strerror or exc}"
             raise ConfigError(msg) from exc

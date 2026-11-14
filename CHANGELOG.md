@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+- **Logging:** On POSIX, existing debug log files with permissions beyond `0600` or owned by another user are rejected before writing, preventing original values from being appended to a shared file
 - **CLI:** Codex custom providers selected through profile environment references now route through masking instead of calling the upstream directly
 
 ## [0.1.35] - 2026-11-13
