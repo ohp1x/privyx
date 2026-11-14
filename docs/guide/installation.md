@@ -138,8 +138,8 @@ changing a config file.
     ```
 
 The [changelog](https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md) lists
-what each release changed. Privyx is in its `0.1.x` series: a release can
-change a default, and the changelog says so under "Changed".
+what each release changed. See [Upgrading](upgrading.md) for the version and
+deprecation policies, planned 0.2 defaults, and how to retain previous behavior.
 
 ## Next steps
 
