@@ -3,8 +3,11 @@
 ## In-Transit
 
 - Request/response bodies are processed in memory only.
-- Plaintext PII never crosses the boundary to the provider.
-- Pseudonyms are the only representation the provider sees.
+- Values selected by the detector and policy are replaced before forwarding
+  requests on masking routes. Undetected values and skipped fields remain
+  visible; see [Limitations](limitations.md).
+- The provider sees the replacements and the rest of the request. The
+  `partial` operator deliberately leaves part of a value visible.
 
 ## At-Rest
 
@@ -21,6 +24,10 @@
 ## Logging
 
 - Privacy logic never logs payload text.
+- An opt-in debug `log_file` can contain original vault values from third-party
+  libraries. New log files use `0600`; on POSIX, existing files with broader
+  permissions or another owner are rejected. The opt-in session tap also
+  records original bodies.
 - Application logs (`observability/logging.py`) go to stdout as text or JSON
   (`logging: text|json`); the JSON formatter serializes with `json.dumps`, so a
   message can never corrupt the record.

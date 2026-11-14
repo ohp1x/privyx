@@ -5,8 +5,8 @@ description: What to decide before other machines use your Privyx. Where it list
 # Deployment
 
 On your own machine, the defaults are the deployment: Privyx listens on
-`127.0.0.1`, keeps sessions in memory, and writes an audit log next to where
-it runs. This page covers what to decide once other machines, or other
+`127.0.0.1`, keeps sessions in memory, and writes its audit trail to
+`~/.privyx/audit.log`. This page covers what to decide once other machines, or other
 people, use the same proxy. For a complete worked setup, see
 [A shared gateway for a team](../tutorials/team-gateway.md).
 

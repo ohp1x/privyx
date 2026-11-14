@@ -186,11 +186,11 @@ operator:
 ```
 
 - **`passthrough_unknown: false`** closes the gap that unrouted paths leave.
-  By default a path Privyx has no route for, such as `/v1/embeddings`, is
+  By default a path Privyx has no route for, such as `/v1/files`, is
   forwarded as the client sent it. With this setting it is refused:
 
     ```json
-    {"error": {"message": "privyx: /v1/embeddings is not in proxy.routes and proxy.passthrough_unknown is false"}}
+    {"error": {"message": "privyx: /v1/files is not in proxy.routes and proxy.passthrough_unknown is false"}}
     ```
 
     This also refuses harmless paths such as `GET /v1/models`, which some

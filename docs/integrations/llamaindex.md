@@ -30,6 +30,16 @@ print(llm.complete("Write a short greeting to alice@example.com"))
 
 ## Anthropic models
 
+With `llama-index-llms-anthropic==0.13.0`, use Anthropic SDK 1.x:
+
+```bash
+pip install 'llama-index-llms-anthropic==0.13.0' 'anthropic>=1,<2'
+```
+
+SDK 2.8.0 changes `MessageParam` to a union type; this LlamaIndex version
+tries to construct it and fails with `Cannot instantiate typing.Union`
+before sending a request. The example below is verified with SDK 1.17.0.
+
 ```bash
 privyx proxy --upstream https://api.anthropic.com
 ```
@@ -59,8 +69,8 @@ llm = OpenAILike(
 print(llm.complete("Write a short greeting to alice@example.com"))
 ```
 
-`is_chat_model=True` matters: without it, `OpenAILike` uses the legacy
-completions API, a path Privyx does not mask.
+`is_chat_model=True` selects chat completions. Without it, `OpenAILike` uses
+the legacy completions API; Privyx masks text prompts on that path too.
 
 ## Good to know
 

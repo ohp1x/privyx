@@ -145,9 +145,10 @@ Privyx reduces what a provider sees. It does not make a prompt safe by itself:
 
 - Names, organizations, and project terms are only masked once you configure
   a word list or a detector for them.
-- Only chat, legacy completions, and embeddings requests are masked. Other
-  API paths, such as file uploads, are forwarded as the client sent them,
-  unless you tell Privyx to refuse them.
+- Only configured [masking routes](guide/proxy.md#routes) are inspected:
+  chat, Responses, legacy completions, embeddings, and supported token-counting
+  and compaction requests, including native Gemini and Ollama formats. Other
+  paths, such as file uploads, are forwarded as sent unless you refuse them.
 - Images, audio, and other binary content are not inspected.
 - The proxy has no authentication of its own.
 

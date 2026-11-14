@@ -2,9 +2,9 @@
 
 ## Vault Backends
 
-Session state that outlives a request never lives only in process memory (an
-ephemeral session lives for one request, in the memory of the process serving
-it):
+The default memory vault is limited to one process and loses sessions on
+restart. Use SQLite for persistence or Redis for sessions shared across
+instances. An ephemeral session lives for one request in the process serving it:
 
 | Backend | Use case |
 |---|---|
@@ -31,9 +31,13 @@ session's idle time restarts with each request that uses it.
 
 ## Statelessness
 
-- Request/response bodies are processed in-memory; no cross-instance state.
-- A sticky session's mapping lives in the vault — any instance can serve any
-  session.
+- Request/response bodies are processed in memory. Shared session mappings
+  need a shared vault; use Redis across instances.
+- With Redis, any instance can load a retained session's mapping. Keep the
+  same token configuration and anchor or encryption key on every instance.
+- Remembered signed Anthropic thinking is process-local. Another instance
+  falls back to masking the echoed text again, which can invalidate its
+  signature; see [Proxy architecture](proxy.md#what-gets-transformed-and-restored).
 - Without an anchor, tokens are counters, so an instance masking a request
   holds the session's Redis lock (`SET NX EX`, renewed while held) until it
   has saved the mapping. With an anchor no lock is taken: the token comes from

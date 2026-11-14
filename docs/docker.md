@@ -69,7 +69,7 @@ settings, with credentials masked, using `docker run --rm ohp1x/privyx config --
 ## Modes
 
 The default command is `proxy`, a transparent reverse proxy that forwards every
-path to the upstream. For the narrow chat-only gateway, which posts to one
+path to the upstream. For the fixed-endpoint gateway, which posts to one
 fixed endpoint:
 
 ```bash

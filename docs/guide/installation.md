@@ -94,19 +94,22 @@ Error: aiosqlite is required. Install with `pip install privyx[sqlite]`.
 
 ```console
 $ privyx --version
-privyx, version 0.1.14
+privyx, version X.Y.Z
 $ privyx doctor
 Privyx Doctor
 =============
   ✓ plugins: no plugin paths configured
   ✓ detector: regex: 1 span(s) ['EMAIL']
+  ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok
   ✓ provider: generic → http://localhost:20128
   ✓ proxy: request transformed, 1 mapping(s) vaulted
   ✓ streaming: pseudonym restored across a split chunk
+  ...
   ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=off
 ```
 
+`X.Y.Z` is your installed version; the doctor output above is abbreviated.
 `privyx doctor` builds every configured component and pushes a sample request
 through it, without calling a provider. Run it with `-c your.yaml` after
 changing a config file.

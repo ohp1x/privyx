@@ -175,7 +175,7 @@ and [Detection](detection.md) has every option.
 
 ```console
 $ privyx config
-Privyx 0.1.14
+Privyx X.Y.Z
   Host: 127.0.0.1:8000
   Upstream: http://localhost:20128
   Provider: generic
@@ -186,7 +186,7 @@ Privyx 0.1.14
   Operator: pseudonym
 ```
 
-`Upstream` is where requests go when nothing else is set, a local default;
+`X.Y.Z` is your installed version. `Upstream` is where requests go when nothing else is set, a local default;
 `--upstream`, `PRIVYX_UPSTREAM_URL`, or a config file changes it.
 `privyx config --show` prints every setting with credentials masked, and
 `privyx doctor` exercises the configured detector, vault, and proxy end to end.

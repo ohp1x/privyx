@@ -85,7 +85,7 @@ Test `proxy.dlp_check: true` separately before using it with an agent. Claude
 can echo signed thinking containing a value the request masks elsewhere; DLP
 then rejects the request, while changing that thinking would invalidate its
 signature. This compatibility issue must be resolved before DLP becomes a
-default. See the [candidate-default tests](../development/testing.md#end-to-end-a-real-agent-make-e2e).
+default. See the [agent tests](../development/testing.md#end-to-end-a-real-agent-make-e2e).
 
 The default operator and PASP are not finalized. `detector.merge_terms: true`
 is available in 0.1.36, but making it a default is also undecided. Keep these
