@@ -206,7 +206,7 @@ def load_config(
         )
     for config_file in config_files:
         for file, data in _config_layers(config_file, warn=True):
-            apply(data, str(file.resolve()))
+            apply(_interpolate(data, file), str(file.resolve()))
 
     apply(env_config(), "environment")
 
@@ -225,6 +225,8 @@ def load_config(
         _apply_colon_inheritance(profiles)
         profiles, inherited_sources = resolve_profiles(profiles, origins)
         _check_overrides(profiles)
+        if agent in profiles:
+            profiles[agent] = _settle(profiles[agent], expand=True)
         selected = profiles.get(agent) if agent else None
         override = selected.get("privyx") if isinstance(selected, dict) else None
         if isinstance(override, dict) and override:
@@ -251,7 +253,18 @@ def load_config(
         sources.clear()
         sources.update(origins)
 
+    merged = _settle(merged, expand=False)
+    # Another profile's deferred settings keep their secret references as
+    # written, so a command does not open a password manager for them.
+    held: dict[str, dict[str, Any]] = {}
+    agents = merged.get("agents")
+    if isinstance(agents, dict):
+        for name, profile in agents.items():
+            if name != agent and isinstance(profile, dict):
+                held[name] = {key: profile.pop(key) for key in _DEFERRED if key in profile}
     merged = resolve_secrets(merged)
+    for name, values in held.items():
+        merged["agents"][name].update(values)
     try:
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
@@ -418,11 +431,11 @@ def _config_layers(path: Path, *, warn: bool = False) -> list[tuple[Path, dict[s
             raise ConfigError(f"{file} is included by {path}, so it cannot include files itself")
         if warn:
             _warn_exposed(file, included)
-        layers.append((file, _interpolate(included, file)))
+        layers.append((file, included))
     data.pop("include", None)
     if warn:
         _warn_exposed(path, data)
-    layers.append((path, _interpolate(data, path)))
+    layers.append((path, data))
     return layers
 
 
@@ -540,20 +553,50 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 _REFERENCE = re.compile(r"\$\$\{|\$\{(?:([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\})?")
 
 
-def _interpolate(value: Any, path: Path) -> Any:
+#: Profile settings resolved only for the profile being run, so a reference in
+#: another profile neither fails nor prompts for every command.
+_DEFERRED = ("env", "args", "privyx")
+
+
+class _Deferred(str):
+    """A reference in a profile's deferred settings, kept as written in ``file``."""
+
+    file: Path
+
+    def __new__(cls, text: str, file: Path) -> _Deferred:
+        value = super().__new__(cls, text)
+        value.file = file
+        return value
+
+
+def _settle(value: Any, *, expand: bool) -> Any:
+    """Each :class:`_Deferred` in ``value`` interpolated, or as plain text without ``expand``."""
+    if isinstance(value, dict):
+        return {key: _settle(item, expand=expand) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_settle(item, expand=expand) for item in value]
+    if isinstance(value, _Deferred):
+        return _interpolate(str(value), value.file) if expand else str(value)
+    return value
+
+
+def _interpolate(value: Any, path: Path, keys: tuple[Any, ...] = ()) -> Any:
     """Replace ``${NAME}`` and ``${NAME:-default}`` in every string value with the environment.
 
     ``${NAME:-default}`` takes the default when ``NAME`` is unset or empty, as in
     a shell.  An unset ``${NAME}`` with no default is an error: a missing key
     would otherwise reach the upstream as an empty string.  ``$${`` writes a
-    literal ``${``.  Keys are left as written.
+    literal ``${``.  Keys are left as written.  A profile's ``env``, ``args``,
+    and ``privyx`` values are deferred (:class:`_Deferred`) until that profile runs.
     """
     if isinstance(value, dict):
-        return {key: _interpolate(item, path) for key, item in value.items()}
+        return {key: _interpolate(item, path, (*keys, key)) for key, item in value.items()}
     if isinstance(value, list):
-        return [_interpolate(item, path) for item in value]
+        return [_interpolate(item, path, keys) for item in value]
     if not isinstance(value, str) or "${" not in value:
         return value
+    if keys[:1] == ("agents",) and len(keys) > 2 and keys[2] in _DEFERRED:
+        return _Deferred(value, path)
 
     def substitute(match: re.Match[str]) -> str:
         if match.group(0) == "$${":

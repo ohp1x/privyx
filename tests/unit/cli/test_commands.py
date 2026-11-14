@@ -2394,3 +2394,78 @@ async def test_a_signal_stop_lets_cut_requests_clean_up_first() -> None:
 
     assert cleaned.is_set()  # before _serve_until_reload returned
     assert not killed
+
+
+@pytest.mark.parametrize(
+    ("argv", "stdin"),
+    [
+        (["run", "--list"], None),
+        (["run", "--dry-run", "claude"], None),
+        (["mask", "--stdin"], "mail ana@example.com\n"),
+        (["doctor"], None),
+        (["config", "--show"], None),
+        (["hook", "pre-commit"], None),
+    ],
+)
+def test_an_unused_profile_reference_is_never_resolved(
+    runner: CliRunner,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+    stdin: str | None,
+) -> None:
+    import subprocess
+
+    calls: list[str] = []
+    monkeypatch.setattr("privyx.security.secrets._op_read", lambda ref, path: calls.append(ref))
+    monkeypatch.setattr("privyx.security.secrets._keychain", lambda ref, path: calls.append(ref))
+    monkeypatch.delenv("TEST_UNSET_PROFILE", raising=False)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "agents:\n  unused:\n    command: unused\n"
+        "    env: {TOKEN: '${TEST_UNSET_PROFILE}', KEY: op://example/item/credential}\n"
+        "    args: ['--key=${TEST_UNSET_PROFILE}']\n"
+        "    privyx: {anchor: {secret: keychain://example/account}}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PRIVYX_CONFIG", str(config))
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli, argv, input=stdin)
+
+    assert "TEST_UNSET_PROFILE is not set" not in result.output
+    assert "default token format" not in result.output
+    assert calls == []
+    if argv[0] != "doctor":
+        assert result.exit_code == 0, result.output
+
+
+def test_the_selected_profile_reports_a_missing_reference(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TEST_UNSET_PROFILE", raising=False)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "agents:\n  claude:\n    env: {TOKEN: '${TEST_UNSET_PROFILE}'}\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(cli, ["run", "--dry-run", "-c", str(config), "claude"])
+
+    assert result.exit_code == 1
+    assert "TEST_UNSET_PROFILE is not set" in result.output
+
+
+def test_config_path_does_not_interpolate(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TEST_UNSET_PORT", raising=False)
+    included = tmp_path / "port.yaml"
+    included.write_text("port: ${TEST_UNSET_PORT}\n", encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text("include: port.yaml\nlog_file: ${TEST_UNSET_PORT}\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["config", "--path", "-c", str(config)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [str(included), str(config)]

@@ -466,3 +466,49 @@ def test_trust_covers_included_files(tmp_path: Path, monkeypatch: pytest.MonkeyP
         "upstream_url: https://evil.test\n", encoding="utf-8"
     )
     assert load_config().upstream_url != "https://evil.test"  # a new match needs trust too
+
+
+_PROFILE_REFERENCES = (
+    "agents:\n"
+    "  base:\n    command: base\n    env: {INHERITED: '${TEST_INHERITED}'}\n"
+    "  work:\n    extends: base\n    env: {TOKEN: '${TEST_TOKEN}'}\n"
+    "    args: ['--key=${TEST_ARG}']\n"
+    "    privyx: {anchor: {secret: '${TEST_ANCHOR}'}}\n"
+    "  other:\n    command: other\n    upstream: ${TEST_UPSTREAM:-https://example.com}\n"
+)
+
+
+def test_profile_references_wait_until_that_profile_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("TEST_INHERITED", "TEST_TOKEN", "TEST_ARG", "TEST_ANCHOR"):
+        monkeypatch.delenv(name, raising=False)
+    cfg = _yaml(tmp_path, _PROFILE_REFERENCES)
+
+    for agent in (None, "other"):
+        settings = load_config(cfg, agent=agent)
+        work = settings.agents["work"]
+        assert work.env == {"INHERITED": "${TEST_INHERITED}", "TOKEN": "${TEST_TOKEN}"}
+        assert work.args == ["--key=${TEST_ARG}"]
+        assert work.privyx == {"anchor": {"secret": "${TEST_ANCHOR}"}}
+        assert settings.agents["other"].upstream == "https://example.com"
+
+    with pytest.raises(ConfigError, match=r"uses \$\{TEST_INHERITED\}"):
+        load_config(cfg, agent="work")
+
+    monkeypatch.setenv("TEST_INHERITED", "parent")
+    monkeypatch.setenv("TEST_TOKEN", "token")
+    monkeypatch.setenv("TEST_ARG", "arg")
+    monkeypatch.setenv("TEST_ANCHOR", "anchor-secret")
+    settings = load_config(cfg, agent="work")
+    work = settings.agents["work"]
+    assert work.env == {"INHERITED": "parent", "TOKEN": "token"}
+    assert work.args == ["--key=arg"]
+    assert settings.anchor.secret == "anchor-secret"
+    assert settings.agents["base"].env == {"INHERITED": "${TEST_INHERITED}"}
+
+
+def test_profile_shape_fields_resolve_for_every_command(tmp_path: Path) -> None:
+    cfg = _yaml(tmp_path, "agents:\n  other:\n    command: ${TEST_UNSET_COMMAND}\n")
+    with pytest.raises(ConfigError, match=r"uses \$\{TEST_UNSET_COMMAND\}"):
+        load_config(cfg)
