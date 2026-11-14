@@ -369,7 +369,7 @@ class AuditLogger:
             transformations=transformations,
         )
 
-    def route_decision(self, *, allowed: bool, method: str) -> None:
+    def route_decision(self, *, allowed: bool, method: str, reason: str = "unknown_route") -> None:
         """An unknown route was allowed or blocked, without recording its URL.
 
         Paths, query strings, headers and bodies can all hold secrets. Only the
@@ -382,7 +382,7 @@ class AuditLogger:
         self.emit(
             AuditEventType.PROXY_PASSTHROUGH if allowed else AuditEventType.PROXY_BLOCKED,
             method=safe_method,
-            reason="unknown_route",
+            reason=reason,
             body_masked=False,
         )
 

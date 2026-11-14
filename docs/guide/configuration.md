@@ -233,7 +233,7 @@ privyx run claude-work
 |---|---|---|
 | `command` | Required for a new profile | Executable name or path, passed directly to a subprocess. Pass arguments after `--`; this field is not a shell command. |
 | `provider` | `generic` | Upstream provider type, such as `openai` or `anthropic`. |
-| `upstream` | empty | Explicit HTTP(S) upstream URL. Without an explicit upstream, transparent mode follows supported native agent endpoints, then the provider default. Transparent mode forwards to its origin; gateway mode uses the full URL. |
+| `upstream` | empty | Explicit HTTP(S) upstream URL. Without an explicit upstream, transparent mode follows supported native agent endpoints, then the provider default. Transparent mode forwards to its origin, or to the full URL with `proxy.path_mapping.mode: prefix`; gateway mode uses the full URL. |
 | `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the built-in profile's list; CLI `--env-var` adds names. Supported native endpoint values are read before injection; arbitrary variable names do not imply an upstream. |
 | `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
 | `extends` | `null` | Parent profile name. Inherits command, transport, adapter, args, and environment settings. Unknown parents and cycles are rejected. |
@@ -448,8 +448,9 @@ Where requests go and which key they carry.
 
 The upstream is the first non-empty of `upstream_url`, `provider.base_url`, and
 the default for `provider.type`. The transparent proxy uses only its
-`scheme://host[:port]` and appends the client's own path; the gateway posts to
-it as written.
+`scheme://host[:port]` and appends the client's own path, unless
+[`proxy.path_mapping`](#upstream-with-a-path) keeps its path too; the gateway
+posts to it as written.
 
 For `run` in transparent mode, supported native endpoint settings fill in the
 destination before the provider default when neither upstream is explicit.
@@ -469,6 +470,8 @@ environment.
 |---|---|---|
 | `mode` | `transparent` | `transparent` forwards every path to the upstream origin; `gateway` serves Privyx's own endpoints and posts to one fixed URL. Same as `--transparent` / `--gateway`. |
 | `routes` | twenty-seven paths | Path → wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`) for the requests Privyx masks; a `*` matches any characters except `/`. A map given here replaces the default one. See [Routes](proxy.md#routes). |
+| `path_mapping.mode` | `origin` | Transparent mode only. `origin` keeps only the upstream's `scheme://host[:port]`; `prefix` keeps its path too. See [Upstream with a path](#upstream-with-a-path). |
+| `path_mapping.strip_prefix` | empty | With `mode: prefix`, the start of the request path to remove before the rest is appended, such as `/v1`. `privyx run` uses the agent's `base_path`. |
 | `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead; enabled by the shipped `configs/strict.yaml`. `doctor` reports route coverage and warns on passthrough. |
 | `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter. `false` drops them so only the configured key is used. |
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
@@ -480,6 +483,52 @@ environment.
 
 [Proxy modes and routes](proxy.md) explains the two modes and when to pick
 which.
+
+#### Upstream with a path
+
+A router or provider whose API sits under a path, such as
+`https://router.example.com/api/v1`, needs `mode: prefix` in `path_mapping`. The
+transparent proxy then keeps the upstream's path and appends the request path
+after `strip_prefix`:
+
+```yaml
+upstream_url: https://router.example.com/api/v1
+proxy:
+  path_mapping:
+    mode: prefix
+    strip_prefix: /v1
+```
+
+```text
+client  → http://localhost:8000/v1/chat/completions
+Privyx  → https://router.example.com/api/v1/chat/completions  (masked)
+```
+
+- Masking still picks its [route](proxy.md#routes) from the request path, before
+  the prefix is removed.
+- `strip_prefix` is removed only at a segment boundary: `/v1` takes
+  `/v1/models`, not `/v10/models`. Empty removes nothing.
+- A request outside `strip_prefix`, or one with a `.` or `..` segment, a
+  backslash, or an encoded `/`, is answered `404` and not forwarded.
+- The query is forwarded as before.
+- `prefix` needs an explicit upstream (`--upstream`, `upstream_url`, or
+  `provider.base_url`) without query, fragment, or credentials, and is refused
+  in gateway mode.
+
+`privyx run` removes the agent's `base_path`, since the tool's base URL is the
+proxy plus `base_path` and stands for the upstream URL. With prefix mode, a
+native endpoint with a path of its own is followed rather than refused. For a
+profile:
+
+```yaml
+agents:
+  codex:router:
+    extends: codex
+    upstream: https://router.example.com/api/v1
+    privyx:
+      proxy:
+        path_mapping: {mode: prefix}
+```
 
 ### `tls`
 

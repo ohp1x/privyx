@@ -72,7 +72,9 @@ and forwards any other path unmasked, file uploads for instance;
 `proxy.passthrough_unknown: false` answers those with `403` instead. With
 `proxy.mode: gateway` in the config
 file, Privyx sends only its own key and posts to the upstream URL as written,
-which an upstream behind a base path needs. The tool owns the terminal, so
+which one fixed endpoint URL needs. An upstream under a base path also works
+in transparent mode with
+[`proxy.path_mapping`](configuration.md#proxy). The tool owns the terminal, so
 Privyx writes no log lines to it; they go to `log_file` when one is set, which
 is where to look when a request fails with a `503`.
 
@@ -110,7 +112,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | Option | Description |
 |---|---|
 | `-p`, `--provider` | Provider type upstream (`openai`, `anthropic`, `generic`). Known targets set it for you. |
-| `-u`, `--upstream` | Upstream URL. The transparent proxy uses only its origin and appends the tool's own paths; the gateway posts to it as written. Without an explicit upstream, transparent mode follows supported native endpoint settings, then the provider default. |
+| `-u`, `--upstream` | Upstream URL. The transparent proxy uses only its origin and appends the tool's own paths, or keeps its path too with `proxy.path_mapping.mode: prefix`; the gateway posts to it as written. Without an explicit upstream, transparent mode follows supported native endpoint settings, then the provider default. |
 | `--port` | Proxy port. `0` (default) picks a free one. |
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
@@ -153,10 +155,10 @@ Privyx, so pi refuses a model of any other provider at startup, puts the
 previous model back when `/model` picks one, and does not send a prompt to
 it. For another provider, set `PRIVYX_PI_PROVIDER` and the upstream in a
 profile (`pi:deepseek` in [Coding agents](../tutorials/coding-agents.md)).
-The provider's base URL must have no path of its own, since the
-transparent proxy keeps only the upstream's origin: groq, openrouter, and
-other providers under a base path call paths outside `proxy.routes`, which
-are forwarded unmasked.
+A provider whose base URL has a path of its own (groq, openrouter) needs
+`proxy.path_mapping.mode: prefix`, set in the profile's `privyx:` block, and
+that base URL as the upstream. Without it the transparent proxy keeps only the
+upstream's origin, and those requests miss the provider's API.
 
 In transparent mode, an explicit `--upstream`, profile `upstream`,
 `upstream_url`, or `provider.base_url` wins. Otherwise, Privyx follows these
@@ -186,7 +188,8 @@ key or nonempty configured provider headers to it: set `--upstream` explicitly
 to confirm that destination. Custom header names can also carry credentials.
 Its path must match the profile's `base_path`, because transparent mode forwards the
 agent's original paths without translating a prefix. A mismatch fails before
-launch with a hint to configure `base_path` and matching `proxy.routes`.
+launch with a hint to set `proxy.path_mapping.mode: prefix`, which keeps the
+endpoint's path, or to configure `base_path` and matching `proxy.routes`.
 `--dry-run` shows the native endpoint and its source, including when an
 explicit upstream overrides it, with URL credentials, query, and fragment
 redacted. An old base URL left in the shell is now followed too; unset it or

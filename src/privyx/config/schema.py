@@ -212,6 +212,39 @@ def _default_routes() -> dict[str, str]:
     }
 
 
+class PathMappingConfig(BaseModel):
+    """How the transparent proxy joins the upstream URL and a request path.
+
+    ``origin`` keeps only the upstream's ``scheme://host[:port]`` and appends
+    the request path.  ``prefix`` keeps the upstream's path as well and appends
+    the request path after ``strip_prefix``, so a router at
+    ``https://router.example.com/api/v1`` serves ``/v1/chat/completions`` at
+    ``/api/v1/chat/completions``.  ``privyx run`` strips the agent's
+    ``base_path``.  Requests outside ``strip_prefix`` are refused.
+    """
+
+    mode: Literal["origin", "prefix"] = "origin"
+    strip_prefix: str = ""
+
+    @field_validator("strip_prefix")
+    @classmethod
+    def _prefix(cls, value: str) -> str:
+        if value and (
+            not value.startswith("/")
+            or value.startswith("//")
+            or any(c.isspace() or c in "?#%\\\x00" for c in value)
+            or any(segment in (".", "..") for segment in value.split("/"))
+        ):
+            raise ValueError("must be empty or an absolute URL path without query or fragment")
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def _prefix_mode(self) -> PathMappingConfig:
+        if self.strip_prefix and self.mode != "prefix":
+            raise ValueError("strip_prefix requires mode: prefix")
+        return self
+
+
 class ProxyConfig(BaseModel):
     """Proxy serving mode.
 
@@ -232,6 +265,7 @@ class ProxyConfig(BaseModel):
 
     mode: Literal["gateway", "transparent"] = "transparent"
     routes: dict[str, str] = Field(default_factory=_default_routes)
+    path_mapping: PathMappingConfig = Field(default_factory=PathMappingConfig)
     forward_client_auth: bool = True
     passthrough_unknown: bool = True
     # The upstream client, in both modes; see privyx.providers.generic.upstream_client.
@@ -245,6 +279,13 @@ class ProxyConfig(BaseModel):
     #: Mark a large Anthropic ``tools`` / ``system`` prefix for prompt caching
     #: when the request marks nothing itself.
     cache_control: bool = False
+
+    @model_validator(mode="after")
+    def _transparent_mapping(self) -> ProxyConfig:
+        # The gateway calls a provider endpoint, not a joined path.
+        if self.mode == "gateway" and self.path_mapping.mode != "origin":
+            raise ValueError("path_mapping applies to transparent mode only")
+        return self
 
 
 class ModelPrice(BaseModel):

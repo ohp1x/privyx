@@ -628,6 +628,36 @@
       "title": "OperatorConfig",
       "type": "object"
     },
+    "PathMappingConfig": {
+      "description": "How the transparent proxy joins the upstream URL and a request path.\n\n``origin`` keeps only the upstream's ``scheme://host[:port]`` and appends\nthe request path.  ``prefix`` keeps the upstream's path as well and appends\nthe request path after ``strip_prefix``, so a router at\n``https://router.example.com/api/v1`` serves ``/v1/chat/completions`` at\n``/api/v1/chat/completions``.  ``privyx run`` strips the agent's\n``base_path``.  Requests outside ``strip_prefix`` are refused.",
+      "properties": {
+        "mode": {
+          "title": "Mode",
+          "anyOf": [
+            {
+              "default": "origin",
+              "enum": [
+                "origin",
+                "prefix"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "strip_prefix": {
+          "default": "",
+          "title": "Strip Prefix",
+          "type": "string"
+        }
+      },
+      "title": "PathMappingConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
     "PluginsConfig": {
       "description": "Local plugin discovery.\n\nOpt-in: nothing is loaded unless ``paths`` lists a directory or a ``.py``\nfile.  Each path is imported and scanned for concrete subclasses of the\nPrivyx component base classes, which are registered under their ``name`` and\nbecome selectable as a component ``type``.  Discovery is local to this\ndeployment \u2014 there is no third-party entry-point mechanism.  Set\n``enabled: false`` to skip loading even when paths are configured.",
       "properties": {
@@ -746,6 +776,9 @@
           },
           "title": "Routes",
           "type": "object"
+        },
+        "path_mapping": {
+          "$ref": "#/$defs/PathMappingConfig"
         },
         "forward_client_auth": {
           "title": "Forward Client Auth",

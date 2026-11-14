@@ -13,7 +13,7 @@ from types import MappingProxyType
 
 from privyx.config.schema import AgentConfig, BudgetConfig, Settings
 from privyx.core.errors import ConfigError
-from privyx.providers.registry import resolve_base_url, resolve_origin
+from privyx.providers.registry import resolve_base_url, resolve_transparent_upstream
 
 AUTO_ANCHOR = "auto"
 
@@ -242,10 +242,14 @@ def _follow_endpoint(
         valid = False
     if not valid:
         raise ConfigError(f"cannot route {label}: expected an HTTP(S) endpoint")
-    if parsed.path.rstrip("/") != spec.base_path.rstrip("/"):
+    # Prefix mapping keeps the endpoint's path; origin mapping drops it.
+    if settings.proxy.path_mapping.mode == "origin" and (
+        parsed.path.rstrip("/") != spec.base_path.rstrip("/")
+    ):
         raise ConfigError(
             f"cannot route {label}: its path must match the agent base_path; "
-            "set base_path to the endpoint path and configure matching proxy.routes"
+            "set proxy.path_mapping.mode to prefix, or set base_path to the "
+            "endpoint path and configure matching proxy.routes"
         )
     settings.upstream_url = base_url
     sources["upstream_url"] = origin
@@ -283,6 +287,17 @@ def build_launch_plan(
         origin = provenance.get(prefix + "env_from." + destination, "profile")
         env_sources[destination] = f"{origin}; env_from {reference}"
     environment = {**inherited, **custom}
+    mapping = settings.proxy.path_mapping
+    if mapping.mode == "prefix":
+        # The tool's base URL is the proxy plus base_path; it stands for the
+        # upstream URL, so that is the prefix to strip.
+        base_path = spec.base_path.rstrip("/")
+        if mapping.strip_prefix and mapping.strip_prefix != base_path:
+            raise ConfigError(
+                f"proxy.path_mapping.strip_prefix: privyx run strips the agent "
+                f"base_path ({base_path or '/'}); remove strip_prefix or change base_path"
+            )
+        mapping.strip_prefix = base_path
     native_endpoint = None
     if spec.adapter == "codex":
         from privyx.cli.codex import openai_endpoint
@@ -351,7 +366,7 @@ def build_launch_plan(
         upstream=resolve_base_url(settings),
         route=resolve_base_url(settings)
         if settings.proxy.mode == "gateway"
-        else resolve_origin(settings),
+        else resolve_transparent_upstream(settings),
         provider=settings.provider.type,
         proxy_mode=settings.proxy.mode,
         session=settings.session.strategy,

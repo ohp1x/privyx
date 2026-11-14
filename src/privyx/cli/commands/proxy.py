@@ -220,12 +220,14 @@ async def _run_server(settings: Any, watch_paths: list[Path] | None = None) -> b
 def build_transparent_proxy(settings: Any, engine: Any, audit: Any) -> Any:
     """The transparent proxy ``settings`` describe; ``privyx run`` serves it too."""
     from privyx.observability.tap import Tap
-    from privyx.providers.registry import resolve_api_key, resolve_origin
+    from privyx.providers.registry import resolve_api_key, resolve_transparent_upstream
     from privyx.proxy.transparent import TransparentProxy
 
+    mapping = settings.proxy.path_mapping
     return TransparentProxy(
         engine,
-        origin=resolve_origin(settings),
+        origin=resolve_transparent_upstream(settings),
+        strip_prefix=mapping.strip_prefix if mapping.mode == "prefix" else None,
         routes=dict(settings.proxy.routes),
         passthrough_unknown=settings.proxy.passthrough_unknown,
         forward_client_auth=settings.proxy.forward_client_auth,
@@ -248,15 +250,22 @@ async def _serve_transparent(
 
     from privyx.config.redact import redact
     from privyx.gateway.transparent import create_transparent_app
-    from privyx.providers.registry import resolve_origin
+    from privyx.providers.registry import resolve_transparent_upstream
 
-    origin = resolve_origin(settings)
+    origin = resolve_transparent_upstream(settings)
     proxy_instance = build_transparent_proxy(settings, engine, audit)
 
     scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())
     click.echo(f"Privyx transparent proxy listening on {scheme}://{settings.host}:{settings.port}")
-    click.echo(f"Upstream origin: {redact(origin, 'url')}")
+    mapping = settings.proxy.path_mapping
+    if mapping.mode == "prefix":
+        click.echo(
+            f"Upstream: {redact(origin, 'url')} (path mapping: prefix, "
+            f"strip {mapping.strip_prefix or 'nothing'})"
+        )
+    else:
+        click.echo(f"Upstream origin: {redact(origin, 'url')}")
     click.echo(f"Routes: {routes}")
     click.echo(
         f"Engine: detector={settings.detector_type} policy={settings.policy.type} "
