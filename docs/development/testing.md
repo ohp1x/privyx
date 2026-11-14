@@ -168,10 +168,32 @@ the provider. Install the latest `claude` and `codex` on PATH (`claude update`,
 `codex update`) before running `make e2e`: the harness follows the request
 format of their current releases. The separate `Agent CLI compatibility`
 workflow installs the latest release of each and runs all six combinations
-only on manual dispatch. Dispatch inputs can pin an older version to find the
+with both current and candidate defaults, only on manual dispatch. Dispatch inputs can pin an older version to find the
 release that changed something. It reports CLI versions and retains synthetic
 request, audit, and CLI logs for seven days, including failed runs. Ordinary CI continues to run the synthetic protocol tests
 without installing either CLI. A nonzero CLI exit always fails the harness.
+
+### Candidate defaults for 0.2
+
+```bash
+make e2e-next-defaults
+# Or one combination:
+uv run python scripts/test-e2e/run.py --agent codex --transparent --next-defaults
+```
+
+This repeats the six combinations with `underscore_separates_words`,
+`term_variants`, the nine checksum/structure-based opt-in detectors,
+`proxy.dlp_check`, and `anchor.secret: auto` enabled. The automatic anchor key
+is created under the harness's temporary HOME; `XDG_STATE_HOME` is cleared.
+`fpe` and `merge_terms` are excluded: FPE does not produce the tokens the
+restore checks look for, and making `merge_terms` a default is undecided.
+
+The checks and exit codes are the same as for current defaults. A failed
+candidate run blocks adopting those defaults; it is not an expected success
+or an ignored CI failure. In particular, DLP can reject an echoed signed
+Claude thinking block containing an original value. Such a block must be
+returned unchanged for its signature to remain valid. Keep DLP opt-in until
+that compatibility issue is resolved.
 
 ### A real provider (`--upstream`)
 

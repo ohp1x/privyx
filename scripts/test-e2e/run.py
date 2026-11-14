@@ -5,6 +5,7 @@
     uv run python scripts/test-e2e/run.py --upstream https://api.anthropic.com
     uv run python scripts/test-e2e/run.py --agent codex
     uv run python scripts/test-e2e/run.py --auto          # Claude Code's auto mode
+    uv run python scripts/test-e2e/run.py --next-defaults  # candidate 0.2 defaults
 
 Each agent has its own file next to this one (claude.py, codex.py) and is an
 ``Agent`` from common.py; this file is the run they share.
@@ -73,6 +74,18 @@ detector:
     PERSON: ["{PERSON}", "{GIT_USER}"]
     ORGANIZATION: ["{ORG}"]
 """
+NEXT_DEFAULTS = (
+    CONFIG
+    + """\
+  underscore_separates_words: true
+  term_variants: true
+  enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR]
+proxy:
+  dlp_check: true
+anchor:
+  secret: auto
+"""
+)
 
 BARE = "PRIVYX_"  # what every token holds, with or without its < >
 RECORDS: list[Record] = []
@@ -235,7 +248,7 @@ def drift(bodies: list[dict[str, Any]], key: str) -> str:
     return ""
 
 
-def seed(root: Path, env: dict[str, str]) -> Path:
+def seed(root: Path, env: dict[str, str], next_defaults: bool = False) -> Path:
     """Create the canary-laden workspace and the Privyx config; return the workspace."""
     work = root / f"{ORG.lower()}-app"  # the path lands in the agent's environment section
     work.mkdir()
@@ -252,7 +265,7 @@ def seed(root: Path, env: dict[str, str]) -> Path:
         ["commit", "-qm", f"Onboard {PERSON} to {ORG}"],
     ):
         subprocess.run([*git, *args], env=env, check=True)
-    (root / "privyx.yaml").write_text(CONFIG)
+    (root / "privyx.yaml").write_text(NEXT_DEFAULTS if next_defaults else CONFIG)
     return work
 
 
@@ -278,7 +291,14 @@ def start_proxy(
     raise SystemExit(f"privyx proxy did not start; see {root / 'proxy.log'}")
 
 
-def main(name: str, transparent: bool, real: str, model: str | None, auto: bool = False) -> int:
+def main(
+    name: str,
+    transparent: bool,
+    real: str,
+    model: str | None,
+    auto: bool = False,
+    next_defaults: bool = False,
+) -> int:
     global REAL, FAKE
     agent = AGENTS[name]
     if auto and not agent.auto:
@@ -303,7 +323,7 @@ def main(name: str, transparent: bool, real: str, model: str | None, auto: bool 
         PRIVYX_AUDIT_PATH=str(root / "audit.log"),
     )
     env.update(creds if REAL else {agent.creds[0]: DUMMY_KEY})
-    work = seed(root, env)
+    work = seed(root, env, next_defaults)
     mcp = {
         "command": sys.executable,
         "args": [os.path.abspath(__file__), "--mcp", str(root / "mcp-calls.jsonl")],
@@ -428,5 +448,17 @@ if __name__ == "__main__":
         parser.add_argument("--upstream", default="", help="origin of a real provider to relay to")
         parser.add_argument("--model", help="model the agent asks for")
         parser.add_argument("--auto", action="store_true", help="the agent's auto permission mode")
+        parser.add_argument(
+            "--next-defaults", action="store_true", help="enable candidate 0.2 defaults"
+        )
         opts = parser.parse_args()
-        sys.exit(main(opts.agent, opts.transparent, opts.upstream, opts.model, opts.auto))
+        sys.exit(
+            main(
+                opts.agent,
+                opts.transparent,
+                opts.upstream,
+                opts.model,
+                opts.auto,
+                opts.next_defaults,
+            )
+        )
