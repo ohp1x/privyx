@@ -136,7 +136,7 @@
 #   # Opt-in built-ins: CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC,
 #   # ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR, HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10.
 #   enable: []
-#   disable: []            # built-in entities to turn off, such as CREDIT_CARD
+#   disable: []            # built-ins to turn off; inactive opt-in names are accepted too
 #   entropy_threshold: 3.0 # HIGH_ENTROPY: bits per character
 #   decode: false          # also scan split strings and Base64/hex/URL encoding
 #   normalize: false       # also scan fullwidth and zero-width characters folded

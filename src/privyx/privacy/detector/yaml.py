@@ -111,6 +111,7 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
 
 def _enabled(config: dict[str, Any]) -> dict[str, str]:
     """The opt-in built-in patterns ``enable`` lists."""
+    _disabled(config)
     enable = config.get("enable") or []
     unknown = sorted(set(enable) - OPTIONAL_PATTERNS.keys())
     if unknown:
@@ -121,15 +122,25 @@ def _enabled(config: dict[str, Any]) -> dict[str, str]:
     return {entity: OPTIONAL_PATTERNS[entity] for entity in enable}
 
 
-def _builtins(config: dict[str, Any]) -> dict[str, str]:
-    """The built-in patterns of a ``regex`` detector, but those ``disable`` lists."""
-    disable = config.get("disable") or []
-    unknown = sorted(set(disable) - DEFAULT_PATTERNS.keys())
+def _disabled(config: dict[str, Any]) -> set[str]:
+    """Validate opt-outs, including built-ins that are not enabled yet."""
+    disable = set(config.get("disable") or [])
+    known = DEFAULT_PATTERNS.keys() | OPTIONAL_PATTERNS.keys()
+    unknown = sorted(disable - known)
     if unknown:
         raise ConfigError(
             f"detector 'disable' lists unknown entities {unknown}; "
-            f"the built-ins on by default are {sorted(DEFAULT_PATTERNS)}"
+            f"the built-ins are {sorted(known)}"
         )
+    conflict = sorted(disable.intersection(config.get("enable") or []))
+    if conflict:
+        raise ConfigError(f"detector lists entities in both 'enable' and 'disable': {conflict}")
+    return disable
+
+
+def _builtins(config: dict[str, Any]) -> dict[str, str]:
+    """The built-in patterns of a ``regex`` detector, but those ``disable`` lists."""
+    disable = _disabled(config)
     return {entity: regex for entity, regex in DEFAULT_PATTERNS.items() if entity not in disable}
 
 

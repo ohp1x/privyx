@@ -354,6 +354,30 @@ def test_inspect_regex_leaves_out_a_disabled_built_in(runner: CliRunner, tmp_pat
     assert "Entity" not in result.output and "Pattern: EMAIL" in result.output
 
 
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+def test_optional_opt_out_is_valid_for_inspect_and_explain(
+    runner: CliRunner, tmp_path: Path, dtype: str
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(f"detector:\n  type: {dtype}\n  disable: [CRYPTO_WALLET]\n")
+    inspected = runner.invoke(cli, ["inspect", "regex", "-c", str(config), "CRYPTO_WALLET"])
+    assert inspected.exit_code == 0, inspected.output
+    assert "Entity:" not in inspected.output
+    explained = runner.invoke(cli, ["detect", "--explain", "-c", str(config), "ordinary prose"])
+    assert explained.exit_code == 0, explained.output
+
+
+@pytest.mark.parametrize("command", [["inspect", "regex", "CRYPTO_WALLET"], ["detect", "text"]])
+def test_conflicting_detector_switches_fail_in_cli(
+    runner: CliRunner, tmp_path: Path, command: list[str]
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text("detector:\n  enable: [CRYPTO_WALLET]\n  disable: [CRYPTO_WALLET]\n")
+    result = runner.invoke(cli, [*command, "-c", str(config)])
+    assert result.exit_code == 1, result.output
+    assert "both 'enable' and 'disable'" in result.output
+
+
 def test_inspect_regex_reports_a_stall_the_check_misses(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:

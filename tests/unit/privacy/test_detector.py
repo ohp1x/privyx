@@ -482,10 +482,35 @@ def test_disable_keeps_your_own_pattern_for_the_entity() -> None:
     assert [(s.entity_type, s.text) for s in spans] == [("CREDIT_CARD", "CC-1234")]
 
 
-@pytest.mark.parametrize("entity", ["CREDITCARD", "MRN"])  # a typo, an opt-in one
-def test_disable_rejects_what_is_not_a_built_in_on_by_default(entity: str) -> None:
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize("entity", sorted(OPTIONAL_PATTERNS))
+def test_disable_accepts_an_inactive_optional_entity(dtype: str, entity: str) -> None:
+    config = {"type": dtype, "cache": False, "patterns": {"CODE": "ABC123"}}
+    baseline = build_detector(config).detect_sync("ABC123 alice@example.com", Context())
+    disabled = build_detector({**config, "disable": [entity]})
+    assert disabled.detect_sync("ABC123 alice@example.com", Context()) == baseline
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize("entity", ["CREDITCARD", "NOT_AN_ENTITY"])
+def test_disable_rejects_an_unknown_entity(dtype: str, entity: str) -> None:
     with pytest.raises(ConfigError, match=entity):
-        build_detector({"type": "regex", "disable": [entity]})
+        build_detector({"type": dtype, "disable": [entity]})
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+def test_disable_rejects_an_entity_that_is_also_enabled(dtype: str) -> None:
+    with pytest.raises(ConfigError, match="both.*enable.*disable.*CRYPTO_WALLET"):
+        build_detector({"type": dtype, "enable": ["CRYPTO_WALLET"], "disable": ["CRYPTO_WALLET"]})
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+def test_disable_keeps_terms_for_an_optional_entity(dtype: str) -> None:
+    detector = build_detector(
+        {"type": dtype, "cache": False, "disable": ["MRN"], "terms": {"MRN": ["ABC123"]}}
+    )
+    spans = detector.detect_sync("ABC123", Context()).spans
+    assert [(s.entity_type, s.text) for s in spans] == [("MRN", "ABC123")]
 
 
 def test_custom_secret_pattern_retains_heuristic_checks() -> None:
