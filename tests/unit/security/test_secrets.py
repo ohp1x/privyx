@@ -63,9 +63,28 @@ def test_header_and_env_values_resolve(tmp_path: Path, op: list[list[str]]) -> N
         "agents:\n  claude:\n    command: claude\n"
         "    env:\n      ANTHROPIC_API_KEY: op://dev/anthropic/credential\n",
     )
-    settings = load_config(cfg)
+    settings = load_config(cfg, agent="claude")
     assert settings.provider.headers["x-api-key"] == KEY
     assert settings.agents["claude"].env["ANTHROPIC_API_KEY"] == KEY
+
+
+def test_another_profile_keeps_its_secret_references(tmp_path: Path, op: list[list[str]]) -> None:
+    cfg = _yaml(
+        tmp_path,
+        "agents:\n  claude:\n    command: claude\n"
+        "    env:\n      ANTHROPIC_API_KEY: op://dev/anthropic/credential\n"
+        "    args: [op://dev/args/credential]\n"
+        "    privyx:\n      anchor:\n        secret: keychain://privyx/anchor\n",
+    )
+    settings = load_config(cfg)
+    assert op == []
+    profile = settings.agents["claude"]
+    assert profile.env["ANTHROPIC_API_KEY"] == "op://dev/anthropic/credential"
+    assert profile.args == ["op://dev/args/credential"]
+    assert load_config(cfg, agent="codex").agents["claude"].privyx["anchor"]["secret"] == (
+        "keychain://privyx/anchor"
+    )
+    assert op == []
 
 
 def test_keychain_reference_resolves(tmp_path: Path, keychain: None) -> None:

@@ -557,7 +557,7 @@ reported as `defaults`. Detector lists use zero-based paths such as
 values, and detector rules use the same masking as `--show`.
 
 Unlike `--path`, `--sources` loads and validates settings and resolves secret
-references. When inspection flags are combined, the order is `--schema`,
+references outside agent profiles' `env`, `args`, and `privyx`. When inspection flags are combined, the order is `--schema`,
 `--sources`, `--show`, then `--path`.
 
 ## `privyx trust`

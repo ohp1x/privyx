@@ -66,6 +66,13 @@ missing key never reaches the upstream as an empty string. Write `$${` for a
 literal `${`. Any variable can be named, not only `PRIVYX_*` ones, and only
 values are read this way, never keys.
 
+An agent profile's `env`, `args`, and `privyx` values, including those it
+inherits, are read only when that profile runs. Other commands and other
+profiles leave them as written, so `privyx config --show` prints them
+unresolved and an unset variable there fails only the launch that needs it.
+The other profile fields are read for every command, so every profile's shape
+is still checked. `privyx config --path` reads no variables at all.
+
 `privyx run` adds its own defaults (a `conversation` session strategy and an
 anchor secret) just above the built-in ones, so your files and environment
 still override them.
@@ -109,7 +116,9 @@ References resolve only in credential settings: those whose name ends in
 `api_key`, `key`, `secret`, `password`, or `token`, and every value under
 `headers` and an agent's `env`. These are the settings `privyx config --show`
 masks, so a resolved secret is never printed. A reference anywhere else fails
-at startup. The secret is read each time the config loads and kept in memory
+at startup. A reference in a profile's `env`, `args`, or `privyx` resolves
+only when that profile runs, so an unused profile never opens the password
+manager. The secret is read each time the config loads and kept in memory
 only; a missing entry or a failed `op read` stops startup with the setting's
 name.
 
