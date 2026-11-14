@@ -152,6 +152,9 @@ class AuditLogger:
         self._lock = threading.Lock()
         #: In-memory totals of every event emitted, served at ``GET /metrics``.
         self.stats = AuditStats()
+        #: Requests sent upstream on a masking route, counted as they go out,
+        #: so one still awaiting its response counts too.
+        self.routed = 0
 
     @property
     def enabled(self) -> bool:

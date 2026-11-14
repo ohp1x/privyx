@@ -212,6 +212,7 @@ class Gateway:
                 transform_ms = _elapsed_ms(transform_start)
                 self._audit.set_session(session_id)
                 self._audit.flush_transform()
+                self._audit.routed += 1
                 self._audit.request(
                     method="POST",
                     path=path,

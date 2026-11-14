@@ -279,16 +279,17 @@ def test_agent_that_bypasses_proxy_is_reported_after_exit(shell: Shell, tmp_path
     assert [e["profile"] for e in events if e["event"] == "run.unproxied"] == ["work"]
 
 
-def test_agent_that_uses_proxy_is_not_reported(shell: Shell, tmp_path: Path) -> None:
+def test_agent_that_only_checks_health_is_reported(shell: Shell, tmp_path: Path) -> None:
+    """Reaching the proxy is not enough: no request went out on a masking route."""
     shell.launch(_config(tmp_path, "work"), "work", tmp_path)
     info = shell.ready()  # its health check reached the proxy
     shell.send("quit\n")
     assert shell.exit_code() == 7
     _assert_proxy_closed(info["base"])
-    shell.send("echo DONE\n")
-    shell.expect(rb"DONE\r?\n")
-    assert b"Warning" not in shell.buffer
-    assert "run.unproxied" not in (tmp_path / "audit.log").read_text()
+    shell.expect(rb"Warning: 1 request\(s\) from \S+ reached Privyx, but none was sent")
+    events = [json.loads(line) for line in (tmp_path / "audit.log").read_text().splitlines()]
+    [event] = [e for e in events if e["event"] == "run.unproxied"]
+    assert (event["requests"], event["passthrough"], event["failed"]) == (1, 0, 0)
 
 
 def test_failed_exec_cleans_up_started_proxy(shell: Shell, tmp_path: Path) -> None:

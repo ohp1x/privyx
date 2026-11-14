@@ -1458,15 +1458,37 @@ def test_run_repeats_the_codex_override_only_after_a_config_flag_of_the_users() 
     ]  # fmt: skip
 
 
-@pytest.mark.parametrize("requests", [0, 1])
-async def test_run_warns_when_no_request_reached_privyx(
-    requests: int,
+@pytest.mark.parametrize(
+    ("paths", "fail_transform", "warning", "counts"),
+    [
+        ([], False, "no request from", {"requests": 0, "passthrough": 0, "failed": 0}),
+        (
+            ["/v1/models"],
+            False,
+            "1 request(s) from",
+            {"requests": 1, "passthrough": 1, "failed": 0},
+        ),
+        (["/v1/models", "/v1/messages"], False, None, None),
+        (
+            ["/v1/messages"],
+            True,
+            "1 request(s) from",
+            {"requests": 1, "passthrough": 0, "failed": 1},
+        ),
+    ],
+    ids=["none", "models-only", "mixed", "transform-error"],
+)
+async def test_run_warns_when_no_request_took_a_masking_route(
+    paths: list[str],
+    fail_transform: bool,
+    warning: str | None,
+    counts: dict[str, int] | None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     upstream: tuple[str, Seen],
 ) -> None:
-    """A tool that calls its provider directly sends Privyx nothing at all."""
+    """Requests that reach Privyx prove nothing until one is masked on its way out."""
     import sys
 
     pytest.importorskip("uvicorn")
@@ -1474,18 +1496,27 @@ async def test_run_warns_when_no_request_reached_privyx(
 
     monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
     monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
+    if fail_transform:
+
+        async def broken(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("detector crashed")
+
+        monkeypatch.setattr("privyx.proxy.transparent.transform_request", broken)
     url, _ = upstream
 
     from privyx.cli.commands.run import Target, _run_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
-        "import os, urllib.request\n"
-        f"for _ in range({requests}):\n"
-        "    urllib.request.urlopen(urllib.request.Request(\n"
-        "        os.environ['ANTHROPIC_BASE_URL'] + '/v1/messages', data=b'{\"messages\": []}',\n"
-        "        headers={'content-type': 'application/json'},\n"
-        "    ), timeout=5).read()\n",
+        "import os, urllib.error, urllib.request\n"
+        f"for path in {paths!r}:\n"
+        "    try:\n"
+        "        urllib.request.urlopen(urllib.request.Request(\n"
+        "            os.environ['ANTHROPIC_BASE_URL'] + path, data=b'{\"messages\": []}',\n"
+        "            headers={'content-type': 'application/json'},\n"
+        "        ), timeout=5).read()\n"
+        "    except urllib.error.HTTPError:\n"
+        "        pass\n",
         encoding="utf-8",
     )
     spec = Target(command=sys.executable, provider="anthropic", env_vars=("ANTHROPIC_BASE_URL",))
@@ -1501,10 +1532,141 @@ async def test_run_warns_when_no_request_reached_privyx(
     )
 
     assert code == 0
-    warned = "Warning: no request from" in capsys.readouterr().err
-    assert warned is (requests == 0)
-    recorded = '"event": "run.unproxied"' in (tmp_path / "audit.log").read_text()
-    assert recorded is (requests == 0)
+    err = capsys.readouterr().err
+    events = [json.loads(line) for line in (tmp_path / "audit.log").read_text().splitlines()]
+    unproxied = [e for e in events if e["event"] == "run.unproxied"]
+    if warning is None:
+        assert "Warning:" not in err
+        assert unproxied == []
+        return
+    assert f"Warning: {warning}" in err
+    [event] = unproxied
+    assert {k: event[k] for k in counts} == counts
+    assert event["blocked"] == 0
+    # Counts only: no path, body, or credential.
+    assert "/v1/" not in err + json.dumps(event)
+    assert "messages" not in json.dumps(event)
+
+
+async def test_run_counts_a_masked_request_still_awaiting_its_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A tool may exit before the upstream answers; its request still went out masked."""
+    import sys
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
+    arrived = threading.Event()
+
+    class Slow(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers["content-length"]))
+            arrived.set()
+            time.sleep(1)  # answers after the tool has exited
+            self.send_response(200)
+            self.send_header("content-length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    from privyx.cli.commands.run import Target, _run_target
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, time, urllib.parse, http.client\n"
+        "url = urllib.parse.urlsplit(os.environ['ANTHROPIC_BASE_URL'])\n"
+        "conn = http.client.HTTPConnection(url.hostname, url.port)\n"
+        "conn.request('POST', '/v1/messages', body=b'{\"messages\": []}',\n"
+        "             headers={'content-type': 'application/json'})\n"
+        "time.sleep(0.5)  # exits without reading the response\n",
+        encoding="utf-8",
+    )
+    spec = Target(command=sys.executable, provider="anthropic", env_vars=("ANTHROPIC_BASE_URL",))
+    try:
+        code = await _run_target(
+            spec=spec,
+            argv=[str(probe)],
+            config_path=None,
+            upstream=f"http://127.0.0.1:{server.server_address[1]}",
+            port=0,
+            env_vars=spec.env_vars,
+            session_strategy="ephemeral",
+            no_anchor=True,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert code == 0
+    assert arrived.is_set()
+    assert "Warning:" not in capsys.readouterr().err
+    assert "run.unproxied" not in (tmp_path / "audit.log").read_text()
+
+
+async def test_run_counts_a_request_still_being_masked_when_the_tool_exits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    upstream: tuple[str, Seen],
+) -> None:
+    """The summary waits for requests in flight: masking may finish after the exit."""
+    import asyncio
+    import sys
+
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("fastapi")
+
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
+    import privyx.proxy.transparent as transparent
+
+    original = transparent.transform_request
+
+    async def slow(*args: object, **kwargs: object) -> object:
+        await asyncio.sleep(1)  # still masking after the tool has exited
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(transparent, "transform_request", slow)
+    url, seen = upstream
+
+    from privyx.cli.commands.run import Target, _run_target
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, time, urllib.parse, http.client\n"
+        "url = urllib.parse.urlsplit(os.environ['ANTHROPIC_BASE_URL'])\n"
+        "conn = http.client.HTTPConnection(url.hostname, url.port)\n"
+        "conn.request('POST', '/v1/messages', body=b'{\"messages\": []}',\n"
+        "             headers={'content-type': 'application/json'})\n"
+        "time.sleep(0.3)  # exits without reading the response\n",
+        encoding="utf-8",
+    )
+    spec = Target(command=sys.executable, provider="anthropic", env_vars=("ANTHROPIC_BASE_URL",))
+    code = await _run_target(
+        spec=spec,
+        argv=[str(probe)],
+        config_path=None,
+        upstream=url,
+        port=0,
+        env_vars=spec.env_vars,
+        session_strategy="ephemeral",
+        no_anchor=True,
+    )
+
+    assert code == 0
+    assert [path for path, *_ in seen] == ["/v1/messages"]
+    assert "Warning:" not in capsys.readouterr().err
+    assert "run.unproxied" not in (tmp_path / "audit.log").read_text()
 
 
 async def test_run_keeps_the_audit_trail_out_of_the_working_directory(

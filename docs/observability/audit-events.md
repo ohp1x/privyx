@@ -121,12 +121,17 @@ An exchange failed.
 | `duration_ms` | float | Time until the failure. |
 
 ### `run.unproxied`
-A tool launched with `privyx run` exited without sending Privyx a single
-request. If it called its provider, it did so directly, without masking.
+A tool launched with `privyx run` exited without a single request sent
+upstream on a masking route (a path in `proxy.routes`), answered or not. If it
+called its provider, it did so directly, or on a path Privyx does not mask.
 
 | field | type | notes |
 |---|---|---|
 | `profile` | string | The agent profile, or the base name of the command run without one. |
+| `requests` | int | HTTP requests that reached Privyx during the launch. |
+| `passthrough` | int | Requests on paths outside `proxy.routes`, forwarded without masking. |
+| `blocked` | int | Requests on paths outside `proxy.routes`, refused because `proxy.passthrough_unknown` is false. |
+| `failed` | int | [`proxy.error`](#proxyerror) events. A `transform` failure was refused without forwarding; an `upstream` failure of a request passed through also counts in `passthrough`. |
 
 ### `run.budget_exceeded`
 A tool launched with `privyx run` reached its profile's
