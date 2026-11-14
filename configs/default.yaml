@@ -129,6 +129,7 @@
 #   # Entity -> literal strings, matched case-insensitively with word
 #   # boundaries.  Example, PERSON: [ann, bob].  The same entity in patterns wins.
 #   terms: {}
+#   merge_terms: false     # match terms and patterns for the same entity, terms first
 #   term_variants: false   # "Acme Corp" also matches acme-corp, acme_corp, ...
 #   underscore_separates_words: false  # acme is found in ACME_API_KEY
 #   # Entity -> words; a match counts only with one within five words.

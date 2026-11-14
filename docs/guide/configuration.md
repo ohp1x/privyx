@@ -568,6 +568,7 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 |---|---|---|
 | `type` | `regex` | `regex`, `yaml`, `presidio`, `llm`, or a plugin detector. |
 | `patterns` | `{}` | Entity → regular expression. |
+| `merge_terms` | `false` | `regex`, `yaml`: match both `terms` and `patterns` for the same entity, trying terms first. Otherwise the regex replaces the terms with a warning. |
 | `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
 | `term_variants` | `false` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
 | `underscore_separates_words` | `false` | `regex`, `yaml`, `llm`: `_` separates words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, or `host_10.0.0.1`. The [leak check](masking.md#leak-check) follows it. |

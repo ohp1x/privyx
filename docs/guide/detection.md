@@ -256,6 +256,25 @@ detector:
 `patterns` regex wins and the terms are not matched; Privyx warns when it loads
 such a config. Give the regex an entity name of its own to keep both.
 
+With `merge_terms: true`, both match under the same entity. Terms are tried
+first, then the regex; terms keep their case-insensitive word boundaries,
+`term_variants`, and `underscore_separates_words` settings. The regex keeps its
+own flags, anchors, and `value` group. If both alternatives match at the same
+position, the term wins even when the regex could match more text.
+
+```yaml
+detector:
+  merge_terms: true
+  terms:
+    PERSON: [john smith]
+  patterns:
+    PERSON: '\bEMP-\d{6}\b'
+```
+
+This finds both `JOHN SMITH` and `EMP-123456` as `PERSON`. The option applies
+to `regex` and `yaml`; it is off by default and does not merge custom patterns
+with built-in patterns.
+
 ## Presidio
 
 [Presidio](https://microsoft.github.io/presidio/) finds names, locations,

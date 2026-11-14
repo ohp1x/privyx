@@ -260,7 +260,7 @@
     },
     "DetectorConfig": {
       "additionalProperties": true,
-      "description": "Detector selection and its rules.\n\n``patterns`` and ``terms`` are complementary and may both be set: the first\nis entity -> regex, the second entity -> a list of literal strings that\nPrivyx escapes and compiles for you (case-insensitively).  They are merged\ninto one pattern map; a hand-written ``patterns`` entry wins over a ``terms``\nentry for the same entity.",
+      "description": "Detector selection and its rules.\n\n``patterns`` and ``terms`` are complementary and may both be set: the first\nis entity -> regex, the second entity -> a list of literal strings that\nPrivyx escapes and compiles for you (case-insensitively).  They are merged\ninto one pattern map; a hand-written ``patterns`` entry wins over a ``terms``\nentry for the same entity unless ``merge_terms`` is enabled.",
       "properties": {
         "type": {
           "default": "regex",
@@ -283,6 +283,19 @@
           },
           "title": "Terms",
           "type": "object"
+        },
+        "merge_terms": {
+          "title": "Merge Terms",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
         },
         "term_variants": {
           "title": "Term Variants",
