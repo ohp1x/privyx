@@ -159,6 +159,12 @@ These files ship in the repository's
 [`configs/`](https://github.com/ohp1x/privyx/tree/main/configs) folder and in the
 Docker image under `/app/configs`.
 
+### Agent profiles
+
+```yaml
+--8<-- "configs/examples/agents.yaml"
+```
+
 ### Your own word lists
 
 ```yaml

@@ -1,15 +1,11 @@
-# Example: Anthropic through the Privyx proxy
+# Example: a proxy in front of Anthropic
 #
-# Point the Anthropic SDK at:
-#   base_url: http://localhost:8000
-# or use the Anthropic-compatible endpoint.
+#   privyx proxy -c configs/examples/anthropic.yaml
+#   ANTHROPIC_BASE_URL=http://127.0.0.1:8000 claude    # or any Anthropic client
+#
+# `privyx run claude` needs no config for this: its profile picks Anthropic.
 
 provider:
-  type: anthropic
-  base_url: https://api.anthropic.com/v1/messages
-  api_key: ""            # set via PRIVYX_ANTHROPIC_API_KEY
-  headers:
-    anthropic-version: "2023-06-01"
-
-vault:
-  type: memory
+  type: anthropic          # https://api.anthropic.com; anthropic-version is added
+  # Optional: set PRIVYX_ANTHROPIC_API_KEY to send this key instead of the
+  # client's own.

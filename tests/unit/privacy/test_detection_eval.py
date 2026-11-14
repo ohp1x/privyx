@@ -16,17 +16,12 @@ import time
 from collections import Counter
 from pathlib import Path
 
-import pytest
-
-from privyx.config.loader import load_config
-from privyx.core.builder import build_detector_from
 from privyx.core.context import Context
 from privyx.privacy.detector.builtin import RegexDetector
 
 from .test_detector import _ADVERSARIAL
 
 CORPUS = Path(__file__).parent / "corpus"
-DETECTOR = build_detector_from(load_config(Path(__file__).parents[3] / "configs" / "default.yaml"))
 LABEL = re.compile(r"⟦([A-Z_]+):(.*?)⟧", re.DOTALL)
 
 #: Lowest (precision, recall) each entity type may score: its scores when the
@@ -51,11 +46,8 @@ def _parse(raw: str) -> tuple[str, set[tuple[int, int, str]]]:
     return text + raw[last:], labels
 
 
-@pytest.mark.parametrize("configured", [False, True], ids=["installed-defaults", "default-yaml"])
-async def test_each_entity_type_scores_at_least_its_floor(
-    summary: list[str], configured: bool
-) -> None:
-    detector = DETECTOR if configured else RegexDetector()
+async def test_each_entity_type_scores_at_least_its_floor(summary: list[str]) -> None:
+    detector = RegexDetector()
     tp: Counter[str] = Counter()
     fp: Counter[str] = Counter()
     fn: Counter[str] = Counter()
@@ -84,7 +76,7 @@ async def test_each_entity_type_scores_at_least_its_floor(
             f"{precision:>11.2f}{recall:>8.2f}"
         )
     table = "\n".join(rows)
-    summary.append(f"{'default.yaml' if configured else 'installed defaults'}\n{table}")
+    summary.append(f"installed defaults\n{table}")
     details = [message for entity, message in errors if entity in below]
     assert not below, "\n".join([table, *details])
 
@@ -96,7 +88,7 @@ async def test_detector_stays_fast_on_adversarial_input() -> None:
     slow = []
     for shape, text in _ADVERSARIAL.items():
         start = time.perf_counter()
-        await DETECTOR.detect(text, Context())
+        await RegexDetector().detect(text, Context())
         elapsed = time.perf_counter() - start
         if elapsed > 1.0:
             slow.append(f"{shape}: {elapsed:.1f} s")

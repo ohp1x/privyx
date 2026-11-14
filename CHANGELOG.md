@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **CLI:** Agent launches follow supported native endpoints when no upstream is explicit, keeping requests and agent credentials on their intended destination through masking. Claude settings that would override proxy routing are rejected before launch
 - **Config:** A variable or secret reference in an agent profile's `env`, `args`, or `privyx` settings is resolved only when that profile runs, so an unset variable or a password manager prompt no longer affects every other command, and `config --path` no longer reads variables
+- **Config:** The shipped `configs/default.yaml` is now a template that lists every setting with its default value and changes nothing when loaded, and `configs/strict.yaml` no longer sets the provider, upstream, or anchor, so `privyx run` with either reaches the agent's own provider. `strict.yaml` uses the default policy, so your own `terms` and `--harvest` values are masked on top of it, and also enables encoded and look-alike detection. A new `configs/examples/agents.yaml` shows agent profiles
 
 ### Security
 

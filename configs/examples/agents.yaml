@@ -1,0 +1,38 @@
+# Example: agent profiles for `privyx run`
+#
+#   privyx run --list                    # every profile, built-in and yours
+#   privyx run --dry-run claude:work     # what a launch would do, no secrets shown
+#   privyx run claude:work
+#
+# Copy what you need into ~/.privyx/config.yaml.  Every value below is a
+# placeholder.
+
+# Files merged below this one, such as one file per machine.  A glob may match
+# nothing.
+include: ["privyx.d/*.yaml"]
+
+agents:
+  # claude:work inherits the built-in claude profile and changes where it goes.
+  # The token is read from WORK_ANTHROPIC_TOKEN in your shell at launch; this
+  # file holds only its name.
+  claude:work:
+    upstream: https://router.example.com
+    env_from:
+      ANTHROPIC_AUTH_TOKEN: WORK_ANTHROPIC_TOKEN
+
+  # A second Codex home with its own login and config.toml.
+  codex:work:
+    env:
+      CODEX_HOME: "${HOME}/.codex-work"
+
+  # Privyx settings for one profile only, above config files and environment.
+  claude:strict:
+    privyx:
+      detector:
+        terms:
+          PERSON: [john smith, alice]
+          ORGANIZATION: [acme]
+      proxy:
+        passthrough_unknown: false
+    budget:
+      max_turns: 200

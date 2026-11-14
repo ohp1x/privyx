@@ -1,14 +1,11 @@
-# Example: OpenAI through the Privyx proxy
+# Example: a proxy in front of OpenAI
 #
-# Point your OpenAI-compatible client at:
-#   base_url: http://localhost:8000/v1
-# (Privyx forwards to api.openai.com)
+#   privyx proxy -c configs/examples/openai.yaml
+#   OPENAI_BASE_URL=http://127.0.0.1:8000/v1 python app.py    # any OpenAI client
+#
+# `privyx run codex` needs no config for this: its profile picks OpenAI.
 
 provider:
-  type: openai
-  base_url: https://api.openai.com/v1/chat/completions
-  api_key: ""            # set via PRIVYX_OPENAI_API_KEY
-  headers: {}
-
-vault:
-  type: memory
+  type: openai             # https://api.openai.com
+  # Optional: set PRIVYX_OPENAI_API_KEY to send this key instead of the
+  # client's own.
