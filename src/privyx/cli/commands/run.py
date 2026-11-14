@@ -40,7 +40,6 @@ from privyx.cli.launch import (
     LaunchPlan,
     Target,
     build_launch_plan,
-    ollama_url,
     profile_target,
 )
 from privyx.cli.native import can_exec_agent, exec_agent, wait_for_agent_exit
@@ -177,12 +176,9 @@ def run(
         return
 
     assert target is not None
-    try:
-        ollama = _ollama_launch(target, args, upstream, settings, sources)
-    except PrivyxError as exc:
-        raise click.ClickException(str(exc)) from exc
+    ollama = _ollama_launch(target, args) if target not in settings.agents else None
     if ollama is not None:
-        target, args, upstream, upstream_from_env = ollama
+        target, args = ollama
         sources = {}
         try:
             settings = _run_settings(
@@ -197,8 +193,6 @@ def run(
             )
         except PrivyxError as exc:
             raise click.ClickException(str(exc)) from exc
-        if upstream is not None and upstream_from_env:
-            sources["upstream_url"] = "environment OLLAMA_HOST"
     profile = settings.agents.get(target)
     spec = (
         profile_target(target, profile)
@@ -293,40 +287,20 @@ def run(
 def _ollama_launch(
     target: str,
     args: tuple[str, ...],
-    upstream: str | None,
-    settings: Settings,
-    sources: dict[str, str],
-) -> tuple[str, tuple[str, ...], str | None, bool] | None:
+) -> tuple[str, tuple[str, ...]] | None:
     """``ollama:<model>`` as ``ollama run <model>``, and the server it goes to.
 
-    A profile of the user's own by that name wins.  The ``ollama`` profile goes
-    to the server ``OLLAMA_HOST`` names, as the tool would, unless
-    ``--upstream`` or a configured profile upstream says otherwise; for the
-    launch, the tool's own ``OLLAMA_HOST`` then points at Privyx.  Returns the
-    new target, arguments, upstream, and whether the upstream came from
-    ``OLLAMA_HOST``, or ``None`` when nothing changes.
-
-    Raises:
-        ConfigError: If ``OLLAMA_HOST`` is not an address.
+    Endpoint resolution happens later, using the child's environment.
     """
-    expanded = target.startswith("ollama:") and target not in settings.agents
+    expanded = target.startswith("ollama:")
     if expanded:
         model = target.removeprefix("ollama:")
         if not model:
             raise click.UsageError("name a model after ollama:, as in ollama:llama3.2")
         target, args = "ollama", ("run", model, *args)
-    host = os.environ.get("OLLAMA_HOST", "").strip()
-    from_env = (
-        target == "ollama"
-        and upstream is None
-        and bool(host)
-        and sources.get("agents.ollama.upstream", "defaults") == "defaults"
-    )
-    if from_env:
-        upstream = ollama_url(host)
-    if not (expanded or from_env):
+    if not expanded:
         return None
-    return target, args, upstream, from_env
+    return target, args
 
 
 def _check_ollama(upstream: str) -> None:
@@ -400,6 +374,10 @@ def _show_plan(plan: LaunchPlan) -> None:
     click.echo(f"Proxy: {plan.base_url} ({plan.proxy_mode})")
     click.echo(f"Provider: {plan.provider} [{sources.get('provider.type', 'defaults')}]")
     click.echo(f"Upstream: {redact(plan.upstream, 'upstream_url')} [{sources['run.upstream']}]")
+    if plan.native_endpoint:
+        endpoint, origin = plan.native_endpoint
+        action = "used" if sources["run.upstream"] == origin else "overridden"
+        click.echo(f"Native endpoint ({action}): {redact(endpoint, 'url')} [{origin}]")
     click.echo(f"Routing: tool → {plan.base_url} → {redact(plan.route, 'upstream_url')}")
     click.echo(f"Session: {plan.session} [{sources.get('session.strategy', 'defaults')}]")
     click.echo(f"Anchor: {plan.anchor} [{sources.get('anchor.secret', 'defaults')}]")

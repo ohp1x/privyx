@@ -97,7 +97,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | Option | Description |
 |---|---|
 | `-p`, `--provider` | Provider type upstream (`openai`, `anthropic`, `generic`). Known targets set it for you. |
-| `-u`, `--upstream` | Upstream URL. The transparent proxy uses only its origin and appends the tool's own paths; the gateway posts to it as written. Default: the provider type's default. |
+| `-u`, `--upstream` | Upstream URL. The transparent proxy uses only its origin and appends the tool's own paths; the gateway posts to it as written. Without an explicit upstream, transparent mode follows supported native endpoint settings, then the provider default. |
 | `--port` | Proxy port. `0` (default) picks a free one. |
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
@@ -144,8 +144,56 @@ transparent proxy keeps only the upstream's origin: groq, openrouter, and
 other providers under a base path call paths outside `proxy.routes`, which
 are forwarded unmasked.
 
-Claude Code keeps only the last `--settings`: one of your own, after `--`,
-replaces Privyx's. Codex drops every `-c` given before a subcommand once one
+In transparent mode, an explicit `--upstream`, profile `upstream`,
+`upstream_url`, or `provider.base_url` wins. Otherwise, Privyx follows these
+native destinations before replacing the agent's endpoint with the proxy URL:
+
+| Agent | Native destination |
+|---|---|
+| Claude Code | `ANTHROPIC_BASE_URL` in the child environment; user, project, and local settings override it in that order |
+| Codex | A custom provider's `base_url`; for the built-in OpenAI provider, `openai_base_url` in config or `-c` overrides. Codex does not read `OPENAI_BASE_URL` |
+| OpenAI CLI | `OPENAI_BASE_URL` |
+| Aider | `OPENAI_API_BASE`, then `OPENAI_BASE_URL` |
+| Grok | `GROK_XAI_API_BASE_URL` (takes precedence over the preset's xAI default) |
+| Gemini CLI | `GOOGLE_GEMINI_BASE_URL` for API-key mode |
+| Ollama | `OLLAMA_HOST` (takes precedence over the preset's local default) |
+
+The child environment includes profile `env` and `env_from`. Claude's user
+settings come from `$CLAUDE_CONFIG_DIR/settings.json`, or
+`~/.claude/settings.json`. Project settings come from `.claude/settings.json`
+in the current directory, including when launched from a git subdirectory.
+Local settings come from `.claude/settings.local.json` at the git root, or the
+current directory outside git. `--setting-sources` limits which scopes are inspected.
+Pi and OpenCode still need an explicit upstream for non-default providers;
+Privyx does not infer a destination from Gemini's login/Vertex trap variables.
+
+A derived destination is refused if Privyx would send its own configured API
+key or nonempty configured provider headers to it: set `--upstream` explicitly
+to confirm that destination. Custom header names can also carry credentials.
+Its path must match the profile's `base_path`, because transparent mode forwards the
+agent's original paths without translating a prefix. A mismatch fails before
+launch with a hint to configure `base_path` and matching `proxy.routes`.
+`--dry-run` shows the native endpoint and its source, including when an
+explicit upstream overrides it, with URL credentials, query, and fragment
+redacted. An old base URL left in the shell is now followed too; unset it or
+provide an explicit upstream if it no longer names the intended server.
+
+Claude Code keeps only the last `--settings`: one of your own, in profile args
+or after `--`, replaces Privyx's. Privyx refuses that combination when any
+enabled settings layer defines `env.ANTHROPIC_BASE_URL`, including the supplied
+JSON or file (`--settings X` and `--settings=X`). Move those options into
+Claude's settings files, optionally under a separate `CLAUDE_CONFIG_DIR`, and
+use `upstream` for the destination. Without a base URL in any settings layer,
+your `--settings` remains intact and routing uses the child environment.
+File-based managed settings with `env.ANTHROPIC_BASE_URL` are always refused:
+they override Privyx's injection even with an explicit upstream. This includes
+`managed-settings.json` and `managed-settings.d/*.json` in `/etc/claude-code`
+on Linux, `/Library/Application Support/ClaudeCode` on macOS, or
+`C:\Program Files\ClaudeCode` on Windows. Remote policies and OS-managed
+policies are outside this local-file check; network enforcement is needed to
+constrain destinations that change after launch.
+
+Codex drops every `-c` given before a subcommand once one
 follows it (`exec -c …`), which is why Privyx repeats its own after your
 arguments. `openai_base_url` applies to codex's built-in `openai`
 provider. When codex's config selects a `model_provider` of your own, Privyx
@@ -157,10 +205,7 @@ profile, and `-c` overrides; a provider set only in a project's
 `.codex/config.toml` is not detected. Provider detection uses the child's
 environment, including profile `env` and `env_from`; `CODEX_HOME` (or `HOME`
 when `CODEX_HOME` is unset) is resolved before reading the Codex config.
-If your Claude Code settings point
-`ANTHROPIC_BASE_URL` at a router or another proxy, give that URL to
-`privyx run` as `--upstream`: Privyx now takes that place and forwards to its
-own upstream. If the tool exits without having sent Privyx a single request,
+If the tool exits without having sent Privyx a single request,
 `privyx run` warns and records a
 [`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
 tool that calls its provider directly is not masked.

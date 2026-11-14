@@ -222,8 +222,8 @@ privyx run claude-work
 |---|---|---|
 | `command` | Required for a new profile | Executable name or path, passed directly to a subprocess. Pass arguments after `--`; this field is not a shell command. |
 | `provider` | `generic` | Upstream provider type, such as `openai` or `anthropic`. |
-| `upstream` | empty | HTTP(S) upstream URL. Empty falls back to the provider's default. Transparent mode forwards to its origin; gateway mode uses the full URL. |
-| `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the preset's list; CLI `--env-var` adds names. |
+| `upstream` | empty | Explicit HTTP(S) upstream URL. Without an explicit upstream, transparent mode follows supported native agent endpoints, then the provider default. Transparent mode forwards to its origin; gateway mode uses the full URL. |
+| `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the preset's list; CLI `--env-var` adds names. Supported native endpoint values are read before injection; arbitrary variable names do not imply an upstream. |
 | `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
 | `extends` | `null` | Parent profile name. Inherits command, transport, adapter, args, and environment settings. Unknown parents and cycles are rejected. |
 | `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`; `pi` also injects `-e` with Privyx's pi extension. `auto` detects a Claude/Codex/pi profile or executable name, otherwise uses `env`. The built-in Claude, Codex, and pi presets explicitly select their adapters. |
@@ -380,6 +380,12 @@ The upstream is the first non-empty of `upstream_url`, `provider.base_url`, and
 the default for `provider.type`. The transparent proxy uses only its
 `scheme://host[:port]` and appends the client's own path; the gateway posts to
 it as written.
+
+For `run` in transparent mode, supported native endpoint settings fill in the
+destination before the provider default when neither upstream is explicit.
+Profile `env` and `env_from` are included, and Claude settings are checked for
+routing conflicts before launch. See [native agent endpoints](cli.md#privyx-run) for
+the source order, path requirements, and `--settings` restrictions.
 
 The key is the first non-empty of `provider.<type>_api_key` and
 `provider.api_key`. With neither set, the transparent proxy relays the

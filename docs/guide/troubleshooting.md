@@ -37,11 +37,12 @@ privyx detect -c my.yaml --transform "the text that went out"
 Warning: no request from claude reached Privyx; if it called its provider, it did so directly, without masking.
 ```
 
-- The tool's own configuration outranks what `privyx run` set: a
-  `model_provider` of your own in Codex's config, or a `--settings` of your
-  own after `--` for Claude Code.
-- Your Claude Code settings point `ANTHROPIC_BASE_URL` at a router or another
-  proxy. Give that URL to Privyx instead: `privyx run -u URL claude`.
+- The tool uses a native configuration source Privyx cannot inspect, such as
+  a `model_provider` set only in a project's `.codex/config.toml`.
+- Check `run --dry-run` for the effective upstream. Supported native endpoints,
+  including Claude's `ANTHROPIC_BASE_URL` settings, are followed automatically
+  unless an upstream is explicit. Conflicting Claude `--settings` and file-based
+  managed endpoints are rejected before launch; see [routing](cli.md#privyx-run).
 - For a tool Privyx does not know, the variable named with `--env-var` is not
   the one the tool reads.
 
