@@ -89,6 +89,13 @@
         "budget": {
           "$ref": "#/$defs/BudgetConfig"
         },
+        "presets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Presets",
+          "type": "array"
+        },
         "privyx": {
           "additionalProperties": true,
           "title": "Privyx",
@@ -1106,6 +1113,14 @@
         "$ref": "#/$defs/AgentConfig"
       },
       "title": "Agents",
+      "type": "object"
+    },
+    "presets": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Presets",
       "type": "object"
     },
     "harvest": {

@@ -18,12 +18,12 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from privyx.cli.commands.inspect import inspect
+from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
     from privyx.vault.base import Vault
 
-_CONFIG = click.option("--config", "-c", "config_path", default=None, help="Config file path")
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
@@ -42,7 +42,7 @@ def session() -> None:
 
 
 @session.command("list")
-@_CONFIG
+@config_options
 def list_cmd(config_path: str | None) -> None:
     """List live sessions, most recently active first.
 
@@ -53,7 +53,7 @@ def list_cmd(config_path: str | None) -> None:
 
 @session.command("show")
 @click.argument("session_id")
-@_CONFIG
+@config_options
 @click.option("--reveal", is_flag=True, help="Show original values in full (sensitive!)")
 def show(session_id: str, config_path: str | None, reveal: bool) -> None:
     """Show one session's mappings.
@@ -71,7 +71,7 @@ def show(session_id: str, config_path: str | None, reveal: bool) -> None:
     callback=_duration,
     help="Delete sessions idle at least this long: 30m, 12h, 7d, 2w.",
 )
-@_CONFIG
+@config_options
 @click.option("--dry-run", is_flag=True, help="List what would be deleted; delete nothing.")
 def prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
     """Delete sessions idle longer than ``--older-than``.
@@ -84,7 +84,7 @@ def prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
 
 @session.command("export")
 @click.argument("session_id")
-@_CONFIG
+@config_options
 @click.option(
     "--forensic",
     is_flag=True,

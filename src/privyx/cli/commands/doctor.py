@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from privyx.cli.config import config_options
+
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
     from privyx.core.result import Detection
@@ -27,7 +29,7 @@ Check = Callable[["Settings"], tuple[bool, str]]
 
 
 @click.command()
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 def doctor(config_path: str | None) -> None:
     """Run diagnostic checks system-wide."""
     from privyx.config.loader import load_config

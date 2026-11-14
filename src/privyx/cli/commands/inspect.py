@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING
 
 import click
 
+from privyx.cli.config import config_options
+
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
 
-_CONFIG = click.option("--config", "-c", "config_path", default=None, help="Config file path")
 
 #: Text the regex benchmark scans: prose, code, JSON, and a log line, with no
 #: personal data, so the timing reflects the text a pattern mostly sees.
@@ -47,7 +48,7 @@ def inspect() -> None:
 
 
 @inspect.command("routes")
-@_CONFIG
+@config_options
 def routes(config_path: str | None) -> None:
     """Show which request paths are masked, and with which wire schema."""
     from privyx.config.redact import redact
@@ -76,7 +77,7 @@ def routes(config_path: str | None) -> None:
 
 @inspect.command("regex")
 @click.argument("pattern")
-@_CONFIG
+@config_options
 def regex(pattern: str, config_path: str | None) -> None:
     """Check a regex: an entity name from the config, or a pattern.
 
@@ -115,7 +116,7 @@ def regex(pattern: str, config_path: str | None) -> None:
 @inspect.command("token")
 @click.argument("token")
 @click.option("--reveal", is_flag=True, help="Show the original value in full (sensitive!)")
-@_CONFIG
+@config_options
 def token(token: str, reveal: bool, config_path: str | None) -> None:
     """Show what a token stands for, and in which session."""
     from privyx.cli.commands.session import _run

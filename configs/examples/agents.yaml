@@ -27,12 +27,23 @@ agents:
 
   # Privyx settings for one profile only, above config files and environment.
   claude:strict:
+    presets: [strict]
     privyx:
       detector:
         terms:
           PERSON: [john smith, alice]
           ORGANIZATION: [acme]
-      proxy:
-        passthrough_unknown: false
     budget:
       max_turns: 200
+
+# Privyx settings written once, for any profile (presets: [strict]) or one
+# command (privyx run claude:work --preset debug, privyx proxy --preset
+# strict).  A preset does nothing until one of those names it.
+presets:
+  strict:
+    proxy:
+      passthrough_unknown: false   # paths outside proxy.routes get 403
+  debug:
+    log_level: debug
+    # At debug level this file holds vault rows with original values.
+    log_file: "${HOME}/.privyx/debug.log"

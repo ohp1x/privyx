@@ -184,7 +184,7 @@ proxy:
   passthrough_unknown: false
 ```
 
-The shipped `configs/strict.yaml` preset enables this setting. Start it with
+The shipped `configs/strict.yaml` enables this setting. Start it with
 `privyx proxy -c configs/strict.yaml` or use it with `privyx run`. This also blocks
 unlisted metadata and file endpoints, including `/v1/models`; add a route only
 when its body uses a supported masking schema. Route coverage does not imply

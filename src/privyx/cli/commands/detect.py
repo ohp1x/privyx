@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import click
 
+from privyx.cli.config import config_options
+
 if TYPE_CHECKING:
     from privyx.config.schema import DetectorConfig, Settings
     from privyx.core.context import Context
@@ -17,7 +19,7 @@ if TYPE_CHECKING:
 @click.command()
 @click.argument("text", nargs=-1, required=False)
 @click.option("--stdin", "use_stdin", is_flag=True, help="Read text from stdin")
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 @click.option("--policy/--no-policy", default=True, help="Apply the configured policy")
 @click.option("--transform", is_flag=True, help="Also show the pseudonymized text")
 @click.option(

@@ -19,7 +19,8 @@ from typing import Any, TextIO
 
 import click
 
-from privyx.cli.commands.session import _CONFIG, _duration, _ts
+from privyx.cli.commands.session import _duration, _ts
+from privyx.cli.config import config_options
 from privyx.observability.metrics import AuditStats
 
 _FILE = click.argument("file", required=False, type=click.Path(dir_okay=False, path_type=Path))
@@ -33,7 +34,7 @@ def audit() -> None:
 
 @audit.command("stats")
 @_FILE
-@_CONFIG
+@config_options
 @click.option(
     "--since", callback=_duration, help="Only count events from the last 30m, 12h, 7d, 2w."
 )
@@ -88,7 +89,7 @@ def stats(file: Path | None, config_path: str | None, since: int | None) -> None
 
 @audit.command("tail")
 @_FILE
-@_CONFIG
+@config_options
 @click.option("-n", "--lines", default=10, show_default=True, help="Recent events to show first.")
 @click.option(
     "--follow/--no-follow",
@@ -128,7 +129,7 @@ def tail(file: Path | None, config_path: str | None, lines: int, follow: bool) -
 
 @audit.command("watch")
 @click.argument("session_id", required=False)
-@_CONFIG
+@config_options
 @click.option("-n", "--lines", default=10, show_default=True, help="Recent records to show first.")
 @click.option(
     "--follow/--no-follow",

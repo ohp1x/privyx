@@ -87,6 +87,22 @@ def test_another_profile_keeps_its_secret_references(tmp_path: Path, op: list[li
     assert op == []
 
 
+def test_only_an_applied_preset_resolves_its_secret_references(
+    tmp_path: Path, op: list[list[str]]
+) -> None:
+    cfg = _yaml(
+        tmp_path,
+        "presets:\n  anchored:\n    anchor:\n      secret: op://dev/anthropic/credential\n",
+    )
+    settings = load_config(cfg, agent="claude")
+    assert op == []
+    assert settings.presets["anchored"]["anchor"]["secret"] == "op://dev/anthropic/credential"
+    shown = CliRunner().invoke(cli, ["config", "--show", "-c", str(cfg)])
+    assert "op://" not in shown.output
+    assert load_config(cfg, agent="claude", presets=["anchored"]).anchor.secret == KEY
+    assert len(op) == 1
+
+
 def test_keychain_reference_resolves(tmp_path: Path, keychain: None) -> None:
     cfg = _yaml(tmp_path, "anchor:\n  secret: keychain://privyx/anchor\n")
     assert load_config(cfg).anchor.secret == "anchor-secret-from-keychain"

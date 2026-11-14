@@ -11,6 +11,8 @@ from typing import Any
 
 import click
 
+from privyx.cli.config import config_options
+
 #: Seconds the requests still in flight get to finish on SIGTERM or a --reload
 #: restart; then they are cancelled, which still deletes their ephemeral
 #: sessions.  Within the 10 s `docker stop` waits before it sends SIGKILL.
@@ -18,7 +20,7 @@ SHUTDOWN_GRACE_SECONDS = 5
 
 
 @click.command()
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 @click.option("--host", default=None, help="Bind address")
 @click.option("--port", default=None, type=int, help="Bind port")
 @click.option("--upstream", "-u", default=None, help="Upstream provider URL")

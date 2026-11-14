@@ -22,6 +22,19 @@ does not replace that inherited global value. Options after the agent name
 belong to the agent: `privyx -c config.yaml run codex -c ...` passes the second
 `-c` to Codex. Commands that do not read configuration ignore the global option.
 
+Every command that takes `-c` also takes `--preset NAME`, repeatable, to apply
+a [preset](configuration.md#presets) for that command only:
+
+```bash
+privyx proxy --preset strict
+privyx config --sources --preset debug
+privyx run claude:work --preset debug
+```
+
+Unlike the global `-c`, a preset is not passed to child processes: an agent
+launched by `run`, and any Privyx command it calls, such as an MCP server or
+a hook, does not inherit it.
+
 ## `privyx proxy`
 
 Start the privacy proxy.
@@ -103,6 +116,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
 | `--no-anchor` | Skip the default automatic anchor; an explicit config or environment setting still applies. See [Anchors](masking.md#anchors). |
 | `--harvest` / `--no-harvest` | Also mask what the working directory tells: the authors of its last 1000 commits, the owner and name of each git remote, the values in its `.env` files, and the local OS username. Read at launch and kept in memory, never written. Default: the `harvest` setting, off. |
+| `--preset` | Apply the Privyx settings of a preset under [`presets`](configuration.md#presets), above the profile's own `presets` and `privyx` settings and below other flags. Repeatable; later ones win. |
 | `--list` | List the known targets and exit. |
 | `--dry-run` | Print the launch plan and winning configuration sources, then exit. Opens no port, starts no tool, imports no plugins, and creates no log, vault, or anchor file. Works even if the executable is not installed. |
 
@@ -154,9 +168,9 @@ native destinations before replacing the agent's endpoint with the proxy URL:
 | Codex | A custom provider's `base_url`; for the built-in OpenAI provider, `openai_base_url` in config or `-c` overrides. Codex does not read `OPENAI_BASE_URL` |
 | OpenAI CLI | `OPENAI_BASE_URL` |
 | Aider | `OPENAI_API_BASE`, then `OPENAI_BASE_URL` |
-| Grok | `GROK_XAI_API_BASE_URL` (takes precedence over the preset's xAI default) |
+| Grok | `GROK_XAI_API_BASE_URL` (takes precedence over the built-in profile's xAI default) |
 | Gemini CLI | `GOOGLE_GEMINI_BASE_URL` for API-key mode |
-| Ollama | `OLLAMA_HOST` (takes precedence over the preset's local default) |
+| Ollama | `OLLAMA_HOST` (takes precedence over the built-in profile's local default) |
 
 The child environment includes profile `env` and `env_from`. Claude's user
 settings come from `$CLAUDE_CONFIG_DIR/settings.json`, or
@@ -266,8 +280,9 @@ Environment injected:
 
 `<auto>` means a free port will be chosen on launch; `--port` makes the plan
 use a fixed port. Sources are `defaults`, `run defaults`, a config file's
-absolute path, `environment`, or `CLI`. Inherited fields retain their parent's
-source. The environment section lists proxy URL variables plus masked custom
+absolute path, `environment`, `CLI`, `agents.NAME.privyx`, or `presets.NAME`.
+Inherited fields retain their parent's source. The environment section lists
+proxy URL variables plus masked custom
 values and the source names of `env_from` references. Credential flags, JSON settings,
 config assignments, URL user info, queries and fragments are masked in the
 display; arbitrary free-text arguments are displayed as supplied. The plan
@@ -276,6 +291,19 @@ through the proxy. The same arguments and resolved settings are used when
 you launch without `--dry-run`. Both paths consume the same launch plan,
 including an environment snapshot; binding a free port changes only its
 proxy URL. Missing environment references fail before startup.
+
+With [presets](configuration.md#presets), the plan ends with the presets
+applied and each setting they decide; a setting a later layer overrides is
+left out:
+
+```console
+$ privyx run --dry-run claude:work --preset debug
+...
+Presets: strict [/home/alice/.privyx/config.yaml], debug [CLI]
+  log_file = "/home/alice/.privyx/debug.log" [presets.debug]
+  log_level = "debug" [presets.debug]
+  proxy.passthrough_unknown = false [presets.strict]
+```
 
 ## `privyx detect`
 
