@@ -181,7 +181,9 @@ detector:
 
 ## Turning a built-in off
 
-`disable` turns off built-in entities of the `regex` detector:
+`disable` turns off built-in entities of the `regex` detector. Both `regex`
+and `yaml` also accept opt-in entity names, so you can opt out before an
+upgrade enables one by default:
 
 ```yaml
 detector:
@@ -191,8 +193,11 @@ detector:
 
 - Only the built-in pattern goes: your own `patterns` and `terms` for the
   entity still apply.
-- A name that is not a built-in on by default, such as a typo, stops the
-  config from loading.
+- An opt-in entity that is not enabled is a no-op, such as
+  `disable: [CRYPTO_WALLET, ID_NIK]` in a config without `enable`.
+- Listing the same entity in `enable` and `disable` stops the config from
+  loading. Remove it from `enable` to opt out.
+- An unknown name, such as a typo, stops the config from loading.
 - Built-in patterns overlap. With `CREDIT_CARD` off, `PHONE` can find part of
   a card number written in groups and send the rest as is:
   `4111 1111 1111 1111` becomes `<PRIVYX_PHONE_1> 1111`.
