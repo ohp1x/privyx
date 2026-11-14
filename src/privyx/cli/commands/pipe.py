@@ -10,11 +10,13 @@ from typing import Any, NoReturn
 
 import click
 
+from privyx.cli.config import config_options
+
 
 @click.command()
 @click.option("--session", "session_id", default=None, help="Vault session id")
 @click.option("--restore", is_flag=True, help="Put the original values back instead of masking")
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 def pipe(session_id: str | None, restore: bool, config_path: str | None) -> None:
     """Mask stdin to stdout one line at a time.
 

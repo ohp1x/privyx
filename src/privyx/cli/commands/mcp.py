@@ -23,6 +23,7 @@ import click
 from privyx.cli.commands.mask import _dumps
 from privyx.cli.commands.mcp_serve import serve
 from privyx.cli.commands.pipe import _drop_stdout
+from privyx.cli.config import config_options
 
 #: Values in a JSON-RPC message that are protocol, not content: its own
 #: members, the version MCP's initialize negotiates, and the ids notifications
@@ -66,7 +67,7 @@ mcp.add_command(serve)
 
 @mcp.command(context_settings={"ignore_unknown_options": True, "allow_interspersed_args": False})
 @click.option("--session", "session_id", default=None, help="Vault session id")
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 @click.argument("command", nargs=-1, required=True, type=click.UNPROCESSED)
 def wrap(session_id: str | None, config_path: str | None, command: tuple[str, ...]) -> None:
     """Run an MCP server, masking what it sends to the client.

@@ -22,6 +22,8 @@ import json
 import logging
 import os
 import re
+from collections.abc import Sequence
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
@@ -36,6 +38,11 @@ from privyx.core.errors import ConfigError
 from privyx.security.secrets import resolve_secrets
 
 _log = logging.getLogger("privyx")
+
+#: The presets ``--preset`` chose for the running command.  A context variable,
+#: not an environment variable: a process the command starts, such as an agent
+#: calling ``privyx`` in turn, does not inherit them.
+CHOSEN_PRESETS: ContextVar[tuple[str, ...]] = ContextVar("privyx_presets", default=())
 
 
 def _home_file(name: str) -> Path | None:
@@ -166,6 +173,7 @@ def load_config(
     extra: dict[str, Any] | None = None,
     base_extra: dict[str, Any] | None = None,
     agent: str | None = None,
+    presets: Sequence[str] | None = None,
     sources: dict[str, str] | None = None,
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
@@ -182,9 +190,13 @@ def load_config(
 
     With ``agent``, that profile's provider/upstream are applied within each
     layer, above that layer's common settings. Later layers still win. Its
-    ``privyx`` settings come just below ``extra``.
+    ``presets``, then its ``privyx`` settings, then ``presets`` come just
+    below ``extra``; without a profile, just ``presets``.  ``presets`` defaults
+    to :data:`CHOSEN_PRESETS`.
     ``sources`` optionally receives dotted field paths -> winning layer.
     """
+    if presets is None:
+        presets = CHOSEN_PRESETS.get()
     merged: dict[str, Any] = {}
     origins: dict[str, str] = {}
     layers: list[tuple[str, dict[str, Any]]] = []
@@ -215,10 +227,8 @@ def load_config(
 
     # A misspelled key would otherwise be dropped without a word, and the
     # setting it meant to change (a detector's terms, say) silently not apply.
-    unknown = _unknown_keys(Settings, merged)
-    if unknown:
-        plural = "s" if len(unknown) > 1 else ""
-        raise ConfigError(f"unknown setting{plural} {', '.join(unknown)}")
+    _raise_unknown(_unknown_keys(Settings, merged))
+    _check_presets(merged, presets)
 
     profiles = merged.get("agents")
     if isinstance(profiles, dict):
@@ -228,10 +238,14 @@ def load_config(
         if agent in profiles:
             profiles[agent] = _settle(profiles[agent], expand=True)
         selected = profiles.get(agent) if agent else None
+        own = selected.get("presets") if isinstance(selected, dict) else None
         override = selected.get("privyx") if isinstance(selected, dict) else None
+        patches = _preset_layers(merged, own if isinstance(own, list) else [])
         if isinstance(override, dict) and override:
-            at = next((i for i, (source, _) in enumerate(layers) if source == "CLI"), len(layers))
-            layers.insert(at, (f"agents.{agent}.privyx", override))
+            patches.append((f"agents.{agent}.privyx", override))
+        patches += _preset_layers(merged, presets)
+        at = next((i for i, (source, _) in enumerate(layers) if source == "CLI"), len(layers))
+        layers[at:at] = patches
         # Reapply transport fields at their originating layer, so a late
         # common environment/CLI override still beats an inherited profile.
         effective: dict[str, Any] = {}
@@ -262,9 +276,13 @@ def load_config(
         for name, profile in agents.items():
             if name != agent and isinstance(profile, dict):
                 held[name] = {key: profile.pop(key) for key in _DEFERRED if key in profile}
+    # So are the presets: the ones in use were applied above.
+    definitions = merged.pop("presets", None)
     merged = resolve_secrets(merged)
     for name, values in held.items():
         merged["agents"][name].update(values)
+    if definitions is not None:
+        merged["presets"] = definitions
     try:
         return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
@@ -276,14 +294,74 @@ def _check_overrides(profiles: dict[str, Any]) -> None:
     unknown: list[str] = []
     for name, profile in profiles.items():
         override = profile.get("privyx") if isinstance(profile, dict) else None
-        if not isinstance(override, dict):
-            continue  # the wrong shape is pydantic's to report
-        prefix = f"agents.{name}.privyx."
-        if "agents" in override:
-            unknown.append(f"{prefix + 'agents'!r} (profiles cannot be set per profile)")
-        unknown += _unknown_keys(
-            Settings, {k: v for k, v in override.items() if k != "agents"}, prefix
-        )
+        if isinstance(override, dict):  # the wrong shape is pydantic's to report
+            unknown += _check_patch(
+                override,
+                f"agents.{name}.privyx.",
+                ("agents", "presets"),
+                "profiles and presets cannot be set per profile",
+            )
+    _raise_unknown(unknown)
+
+
+#: What a preset cannot set: where requests go and with which credentials stays
+#: a profile's, and presets neither nest nor define profiles.
+_NOT_IN_PRESET = ("agents", "presets", "include", "upstream_url", "provider")
+
+
+def _check_presets(merged: dict[str, Any], chosen: Sequence[str]) -> None:
+    """Check every preset as a config file is checked, and every name that picks one.
+
+    Done whichever profile runs, so a typo shows before the preset is needed.
+    Only key paths and preset names are reported, never values.
+    """
+    defined = merged.get("presets")
+    if not isinstance(defined, dict):
+        defined = {}  # a wrong shape is pydantic's to report
+    unknown: list[str] = []
+    for name, preset in defined.items():
+        if isinstance(preset, dict):
+            unknown += _check_patch(
+                preset,
+                f"presets.{name}.",
+                _NOT_IN_PRESET,
+                "a preset cannot set the destination, profiles, or other presets",
+            )
+    _raise_unknown(unknown)
+    profiles = merged.get("agents")
+    uses = [
+        (f"in {f'agents.{name}.presets'!r}", profile.get("presets"))
+        for name, profile in (profiles.items() if isinstance(profiles, dict) else [])
+        if isinstance(profile, dict)
+    ]
+    for where, names in [*uses, ("in --preset", list(chosen))]:
+        for name in names if isinstance(names, list) else []:
+            if isinstance(name, str) and name not in defined:
+                match = difflib.get_close_matches(name, [str(n) for n in defined], n=1)
+                hint = f" (did you mean {match[0]!r}?)" if match else ""
+                raise ConfigError(f"unknown preset {name!r}{hint} {where}")
+
+
+def _preset_layers(merged: dict[str, Any], names: Sequence[str]) -> list[tuple[str, Any]]:
+    """The layers that apply the presets ``names``, in order, their references resolved."""
+    defined = merged.get("presets") or {}
+    return [
+        (f"presets.{name}", _settle(defined[name], expand=True))
+        for name in names
+        if isinstance(defined.get(name), dict)
+    ]
+
+
+def _check_patch(
+    patch: dict[str, Any], prefix: str, forbidden: tuple[str, ...], why: str
+) -> list[str]:
+    """The keys of ``patch``, a partial config, that it cannot take or that are unknown."""
+    found = [f"{prefix + key!r} ({why})" for key in forbidden if key in patch]
+    allowed = {key: value for key, value in patch.items() if key not in forbidden}
+    return found + _unknown_keys(Settings, allowed, prefix)
+
+
+def _raise_unknown(unknown: list[str]) -> None:
     if unknown:
         plural = "s" if len(unknown) > 1 else ""
         raise ConfigError(f"unknown setting{plural} {', '.join(unknown)}")
@@ -554,7 +632,8 @@ _REFERENCE = re.compile(r"\$\$\{|\$\{(?:([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}
 
 
 #: Profile settings resolved only for the profile being run, so a reference in
-#: another profile neither fails nor prompts for every command.
+#: another profile neither fails nor prompts for every command.  Presets wait
+#: in the same way until one is applied.
 _DEFERRED = ("env", "args", "privyx")
 
 
@@ -587,7 +666,8 @@ def _interpolate(value: Any, path: Path, keys: tuple[Any, ...] = ()) -> Any:
     a shell.  An unset ``${NAME}`` with no default is an error: a missing key
     would otherwise reach the upstream as an empty string.  ``$${`` writes a
     literal ``${``.  Keys are left as written.  A profile's ``env``, ``args``,
-    and ``privyx`` values are deferred (:class:`_Deferred`) until that profile runs.
+    and ``privyx`` values are deferred (:class:`_Deferred`) until that profile
+    runs, and a preset's until it is applied.
     """
     if isinstance(value, dict):
         return {key: _interpolate(item, path, (*keys, key)) for key, item in value.items()}
@@ -595,7 +675,9 @@ def _interpolate(value: Any, path: Path, keys: tuple[Any, ...] = ()) -> Any:
         return [_interpolate(item, path, keys) for item in value]
     if not isinstance(value, str) or "${" not in value:
         return value
-    if keys[:1] == ("agents",) and len(keys) > 2 and keys[2] in _DEFERRED:
+    if keys[:1] == ("presets",) or (
+        keys[:1] == ("agents",) and len(keys) > 2 and keys[2] in _DEFERRED
+    ):
         return _Deferred(value, path)
 
     def substitute(match: re.Match[str]) -> str:

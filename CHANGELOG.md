@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **CLI:** `run --harvest` also masks the local OS username as a person for that run, except short or generic account names; `scan` does not collect it
+- **Config:** Presets name sets of Privyx settings under `presets` that an agent profile applies with its `presets` list, or any command with `--preset NAME`, so a combination such as strict routing with debug logging needs no profile or config file of its own. `run --dry-run` shows the presets applied and the settings they decide
 
 ### Fixed
 

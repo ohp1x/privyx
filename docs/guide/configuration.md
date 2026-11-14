@@ -234,17 +234,18 @@ privyx run claude-work
 | `command` | Required for a new profile | Executable name or path, passed directly to a subprocess. Pass arguments after `--`; this field is not a shell command. |
 | `provider` | `generic` | Upstream provider type, such as `openai` or `anthropic`. |
 | `upstream` | empty | Explicit HTTP(S) upstream URL. Without an explicit upstream, transparent mode follows supported native agent endpoints, then the provider default. Transparent mode forwards to its origin; gateway mode uses the full URL. |
-| `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the preset's list; CLI `--env-var` adds names. Supported native endpoint values are read before injection; arbitrary variable names do not imply an upstream. |
+| `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the built-in profile's list; CLI `--env-var` adds names. Supported native endpoint values are read before injection; arbitrary variable names do not imply an upstream. |
 | `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
 | `extends` | `null` | Parent profile name. Inherits command, transport, adapter, args, and environment settings. Unknown parents and cycles are rejected. |
-| `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`; `pi` also injects `-e` with Privyx's pi extension. `auto` detects a Claude/Codex/pi profile or executable name, otherwise uses `env`. The built-in Claude, Codex, and pi presets explicitly select their adapters. |
+| `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`; `pi` also injects `-e` with Privyx's pi extension. `auto` detects a Claude/Codex/pi profile or executable name, otherwise uses `env`. The built-in Claude, Codex, and pi profiles explicitly select their adapters. |
 | `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Arguments are passed without a shell or interpolation. |
 | `env` | `{}` | Destination environment variable name → literal string value. Values must be strings: quote YAML booleans/numbers. Merged by name over the shell environment; values are masked in previews and config dumps. |
 | `env_from` | `{}` | Destination environment variable name → source variable name in the parent shell. Resolve only for the selected launch; a missing source fails before any resource opens. An existing empty source value is allowed. Values are never expanded from profile `env`. |
 | `budget` | `{}` | Limits on one launch: `max_turns` (model requests) and `max_tokens` (tokens the upstream reports, input and output). Unset means no limit. See [Budget](#budget). |
+| `presets` | `[]` | Names of [presets](#presets) to apply, left to right, below this profile's `privyx` settings. A list like `args`: a child's list replaces its parent's, and `[]` clears it. |
 | `privyx` | `{}` | Privyx settings for this profile only, such as `detector` or `operator`. Checked like a config file. See [Settings per profile](#settings-per-profile). |
 
-Use inheritance to avoid copying a preset and reference credentials already
+Use inheritance to avoid copying a built-in profile and reference credentials already
 present in your shell:
 
 ```yaml
@@ -342,7 +343,65 @@ agents:
       policy: {type: strict}
 ```
 
-A profile without `privyx` behaves as before. `agents` cannot be set in it.
+A profile without `privyx` behaves as before. `agents` and `presets` cannot
+be set in it.
+
+#### Presets
+
+`presets` names sets of Privyx settings written once and applied to any
+profile, or to one command, so a combination such as strict routing with
+debug logging needs no profile of its own:
+
+```yaml
+presets:
+  strict:
+    proxy:
+      passthrough_unknown: false
+  debug:
+    log_level: debug
+    log_file: "${HOME}/.privyx/debug.log"
+
+agents:
+  claude:work:
+    upstream: https://router.example.com
+    presets: [strict]
+```
+
+```bash
+privyx run claude:work                  # strict
+privyx run claude:work --preset debug   # strict, and debug for this launch
+privyx proxy --preset strict --preset debug
+```
+
+A preset holds settings as a config file does, without a `privyx` wrapper,
+and is checked like one: unknown keys are rejected in every preset, used or
+not. It cannot set `provider`, `upstream_url`, `agents`, `presets`, or
+`include`: where a profile's requests go, and with which credentials, stays
+the profile's. A preset does nothing until a profile's `presets` or
+[`--preset`](cli.md) names it, and a name no preset has is an error.
+Variable and secret references in a preset are resolved only when it is
+applied. Presets of the same name in two config files merge, as other
+settings do.
+
+For a `privyx run` launch, settings apply in this order, each above the ones
+before:
+
+1. Defaults, `privyx run` defaults, config files, and `PRIVYX_*` variables.
+2. The profile's `presets`, left to right.
+3. The profile's `privyx` settings.
+4. `--preset`, in the order given.
+5. Other command-line flags, such as `--session-strategy`.
+
+A preset can loosen what a profile sets (`passthrough_unknown: true` over a
+strict profile, say); it is allowed, and `privyx run --dry-run` names the
+presets applied and each setting they decide, with sensitive values masked as
+in `config --show`.
+
+Every command that reads configuration takes `--preset`; without a profile,
+the presets apply above config files and the environment and below the
+command's other flags, and `config --show --preset NAME` shows the result.
+A preset applies to the command it is given to only: an agent launched by
+`privyx run`, and any `privyx` command the agent calls, does not inherit it.
 
 For a wrapper whose filename differs from the agent's, keep the adapter
 explicit. For example, a profile with `extends: claude` and
@@ -350,7 +409,7 @@ explicit. For example, a profile with `extends: claude` and
 `adapter: env` to disable CLI injection and use only `env_vars`. Tools with
 special protocols may still need a new adapter implementation.
 
-Profiles follow the same layers as other settings: preset defaults, global
+Profiles follow the same layers as other settings: built-in defaults, global
 file, trusted project files, environment, and CLI. In each layer the selected
 profile's explicit `provider` and `upstream` override the common
 `provider.type` and upstream settings. Later layers win: for example,
@@ -410,7 +469,7 @@ environment.
 |---|---|---|
 | `mode` | `transparent` | `transparent` forwards every path to the upstream origin; `gateway` serves Privyx's own endpoints and posts to one fixed URL. Same as `--transparent` / `--gateway`. |
 | `routes` | twenty-seven paths | Path → wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`) for the requests Privyx masks; a `*` matches any characters except `/`. A map given here replaces the default one. See [Routes](proxy.md#routes). |
-| `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead; enabled by the `configs/strict.yaml` preset. `doctor` reports route coverage and warns on passthrough. |
+| `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead; enabled by the shipped `configs/strict.yaml`. `doctor` reports route coverage and warns on passthrough. |
 | `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter. `false` drops them so only the configured key is used. |
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
 | `connect_timeout` | `10` | Seconds to open a connection to the upstream. |

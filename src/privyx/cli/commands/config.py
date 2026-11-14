@@ -9,6 +9,7 @@ from typing import Any
 import click
 
 from privyx import __version__
+from privyx.cli.config import config_options
 from privyx.config.redact import redact
 
 
@@ -19,7 +20,7 @@ from privyx.config.redact import redact
 )
 @click.option("--path", is_flag=True, help="Show the config files in use")
 @click.option("--schema", is_flag=True, help="Print the JSON Schema of a config file")
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 def config_cmd(
     show: bool, sources: bool, path: bool, schema: bool, config_path: str | None
 ) -> None:

@@ -22,6 +22,7 @@ from typing import Any
 
 import click
 
+from privyx.cli.config import config_options
 from privyx.core.session import Session
 
 #: Input formats.  ``auto`` looks at the input file's extension.
@@ -63,7 +64,7 @@ def _common_options(fn: Callable[..., None]) -> Callable[..., None]:
         ),
         click.option("--map", "map_path", default=None, help="Mapping file to read/write"),
         click.option("--session", "session_id", default=None, help="Vault session id"),
-        click.option("--config", "-c", "config_path", default=None, help="Config file path"),
+        config_options,
     ]
     for option in reversed(options):
         fn = option(fn)

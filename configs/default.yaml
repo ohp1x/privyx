@@ -38,9 +38,16 @@
 # and grok.  Override them field by field, add your own with `extends`, or add
 # a variant named base:variant (claude:work inherits claude).  Each profile
 # can set command, provider, upstream, env_vars, base_path, extends, adapter,
-# args, env, env_from, budget (max_turns, max_tokens), and privyx (settings for
-# that profile only).  See configs/examples/agents.yaml.
+# args, env, env_from, budget (max_turns, max_tokens), presets (names from
+# presets below), and privyx (settings for that profile only).  See
+# configs/examples/agents.yaml.
 # agents:
+#
+# Named sets of Privyx settings, applied by an agent profile's presets list or
+# by --preset NAME on any command.  A preset takes any setting but agents,
+# presets, include, upstream_url, and provider.  Example:
+# {strict: {proxy: {passthrough_unknown: false}}}
+# presets: {}
 #
 # `privyx run`: also mask the workspace's git authors, remote owners, project
 # names, .env values, and the local OS username, kept in memory (--harvest).

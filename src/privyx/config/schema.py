@@ -332,6 +332,8 @@ class AgentConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     env_from: dict[str, str] = Field(default_factory=dict)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    #: Names under ``presets`` applied left to right, below ``privyx``.
+    presets: list[str] = Field(default_factory=list)
     #: Privyx settings for this profile, above config files and environment.
     privyx: dict[str, Any] = Field(default_factory=dict)
 
@@ -441,6 +443,8 @@ class Settings(BaseModel):
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     tls: TLSConfig = Field(default_factory=TLSConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=_default_agents)
+    #: Named sets of settings that a ``privyx run`` profile or ``--preset`` applies.
+    presets: dict[str, dict[str, Any]] = Field(default_factory=dict)
     #: ``privyx run``: also mask the workspace's git authors, remote owners and
     #: names, and ``.env`` values, read at launch and kept in memory only.
     harvest: bool = False

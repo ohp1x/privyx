@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 import click
 from click.core import ParameterSource
 
+from privyx.cli.config import config_options
 from privyx.cli.launch import (
     AUTO_ANCHOR,
     FALLBACK_ENV,
@@ -92,7 +93,7 @@ def _run_settings(
 )
 @click.argument("target", required=False)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 @click.option("--provider", "-p", default=None, help="Override the upstream provider type")
 @click.option("--upstream", "-u", default=None, help="Override the upstream URL")
 @click.option(
@@ -245,6 +246,7 @@ def run(
     harvested = _harvest(settings) if settings.harvest else None
     if dry_run:
         _show_plan(plan)
+        _show_presets(settings, sources, target)
         if harvested is not None:
             click.echo(f"Harvest: {harvested}")
         return
@@ -398,6 +400,43 @@ def _show_plan(plan: LaunchPlan) -> None:
     for key in sorted(plan.injected_env):
         value = plan.base_url if key in plan.env_vars else "***"
         click.echo(f"  {key}={value} [{plan.env_sources[key]}]")
+
+
+def _show_presets(settings: Settings, sources: dict[str, str], profile: str) -> None:
+    """Name the presets applied, then each setting they decide, its value masked as needed.
+
+    A setting a later layer overrides is not one a preset decides, so it is
+    left out.  A value that cannot be looked up by its dotted path (a key
+    holding a dot) is left out, not guessed.
+    """
+    from privyx.config.loader import CHOSEN_PRESETS
+    from privyx.config.redact import redact
+
+    listed = settings.agents.get(profile)
+    origin = sources.get(f"agents.{profile}.presets", "defaults")
+    applied = [(name, origin) for name in (listed.presets if listed else [])]
+    applied += [(name, "CLI") for name in CHOSEN_PRESETS.get()]
+    if not applied:
+        return
+    click.echo("Presets: " + ", ".join(f"{name} [{source}]" for name, source in applied))
+    layers = {f"presets.{name}" for name, _ in applied}
+    decided = sorted(path for path, source in sources.items() if source in layers)
+    values = redact(settings.model_dump(mode="json", exclude={"agents", "presets"}))
+    for path in decided:
+        if any(other.startswith(path + ".") for other in decided):
+            continue  # a list of detectors, say: its items' settings are shown
+        value: Any = values
+        for part in path.split("."):
+            if isinstance(value, list) and part.isdigit() and int(part) < len(value):
+                value = value[int(part)]
+            elif isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                break
+        else:
+            click.echo(f"  {path} = {json.dumps(value)} [{sources[path]}]")
+            continue
+        click.echo(f"  {path} [{sources[path]}]")
 
 
 async def _run_target(

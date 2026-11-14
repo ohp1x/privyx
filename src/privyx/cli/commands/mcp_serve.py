@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from privyx.cli.config import config_options
 from privyx.version import __version__
 
 if TYPE_CHECKING:
@@ -106,7 +107,7 @@ class _UnknownTool(Exception):
 
 
 @click.command()
-@click.option("--config", "-c", "config_path", default=None, help="Config file path")
+@config_options
 @click.option(
     "--root",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
