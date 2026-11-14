@@ -251,12 +251,15 @@ class ProxyConfig(BaseModel):
 
     ``mode`` selects which app :command:`privyx proxy` serves:
 
-    - ``gateway`` — the narrow, chat-only gateway (``/v1/chat/completions``),
-      OpenAI schema only.
+    - ``gateway`` — configured routes sent to a fixed upstream endpoint;
+      embeddings and legacy completions use sibling endpoints. Native Ollama
+      and OpenAI/Anthropic token-counting or compaction routes are not served.
+      Gemini routes require the Google provider.
     - ``transparent`` — a drop-in reverse proxy.  Point a client's
       ``OPENAI_BASE_URL`` / ``ANTHROPIC_BASE_URL`` at Privyx and every path is
-      forwarded to the upstream origin; chat paths are pseudonymized on the way
-      out and restored on the way back, all without client-side changes.
+      forwarded to the upstream; configured masking routes are pseudonymized
+      on the way out and restored on the way back. ``path_mapping`` can keep
+      an upstream path prefix.
 
     ``routes`` maps a request path to the wire schema used to transform it.
     In transparent mode, paths not listed are forwarded verbatim when

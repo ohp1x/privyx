@@ -69,8 +69,11 @@ Serving HTTPS, natively or behind a reverse proxy, is covered in
 
 The default routes, how to add one, and what happens to a path without a
 route are covered in [Proxy modes and routes](../guide/proxy.md#routes).
-`proxy.routes` is looked up by exact path (`proxy/schemas.py::detect_schema`),
-with the query string already split off.
+`proxy.routes` is looked up by path (`proxy/schemas.py::detect_schema`), with
+the query string already split off. Exact routes win over wildcard routes;
+`*` matches characters other than `/`, and the first matching wildcard wins.
+An accidental repeated `/v1/v1/` prefix also uses the intended `/v1/` route
+so a request that the upstream will reject is still masked.
 
 ## What gets transformed and restored
 
@@ -87,7 +90,7 @@ per field, so a field a provider adds later is covered by default:
   Responses `*.done`, `output_item.done`, `response.completed`, … — leaf by leaf,
   re-serializing it only when something changed.
 - **Transform walks only the content subtrees** — the top-level keys `messages`,
-  `system`, `input`, `instructions`, `prompt`, `prediction`. Every other
+  `system`, `input`, `instructions`, `prompt`, `suffix`, `prediction`. Every other
   top-level key is config (`model`, `tools`, `tool_choice`, `response_format`,
   Responses `text` / `reasoning`, `metadata`, …) and is forwarded as-is — except
   every `description` string inside `tools` (tool and parameter descriptions are
@@ -100,6 +103,12 @@ per field, so a field a provider adds later is covered by default:
   `file_data`, `url` and anything ending in `_url`, `media_type`,
   `cache_control`, `status`, and an `image_generation_call`'s base64 `result`.
   It fails closed: an unknown field is pseudonymized, never forwarded raw.
+- **Native schemas select their own content.** Gemini walks `contents`,
+  `systemInstruction`, embedding content and titles, and wrapped token-count
+  and batch embedding requests. Ollama also masks its `prompt`, `suffix`,
+  and messages. Binary image data, media types, and native signatures stay
+  opaque. See [Gemini](../providers/google.md) and
+  [Ollama](../providers/local.md#ollamas-own-api).
 - **A conversation stays byte-stable across turns.** The request is walked in
   cache-prefix order (`tools`, `system` / `instructions`, then the rest), so a
   per-session counter cannot renumber the system prompt when a later message

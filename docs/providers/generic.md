@@ -1,13 +1,14 @@
 ---
-description: Put Privyx in front of any endpoint that speaks the OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages format, and add a provider of your own.
+description: Put Privyx in front of a compatible endpoint, select its wire schema, and add a provider of your own.
 ---
 
 # Any other endpoint
 
 Privyx does not need to know a provider by name. It needs to know two things:
-where to send requests, and which of the three wire formats a path speaks
-(OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages). A request
-in another format is forwarded, not masked.
+where to send requests, and which wire schema a path speaks: `openai`,
+`responses`, `anthropic`, `embeddings`, `gemini`, or `ollama`. A path without
+a masking route is forwarded unchanged by default; setting
+`proxy.passthrough_unknown: false` refuses it instead.
 
 ## A compatible API on standard paths
 
@@ -24,7 +25,22 @@ export OPENAI_BASE_URL=http://localhost:8000/v1
 
 ## A compatible API on other paths
 
-Two options, both described in [Proxy modes and routes](../guide/proxy.md):
+Three options, described in [Proxy modes and routes](../guide/proxy.md):
+
+- **Map an upstream prefix**, when the client uses standard API paths but
+  the upstream has a prefix:
+
+    ```yaml
+    upstream_url: https://llm.example.com/api/v1
+    proxy:
+      path_mapping:
+        mode: prefix
+        strip_prefix: /v1
+    ```
+
+    A client request to `/v1/chat/completions` is masked using the default
+    route and sent to `/api/v1/chat/completions` upstream. This also works
+    for [`privyx run`](../guide/cli.md#privyx-run).
 
 - **Add a route**, when the client can send the provider's path itself:
 

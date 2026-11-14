@@ -101,7 +101,7 @@ detector found; `strict` masks only the entity types you list. See
 ### Operator
 
 What a detected value becomes. `pseudonym`, the default, writes a token.
-`hash`, `encrypt`, `faker`, and `redact` trade readability, reversibility,
+`hash`, `encrypt`, `faker`, `fpe`, `partial`, and `redact` trade readability, reversibility,
 and what the vault stores in different ways. See [Masking](masking.md#operators).
 
 ### Token
@@ -130,16 +130,17 @@ value gets the same token in every session and after a restart. See
 ### Route and wire schema
 
 A route maps a request path to the JSON shape of its body: `openai` (Chat
-Completions), `anthropic` (Messages), or `responses` (OpenAI Responses).
+Completions and legacy completions), `anthropic` (Messages), `responses`
+(OpenAI Responses), `embeddings`, `gemini`, or `ollama`.
 Privyx masks a request only when its path has a route. See
 [Proxy modes and routes](proxy.md).
 
 ### Transparent and gateway mode
 
 The two ways the proxy forwards a request. `transparent`, the default,
-mirrors the client's path on the provider's host. `gateway` posts every
-request to one fixed URL, for a provider whose endpoint sits behind a base
-path. See [Two modes](proxy.md#two-modes).
+mirrors the client's path on the provider's host, or maps an upstream prefix
+with `proxy.path_mapping`. `gateway` posts to a fixed endpoint, with sibling
+endpoints for embeddings and legacy completions. See [Two modes](proxy.md#two-modes).
 
 ### Audit trail
 

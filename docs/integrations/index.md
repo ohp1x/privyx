@@ -65,8 +65,8 @@ does not know by default. Without it, that path is forwarded unmasked; see
 
 ## What is covered everywhere
 
-Whatever the client, Privyx masks chat requests in the three formats it
-knows and restores their replies, streamed or not, including tool-call
+Whatever the client, Privyx masks routed chat requests in the OpenAI,
+Anthropic, Gemini, and Ollama formats and restores their replies, streamed or not, including tool-call
 arguments. Embeddings are masked too, and returned as is. It does not mask
 images or other API paths; see
 [Limitations](../security/limitations.md).
@@ -79,7 +79,9 @@ After the first request through a new client, look at the audit trail:
 privyx audit tail --no-follow
 ```
 
-A masked request shows a `proxy.request` line with `schema=openai`,
-`schema=anthropic`, or `schema=responses`. If that line is missing, the client
-did not go through Privyx; if it shows `schema=null`, the path has no route
-and was forwarded as sent.
+A routed request that received upstream headers shows a `proxy.request`
+line with its schema: `openai`, `anthropic`, `responses`, `embeddings`,
+`gemini`, or `ollama`. `schema=null` means the path had no masking route and
+was forwarded as sent. A missing line can also mean the request was blocked
+or failed before upstream headers arrived; check `proxy.blocked` and
+`proxy.error` before concluding the client bypassed Privyx.

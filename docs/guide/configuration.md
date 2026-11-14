@@ -28,8 +28,8 @@ Besides your config file, `~/.privyx/` holds by default the SQLite vault
 
 Sections merge key by key, so a file that sets only `vault.type` keeps the
 defaults for the rest of `vault`. A list replaces the default rather than
-extending it. Empty environment variables are ignored, so an unset variable
-never clears a value from the file.
+extending it. Empty environment variables are ignored, except
+`PRIVYX_ANCHOR_SECRET=""`, which explicitly disables the anchor.
 
 A config file can be split with `include`, a list of files or globs relative
 to the file that names them:
@@ -238,8 +238,8 @@ privyx run claude-work
 | `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
 | `extends` | `null` | Parent profile name. Inherits command, transport, adapter, args, and environment settings. Unknown parents and cycles are rejected. |
 | `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`; `pi` also injects `-e` with Privyx's pi extension. `auto` detects a Claude/Codex/pi profile or executable name, otherwise uses `env`. The built-in Claude, Codex, and pi profiles explicitly select their adapters. |
-| `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Arguments are passed without a shell or interpolation. |
-| `env` | `{}` | Destination environment variable name → literal string value. Values must be strings: quote YAML booleans/numbers. Merged by name over the shell environment; values are masked in previews and config dumps. |
+| `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Passed without a shell; `${VAR}` config references resolve only for the selected profile. |
+| `env` | `{}` | Destination environment variable name → string value; quote YAML booleans/numbers. Config references resolve only for the selected profile. Merged by name over the shell environment; values are masked in previews and config dumps. |
 | `env_from` | `{}` | Destination environment variable name → source variable name in the parent shell. Resolve only for the selected launch; a missing source fails before any resource opens. An existing empty source value is allowed. Values are never expanded from profile `env`. |
 | `budget` | `{}` | Limits on one launch: `max_turns` (model requests) and `max_tokens` (tokens the upstream reports, input and output). Unset means no limit. See [Budget](#budget). |
 | `presets` | `[]` | Names of [presets](#presets) to apply, left to right, below this profile's `privyx` settings. A list like `args`: a child's list replaces its parent's, and `[]` clears it. |

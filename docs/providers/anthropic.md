@@ -39,8 +39,9 @@ provider:
     anthropic-version: "2023-06-01"
 ```
 
-Do not write `api_key: ${VAR}`: Privyx does not expand environment variables in
-config files, so the literal string is sent upstream as the key.
+Credential settings can read environment variables, such as
+`api_key: ${ANTHROPIC_API_KEY}`. A missing variable stops startup; see
+[Configuration](../guide/configuration.md#where-settings-come-from).
 
 Privyx's own key comes, in both modes, from `PRIVYX_ANTHROPIC_API_KEY` when
 `provider.type` is `anthropic`, else from `PRIVYX_API_KEY` / `provider.api_key`.

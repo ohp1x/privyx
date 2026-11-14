@@ -103,8 +103,8 @@ More in [How it works](https://ohp1x.github.io/privyx/guide/how-it-works/).
   or a detector that understands names: Presidio or an LLM.
 - **Restores the reply.** In batch and streaming responses, in reasoning text,
   and in tool-call arguments, so your tools receive real values.
-- **Drops in.** It speaks OpenAI Chat Completions and Responses and Anthropic
-  Messages, so SDKs, frameworks, and coding tools only need a base URL.
+- **Drops in.** It speaks OpenAI Chat Completions and Responses, Anthropic
+  Messages, Gemini, and Ollama, so compatible clients can point at the proxy.
 - **Keeps sessions your way.** One mapping per request, per client, or per
   conversation, in memory, SQLite, or Redis.
 - **Shows what it did.** A PII-safe audit trail and Prometheus metrics count
@@ -119,8 +119,9 @@ Privyx reduces what a provider sees. It does not make a prompt safe by itself:
 
 - Names, organizations, and project terms are only masked once you configure
   a word list or a detector for them.
-- Only chat requests are masked. Other API paths, such as embeddings, are
-  forwarded as the client sent them, unless you tell Privyx to refuse them.
+- Only requests on configured masking routes are inspected, including chat,
+  legacy completions, embeddings, and supported token-counting endpoints.
+  Unlisted paths, such as file uploads, are forwarded unchanged unless refused.
 - Images, audio, and other binary content are not inspected.
 - The proxy has no authentication of its own. Keep it on `127.0.0.1`, or put
   something in front of it that authenticates callers.

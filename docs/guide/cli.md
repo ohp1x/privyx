@@ -48,7 +48,7 @@ privyx proxy [-c FILE] [--host HOST] [--port PORT] [-u URL] [--transparent | --g
 | `--host` | Bind address. Default `127.0.0.1`. |
 | `--port` | Bind port. Default `8000`. |
 | `-u`, `--upstream` | Upstream provider URL. Wins over the config file. |
-| `--transparent` / `--gateway` | Forward every path to the upstream origin, or serve the chat-only gateway. Default: `proxy.mode`, which is `transparent`. |
+| `--transparent` / `--gateway` | Forward paths to the upstream with masking on routed paths, or serve configured routes through the fixed-endpoint gateway. Default: `proxy.mode`, which is `transparent`. |
 | `--reload` | Restart the server when a config file in use changes. For development; an in-memory vault starts empty after each restart. |
 | `--ssl-certfile`, `--ssl-keyfile` | Serve HTTPS with this certificate and key (PEM). Both are required. |
 | `--ssl-keyfile-password` | Password for an encrypted key. |
@@ -111,7 +111,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 
 | Option | Description |
 |---|---|
-| `-p`, `--provider` | Provider type upstream (`openai`, `anthropic`, `generic`). Known targets set it for you. |
+| `-p`, `--provider` | Provider type upstream (`openai`, `anthropic`, `google`, `generic`, or a plugin). Known targets set it for you. |
 | `-u`, `--upstream` | Upstream URL. The transparent proxy uses only its origin and appends the tool's own paths, or keeps its path too with `proxy.path_mapping.mode: prefix`; the gateway posts to it as written. Without an explicit upstream, transparent mode follows supported native endpoint settings, then the provider default. |
 | `--port` | Proxy port. `0` (default) picks a free one. |
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
@@ -249,8 +249,8 @@ the proxy's URL ending in `/v1`; with `--provider anthropic`, it sets
 `ANTHROPIC_BASE_URL` to the proxy's URL. The provider can also come from
 `provider.type` in the config. For a tool that reads another variable, pass
 `--env-var` instead: that variable gets the proxy's URL with no path, and no
-other is set. If the tool ignores these variables, the warning that no request
-reached Privyx says so when it exits.
+other is set. If no request takes a masking route, Privyx warns when the tool
+exits and counts requests passed through unmasked, blocked, or failed.
 
 You can also define [agent profiles](configuration.md#agents) in your config
 and use their names as `TARGET`. `--list` includes those profiles. Built-in
@@ -269,6 +269,7 @@ Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults
 Routing: tool → http://127.0.0.1:<auto>/v1 → https://api.openai.com
 Session: conversation [run defaults]
 Anchor: auto-provision on launch [run defaults]
+Budget: none
 Source command: defaults
 Source base_path: defaults
 Source adapter: defaults

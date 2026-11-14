@@ -82,8 +82,9 @@ Three things differ from transparent mode:
 - Every served path posts to the same URL, so list in `proxy.routes` only the
   paths that URL can answer. Embeddings and the legacy completions API are the
   exception: they post beside it, so `…/v1/chat/completions` sends them to
-  `…/v1/embeddings` and `…/v1/completions`. The token-counting and compaction paths are
-  never served in this mode: forwarding one to a chat endpoint would turn a
+  `…/v1/embeddings` and `…/v1/completions`. The OpenAI and Anthropic
+  token-counting and compaction paths are never served in this mode:
+  forwarding one to a chat endpoint would turn a
   count into a billed completion. Gemini paths are the other exception: with
   `provider.type: google`, each one posts to the model and method it names
   (see [Google Gemini](../providers/google.md#gateway-mode)), and with any
@@ -126,8 +127,8 @@ in a Gemini path. A route is matched whatever the upstream behind it, so on a
 server where `/api/chat` is not Ollama's, give `proxy.routes` without it. A route without a `*` wins over one with it; among those,
 the first listed wins.
 
-The last two rows are what an OpenAI client calls when its base URL lacks the
-`/v1` it expects (`OPENAI_BASE_URL=http://localhost:8000`). They are masked
+The OpenAI paths without `/v1` are what its client calls when the base URL lacks
+the `/v1` it expects (`OPENAI_BASE_URL=http://localhost:8000`). They are masked
 like the others and forwarded to the same path, which the provider may not
 serve; set the base URL with `/v1`.
 

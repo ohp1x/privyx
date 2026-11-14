@@ -69,7 +69,6 @@ the installed CLI's behavior.
 uv run pytest                     # all
 uv run pytest tests/unit          # unit
 uv run pytest tests/property -k stream
-uv run pytest -n auto             # parallel
 ```
 
 ## Request performance baseline

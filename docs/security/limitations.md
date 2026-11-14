@@ -18,14 +18,15 @@ the provider as you wrote it.
 |---|---|
 | Names, organizations, and project terms are not found without configuration. The built-in patterns recognize values by their shape, and a name has none. | List them as [word lists](../guide/detection.md#word-lists), or add the [Presidio](../guide/detection.md#presidio) or [LLM](../guide/detection.md#llm-detector) detector. |
 | No detector is complete. A pattern can miss a format it was not written for; a language model can overlook a name. | Test with [`privyx detect`](../guide/cli.md#privyx-detect) on real samples of what you send. The test suite scores the built-in patterns on a labeled corpus; see [Testing](../development/testing.md#detection-corpus). |
-| The built-in patterns are not country-specific, apart from the US social security number. National ID numbers, tax numbers, and local formats are not covered. | Add a [pattern](../guide/detection.md#your-own-patterns), or a [plugin](../tutorials/detector-plugin.md) when the format needs a checksum. |
-| A value that is encoded or split is not recognized: base64, URL-encoded, spelled out, or spread over several fields. | Mask before you encode, with [`privyx mask`](../tutorials/mask-files.md). |
+| Country-specific formats are not all enabled by default. | Enable the supported [national ID detectors](../guide/detection.md#opt-in-detectors), or add a pattern or plugin for another format. |
+| Encoding or splitting a value can hide it from the default scan. | Opt into [`decode`](../guide/detection.md#hidden-values) for supported encodings and string concatenations, or mask before encoding. Values spread across fields or encoded in another way can still be missed. |
 | Meaning is not masked. "The patient in room 4 who was admitted on Monday" names nobody and still identifies someone. | Keep such text out of the prompt; no placeholder can stand in for it. |
 
 ## Coverage
 
-**Only chat requests on routed paths are masked**, and within them only the
-parts that carry conversation content.
+**Only requests on masking routes are inspected**, including chat, legacy
+completions, embeddings, and supported token-counting endpoints. Within a
+request, only the fields covered by its wire schema are scanned.
 
 | Limit | What to do |
 |---|---|
@@ -36,7 +37,8 @@ parts that carry conversation content.
 | JSON keys are never rewritten, and a chat message's participant `name` is kept. | Put the value, not the key, where the sensitive text is. |
 | Request headers are not masked, with one exception for Codex's turn metadata. | Do not send sensitive values in custom headers. |
 | A WebSocket connection is refused with `426`, since Privyx could not mask its frames. | Clients fall back to HTTP; Codex does so by itself. |
-| Privyx sees only the traffic a tool sends to its provider's base URL. Telemetry or other requests to different hosts do not pass through it, and a tool that ignores its base URL setting bypasses Privyx entirely. | `privyx run` warns when no request reached it; see [Check that it works](../tutorials/coding-agents.md#3-check-that-it-works). |
+| Privyx sees only the traffic a tool sends to its provider's base URL. Telemetry or other requests to different hosts do not pass through it, and a tool that ignores its base URL setting bypasses Privyx entirely. | `privyx run` warns when no request took a masking route, even if other requests reached the proxy; see [Check that it works](../tutorials/coding-agents.md#3-check-that-it-works). |
+| Echoed signed thinking must match the upstream's original text. With `proxy.dlp_check: true`, an original value in it can cause a `422` when the same value is masked elsewhere. | Keep DLP opt-in and test it with your agent; see [Upgrading](../guide/upgrading.md#preparing-for-02). |
 
 ## Restoring
 
@@ -77,9 +79,10 @@ Prefer `pseudonym` with an anchor secret when that matters.
 
 ## Maturity
 
-Privyx is in its `0.1.x` series. Defaults and internals can change between
-releases, and the [changelog](https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md)
-records each change.
+Privyx is in its `0.1.x` series. New masking behaviors ship as opt-in in patch
+releases; default changes are batched in minor releases. See
+[Upgrading](../guide/upgrading.md) for versioning and deprecation, and the
+[changelog](https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md) for changes.
 
 If you find a case where a detected value reaches the provider, or a token is
 restored wrongly, please report it privately; see the

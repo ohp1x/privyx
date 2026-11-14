@@ -48,7 +48,7 @@ see [How it works](../guide/how-it-works.md).
 6. **Vault is a backend abstraction.**
 7. **Streaming is first-class.**
 8. **SSE envelope is separated from text transformation.**
-9. **Session state that outlives a request must not depend on process memory.**
+9. **Sessions shared across instances need a shared vault; durable sessions need persistent storage.**
 10. **CLI is only orchestration/UI.**
 11. **Observability must not leak into privacy logic.**
 12. **No plaintext PII in logs by default.**
@@ -65,7 +65,7 @@ see [How it works](../guide/how-it-works.md).
 | `vault/` | Memory, SQLite, Redis session storage |
 | `providers/` | Generic, OpenAI, Anthropic, and Google transports |
 | `proxy/` | HTTP/SSE proxy connecting engine to providers |
-| `gateway/` | Optional FastAPI server |
+| `gateway/` | FastAPI apps for gateway and transparent modes |
 | `cli/` | `privyx` orchestration layer |
 | `config/` | Schema, loader, defaults, env |
 | `security/` | Keys, crypto, secrets, redaction |

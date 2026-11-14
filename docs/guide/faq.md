@@ -135,10 +135,8 @@ request records its own cost: `transform_ms` on the `proxy.request` audit
 event is the time spent masking, and the rest of `duration_ms` is mostly the
 provider.
 
-For orientation, `make bench` on the machine this page was written on took
-about 2 ms to mask a 5 KB text, and about 140 ms for a 400 KB request seen
-for the first time, 7 ms once its text was in the detection cache. Run it
-yourself for numbers that mean something on your hardware. The `presidio`
+Run `make bench` or the [request baseline](../development/testing.md#request-performance-baseline)
+to measure your workloads and hardware, including cold scans and cache hits. The `presidio`
 and `llm` detectors cost more; the `llm` detector adds a model call.
 
 ### Does it break prompt caching?
@@ -181,8 +179,9 @@ Not as it is: it has no authentication. See
 
 It is in its `0.1.x` series. The masking and restoring paths are covered by
 unit, integration, and property tests and by an end-to-end leak check with a
-real coding agent; see [Testing](../development/testing.md). Defaults can
-still change between releases, and the changelog says when they do.
+real coding agent; see [Testing](../development/testing.md). Patch releases
+preserve default masking behavior; minor releases can change it after an
+opt-in period. See [Upgrading](upgrading.md).
 
 ## The project
 
