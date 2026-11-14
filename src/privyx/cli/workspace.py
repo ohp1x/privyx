@@ -1,13 +1,15 @@
 """What a workspace tells about its people, owners, and secrets.
 
 ``privyx scan`` writes what it finds to a config file, after asking;
-``privyx run --harvest`` masks it for one run, in memory.  Both read the same
-places: the git history and remotes, the package manifests, and ``.env`` files.
+``privyx run --harvest`` masks it for one run, in memory. This module provides
+readers for git history and remotes, package manifests, and ``.env`` files.
+Runtime harvest also collects the local OS username.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import tomllib
@@ -36,6 +38,25 @@ class Found:
     entity: str
     value: str
     source: str
+
+
+def os_user_terms() -> list[Found]:
+    """The local account name, for runtime harvest only."""
+    try:
+        if os.name == "posix":
+            import pwd
+
+            # Match the account identity reported by native clients, not USER/LOGNAME.
+            name = pwd.getpwuid(os.geteuid()).pw_name
+        else:
+            import getpass
+
+            name = getpass.getuser()
+    except (KeyError, OSError):
+        return []
+    if len(name) < 3 or name.casefold() in {"root", "ubuntu", "admin", "user"}:
+        return []
+    return [Found("PERSON", name, "OS user")]
 
 
 def git_terms(root: Path, max_commits: int | None = None) -> list[Found]:

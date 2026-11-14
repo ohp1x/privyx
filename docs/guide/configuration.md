@@ -212,7 +212,7 @@ Named launch profiles for `privyx run`. The built-in `claude`, `codex`,
 need a `command` or can inherit it with `extends`. Give `env_vars` so Privyx
 knows where to inject its URL, or use an adapter that injects a CLI override.
 The top-level `harvest` setting (default `false`) makes every `privyx run`
-mask what its working directory tells, as [`--harvest`](cli.md#privyx-run) does.
+mask what its working directory tells and its local OS username, as [`--harvest`](cli.md#privyx-run) does.
 
 ```yaml
 agents:

@@ -58,6 +58,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     (root / ".env.example").write_text("EXAMPLE_ONLY=some-example-value\n", encoding="utf-8")
     monkeypatch.chdir(root)
+    monkeypatch.setattr(workspace, "os_user_terms", lambda: [])
     return root
 
 
