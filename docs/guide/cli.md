@@ -102,7 +102,7 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
 | `--no-anchor` | Skip the default automatic anchor; an explicit config or environment setting still applies. See [Anchors](masking.md#anchors). |
-| `--harvest` / `--no-harvest` | Also mask what the working directory tells: the authors of its last 1000 commits, the owner and name of each git remote, and the values in its `.env` files. Read at launch and kept in memory, never written. Default: the `harvest` setting, off. |
+| `--harvest` / `--no-harvest` | Also mask what the working directory tells: the authors of its last 1000 commits, the owner and name of each git remote, the values in its `.env` files, and the local OS username. Read at launch and kept in memory, never written. Default: the `harvest` setting, off. |
 | `--list` | List the known targets and exit. |
 | `--dry-run` | Print the launch plan and winning configuration sources, then exit. Opens no port, starts no tool, imports no plugins, and creates no log, vault, or anchor file. Works even if the executable is not installed. |
 
@@ -213,8 +213,15 @@ models, or that took paths outside `proxy.routes`, do not count; the warning
 gives how many passed through unmasked, were blocked, or failed.
 
 With `--harvest`, the launch prints how many values of each kind it masks, never
-the values. A `.env` value is masked when it is six characters or longer and is
-neither a number nor a single word (`true`, `development`); files ending in
+the values. The local OS username is masked as `PERSON`, except names shorter
+than three characters and the generic names `root`, `ubuntu`, `admin`, and `user`
+(case-insensitive). On POSIX it comes from the effective user account, not
+`USER` or `LOGNAME`; on other platforms it uses Python's `getpass.getuser()`.
+An unavailable account name is skipped. This automatic collection is limited
+to `run`: `scan` does not add the OS username to its output. To mask an excluded
+name, add it to your own `terms`.
+
+A `.env` value is masked when it is six characters or longer and is neither a number nor a single word (`true`, `development`); files ending in
 `.example`, `.sample`, `.template`, or `.dist` are skipped. Each value is masked
 as `ENV_<KEY>`. A repository named for a common word (`api`) masks that word
 too: `privyx scan` lets you review the list first.

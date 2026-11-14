@@ -122,7 +122,7 @@ def _run_settings(
 @click.option(
     "--harvest/--no-harvest",
     default=None,
-    help="Also mask this workspace's git authors, remotes, and .env values (default: config).",
+    help="Also mask git authors, remotes, .env values, and the OS username (default: config).",
 )
 @click.option("--list", "list_targets", is_flag=True, help="List known targets and exit")
 @click.option("--dry-run", is_flag=True, help="Show the launch plan without starting anything")
@@ -337,7 +337,9 @@ def _harvest(settings: Settings) -> str:
 
     root = Path.cwd()
     terms: dict[str, list[str]] = {}
-    for item in workspace.unique(workspace.git_terms(root, workspace.HARVEST_COMMITS)):
+    for item in workspace.unique(
+        workspace.git_terms(root, workspace.HARVEST_COMMITS) + workspace.os_user_terms()
+    ):
         terms.setdefault(item.entity, []).append(item.value)
     values: dict[str, set[str]] = {}
     for key, value, _ in workspace.env_values(root):

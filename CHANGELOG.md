@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** `run --harvest` also masks the local OS username as a person for that run, except short or generic account names; `scan` does not collect it
+
 ### Fixed
 
 - **CLI:** Agent launches follow supported native endpoints when no upstream is explicit, keeping requests and agent credentials on their intended destination through masking. Claude settings that would override proxy routing are rejected before launch
