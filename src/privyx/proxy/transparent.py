@@ -429,6 +429,8 @@ class TransparentProxy:
                 params=out_params,
             )
             upstream_span = tracing.start("privyx.upstream", span)
+            if schema is not None:
+                self._audit.routed += 1
             try:
                 response = await self._client.send(request, stream=True)
             except Exception as exc:

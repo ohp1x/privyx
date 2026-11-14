@@ -205,10 +205,12 @@ profile, and `-c` overrides; a provider set only in a project's
 `.codex/config.toml` is not detected. Provider detection uses the child's
 environment, including profile `env` and `env_from`; `CODEX_HOME` (or `HOME`
 when `CODEX_HOME` is unset) is resolved before reading the Codex config.
-If the tool exits without having sent Privyx a single request,
-`privyx run` warns and records a
+If the tool exits without a single request forwarded on a masking route (a
+path in `proxy.routes`), `privyx run` warns and records a
 [`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
-tool that calls its provider directly is not masked.
+tool that calls its provider directly is not masked. Requests that only list
+models, or that took paths outside `proxy.routes`, do not count; the warning
+gives how many passed through unmasked, were blocked, or failed.
 
 With `--harvest`, the launch prints how many values of each kind it masks, never
 the values. A `.env` value is masked when it is six characters or longer and is

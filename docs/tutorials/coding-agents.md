@@ -217,8 +217,8 @@ a second terminal.
 
 Two things to look for:
 
-- **Requests above zero.** If the tool exits without having sent a single
-  request through the proxy, `privyx run` says so:
+- **Requests on a masking route.** If the tool exits without a single request
+  forwarded on a masking route, `privyx run` says so. With no request at all:
 
     ```text
     Warning: no request from claude reached Privyx; if it called its provider, it did so directly, without masking.

@@ -37,6 +37,21 @@ privyx detect -c my.yaml --transform "the text that went out"
 Warning: no request from claude reached Privyx; if it called its provider, it did so directly, without masking.
 ```
 
+If requests did arrive, but none was forwarded on a masking route, it counts
+them instead:
+
+```text
+Warning: 1 request(s) from claude reached Privyx, but none was sent upstream on a masking route (1 passed through unmasked, 0 blocked, 0 failed).
+```
+
+Requests passed through unmasked took a path outside `proxy.routes`, and the
+tool's model requests may have gone elsewhere: see
+[Paths without a route](proxy.md#paths-without-a-route). The audit log's
+`proxy.error` events say where failed ones broke. One that failed in
+`transform` (masking failed) was refused by Privyx and not sent; one that
+failed in `upstream` after passing through was sent unmasked and counts in
+both numbers.
+
 - The tool uses a native configuration source Privyx cannot inspect, such as
   a `model_provider` set only in a project's `.codex/config.toml`.
 - Check `run --dry-run` for the effective upstream. Supported native endpoints,
