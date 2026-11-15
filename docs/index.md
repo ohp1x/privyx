@@ -130,10 +130,12 @@ and hand it to a tool. The mapping back to the real value stays with Privyx.
   Messages, Gemini, and Ollama, so [SDKs, frameworks, and coding tools](integrations/index.md)
   only need a base URL.
 - **Wraps coding agents.** [`privyx run`](guide/cli.md#privyx-run) starts a
-  proxy, launches Claude Code, Codex, Gemini CLI, opencode, aider, pi, or any
-  tool with a base-URL variable through it, and cleans up afterwards.
+  proxy, launches Claude Code, Codex,
+  [Gemini CLI](providers/google.md#gemini-cli) (with an API key), opencode,
+  aider, pi, or any tool with a base-URL variable through it, and cleans up
+  afterwards.
 - **Checks what slips past.** [`privyx scan`](guide/cli.md#privyx-scan) finds
-  the names a project should mask (git authors, remotes, `.env` keys),
+  the names a project should mask (git authors, remotes, `.env` values),
   [`privyx lint`](guide/cli.md#privyx-lint) lists spellings of your terms that
   would get through, and [`privyx install-hook`](guide/cli.md#privyx-install-hook)
   stops a commit holding a secret or a placeholder.

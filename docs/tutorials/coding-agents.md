@@ -106,9 +106,9 @@ The other tools it knows:
     ```
 
     The variable gets the proxy's URL without a path. `privyx run --list`
-    shows the tools Privyx knows by name: besides those above, `opencode`,
-    `gemini` (Gemini CLI), `grok` (Grok Build), and `ollama`; see
-    [Integrations](../integrations/index.md#coding-tools).
+    shows the tools Privyx knows by name: besides those above, `openai`
+    (OpenAI CLI), `opencode`, `gemini` (Gemini CLI), `grok` (Grok Build), and
+    `ollama`; see [Integrations](../integrations/index.md#coding-tools).
 
 ### Save a launch profile
 
@@ -331,7 +331,7 @@ patterns for IDs, and detectors that find names without a list.
 
 In a project, [`privyx scan`](../guide/cli.md#privyx-scan) collects such names
 for you: git authors, the owner and name of each remote, the project name, and
-the keys of `.env` files. It asks what to leave out and adds the rest to the
+the values of `.env` keys. It asks what to leave out and adds the rest to the
 project's config. [`privyx lint`](../guide/cli.md#privyx-lint) then lists the
 spellings of your terms that still get through, such as `DB_DANA` or
 `dana_dev`, with the option that masks each.

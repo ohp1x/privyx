@@ -36,7 +36,7 @@ Install it with [uv](https://docs.astral.sh/uv/) or pip:
 ```bash
 # With uv.
 uv tool install privyx       # Install the privyx command globally.
-uv add privyx                # Or add Privyx to your project.
+uv add privyx                # Or add it to your project, then use `uv run privyx`.
 
 # With pip.
 pip install privyx
@@ -117,10 +117,10 @@ More in [How it works](https://ohp1x.github.io/privyx/guide/how-it-works/).
 - **Drops in.** It speaks OpenAI Chat Completions and Responses, Anthropic
   Messages, Gemini, and Ollama, so compatible clients can point at the proxy.
 - **Wraps coding agents.** `privyx run` starts a proxy, launches Claude Code,
-  Codex, Gemini CLI, opencode, aider, pi, or any tool with a base-URL
-  variable through it, and cleans up afterwards.
+  Codex, Gemini CLI (with an API key), opencode, aider, pi, or any tool with
+  a base-URL variable through it, and cleans up afterwards.
 - **Checks what slips past.** `privyx scan` finds the names a project should
-  mask (git authors, remotes, `.env` keys), `privyx lint` lists spellings of
+  mask (git authors, remotes, `.env` values), `privyx lint` lists spellings of
   your terms that would get through, and `privyx install-hook` stops a commit
   holding a secret or a placeholder.
 - **Keeps sessions your way.** One mapping per request, per client, or per
