@@ -26,6 +26,7 @@ privyx detect -c my.yaml --transform "the text that went out"
 | The value is not in the list | No detector knows it. Names, companies, and project terms have no built-in pattern. | Add a [word list or a pattern](../tutorials/custom-terms.md). |
 | `detect` finds it, the proxy does not | The proxy runs with another configuration: another `-c` or `PRIVYX_CONFIG`, or a working directory with config files of its own. | Start both the same way; `privyx config --path` prints the files in use, or `defaults`. |
 | A line `ignoring …/privyx.yaml: not trusted, or changed since` | A config file in the working directory is read only once you have trusted it; until then its settings do not apply. | Run `privyx trust` in that directory. |
+| It is masked as written, but not as `DB_JOHN`, `john%20smith`, or inside an identifier | The term list matches whole words, and the options that widen it are off. | `privyx lint -c my.yaml` lists the spellings that slip through and the option that masks each. |
 | It appears only with `--no-policy` | The `strict` policy filters it out. | Add the entity type to `policy.allowed`. |
 | It is masked in chat messages but not elsewhere | The request went to a path without a route, such as a file upload, or the value sits in a field Privyx leaves alone, such as `user` or a URL. | See [Paths without a route](proxy.md#paths-without-a-route) and [Limitations](../security/limitations.md#coverage). |
 

@@ -337,6 +337,64 @@ $ privyx detect --explain "card 4111 1111 1111 1111"
 
 With several detectors configured, each is numbered in the order listed.
 
+## `privyx lint`
+
+Show which spellings of your terms, and which built-in values, slip past
+masking with a configuration.
+
+```bash
+privyx lint [-c FILE]
+```
+
+Each entry under `detector.terms` is tried as written and in spellings a term
+list tends to miss: inside an identifier (`DB_JOHN`, `john_dev`), with its
+words joined by `_`, `__`, or `%20`, with a zero-width character, and in
+fullwidth characters. A few fake built-in values are tried inside identifiers
+too (`id_10.0.0.1`, `4111111111111111_old`). Every spelling goes through the
+configured `regex` and `yaml` detectors and the policy, so the result is what
+the proxy would do.
+
+A spelling that is not fully masked is listed under the detector options that
+mask it. Lint retries it with each option that is off, and names an option
+only when that retry masks the whole value; when no option does it alone, it
+names the fewest that do it together. With `PERSON: [john smith]` as the only
+term:
+
+```console
+$ privyx lint -c my.yaml
+Set detector.underscore_separates_words: true
+  missed  PERSON         'DB_JOHN SMITH'
+  missed  PERSON         'john smith_dev'
+  missed  IP_ADDRESS     'id_10.0.0.1'
+  missed  IP_ADDRESS     '10.0.0.1_old'
+  missed  SSN            'id_123-45-6789'
+  missed  SSN            '123-45-6789_old'
+  missed  CREDIT_CARD    'id_4111111111111111'
+  missed  CREDIT_CARD    '4111111111111111_old'
+  missed  API_KEY        'id_sk-proj-abcdefghijklmnopqrstuvwx'
+Set detector.normalize: true
+  missed  PERSON         'ｊｏｈｎ ｓｍｉｔｈ'
+  missed  PERSON         'j\u200bohn smith'
+Set detector.term_variants: true
+  missed  PERSON         'john_smith'
+No option masks these; add them to the terms
+  missed  PERSON         'john__smith'
+Set detector.decode: true
+  missed  PERSON         'john%20smith'
+Checked 16 spellings of 1 term and 4 built-in values: 14 not fully masked.
+```
+
+`missed` means no part of the value is masked, `partly` that some of it is
+sent as is. A spelling the detector finds but the policy drops is listed under
+`Found, but` and the policy's reason. A term of one or two characters gets a
+warning, since it masks that word wherever it stands alone.
+
+The exit code is 1 when a spelling is not fully masked, so lint can run in CI.
+The output shows your terms, like `detect`. `presidio`, `llm`, and plugin
+detectors are not run; lint names them as not checked. Spellings outside the
+list, such as accented letters (`jóhn`), look-alike letters from other
+alphabets, or digits for letters (`j0hn`), are not tried.
+
 ## `privyx mask`
 
 Replace sensitive values with tokens, reversibly. The output is what the proxy

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **CLI:** `privyx lint` lists the spellings of configured terms and built-in values that slip past masking, such as `DB_JOHN` or `john%20smith`, with the detector options that mask them; it exits 1 when one is not fully masked
 - **Config:** `token.id_length` sets the id length of anchored `pseudonym` and `encrypt` tokens, from 6 to 64 hex characters; the default stays 16, so existing tokens are unchanged
 
 ### Fixed
