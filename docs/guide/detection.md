@@ -275,6 +275,10 @@ This finds both `JOHN SMITH` and `EMP-123456` as `PERSON`. The option applies
 to `regex` and `yaml`; it is off by default and does not merge custom patterns
 with built-in patterns.
 
+To see which spellings of your terms still get through with your settings,
+and which of these options masks each, run
+[`privyx lint`](cli.md#privyx-lint).
+
 ## Presidio
 
 [Presidio](https://microsoft.github.io/presidio/) finds names, locations,

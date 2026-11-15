@@ -128,10 +128,12 @@ Privyx Doctor
 =============
   ✓ plugins: 1 plugin(s) — detector: iban
   ✓ detector: regex+iban: 1 span(s) ['EMAIL']
+  ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok
   ✓ provider: generic → http://localhost:20128
   ✓ proxy: request transformed, 1 mapping(s) vaulted
   ✓ streaming: pseudonym restored across a split chunk
+  ✓ routes: transparent: 27 masking route(s): ...
   ✓ configuration: valid: detector=regex+iban policy=default operator=pseudonym vault=memory anchor=off
 ```
 

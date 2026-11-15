@@ -286,7 +286,7 @@ privyx proxy -c privyx.yaml --upstream https://api.openai.com
 ```
 
 After two requests in that session, one naming `alice@example.com` and one
-naming her and `bob@example.com`:
+naming the same address and `bob@example.com`:
 
 ```console
 $ privyx session list -c privyx.yaml
@@ -360,7 +360,8 @@ lists every type and status.
 
 ## Check what happened
 
-In the directory where the proxy runs:
+The audit trail is in `~/.privyx/audit.log` unless `audit.path` names
+another file:
 
 ```bash
 privyx audit tail --no-follow      # the last exchanges, event by event
@@ -379,4 +380,4 @@ Neither shows content. To see the masked text itself while you develop, use
 - [A shared gateway for a team](team-gateway.md): one proxy with Redis, TLS,
   and an audit trail.
 - [Limitations](../security/limitations.md): what is not masked, such as
-  embeddings.
+  file uploads and images.

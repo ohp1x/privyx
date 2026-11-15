@@ -36,10 +36,10 @@
   Every record shares a versioned envelope (`schema_version`, ISO-8601 `time`,
   epoch `ts`, `event`, `request_id`, `session_id`) so a downstream reader has a
   stable contract, and one `request_id` ties every event of one proxied exchange
-  together. The vocabulary is `session.created`, `session.transform`,
-  `session.restore`, `session.deleted`, `proxy.request`, `proxy.response`, and
-  `proxy.error` — see [audit events](../observability/audit-events.md) for the
-  full schema.
+  together. Events are `session.*` (created, transform, restore, deleted),
+  `proxy.*` (request, passthrough, blocked, response, error), and `run.*`
+  (unproxied, budget_exceeded); see
+  [audit events](../observability/audit-events.md) for the full schema.
 - It records entity **types and counts** and request metadata — **never** the
   matched text, original values, or pseudonyms. This is enforced at the API: the
   `transform` helper takes a `{type: count}` histogram (not spans), and

@@ -76,8 +76,9 @@ provider:
   headers: {}                        # extra headers for every upstream request
 ```
 
-Use `openai` or `anthropic` instead to get that provider's default URL, and
-for `anthropic` the `x-api-key` header.
+Use `openai`, `anthropic`, or `google` instead to get that provider's default
+URL and the header it expects for a key: `x-api-key` for `anthropic`,
+`x-goog-api-key` for `google`.
 
 ## A provider of your own
 

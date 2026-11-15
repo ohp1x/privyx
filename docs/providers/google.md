@@ -136,8 +136,10 @@ to answer them, and every other unrouted path, with a 403:
   `/v1/projects/*/locations/*/publishers/google/models/*:generateContent: gemini`
 - the Live API, a WebSocket, which is refused with `426`
 
+## Placeholder directive
+
 [`proxy.directive`](../guide/masking.md#placeholder-directive) goes last in
 `systemInstruction`. It is not added to a `countTokens` call's own `contents`,
-which take no instruction, nor to a request that uses a cached content, which
-Gemini refuses one beside; a cached content created through Privyx has it
-already.
+which take no instruction, nor to a request that uses a cached content, since
+Gemini refuses a system instruction next to one; a cached content created
+through Privyx has the directive already.

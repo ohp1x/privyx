@@ -412,8 +412,9 @@ that holds it, and a commit holding a secret too.
   your user name and organization as shown above.
 - **Restored:** the model's answers, its reasoning, and the arguments of the
   tool calls it makes.
-- **Not masked:** requests to paths other than the chat endpoints, which are
-  forwarded as the tool sent them; images and other binary content; and
+- **Not masked:** requests to paths outside the
+  [masking routes](../guide/proxy.md#routes), which are forwarded as the tool
+  sent them; images and other binary content; and
   anything a tool sends to a host other than its provider's API.
   [Limitations](../security/limitations.md) has the details.
 

@@ -152,9 +152,8 @@ text is refused the same way, since Privyx cannot scan ids. LangChain's
   Privyx.
 - Privyx holds the wrong key. A key in Privyx replaces the client's on every
   request.
-- A config file says `api_key: ${SOME_VARIABLE}`. Privyx does not expand
-  variables in config files, so that literal text is sent as the key. Use the
-  environment variables instead.
+- A config file says `api_key: $SOME_VARIABLE`. Only `${SOME_VARIABLE}`
+  reads the variable; without the braces, the text itself is sent as the key.
 - In gateway mode the client's key is never relayed; Privyx needs its own.
 
 ## A token shows up in an answer

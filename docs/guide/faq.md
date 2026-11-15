@@ -49,7 +49,8 @@ with them. See
 
 Any client that lets you set its base URL: the official SDKs, frameworks
 built on them, `curl`, and coding tools. `privyx run` sets it up by itself for
-Claude Code, Codex, and aider.
+Claude Code, Codex, Gemini CLI, opencode, aider, pi, Grok Build, and Ollama;
+`privyx run --list` shows them.
 
 ### Does streaming work? Tool calls? Reasoning?
 

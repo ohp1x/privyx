@@ -88,7 +88,7 @@ that remembered text is exempt; the rest of the request remains checked. See
 the [leak check](masking.md#leak-check) and
 [agent tests](../development/testing.md#end-to-end-a-real-agent-make-e2e).
 
-The default operator and PASP are not finalized. `detector.merge_terms: true`
+Whether the default operator changes is not decided. `detector.merge_terms: true`
 is available in 0.1.36, but making it a default is also undecided. Keep these
 separate from the settings above; see [Detection](detection.md) and
 [Masking](masking.md).
@@ -97,3 +97,7 @@ Duplicate YAML keys have warned since 0.1.29 and are planned to become an
 error in 0.2. Keep a single occurrence of each key before upgrading. The
 warning includes the file and line; it is distinct from an intentional
 override between files in an `include` chain.
+
+From 0.1.37, `operator.length`, the id length of `hash` tokens, is an error
+below 1 and warns from 1 to 5 or above 64. Those warnings are planned to
+become errors in 0.2; keep it between 6 and 64. See [`hash`](masking.md#hash).

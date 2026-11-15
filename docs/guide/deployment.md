@@ -122,10 +122,11 @@ HTTP.
 | Anchor secret | Makes a value's token the same in every session | `PRIVYX_ANCHOR_SECRET` |
 | Encryption key | Key of the `encrypt` operator | `PRIVYX_ENCRYPT_KEY` |
 
-- Set them through the environment. There is no command-line flag for a key,
-  since a command line ends up in shell history and in `ps`, and a config
-  file tends to get committed. Privyx does not expand `${VAR}` in a config
-  file.
+- Set them through the environment, or have the config file read them with
+  `${NAME}` or from a [password manager](configuration.md#secrets-from-a-password-manager),
+  so the file itself, which tends to get committed, holds no secret.
+  None of them has a command-line flag, since a command line ends up in
+  shell history and in `ps`.
 - Generate the anchor secret and the encryption key with
   `openssl rand -hex 32`, once, and store them like any other credential.
   A new anchor secret gives every value a new token. A lost encryption key
@@ -175,6 +176,8 @@ User=privyx
 Group=privyx
 # The provider key and other secrets, as PRIVYX_... lines; mode 0600.
 EnvironmentFile=/etc/privyx/privyx.env
+# A system user has no home directory to write the audit trail to.
+Environment=PRIVYX_AUDIT_PATH=/var/lib/privyx/audit.log
 WorkingDirectory=/var/lib/privyx
 StateDirectory=privyx
 ExecStart=/opt/privyx/bin/privyx proxy -c /etc/privyx/privyx.yaml
@@ -188,8 +191,9 @@ WantedBy=multi-user.target
 
 It assumes a virtual environment in `/opt/privyx`
 (`python -m venv /opt/privyx && /opt/privyx/bin/pip install privyx`) and a
-`privyx` system user. The audit log and a SQLite vault with a relative path
-land in the working directory, `/var/lib/privyx`.
+`privyx` system user. The audit trail and a SQLite vault with a relative path land in
+`/var/lib/privyx`. Without `PRIVYX_AUDIT_PATH`, the audit trail would go to
+`~/.privyx/audit.log` in the service user's home directory.
 
 For containers, see [Docker](../docker.md).
 

@@ -33,8 +33,9 @@ $ cat app.masked.log
 2026-10-02 09:12:46 INFO  connecting to postgres://app:<PRIVYX_URL_CREDENTIAL_5>@db-3:5432/shop
 ```
 
-`app.masked.log` is safe to paste or send. `map.json` is not: its `mapping`
-section holds each token with its original value.
+`app.masked.log` is safe to paste or send. `map.json` is not: besides the
+session id and timestamps, it holds a `mapping` section with each token and
+its original value:
 
 ```json
 {

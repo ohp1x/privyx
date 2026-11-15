@@ -57,8 +57,9 @@ you give Privyx a [word list](detection.md#word-lists), or add a detector that
 understands language ([Presidio](detection.md#presidio) or an
 [LLM](detection.md#llm-detector)).
 
-Only the requests in `proxy.routes` (chat, legacy completions, embeddings)
-are masked. Any other path, such as a file upload, is forwarded as the client
+Only the requests in `proxy.routes` are masked: chat, Responses, legacy
+completions, embeddings, and token counting, in the OpenAI, Anthropic,
+Gemini, and Ollama formats. Any other path, such as a file upload, is forwarded as the client
 sent it, unless you tell Privyx to
 refuse those paths. [Limitations](../security/limitations.md) lists everything
 Privyx does not cover.

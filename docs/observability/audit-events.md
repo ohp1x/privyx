@@ -109,7 +109,7 @@ before a stream ended (`aborted`).
 | `restored` | int | Pseudonyms reversed on the way back. |
 | `duration_ms` | float | **Total** exchange time. |
 | `aborted` | bool | Present (`true`) when the client disconnected mid-stream, e.g. a coding tool's request cancelled with Esc; `frames` and `restored` then count what was sent. Not an error, so `privyx_proxy_errors_total` does not count it. |
-| `usage` | object | Present when the upstream reported token usage: `input` (not read from the prompt cache), `output`, `cache_read`, and `cache_write`. Anthropic, OpenAI Chat Completions, and OpenAI Responses usage are all reported this way. |
+| `usage` | object | Present when the upstream reported token usage: `input` (not read from the prompt cache), `output`, `cache_read`, and `cache_write`. Anthropic, OpenAI Chat Completions, OpenAI Responses, Gemini, and Ollama usage are all reported this way. |
 | `model` | string | The model the upstream named in its reply, when it did. Left out when it does not look like a model id or the built-in patterns find a value in it (an email, a key, an address). |
 
 ### `proxy.error`

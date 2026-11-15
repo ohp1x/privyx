@@ -17,8 +17,8 @@ All streaming algorithms are property-tested against random chunk boundaries:
 - `test_token_stream.py` — the codec's streaming path ≡ batch `restore`, incl.
   exhaustive single-boundary coverage.
 
-This is the guarantee that prevents regressions in the streaming hold-back
-scan — the same class of bug we hit with `reasoning_content` in the prototype.
+They guard the streaming hold-back scan against a token that a chunk
+boundary splits.
 
 ## Detection corpus
 
@@ -73,8 +73,8 @@ uv run pytest tests/property -k stream
 
 ## Request performance baseline
 
-For the next v0.1.x performance work, start with reproducible cache misses and
-one measured bottleneck. Run the focused benchmark on an otherwise idle machine:
+To measure a change to request performance, compare runs of the focused
+benchmark before and after it, on an otherwise idle machine:
 
 ```bash
 make bench-requests BENCH_ARGS='--iterations 30 --output /tmp/privyx-before.json'
@@ -123,9 +123,9 @@ profiles, and local result summaries outside the repository, for example in `/tm
 and vault diagnostics. Timing thresholds are not CI gates; detection corpus,
 reference-equivalence, and batch/stream restore tests remain the release checks.
 
-After the cold path, measure concurrent p50/p95 proxy overhead and time to the
-first restored chunk, then long-session cache, token mapping, and streaming
-buffer growth. The sequential batch results here do not cover those cases.
+The benchmark does not measure concurrent proxy overhead, time to the first
+restored chunk, or growth of the cache, the token mapping, and stream buffers
+in a long session.
 
 ## End-to-end: a real agent (`make e2e`)
 

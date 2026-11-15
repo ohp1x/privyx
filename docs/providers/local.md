@@ -35,8 +35,8 @@ print(reply.choices[0].message.content)
 
 For another server, replace the upstream with its address.
 
-Masked: `/v1/chat/completions`, `/v1/responses`, the legacy
-`/v1/completions`, and `/v1/embeddings`, and Ollama's own API: `/api/chat`,
+Masked: `/v1/chat/completions`, `/v1/responses` with its token-counting and
+compaction paths, the legacy `/v1/completions`, and `/v1/embeddings`, and Ollama's own API: `/api/chat`,
 `/api/generate`, `/api/embed`, and `/api/embeddings`.
 
 ### Ollama's own API

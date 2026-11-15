@@ -124,7 +124,8 @@ is masked only when its path is in this map. The default:
 The path is matched without its query string, so `/v1/messages?beta=true`
 matches too. A `*` matches any characters except `/`, such as the model name
 in a Gemini path. A route is matched whatever the upstream behind it, so on a
-server where `/api/chat` is not Ollama's, give `proxy.routes` without it. A route without a `*` wins over one with it; among those,
+server where `/api/chat` is not Ollama's API, leave `/api/chat` out of
+`proxy.routes`. A route without a `*` wins over one with it; among those,
 the first listed wins.
 
 The OpenAI paths without `/v1` are what its client calls when the base URL lacks
@@ -176,8 +177,7 @@ client sent it. That keeps `GET /v1/models`, file uploads, and the rest of a
 provider's API working, and it means that **nothing in those requests is
 masked**. The common ones:
 
-- Gemini's file uploads and batch jobs
-- batch and file uploads
+- file uploads and batch jobs, in the OpenAI, Anthropic, and Gemini APIs
 - reads of stored objects, such as `GET /v1/responses/{id}`
 
 To close that gap, refuse them instead:
