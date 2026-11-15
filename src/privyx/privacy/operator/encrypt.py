@@ -39,8 +39,8 @@ from privyx.security.keys import derive
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
 
-#: Hex characters of the keyed identifier digest to keep (64 bits — matches the
-#: anchor-token convention and stays well within the codec's ``id`` grammar).
+#: Default hex characters of the keyed identifier digest to keep (64 bits —
+#: matches the anchor-token convention; ``token.id_length`` overrides it).
 _ID_LENGTH = 16
 
 
@@ -52,6 +52,8 @@ class EncryptOperator(BaseOperator):
             :func:`privyx.security.keys.load_key`).
         codec: Token codec deciding how tokens are serialized.  Defaults to the
             built-in :meth:`~privyx.token.codec.FormatCodec.default` syntax.
+        id_length: Hex characters of the identifier digest kept in the token;
+            a collision makes it longer.
 
     Raises:
         ConfigError: If the ``cryptography`` package is not installed.
@@ -59,7 +61,9 @@ class EncryptOperator(BaseOperator):
 
     name = "encrypt"
 
-    def __init__(self, key: bytes, codec: TokenCodec | None = None) -> None:
+    def __init__(
+        self, key: bytes, codec: TokenCodec | None = None, id_length: int = _ID_LENGTH
+    ) -> None:
         try:
             from privyx.security.crypto import DeterministicCipher
         except ImportError as exc:  # pragma: no cover - optional dep
@@ -70,6 +74,7 @@ class EncryptOperator(BaseOperator):
         self._key = key
         self._cipher = DeterministicCipher(key)
         self._codec = codec or FormatCodec.default()
+        self._id_length = id_length
 
     async def pseudonymize(
         self,
@@ -86,7 +91,7 @@ class EncryptOperator(BaseOperator):
                 session,
                 ciphertext,
                 derive(self._key, "id", f"{span.entity_type}:{span.text}").hex().upper(),
-                _ID_LENGTH,
+                self._id_length,
                 partial(self._encode, span.entity_type),
             )
             session.put(token, ciphertext)

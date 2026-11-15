@@ -992,6 +992,21 @@
               "pattern": "\\$\\{"
             }
           ]
+        },
+        "id_length": {
+          "title": "Id Length",
+          "anyOf": [
+            {
+              "default": 16,
+              "maximum": 64,
+              "minimum": 6,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
         }
       },
       "title": "TokenConfig",

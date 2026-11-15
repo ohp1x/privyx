@@ -3,14 +3,15 @@
 ## Anchors
 
 With an anchor secret, the id of a `pseudonym` token is the first 16 hex
-characters (64 bits) of `HMAC-SHA256(secret, value)`:
+characters (64 bits) of `HMAC-SHA256(secret, value)`, or as many as
+`token.id_length` sets:
 
 ```text
 ann@example.com  →  <PRIVYX_EMAIL_E55D8A16FDB2F399>
 ```
 
 - Deterministic: the same value gets the same token in every session. If two
-  values of one session share those 16 characters, the later one gets a
+  values of one session share those characters, the later one gets a
   longer id from the same digest instead of taking the token.
 - Keyed: only holders of the secret can derive a token or test a guess
   against one.

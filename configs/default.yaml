@@ -191,6 +191,7 @@
 #   namespace: PRIVYX
 #   format: "<{namespace}_{type}_{id}>"
 #   compact: false         # short tokens such as <E~1>; format tokens still restore
+#   id_length: 16          # anchored pseudonym and encrypt ids, 6 to 64 hex characters
 
 # --- Audit ---
 # PII-safe trail: entity types and counts, never content, as JSON lines.

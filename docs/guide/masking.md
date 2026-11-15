@@ -177,8 +177,8 @@ one token of the session matches it.
 A model may also keep only the id, and write `247102A91C49C99E` for
 `<PRIVYX_EMAIL_247102A91C49C99E>`. The id alone is restored when it is at least
 12 characters long, stands as a whole word, and belongs to exactly one token of
-the session. The ids of an [anchor](#anchors), of `hash` at its default length,
-and of `encrypt` are that long. A counter (`1`) is not: it is ordinary text, so
+the session. The ids of an [anchor](#anchors) and of `encrypt` at the default
+[id length](#id-length), and of `hash` at its default length, are that long. A counter (`1`) is not: it is ordinary text, so
 it is never looked for on its own.
 
 Any other change to a token is left as written. A token the session did not
@@ -220,6 +220,31 @@ The entity type is cut to the initials of its words (`EMAIL` is `E`,
 restored, so a session that issued them before the switch keeps working. A
 compact token has no bare form; its id alone is restored under the same rules
 as above.
+
+### Id length
+
+The id of an [anchored](#anchors) `pseudonym` token and of an `encrypt` token
+is 16 hex characters. `token.id_length` sets it, from 6 to 64:
+
+```yaml
+token:
+  id_length: 8              # <PRIVYX_EMAIL_247102A9>
+```
+
+Counter ids and `hash` (`operator.length`) do not change. A new length changes
+every token, as a new secret or key does: tokens issued before no longer match
+the same value. Below 12, an id the model writes without the rest of its token
+is not restored, as with a counter.
+
+A short id makes two values of a session more likely to share it. The chance
+for one entity type in a session is about 0.03% at 100 values with 6
+characters, 2.9% at 1,000, and 52% at 5,000; with 8 characters it is 0.01% at
+1,000, and from 12 it is negligible. A collision only gives the later value a
+longer id. A token pasted from another session is more likely to match a
+different value of this one when ids are short.
+
+To shorten tokens without shortening ids, use [compact tokens](#compact-tokens)
+instead; both can be combined (`<E~247102>`).
 
 ## Anchors
 

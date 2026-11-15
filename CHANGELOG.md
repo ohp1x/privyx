@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Config:** `token.id_length` sets the id length of anchored `pseudonym` and `encrypt` tokens, from 6 to 64 hex characters; the default stays 16, so existing tokens are unchanged
+
 ### Fixed
 
 - **Masking:** Two values whose `hash`, `encrypt`, or anchored `pseudonym` ids collide in a session get distinct tokens, the later one with a longer id, instead of one token restoring as the other value

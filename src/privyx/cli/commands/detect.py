@@ -93,6 +93,7 @@ async def _detect_async(
             settings.operator.model_dump(),
             anchor=build_anchor(settings),
             codec=build_codec(settings),
+            id_length=settings.token.id_length,
         )
         result = await operator.pseudonymize(text, detection, Session(), context)
         click.echo("")

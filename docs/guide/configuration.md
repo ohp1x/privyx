@@ -629,6 +629,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | `namespace` | `PRIVYX` | Fills `{namespace}` in `format`. |
 | `format` | `<{namespace}_{type}_{id}>` | Placeholder template. Must contain `{type}` and `{id}`. |
 | `compact` | `false` | Issue short tokens such as `<E~1>`. Tokens in `format` are still restored. See [Compact tokens](masking.md#compact-tokens). |
+| `id_length` | `16` | Hex characters in the id of an anchored `pseudonym` or an `encrypt` token, 6 to 64. Counters and `hash` are unaffected. See [Id length](masking.md#id-length). |
 
 ### `audit`
 

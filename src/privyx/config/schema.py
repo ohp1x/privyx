@@ -156,6 +156,9 @@ class TokenConfig(BaseModel):
     format: str = "<{namespace}_{type}_{id}>"
     #: Issue short ``<E~1>`` tokens instead; ``format`` tokens still restore.
     compact: bool = False
+    #: Hex characters in the id of an anchored ``pseudonym`` or ``encrypt``
+    #: token; counters and ``hash`` (``operator.length``) are unaffected.
+    id_length: int = Field(default=16, ge=6, le=64)
 
 
 class ProviderConfig(PluggableConfig):
