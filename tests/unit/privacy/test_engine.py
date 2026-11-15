@@ -337,6 +337,55 @@ async def test_compact_tokens_from_config_round_trip() -> None:
         await close()
 
 
+@pytest.mark.parametrize(
+    ("token", "operator", "length"),
+    [
+        ({}, {}, 16),
+        ({"id_length": 6}, {}, 6),
+        ({}, {"type": "encrypt", "length": 12}, 16),  # encrypt never read operator.length
+        ({"id_length": 6}, {"type": "encrypt"}, 6),
+    ],
+)
+async def test_token_id_length_sets_anchored_and_encrypt_ids(
+    token: dict[str, int], operator: dict[str, object], length: int
+) -> None:
+    import re
+
+    from privyx.config.schema import Settings
+    from privyx.core.builder import build_engine
+
+    if operator:
+        pytest.importorskip("cryptography")
+        operator = {**operator, "key": "ab" * 32}
+    engine, close = await build_engine(
+        Settings(
+            vault={"type": "memory"},
+            anchor={"secret": "test-secret"},
+            operator=operator,
+            token=token,
+            audit={"enabled": False},
+        )
+    )
+    try:
+        session = await engine.get_or_create_session()
+        masked = await engine.transform("mail alice@example.com", session=session)
+        assert re.fullmatch(rf"mail <PRIVYX_EMAIL_[0-9A-F]{{{length}}}>", masked.text)
+        restored = await engine.restore(masked.text, session.session_id, session=session)
+        assert restored.text == "mail alice@example.com"
+    finally:
+        await close()
+
+
+@pytest.mark.parametrize("length", [5, 65])
+def test_token_id_length_outside_6_to_64_is_rejected(length: int) -> None:
+    from pydantic import ValidationError
+
+    from privyx.config.schema import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(token={"id_length": length})
+
+
 async def test_dlp_check_comes_from_proxy_config() -> None:
     from privyx.config.schema import Settings
     from privyx.core.builder import build_engine

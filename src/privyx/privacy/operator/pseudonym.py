@@ -22,9 +22,9 @@ from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
 
-#: How many hex characters of an anchor digest to keep.  16 hex chars = 64 bits
-#: of the HMAC, far beyond collision range for a single conversation while
-#: staying short enough to read in a log.
+#: Default hex characters of an anchor digest to keep (``token.id_length``).
+#: 16 hex chars = 64 bits of the HMAC, far beyond collision range for a single
+#: conversation while staying short enough to read in a log.
 ANCHOR_TOKEN_LENGTH = 16
 
 
@@ -42,6 +42,8 @@ class PseudonymOperator(BaseOperator):
             The vault is still the source of truth for restoring them — an anchor
             is one-way — so this changes how pseudonyms are *named*, not how they
             are reversed.
+        id_length: Hex characters of the anchor digest kept in the token id;
+            a collision makes it longer.
     """
 
     name = "pseudonym"
@@ -50,9 +52,11 @@ class PseudonymOperator(BaseOperator):
         self,
         codec: TokenCodec | None = None,
         anchor: Anchor | None = None,
+        id_length: int = ANCHOR_TOKEN_LENGTH,
     ) -> None:
         self._codec = codec or FormatCodec.default()
         self._anchor = anchor
+        self._id_length = id_length
 
     async def pseudonymize(
         self,
@@ -94,7 +98,7 @@ class PseudonymOperator(BaseOperator):
                 session,
                 original,
                 self._digest(anchored),
-                ANCHOR_TOKEN_LENGTH,
+                self._id_length,
                 partial(self._encode, entity_type),
             )
 
@@ -119,8 +123,8 @@ class PseudonymOperator(BaseOperator):
         """Reduce an anchor's output to its uppercase digest.
 
         Anchors return their own format (``PRIVYX_<64 hex>`` for HMAC); only the
-        digest tail is kept, and the token uses its first
-        :data:`ANCHOR_TOKEN_LENGTH` characters.
+        digest tail is kept, and the token uses its first ``id_length``
+        characters.
         """
         return anchored.rsplit("_", 1)[-1].upper()
 

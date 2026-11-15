@@ -41,7 +41,7 @@ from privyx.privacy.operator.faker import FakerOperator
 from privyx.privacy.operator.fpe import FPEOperator
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.partial import PartialOperator
-from privyx.privacy.operator.pseudonym import PseudonymOperator
+from privyx.privacy.operator.pseudonym import ANCHOR_TOKEN_LENGTH, PseudonymOperator
 from privyx.privacy.operator.redact import RedactOperator
 from privyx.privacy.policy.base import Policy
 from privyx.privacy.policy.loader import build_policy
@@ -59,13 +59,18 @@ Closer = Callable[[], Awaitable[None]]
 #: are namespaced to make an accidental collision with a real config key obvious.
 _ANCHOR_KEY = "__anchor__"
 _CODEC_KEY = "__codec__"
+_ID_LENGTH_KEY = "__id_length__"
 
 
 def _operator_registry() -> Registry[Operator]:
     registry: Registry[Operator] = Registry("operator")
     registry.register(
         "pseudonym",
-        lambda cfg: PseudonymOperator(codec=cfg.get(_CODEC_KEY), anchor=cfg.get(_ANCHOR_KEY)),
+        lambda cfg: PseudonymOperator(
+            codec=cfg.get(_CODEC_KEY),
+            anchor=cfg.get(_ANCHOR_KEY),
+            id_length=cfg.get(_ID_LENGTH_KEY, ANCHOR_TOKEN_LENGTH),
+        ),
     )
     registry.register("redact", lambda cfg: RedactOperator(cfg.get("token", "[REDACTED]")))
     registry.register(
@@ -80,7 +85,11 @@ def _operator_registry() -> Registry[Operator]:
     registry.register("fpe", lambda cfg: FPEOperator(seed=cfg.get("seed")))
     registry.register(
         "encrypt",
-        lambda cfg: EncryptOperator(key=load_key(cfg.get("key", "")), codec=cfg.get(_CODEC_KEY)),
+        lambda cfg: EncryptOperator(
+            key=load_key(cfg.get("key", "")),
+            codec=cfg.get(_CODEC_KEY),
+            id_length=cfg.get(_ID_LENGTH_KEY, ANCHOR_TOKEN_LENGTH),
+        ),
     )
     return registry
 
@@ -104,6 +113,7 @@ def build_operator(
     *,
     anchor: Anchor | None = None,
     codec: TokenCodec | None = None,
+    id_length: int | None = None,
 ) -> Operator:
     """Build the operator named by ``config["type"]`` (default ``pseudonym``).
 
@@ -113,6 +123,8 @@ def build_operator(
             Operators that cannot simply ignore it.
         codec: Optional token codec, handed to operators that emit tokens.
             Operators that do not (e.g. ``redact``) ignore it.
+        id_length: Optional ``token.id_length``, for anchored ``pseudonym``
+            and ``encrypt`` ids.
 
     ``faker`` and ``encrypt`` need optional extras — selecting one without its
     package installed (``faker``; ``cryptography`` for ``encrypt``) fails at
@@ -125,6 +137,8 @@ def build_operator(
         config = {**config, _ANCHOR_KEY: anchor}
     if codec is not None:
         config = {**config, _CODEC_KEY: codec}
+    if id_length is not None:
+        config = {**config, _ID_LENGTH_KEY: id_length}
     otype = config.get("type", "pseudonym")
     if otype not in OPERATORS and otype in PLUGINS.operators:
         return PLUGINS.operators.build(config)
@@ -292,7 +306,12 @@ async def build_engine(
     engine = PrivacyEngine(
         detector=build_detector_from(settings),
         policy=build_policy_from(settings),
-        operator=build_operator(settings.operator.model_dump(), anchor=anchor, codec=codec),
+        operator=build_operator(
+            settings.operator.model_dump(),
+            anchor=anchor,
+            codec=codec,
+            id_length=settings.token.id_length,
+        ),
         vault=vault,
         codec=codec,
         audit=audit,
