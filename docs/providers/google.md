@@ -1,3 +1,7 @@
+---
+description: Use the Gemini API through Privyx in transparent or gateway mode, with Gemini CLI, or through its OpenAI-compatible endpoint.
+---
+
 # Google Gemini
 
 Privyx masks Gemini's native API (`generateContent`, `streamGenerateContent`,

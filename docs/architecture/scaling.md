@@ -1,6 +1,10 @@
+---
+description: "Running Privyx as more than one process: vault backends, a shared Redis vault, and the state that stays per process."
+---
+
 # Scaling Privyx
 
-## Vault Backends
+## Vault backends
 
 The default memory vault is limited to one process and loses sessions on
 restart. Use SQLite for persistence or Redis for sessions shared across
@@ -15,7 +19,7 @@ instances. An ephemeral session lives for one request in the process serving it:
 `vault.ttl` (seconds) expires sessions idle that long on every backend; a
 session's idle time restarts with each request that uses it.
 
-## Multi-Instance
+## More than one instance
 
 ```text
                 Load Balancer

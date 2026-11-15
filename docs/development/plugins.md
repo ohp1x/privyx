@@ -1,12 +1,16 @@
+---
+description: Extend Privyx with your own detectors, policies, operators, anchors, vaults, and providers, loaded from local paths.
+---
+
 # Plugins
 
-Privyx loads plugins from **local paths** you configure — there is no
-third-party entry-point mechanism. Discovery is **opt-in** (nothing loads unless
+Privyx loads plugins from **local paths** you configure; there is no
+entry-point mechanism for installed packages. Discovery is **opt-in** (nothing loads unless
 you list a path) and works by **subclass**: a plugin module defines a concrete
 subclass of a Privyx component base class, and Privyx registers it under its
 `name`.
 
-## What Can Be Plugged In
+## What can be plugged in
 
 | Family | Base class | Methods to implement | Selected by |
 |---|---|---|---|
@@ -17,10 +21,10 @@ subclass of a Privyx component base class, and Privyx registers it under its
 | Vault | `privyx.vault.base.BaseVault` | `create`, `get`, `save`, `delete` (opt. `connect`/`close`, and `list_sessions` for `privyx session list`/`prune`) | `vault.type` |
 | Provider | `privyx.providers.base.BaseProvider` | `send`, `stream`, `close` | `provider.type` |
 
-## The Contract
+## The contract
 
 - **Subclass** one of the base classes above with a concrete implementation.
-- Set a class-level **`name`** — the value a config `type` selects. If omitted,
+- Set a class-level **`name`**: the value a config `type` selects. If omitted,
   it is derived from the class name with the family suffix stripped
   (`LicensePlateDetector` → `licenseplate`); setting `name` explicitly is
   recommended.
@@ -56,7 +60,7 @@ Paths may also be set via `PRIVYX_PLUGIN_PATHS` (comma-separated).
 `privyx doctor` reports what each family loaded, so you can confirm a plugin was
 discovered before serving.
 
-## Writing a Detector
+## Writing a detector
 
 ```python
 from privyx.core.context import Context
@@ -83,7 +87,7 @@ A detector that calls a paid or remote service can report what it did with
 never text. Set `detection.cacheable = False` on a degraded result (a fallback)
 so the detection cache does not keep it in place of a real scan.
 
-## Writing an Operator
+## Writing an operator
 
 ```python
 from privyx.core.result import TransformResult
@@ -102,7 +106,7 @@ class MyOperator(BaseOperator):
 Operators that emit tokens or anchor values receive the token codec and anchor
 through their config; read them in `from_config` if needed.
 
-## Lifecycle Hooks
+## Lifecycle hooks
 
 A plugin module may define module-level hooks that run around the serving
 lifecycle:
@@ -119,7 +123,7 @@ Startup hooks run before the server accepts traffic; a failing startup hook
 aborts the process. Shutdown hooks run during teardown and are best-effort
 (errors are logged, not raised).
 
-## How Discovery Works
+## How discovery works
 
 `privyx.plugins.loader.load_plugins(settings)` clears the plugin registry, then
 imports every module under `plugins.paths` (under a synthetic module name, so

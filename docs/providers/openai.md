@@ -1,9 +1,12 @@
+---
+description: "Use the OpenAI API through Privyx: setup, keys, and what is masked and restored in Chat Completions, embeddings, and the Responses API."
+---
+
 # OpenAI
 
-Point any OpenAI-compatible client at Privyx. In the default **transparent**
-mode you only set the base URL — every path (chat, models, embeddings, …) is
-forwarded, and the client's own `Authorization` header is relayed upstream
-unless a key is configured on Privyx.
+Point any OpenAI-compatible client at Privyx. In the default transparent mode
+only the base URL changes: every path is forwarded, and the client's own
+`Authorization` header goes upstream unless Privyx holds a key.
 
 ```python
 from openai import OpenAI
@@ -27,13 +30,18 @@ Streaming, tool calls, and the Responses API are shown in
 [An app on the OpenAI or Anthropic SDK](../tutorials/sdk-app.md), and Codex in
 [Coding agents](../tutorials/coding-agents.md).
 
-Privyx pseudonymizes the request, forwards to OpenAI, and deanonymizes the
-streaming or batch response — including tool-call arguments. `/v1/chat/completions`,
-the legacy `/v1/completions`, `/v1/embeddings`, and the Responses API (below)
-are routed. Embeddings are masked but not restored; see
-[Embeddings](../guide/proxy.md#embeddings).
+Privyx masks the request, forwards it to OpenAI, and restores the reply,
+streamed or not, tool-call arguments included. It masks
+`/v1/chat/completions`, the legacy `/v1/completions`, `/v1/embeddings`, and
+the [Responses API](#responses-api). An embeddings reply holds only vectors,
+so it is returned as it is; see [Embeddings](../guide/proxy.md#embeddings).
 
 ## Configuration
+
+Transparent mode needs no config file. `provider.type: openai` makes OpenAI
+the upstream when `--upstream` is not given: transparent mode uses the origin
+of `base_url`, and gateway mode posts to it as written. The value below is the
+default.
 
 ```yaml
 provider:
@@ -53,33 +61,34 @@ gateway sends none.
 
 ## What is covered
 
-Every string in `messages` is pseudonymized except opaque keys (ids, `role`,
-`type`, `name`, `image_url`, base64 `data` — the full rule is in
-[proxy.md](../architecture/proxy.md#what-gets-transformed-and-restored)):
-`content` (a string or parts, including `refusal` parts), `refusal`,
-`reasoning_content` and the non-standard `reasoning` (OpenRouter / vLLM /
-Ollama), `tool_calls[].function.arguments` and the legacy
-`function_call.arguments` (walked as parsed JSON), and `prediction.content`.
-`tools` is config apart from its `description` strings (function and parameter
-descriptions); `response_format`, `metadata`, `user`, and the rest of the top
-level are left alone. A batch response is restored at every string leaf.
+Every string in `messages` is masked, except under keys that hold no prose,
+such as ids, `role`, `type`, `name`, `image_url`, and base64 `data`; the full
+rule is in
+[Proxy architecture](../architecture/proxy.md#what-gets-transformed-and-restored).
+That covers `content` (a string or parts, `refusal` parts included),
+`refusal`, `reasoning_content` and the non-standard `reasoning` (OpenRouter,
+vLLM, Ollama), `tool_calls[].function.arguments` and the legacy
+`function_call.arguments` (parsed as JSON and masked value by value), and
+`prediction.content`. In `tools`, only the function and parameter
+descriptions are masked; `response_format`, `metadata`, `user`, and the rest
+of the top level are left alone. In a batch reply, every string is restored.
 
 ## Streaming
 
-OpenAI SSE deltas live at `choices[0].delta` — `content`, `reasoning_content`,
-`reasoning`, and `refusal` are each deanonymized on their own buffer, and
-`tool_calls` / legacy `function_call` arguments are buffered and restored as a
-complete call. Every other chunk (`role`, `finish_reason`, usage) is restored
-leaf by leaf.
+In a stream, `content`, `reasoning_content`, `reasoning`, and `refusal` in
+`choices[0].delta` are each restored separately as they arrive. The arguments
+of `tool_calls` and the legacy `function_call` are collected and delivered
+restored as one complete call. Every other chunk (`role`, `finish_reason`,
+usage) has each of its strings restored.
 
 ## Responses API
 
-`/v1/responses` — the wire API Codex CLI speaks, so `privyx run codex` is
-covered — is routed with the `responses` schema, as are
-`/v1/responses/input_tokens` and `/v1/responses/compact` (same body).
+`/v1/responses` is masked with the `responses` schema, and so are
+`/v1/responses/input_tokens` and `/v1/responses/compact`, which take the same
+body. It is the API Codex speaks, so `privyx run codex` is covered.
 
-- **Request.** `instructions`, `prompt.variables`, and `input` — a bare string, or
-  an item list — are pseudonymized: message `input_text` / `output_text`,
+- **Request.** `instructions`, `prompt.variables`, and `input`, a string or a
+  list of items, are masked: message `input_text` / `output_text`,
   `reasoning` summaries and content (`encrypted_content` is opaque and kept),
   `function_call.arguments` (parsed JSON), `function_call_output.output`,
   `custom_tool_call` input / output, `local_shell_call.action.command`, shell
@@ -88,16 +97,16 @@ covered — is routed with the `responses` schema, as are
   `reasoning`, and `tool_choice` are config and left alone; so is `tools`, apart
   from its `description` strings.
 - **Stream.** Every event with a string `delta` (`output_text`, `refusal`,
-  `reasoning_summary_text`, `reasoning_text`, `audio.transcript`, …) is restored
-  per stream, keyed by kind and `item_id` / `output_index` / `content_index` /
-  `summary_index`. `function_call_arguments`, `mcp_call_arguments`, and
+  `reasoning_summary_text`, `reasoning_text`, `audio.transcript`, and others)
+  is restored separately for each kind and `item_id`, `output_index`,
+  `content_index`, and `summary_index`. `function_call_arguments`, `mcp_call_arguments`, and
   `custom_tool_call_input` are buffered and emitted as one restored delta just
   before their `.done`. The full text is repeated in `*.done`,
-  `content_part.done`, `output_item.done`, and `response.completed` — which
-  clients such as Codex build history from — so those are restored too, with
-  their `event:` lines kept. A flushed tail reuses its template's
+  `content_part.done`, `output_item.done`, and `response.completed`, which
+  clients such as Codex build their history from, so those are restored too,
+  with their `event:` lines kept. A flushed tail reuses its template's
   `sequence_number`.
 - **Server-side history.** `previous_response_id` with `store: true` keeps
-  earlier turns on the provider in pseudonym space; see
-  [proxy.md](../architecture/proxy.md#sessions) for when those placeholders stay
-  consistent.
+  earlier turns on the provider, with tokens in them; see
+  [Proxy architecture](../architecture/proxy.md#sessions) for when those
+  tokens keep their meaning.

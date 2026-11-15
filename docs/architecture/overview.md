@@ -1,3 +1,7 @@
+---
+description: How Privyx's privacy engine, proxy, vault, and providers fit together, the design principles behind them, and the module layout.
+---
+
 # Architecture overview
 
 Privyx is a privacy engine with an HTTP proxy around it. This page shows how
@@ -38,7 +42,7 @@ see [How it works](../guide/how-it-works.md).
                └────────────────────┘
 ```
 
-## Design Principles
+## Design principles
 
 1. **Core does not depend on FastAPI.**
 2. **Core does not depend on any provider SDK.**
@@ -54,11 +58,11 @@ see [How it works](../guide/how-it-works.md).
 12. **No plaintext PII in logs by default.**
 13. **All streaming algorithms are property-tested against random chunk boundaries.**
 
-## Module Layout
+## Module layout
 
 | Module | Purpose |
 |---|---|
-| `core/` | Engine, session, context, result, errors — transport-agnostic |
+| `core/` | Engine, session, context, result, errors; no transport code |
 | `token/` | Logical token + configurable codec (the only place token syntax lives) |
 | `privacy/` | Detectors, policies, operators, anchors, transforms |
 | `streaming/` | Deanonymizer, recognizer, trie, buffer, SSE adapters |
@@ -72,7 +76,7 @@ see [How it works](../guide/how-it-works.md).
 | `observability/` | Logging, metrics, tracing, audit |
 | `plugins/` | Plugin registry, loader, hooks |
 
-## Data Flow (Request)
+## Data flow (request)
 
 ```text
 Client → HTTP Proxy → Detect → Policy → Pseudonymize → Provider
@@ -80,7 +84,7 @@ Client → HTTP Proxy → Detect → Policy → Pseudonymize → Provider
 Client ← HTTP Proxy ← Restore ← Vault ←────────────────┘
 ```
 
-## Data Flow (Streaming)
+## Data flow (streaming)
 
 ```text
 Provider → SSE event → Adapter → text delta → Privacy Stream Engine
@@ -99,4 +103,4 @@ make test       # or: uv run pytest
 make lint       # or: uv run ruff check src tests
 ```
 
-See [development/testing.md](../development/testing.md) for the test strategy.
+See [Testing](../development/testing.md) for the test strategy.

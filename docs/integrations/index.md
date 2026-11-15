@@ -1,5 +1,5 @@
 ---
-description: How to connect Privyx to providers, SDKs, frameworks, and coding tools. One rule covers most of them: set the client's base URL.
+description: "How to connect Privyx to providers, SDKs, frameworks, and coding tools. One rule covers most of them: set the client's base URL."
 ---
 
 # Integrations

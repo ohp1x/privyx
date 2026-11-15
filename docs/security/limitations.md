@@ -5,8 +5,8 @@ description: What Privyx does not mask, does not restore, and does not protect a
 # Limitations
 
 Privyx reduces what an AI provider sees of your data. It does not make a
-prompt safe by itself, and it is honest work to know where it stops. This page
-lists the limits in one place; the [threat model](threat-model.md) explains
+prompt safe by itself, so it pays to know where it stops. This page lists the
+limits in one place; the [threat model](threat-model.md) explains
 the reasoning behind them.
 
 ## Detection

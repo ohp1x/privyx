@@ -1,3 +1,7 @@
+---
+description: "Every privyx command and option: proxy, run, detect, lint, mask, unmask, pipe, mcp, session, inspect, audit, config, trust, scan, hooks, and doctor."
+---
+
 # CLI reference
 
 Use `privyx -c FILE <command>` (or `--config FILE`) to select configuration
@@ -9,9 +13,9 @@ privyx -c config.yaml inspect regex EMAIL
 privyx -c config.yaml run codex
 ```
 
-Existing `-c` / `--config` options on subcommands still work. Precedence is:
-subcommand `-c` > global `-c` > `PRIVYX_CONFIG` > config discovery.
-A subcommand override wins without a warning. Without an explicit file, Privyx reads
+Each command also takes `-c` after its name. Precedence, highest first: the
+command's `-c`, the global `-c`, `PRIVYX_CONFIG`, then config discovery. A
+command's `-c` wins without a warning. Without an explicit file, Privyx reads
 `~/.privyx/config.yaml` and the trusted config files of the working directory.
 See [Configuration](configuration.md). `privyx --version` prints the version.
 
@@ -78,29 +82,6 @@ in transparent mode with
 Privyx writes no log lines to it; they go to `log_file` when one is set, which
 is where to look when a request fails with a `503`.
 
-In an interactive POSIX terminal, Privyx starts the proxy in a separate process
-and replaces the launcher with the tool. The tool keeps terminal input and job
-control, including Ctrl-C and Ctrl-Z. The proxy stops after the tool exits;
-its warnings then follow the shell's prompt, on a line of their own.
-Without a controlling terminal, or on other platforms, Privyx supervises the
-tool as a subprocess.
-
-Privyx sends the agent profile name as the initial terminal title before launch;
-the agent can replace it with its own session title. To let VS Code detect the
-agent's process without changing editor settings, run `privyx run codex` from
-the activated environment, or `.venv/bin/privyx run codex`.
-
-With `uv run`, `uv` remains the foreground process group leader, so VS Code
-tabs configured to show only the process name can still show the wrapper.
-If you prefer to keep `uv run`, you can display the emitted title by setting
-this in VS Code's user or workspace settings:
-
-```json
-{
-  "terminal.integrated.tabs.title": "${sequence}"
-}
-```
-
 ```bash
 privyx run [OPTIONS] TARGET [ARGS]...
 privyx run claude
@@ -122,6 +103,8 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | `--list` | List the known targets and exit. |
 | `--dry-run` | Print the launch plan and winning configuration sources, then exit. Opens no port, starts no tool, imports no plugins, and creates no log, vault, or anchor file. Works even if the executable is not installed. |
 
+### Known targets
+
 Known targets, and where each gets the proxy's URL:
 
 | Target | Provider | Proxy URL passed as |
@@ -136,29 +119,20 @@ Known targets, and where each gets the proxy's URL:
 | `gemini` | `google` | `GOOGLE_GEMINI_BASE_URL`, used when Gemini CLI signs in with an API key (`GEMINI_API_KEY`); also `CODE_ASSIST_ENDPOINT` and `GOOGLE_VERTEX_BASE_URL`, so the other sign-ins reach Privyx and are refused |
 | `ollama` | `generic`, upstream `http://127.0.0.1:11434` or the server `OLLAMA_HOST` names | `OLLAMA_HOST`. `ollama:<model>` runs `ollama run <model>`. |
 
-Gemini CLI goes through Privyx only when it signs in with an API key. Signed
-in with Google, it calls Google's Code Assist service, and with Vertex AI
-another endpoint; the `gemini` profile points both at Privyx too and sets
-`proxy.passthrough_unknown: false` for its launch, so those requests are
-refused with a `403` instead of reaching Google unmasked. Choose the API key
-sign-in in Gemini CLI (`/auth`) to use it through Privyx.
+Any other command runs too. With `--provider openai`, Privyx sets the
+variables most OpenAI clients read, `OPENAI_BASE_URL` and `OPENAI_API_BASE`, to
+the proxy's URL ending in `/v1`; with `--provider anthropic`, it sets
+`ANTHROPIC_BASE_URL` to the proxy's URL. The provider can also come from
+`provider.type` in the config. For a tool that reads another variable, pass
+`--env-var` instead: that variable gets the proxy's URL with no path, and no
+other is set. If no request takes a masking route, Privyx warns when the tool
+exits and counts requests passed through unmasked, blocked, or failed.
 
-`ollama:<model>` checks that an Ollama server answers before it starts the
-tool, at `http://127.0.0.1:11434`, or at the server `OLLAMA_HOST` names when
-it is set (read as Ollama reads it). `--upstream` or an `upstream` in your
-`ollama` profile wins over `OLLAMA_HOST`. A profile of your own named
-`ollama:<something>` is used as it is, not as a model name.
+You can also define [agent profiles](configuration.md#agents) in your config
+and use their names as `TARGET`. `--list` includes those profiles. Built-in
+profiles keep their defaults for any fields you leave out.
 
-pi has no base-URL variable or flag; the extension changes its provider for
-this run only, never `models.json`. Only that one provider goes through
-Privyx, so pi refuses a model of any other provider at startup, puts the
-previous model back when `/model` picks one, and does not send a prompt to
-it. For another provider, set `PRIVYX_PI_PROVIDER` and the upstream in a
-profile (`pi:deepseek` in [Coding agents](../tutorials/coding-agents.md)).
-A provider whose base URL has a path of its own (groq, openrouter) needs
-`proxy.path_mapping.mode: prefix`, set in the profile's `privyx:` block, and
-that base URL as the upstream. Without it the transparent proxy keeps only the
-upstream's origin, and those requests miss the provider's API.
+### Where requests go
 
 In transparent mode, an explicit `--upstream`, profile `upstream`,
 `upstream_url`, or `provider.base_url` wins. Otherwise, Privyx follows these
@@ -174,14 +148,10 @@ native destinations before replacing the agent's endpoint with the proxy URL:
 | Gemini CLI | `GOOGLE_GEMINI_BASE_URL` for API-key mode |
 | Ollama | `OLLAMA_HOST` (takes precedence over the built-in profile's local default) |
 
-The child environment includes profile `env` and `env_from`. Claude's user
-settings come from `$CLAUDE_CONFIG_DIR/settings.json`, or
-`~/.claude/settings.json`. Project settings come from `.claude/settings.json`
-in the current directory, including when launched from a git subdirectory.
-Local settings come from `.claude/settings.local.json` at the git root, or the
-current directory outside git. `--setting-sources` limits which scopes are inspected.
-Pi and OpenCode still need an explicit upstream for non-default providers;
-Privyx does not infer a destination from Gemini's login/Vertex trap variables.
+The child environment includes profile `env` and `env_from`. Pi and OpenCode
+still need an explicit upstream for non-default providers. The Google sign-in
+and Vertex AI variables of the `gemini` profile are never read as a
+destination.
 
 A derived destination is refused if Privyx would send its own configured API
 key or nonempty configured provider headers to it: set `--upstream` explicitly
@@ -192,8 +162,17 @@ launch with a hint to set `proxy.path_mapping.mode: prefix`, which keeps the
 endpoint's path, or to configure `base_path` and matching `proxy.routes`.
 `--dry-run` shows the native endpoint and its source, including when an
 explicit upstream overrides it, with URL credentials, query, and fragment
-redacted. An old base URL left in the shell is now followed too; unset it or
-provide an explicit upstream if it no longer names the intended server.
+redacted. An old base URL left in the shell is followed too; unset it, or give an
+explicit upstream, if it no longer names the intended server.
+
+### Claude Code
+
+Claude's user settings come from `$CLAUDE_CONFIG_DIR/settings.json`, or
+`~/.claude/settings.json`. Project settings come from `.claude/settings.json`
+in the current directory, including when launched from a git subdirectory.
+Local settings come from `.claude/settings.local.json` at the git root, or the
+current directory outside git. `--setting-sources` limits which scopes are
+inspected.
 
 Claude Code keeps only the last `--settings`: one of your own, in profile args
 or after `--`, replaces Privyx's. Privyx refuses that combination when any
@@ -210,6 +189,8 @@ on Linux, `/Library/Application Support/ClaudeCode` on macOS, or
 policies are outside this local-file check; network enforcement is needed to
 constrain destinations that change after launch.
 
+### Codex
+
 Codex drops every `-c` given before a subcommand once one
 follows it (`exec -c …`), which is why Privyx repeats its own after your
 arguments. `openai_base_url` applies to codex's built-in `openai`
@@ -222,13 +203,38 @@ profile, and `-c` overrides; a provider set only in a project's
 `.codex/config.toml` is not detected. Provider detection uses the child's
 environment, including profile `env` and `env_from`; `CODEX_HOME` (or `HOME`
 when `CODEX_HOME` is unset) is resolved before reading the Codex config.
-If the tool exits without a single request forwarded on a masking route (a
-path in `proxy.routes`), `privyx run` warns and records a
-[`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
-tool that calls its provider directly is not masked. Requests that only list
-models, or that took paths outside `proxy.routes`, do not count; the warning
-gives how many passed through unmasked, were blocked, or failed, or says that
-none carried a body when no model request reached Privyx at all.
+
+### pi
+
+pi has no base-URL variable or flag; the extension changes its provider for
+this run only, never `models.json`. Only that one provider goes through
+Privyx, so pi refuses a model of any other provider at startup, puts the
+previous model back when `/model` picks one, and does not send a prompt to
+it. For another provider, set `PRIVYX_PI_PROVIDER` and the upstream in a
+profile (`pi:deepseek` in [Coding agents](../tutorials/coding-agents.md)).
+A provider whose base URL has a path of its own (groq, openrouter) needs
+`proxy.path_mapping.mode: prefix`, set in the profile's `privyx:` block, and
+that base URL as the upstream. Without it the transparent proxy keeps only the
+upstream's origin, and those requests miss the provider's API.
+
+### Gemini CLI
+
+Gemini CLI goes through Privyx only when it signs in with an API key. Signed
+in with Google, it calls Google's Code Assist service, and with Vertex AI
+another endpoint; the `gemini` profile points both at Privyx too and sets
+`proxy.passthrough_unknown: false` for its launch, so those requests are
+refused with a `403` instead of reaching Google unmasked. Choose the API key
+sign-in in Gemini CLI (`/auth`) to use it through Privyx.
+
+### Ollama
+
+`ollama:<model>` checks that an Ollama server answers before it starts the
+tool, at `http://127.0.0.1:11434`, or at the server `OLLAMA_HOST` names when
+it is set (read as Ollama reads it). `--upstream` or an `upstream` in your
+`ollama` profile wins over `OLLAMA_HOST`. A profile of your own named
+`ollama:<something>` is used as it is, not as a model name.
+
+### Harvest
 
 With `--harvest`, the launch prints how many values of each kind it masks, never
 the values. The local OS username is masked as `PERSON`, except names shorter
@@ -244,18 +250,7 @@ A `.env` value is masked when it is six characters or longer and is neither a nu
 as `ENV_<KEY>`. A repository named for a common word (`api`) masks that word
 too: `privyx scan` lets you review the list first.
 
-Any other command runs too. With `--provider openai`, Privyx sets the
-variables most OpenAI clients read, `OPENAI_BASE_URL` and `OPENAI_API_BASE`, to
-the proxy's URL ending in `/v1`; with `--provider anthropic`, it sets
-`ANTHROPIC_BASE_URL` to the proxy's URL. The provider can also come from
-`provider.type` in the config. For a tool that reads another variable, pass
-`--env-var` instead: that variable gets the proxy's URL with no path, and no
-other is set. If no request takes a masking route, Privyx warns when the tool
-exits and counts requests passed through unmasked, blocked, or failed.
-
-You can also define [agent profiles](configuration.md#agents) in your config
-and use their names as `TARGET`. `--list` includes those profiles. Built-in
-profiles keep their defaults for any fields you leave out.
+### The launch plan
 
 Inspect a plan before launching:
 
@@ -308,6 +303,41 @@ Presets: strict [/home/alice/.privyx/config.yaml], debug [CLI]
   log_file = "/home/alice/.privyx/debug.log" [presets.debug]
   log_level = "debug" [presets.debug]
   proxy.passthrough_unknown = false [presets.strict]
+```
+
+### When no request is masked
+
+If the tool exits without a single request forwarded on a masking route (a
+path in `proxy.routes`), `privyx run` warns and records a
+[`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
+tool that calls its provider directly is not masked. Requests that only list
+models, or that took paths outside `proxy.routes`, do not count; the warning
+gives how many passed through unmasked, were blocked, or failed, or says that
+none carried a body when no model request reached Privyx at all.
+
+### The terminal
+
+In an interactive POSIX terminal, Privyx starts the proxy in a separate process
+and replaces the launcher with the tool. The tool keeps terminal input and job
+control, including Ctrl-C and Ctrl-Z. The proxy stops after the tool exits;
+its warnings then follow the shell's prompt, on a line of their own.
+Without a controlling terminal, or on other platforms, Privyx supervises the
+tool as a subprocess.
+
+Privyx sends the agent profile name as the initial terminal title before launch;
+the agent can replace it with its own session title. To let VS Code detect the
+agent's process without changing editor settings, run `privyx run codex` from
+the activated environment, or `.venv/bin/privyx run codex`.
+
+With `uv run`, `uv` remains the foreground process group leader, so VS Code
+tabs configured to show only the process name can still show the wrapper.
+If you prefer to keep `uv run`, you can display the emitted title by setting
+this in VS Code's user or workspace settings:
+
+```json
+{
+  "terminal.integrated.tabs.title": "${sequence}"
+}
 ```
 
 ## `privyx detect`

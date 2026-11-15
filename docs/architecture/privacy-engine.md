@@ -1,4 +1,8 @@
-# Privacy Engine Architecture
+---
+description: The privacy engine's pipeline, the protocols its components implement, how each operator restores a value, and a session's lifecycle.
+---
+
+# Privacy engine architecture
 
 ## Pipeline
 
@@ -62,8 +66,8 @@ they differ in the substitution and its reversibility.
 
 ### Faker
 
-`faker` keeps the *shape* of the data — a model sees a plausible email or name
-rather than a placeholder — which can help it reason. Two properties follow from
+`faker` keeps the shape of the data: a model sees a plausible email or name
+rather than a placeholder, which can help it reason. Two properties follow from
 a fake value being ordinary text with no delimiter:
 
 - **Literal restore.** Reversal matches the exact substituted strings (a trie of
@@ -72,7 +76,7 @@ a fake value being ordinary text with no delimiter:
   recognizer for any operator that declares `stream_restore = "literal"` and the
   codec recognizer otherwise, via `StreamRouter`'s injectable processor factory.
 - **Possible false positives.** A fake value that also occurs naturally in a
-  response can be restored by coincidence — a risk the token operators (whose
+  response can be restored by coincidence, a risk the token operators (whose
   placeholders are syntactically distinctive) do not have. Prefer `pseudonym`
   when exact, collision-free reversal matters more than realism.
 
@@ -90,14 +94,14 @@ operator:
 `fpe` and `partial` share this half of `faker` (`LiteralOperator`); they differ
 only in what they substitute, and need no extra.
 
-## Session Lifecycle
+## Session lifecycle
 
 1. `get_or_create_session(session_id)` → looks up the vault; creates + persists if missing.
 2. `transform(text, session)` → detect → decide → pseudonymize → `vault.save`.
 3. `restore(text, session_id)` → load session → deanonymize.
 
-## Providers are Transport
+## Providers are transport
 
-The provider is just a transport. `PrivacyEngine` never knows about HTTP,
-SSE, or provider SDKs. This is what allows Privyx to grow from "LLM privacy
-proxy" to "AI data privacy gateway" without rearchitecting the core.
+The provider is only a transport. `PrivacyEngine` knows nothing of HTTP, SSE,
+or provider SDKs, so the same engine serves the proxy, the CLI, and the
+[Python library](../development/python-library.md).

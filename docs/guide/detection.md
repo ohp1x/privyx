@@ -1,3 +1,7 @@
+---
+description: What Privyx detects out of the box, opt-in detectors, word lists and patterns, Presidio and LLM detectors, the cache, and the policy.
+---
+
 # Detection
 
 Two settings decide what gets masked: the `detector` finds sensitive values,

@@ -1,3 +1,7 @@
+---
+description: "How Privyx is tested: unit, integration, and property tests, the detection corpus, the request benchmark, and end-to-end runs with real coding agents."
+---
+
 # Testing
 
 ## Layers
@@ -8,14 +12,16 @@
 | Integration | `tests/integration/` | End-to-end engine + streaming flows |
 | Property | `tests/property/` | Hypothesis property tests |
 
-## Property Tests (Principle #13)
+## Property tests
 
-All streaming algorithms are property-tested against random chunk boundaries:
+Every streaming algorithm is tested against random chunk boundaries, as
+[design principle 13](../architecture/overview.md#design-principles) requires:
 
-- `test_stream_equivalence.py` — streamed output ≡ batch output for any split.
-- `test_chunk_boundaries.py` — any boundary split of a pseudonym restores.
-- `test_token_stream.py` — the codec's streaming path ≡ batch `restore`, incl.
-  exhaustive single-boundary coverage.
+- `test_stream_equivalence.py`: streamed output equals batch output for any
+  split.
+- `test_chunk_boundaries.py`: a token split at any boundary is restored.
+- `test_token_stream.py`: the codec's streaming path equals batch `restore`,
+  with every single-boundary split tried.
 
 They guard the streaming hold-back scan against a token that a chunk
 boundary splits.

@@ -1,3 +1,7 @@
+---
+description: Which session a request uses, where sessions are stored, how long they live, and how to inspect and prune them.
+---
+
 # Sessions and vault
 
 A **session** holds the mapping from each token to the value it replaced.

@@ -313,7 +313,7 @@ their prompts themselves, and are left as they are.
 
 `GET /health` and `GET /metrics` are answered by Privyx in both modes and are
 never forwarded. Neither needs a key. See
-[Audit events and metrics](../observability/audit-events.md#consuming-the-trail).
+[Metrics](../observability/audit-events.md#metrics).
 
 ## Timeouts and connection limits
 

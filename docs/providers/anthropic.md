@@ -1,9 +1,13 @@
+---
+description: "Use the Anthropic API through Privyx: setup, keys, and what is masked and restored in Messages requests, streams, thinking, and tool calls."
+---
+
 # Anthropic
 
-Point the Anthropic SDK at Privyx. In the default **transparent** mode
-`/v1/messages` and `/v1/messages/count_tokens` (the same body) are routed and
-transformed, and the client's `x-api-key` / `anthropic-version` headers are
-forwarded upstream.
+Point the Anthropic SDK at Privyx. In the default transparent mode,
+`/v1/messages` and `/v1/messages/count_tokens`, which takes the same body, are
+masked, and the client's `x-api-key` and `anthropic-version` headers go
+upstream.
 
 ```python
 import anthropic
@@ -31,6 +35,10 @@ Code in [Coding agents](../tutorials/coding-agents.md).
 
 ## Configuration
 
+Transparent mode needs no config file. `provider.type: anthropic` makes
+Anthropic the upstream when `--upstream` is not given, and sends a key held by
+Privyx as `x-api-key`. The values below are the defaults.
+
 ```yaml
 provider:
   type: anthropic
@@ -51,30 +59,32 @@ gateway sends none.
 
 ## What is covered
 
-`system` (a string or text blocks) and every string in `messages` are
-pseudonymized, except opaque keys — ids, `type`, `name`, `signature`, base64
-`data`, URLs, `media_type`, `cache_control` (the full rule is in
-[proxy.md](../architecture/proxy.md#what-gets-transformed-and-restored)). That
-reaches, among others, `text` / `thinking`, `tool_use` and `server_tool_use`
-`input` (every leaf, whatever its key), `tool_result` content, `document` blocks
-(a plain-text `source.data`, `source.content`, `title`, `context`),
-`search_result` (`title`, `content[].text`), `citations[].cited_text`, and
-code-execution results (`stdout` / `stderr`). `tools` is config apart from its
-`description` strings (tool and `input_schema` parameter descriptions);
-`tool_choice`, `metadata`, and the rest of the top level are left alone. A batch
-response is restored at every string leaf.
+`system` (a string or text blocks) and every string in `messages` are masked,
+except under keys that hold no prose: ids, `type`, `name`, `signature`, base64
+`data`, URLs, `media_type`, and `cache_control`; the full rule is in
+[Proxy architecture](../architecture/proxy.md#what-gets-transformed-and-restored).
+That covers, among others, `text` and `thinking`, the `input` of `tool_use`
+and `server_tool_use` (every value, whatever its key), `tool_result` content,
+`document` blocks (a plain-text `source.data`, `source.content`, `title`,
+`context`), `search_result` (`title`, `content[].text`),
+`citations[].cited_text`, and code-execution results (`stdout`, `stderr`). In
+`tools`, only the tool and parameter descriptions are masked; `tool_choice`,
+`metadata`, and the rest of the top level are left alone. In a batch reply,
+every string is restored.
 
-## Streaming, reasoning & tools
+## Streaming, thinking, and tools
 
-Anthropic's `content_block_delta` events carry `delta.text` for text,
-`delta.thinking` for reasoning, and `delta.input_json_delta` for tool inputs.
-`StreamRouter` deanonymizes text and thinking on separate buffers, and
-accumulates a `tool_use` / `server_tool_use` block's partial JSON until
-`content_block_stop`, then emits it restored in one frame. Every other event —
-`citations_delta` (a complete `cited_text`), a `content_block_start` carrying a
-whole server-tool result, `message_start` — is restored leaf by leaf;
-`signature` values are never touched, and `message_stop` is emitted last so
-nothing arrives after it. The thinking text a signature covers is remembered as
-the upstream sent it, so when the client echoes the block back it goes upstream
-byte-identical, not re-pseudonymized
-([proxy.md](../architecture/proxy.md#what-gets-transformed-and-restored)).
+In a stream, the text and the thinking of `content_block_delta` events
+(`delta.text`, `delta.thinking`) are each restored separately as they arrive.
+The partial JSON of a `tool_use` or `server_tool_use` block is collected until
+`content_block_stop` and delivered restored in one event. Every other event,
+such as `citations_delta` (a complete `cited_text`), a `content_block_start`
+that carries a whole server-tool result, or `message_start`, has each of its
+strings restored. `signature` values are never changed, and `message_stop` is
+sent last, so nothing arrives after it.
+
+The thinking text a signature covers is remembered as the upstream sent it.
+When the client sends that block back, Privyx forwards the remembered text,
+byte for byte, rather than masking the restored text again, so the signature
+still matches
+([Proxy architecture](../architecture/proxy.md#what-gets-transformed-and-restored)).

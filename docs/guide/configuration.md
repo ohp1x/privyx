@@ -1,3 +1,7 @@
+---
+description: Where Privyx reads its settings from, how config files, includes, environment variables, and secrets combine, and every setting with its default.
+---
+
 # Configuration
 
 ## Where settings come from

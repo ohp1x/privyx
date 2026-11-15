@@ -1,65 +1,69 @@
-# Data Handling
+---
+description: "Where original values exist while Privyx runs: in transit, at rest, in logs and the audit trail, and how long sessions are kept."
+---
 
-## In-Transit
+# Data handling
 
-- Request/response bodies are processed in memory only.
-- Values selected by the detector and policy are replaced before forwarding
-  requests on masking routes. Undetected values and skipped fields remain
-  visible; see [Limitations](limitations.md).
+Where original values exist while Privyx runs, and for how long. The
+[threat model](threat-model.md) says why each matters.
+
+## In transit
+
+- Request and reply bodies are processed in memory and never written to disk,
+  unless you turn on the [session tap](../observability/tap.md).
+- On a masking route, the values the detector finds and the policy selects are
+  replaced before the request is forwarded. Values no detector finds, and
+  fields Privyx leaves alone, reach the provider as sent; see
+  [Limitations](limitations.md).
 - The provider sees the replacements and the rest of the request. The
-  `partial` operator deliberately leaves part of a value visible.
+  `partial` operator leaves part of each value visible on purpose.
 
-## At-Rest
+## At rest
 
-- Session mappings persist in the configured vault.
-- Default `MemoryVault` keeps nothing across restarts.
-- `SQLiteVault` / `RedisVault` persist mappings — secure the store.
-- The `sqlite` vault file (with its `-wal` and `-shm` files) and
-  `privyx mask --map` files are created readable by their owner only. An
-  existing file keeps its mode: `chmod 600` it.
-- The [session tap](../observability/tap.md) (`audit.tap`, off by default)
-  writes requests and replies with their original values to `audit.tap_dir`:
-  the directory is `0700`, each file `0600`.
+- Session mappings, which hold the original values, are kept in the vault.
+  The default `memory` vault keeps nothing across a restart; `sqlite` and
+  `redis` keep the mappings until they expire or are pruned, so protect them
+  like the data itself. The [`encrypt` operator](cryptography.md#session-storage)
+  stores ciphertext instead.
+- On POSIX, the SQLite vault file, with its `-wal` and `-shm` files, and the
+  audit log are made readable by their owner only (`0600`) whenever Privyx
+  opens them. A new `privyx mask --map` file is created owner-only; an existing
+  one keeps its mode, so `chmod 600` it.
+- The session tap (`audit.tap`, off by default) writes requests and replies,
+  with their original values, to `audit.tap_dir`. The directory is created
+  with mode `0700` and each file with `0600`.
 
-## Logging
+## Logs and the audit trail
 
-- Privacy logic never logs payload text.
-- An opt-in debug `log_file` can contain original vault values from third-party
-  libraries. New log files use `0600`; on POSIX, existing files with broader
-  permissions or another owner are rejected. The opt-in session tap also
-  records original bodies.
-- Application logs (`observability/logging.py`) go to stdout as text or JSON
-  (`logging: text|json`); the JSON formatter serializes with `json.dumps`, so a
-  message can never corrupt the record.
-- The audit trail (`observability/audit.py`) is separate: one JSON object per
-  line appended to a dedicated file (`audit.path`, default `~/.privyx/audit.log`).
-  Every record shares a versioned envelope (`schema_version`, ISO-8601 `time`,
-  epoch `ts`, `event`, `request_id`, `session_id`) so a downstream reader has a
-  stable contract, and one `request_id` ties every event of one proxied exchange
-  together. Events are `session.*` (created, transform, restore, deleted),
-  `proxy.*` (request, passthrough, blocked, response, error), and `run.*`
-  (unproxied, budget_exceeded); see
-  [audit events](../observability/audit-events.md) for the full schema.
-- It records entity **types and counts** and request metadata — **never** the
-  matched text, original values, or pseudonyms. This is enforced at the API: the
-  `transform` helper takes a `{type: count}` histogram (not spans), and
-  `proxy.error` records an exception's **class name**, never its message (which
-  could echo payload text).
-- Disable it with `audit.enabled: false` / `PRIVYX_AUDIT_ENABLED=false`.
+- Privyx's own log lines never contain request or reply text. They go to
+  standard output as text or JSON lines (`logging: text` or `json`).
+- A `log_file` at `log_level: debug` also receives the logs of third-party
+  libraries, which can include vault rows with original values. A new file is
+  created with mode `0600`; on POSIX, an existing file with broader
+  permissions or another owner is refused before anything is written.
+- The audit trail is a separate file (`audit.path`, default
+  `~/.privyx/audit.log`), one JSON object per line. It records event names,
+  entity types, and counts, never matched text, original values, or tokens,
+  and for an error only the exception's class name, since its message could
+  quote the request. Events are `session.*` (created, transform, restore,
+  deleted), `proxy.*` (request, passthrough, blocked, response, error), and
+  `run.*` (unproxied, budget_exceeded); see
+  [Audit events and metrics](../observability/audit-events.md).
+- Turn the trail off with `audit.enabled: false` or
+  `PRIVYX_AUDIT_ENABLED=false`.
 
-## Data Minimization
+## How long sessions are kept
 
-- Sessions only store mappings for values actually pseudonymized.
-- Default `ephemeral` proxy sessions never reach the vault: each lives in the
-  proxy's memory for its one request and is dropped when the response completes
-  or the client disconnects, which `session.deleted` records.
-- Explicit-header and derived `client` / `conversation` sessions are retained for
-  continuity and are not deleted at the end of each request. Bound their
+- A session holds a mapping only for the values that were actually masked.
+- The default `ephemeral` sessions never reach the vault. Each lives in the
+  proxy's memory for one request and is dropped when the reply is complete or
+  the client disconnects; `session.deleted` records it.
+- Sessions chosen by a header, or by the `client` and `conversation`
+  strategies, are kept so that the next request can use them. Limit their
   lifetime with `vault.ttl` or `privyx session prune`.
-- `vault.ttl` (seconds) expires sessions idle that long on every backend. Redis
-  expires the key itself; the memory and SQLite vaults stop returning an expired
-  session at once and delete it from the store the next time a session is
-  created. TTL expiry writes no audit event.
+- `vault.ttl` expires a session after that many seconds without a request, on
+  every backend. Redis expires the key itself; the `memory` and `sqlite`
+  vaults stop returning an expired session at once and delete it the next
+  time a session is created. Expiry writes no audit event.
 - `privyx session prune --older-than 7d` deletes idle sessions on demand and
-  audits each one as `session.deleted` with `reason: prune`.
-- `delete()` on the vault removes a session's mappings.
+  records each as `session.deleted` with `reason: prune`.

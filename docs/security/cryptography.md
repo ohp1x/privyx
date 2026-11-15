@@ -1,3 +1,7 @@
+---
+description: The cryptography behind anchored tokens and the encrypt operator, and how keys are supplied.
+---
+
 # Cryptography
 
 ## Anchors
@@ -18,36 +22,45 @@ ann@example.com  →  <PRIVYX_EMAIL_E55D8A16FDB2F399>
 - One-way: an HMAC cannot be reversed. Restoring a reply still needs the
   session's mapping in the vault.
 
-## Session Storage
+## Session storage
 
-By default (`pseudonym`, `hash`, `faker`, `fpe`, `partial`) session mappings store the original
-value in plaintext in the vault. This is acceptable when the vault is trusted
-(Redis ACLs, SQLite file permissions).
+With `pseudonym`, `hash`, `faker`, `fpe`, and `partial`, the vault stores each
+original value in plain text. That is acceptable only when the vault itself is
+protected: Redis access control, owner-only permissions on the SQLite file.
 
-The `encrypt` operator removes plaintext from the vault: it stores the
-**ciphertext** and decrypts on restore, so a leaked or shared vault exposes no
-original PII.
+The `encrypt` operator keeps plain text out of the vault. It stores the value
+encrypted and decrypts it to restore a reply, so a leaked or shared vault
+exposes no original value.
 
-- **Cipher:** AES-256-GCM (`cryptography`), with a **deterministic**, SIV-style
-  nonce derived from the value (`security/crypto.py`). The same value therefore
-  produces the same token every time (dedup, idempotent writes); the only
-  information revealed is value *equality*, which every reversible operator
-  already reveals.
-- **Token:** an ordinary codec token whose identifier is a keyed HMAC digest of
-  the value — deterministic, but unguessable without the key.
-- **Authenticated:** the GCM tag means a corrupted or foreign token fails to
-  decrypt and is passed through untouched, never restored to garbage.
-- **Streaming:** identical to the other token operators; the decrypting resolver
-  is shared by the batch and streaming paths, so `stream == batch` holds.
+- **Cipher.** AES-256-GCM, from the `cryptography` package. The nonce is an
+  HMAC of the value, so the same value always encrypts to the same bytes. That
+  reveals only that two values are equal, which every reversible operator
+  reveals through its tokens anyway, and it never reuses a nonce for two
+  different values.
+- **Token.** An ordinary token whose id is a keyed digest of the value:
+  deterministic, but impossible to compute or test without the key. Its length
+  follows [`token.id_length`](../guide/masking.md#id-length).
+- **Authenticated.** The GCM tag makes a corrupted or foreign value fail to
+  decrypt. Privyx then leaves the token as it is instead of restoring garbage.
+- **Streaming.** Batch and streamed replies are restored the same way, as with
+  the other token operators.
 
-`encrypt` needs the optional `crypto` extra (`pip install privyx[crypto]`);
-selecting it without the package — or without a key — fails at startup.
+`encrypt` needs the `crypto` extra (`pip install 'privyx[crypto]'`). Without the
+package or without a key, Privyx stops at startup.
 
-## Key Handling
+## Key handling
 
-- Keys come from config / environment, never from code:
-  - anchors: `PRIVYX_ANCHOR_SECRET` / `anchor.secret`
-  - the encrypt operator: `PRIVYX_ENCRYPT_KEY` / `operator.key` (64 hex chars,
-    a 32-byte AES-256 key)
-- Generate: `openssl rand -hex 32`
-- Never log keys.
+| Key | Setting | Environment variable |
+|---|---|---|
+| Anchor secret | `anchor.secret` | `PRIVYX_ANCHOR_SECRET` |
+| Encryption key, 64 hex characters (32 bytes) | `operator.key` | `PRIVYX_ENCRYPT_KEY` |
+
+- Generate either with `openssl rand -hex 32`, once, and keep it: a new anchor
+  secret changes every anchored token, and a lost encryption key makes the
+  stored sessions unrecoverable.
+- `anchor.secret: auto` creates a per-user key in `~/.privyx/anchor.key`, readable by
+  its owner only; see [Anchors](../guide/masking.md#anchors).
+- In a config file, read a key from the environment with `${NAME}` or from a
+  [password manager](../guide/configuration.md#secrets-from-a-password-manager)
+  rather than writing it into the file.
+- `privyx config --show` prints both masked.

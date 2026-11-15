@@ -1,6 +1,10 @@
-# Streaming Architecture
+---
+description: How Privyx restores a streamed reply when a token is split across chunks, and the guarantee the tests enforce.
+---
 
-## The Problem
+# Streaming architecture
+
+## The problem
 
 A pseudonym like `<PRIVYX_EMAIL_1>` may be split across stream chunks:
 
@@ -13,15 +17,15 @@ Naive substring replacement fails on chunk boundaries. Replacing on the
 concatenated text is impossible in a live stream (you cannot un-send
 previous chunks).
 
-## The Algorithm
+## The algorithm
 
 A single hold-back scan (`_BufferedStream` in `deanonymizer.py`) drives every
 stream. For each position it asks a **recognizer** two questions:
 
-1. **Could a token still start here?** — `longest_prefix_len`. If the viable
+1. **Could a token still start here?** (`longest_prefix_len`). If the viable
    prefix reaches the end of the buffer, that tail is *held back*; it may
    continue in the next chunk.
-2. **Is there a complete token here?** — `match_at`. If so, emit its
+2. **Is there a complete token here?** (`match_at`). If so, emit its
    replacement and skip past it; otherwise emit one character and advance.
 
 On `flush`, held-back text is resolved: a complete token becomes its
@@ -31,13 +35,13 @@ Only the "is there a token here?" decision is pluggable
 (`streaming/recognizer.py`):
 
 - **`TrieRecognizer`** matches the exact pseudonym strings a session issued
-  (a trie of known values) — syntax-agnostic. Backs `StreamingDeanonymizer`.
+  (a trie of known values), whatever their syntax. Backs `StreamingDeanonymizer`.
 - **`CodecRecognizer`** matches any text that fits the configured token syntax
   via the token codec, reconstructs the logical
   token, and resolves it against the session mapping. A token's id written on
   its own has no syntax, so it is found among the ids of the session's tokens,
   and a word that begins one is held back like the start of a token. Backs
-  `TokenStreamProcessor`, which the proxy uses — so streaming recognizes tokens
+  `TokenStreamProcessor`, which the proxy uses, so streaming recognizes tokens
   the same way everything else does, and knows no syntax of its own.
 
 ## Guarantee
@@ -58,11 +62,11 @@ including exhaustive single-boundary coverage.
 | `buffer.py` | Reusable text accumulation |
 | `adapters/` | Provider-specific envelope handling |
 
-## Reasoning Content
+## Reasoning content
 
 Reasoning deltas (Anthropic `thinking_delta`, OpenAI `reasoning_content` /
 `reasoning`, Responses `reasoning_summary_text` / `reasoning_text`) are
 deanonymized like visible text, each on its own buffer so a held-back fragment
 never crosses from one stream into another. Events that are not deltas carry
-complete strings and are restored leaf by leaf — see
-[proxy.md](proxy.md#what-gets-transformed-and-restored).
+complete strings and are restored leaf by leaf; see
+[Proxy architecture](proxy.md#what-gets-transformed-and-restored).

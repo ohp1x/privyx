@@ -1,15 +1,20 @@
-# Audit Events
+---
+description: The audit trail's event schema, its guarantees, and the Prometheus metrics Privyx serves at /metrics.
+---
 
-Privyx appends a PII-safe audit trail as one JSON object per line to `audit.path`
-(default `~/.privyx/audit.log`).
-This is the stable, versioned contract a store, query layer, or dashboard reads.
-Implementation: `observability/audit.py`.
+# Audit events and metrics
+
+Privyx appends an audit trail to `audit.path` (default
+`~/.privyx/audit.log`), one JSON object per line. It records what happened,
+never the content: event names, entity types, and counts. Its format is
+versioned, so a script, a log store, or a dashboard can rely on it. A running
+proxy also serves the same totals as [Prometheus metrics](#metrics).
 
 ## Envelope
 
-Every record — whatever the event — starts with the same envelope, then carries
-event-specific fields flattened alongside it (so the line stays `jq`-friendly and
-maps cleanly onto SQL columns):
+Every record starts with the same envelope, followed by the fields of its
+event at the same level, so a line works with `jq` and maps onto table
+columns:
 
 | field | type | notes |
 |---|---|---|
@@ -17,29 +22,29 @@ maps cleanly onto SQL columns):
 | `time` | string | ISO-8601 UTC, millisecond precision (e.g. `2026-09-18T03:11:18.737Z`). Human-readable. |
 | `ts` | float | Unix epoch seconds. Cheap ordering / range queries. |
 | `event` | string | One of the event types below. |
-| `request_id` | string \| null | Correlates every event of one proxied exchange. `null` for standalone library / CLI (`mask`) calls that run outside a request. |
-| `session_id` | string \| null | The pseudonym-map session, when one applies. |
+| `request_id` | string \| null | Shared by every event of one proxied exchange. `null` for library and CLI calls (`mask`) outside a request. |
+| `session_id` | string \| null | The session that holds the mapping, when one applies. |
 
 ## Events
 
-Naming is consistent `<domain>.<action>`: `session.*` are privacy-pipeline events
-on a session; `proxy.*` describe one HTTP exchange; `run.*` describe one
+Events are named `<domain>.<action>`: `session.*` events concern a session's
+mapping, `proxy.*` events one HTTP exchange, and `run.*` events one
 `privyx run` launch.
 
 ### `session.created`
-A new session (pseudonym map) was created.
+A new session was created.
 
 | field | type | notes |
 |---|---|---|
 | `source` | string | How the id was chosen: `header`, `client`, `conversation`, or `ephemeral`. |
 
 ### `session.transform`
-Request text was pseudonymized. **Aggregated**: a request pseudonymizes many text
-leaves, but the trail records **one** `session.transform` per exchange.
+A request was masked. A request has many pieces of text, but the trail records
+one `session.transform` per exchange, with the totals.
 
 | field | type | notes |
 |---|---|---|
-| `entity_counts` | object | `{entity_type: count}` histogram — types and counts only, never the matched text. |
+| `entity_counts` | object | `{entity_type: count}`: types and counts only, never the matched text. |
 | `transformations` | int | Total replacements applied across the request. |
 | `detector_counts` | object | Present when a detector reported work: `llm_calls`, `llm_input_tokens` / `llm_output_tokens` (estimated at ~4 characters per token), `llm_fallbacks` (scans that fell back to regex under `llm_fallback_on_error`). Counts only. |
 
@@ -47,12 +52,12 @@ A request whose only activity is detector work (an LLM scan that found nothing,
 or a fallback) still records `session.transform`, with `transformations: 0`.
 
 ### `session.restore`
-Pseudonyms were reversed in the response. One per exchange, on **both** the batch
-and streaming paths.
+Tokens in the reply were restored. One per exchange, for batch and streamed
+replies alike.
 
 | field | type | notes |
 |---|---|---|
-| `transformations` | int | Total pseudonyms reversed. |
+| `transformations` | int | Tokens restored. |
 
 ### `session.deleted`
 A session and its mapping were destroyed: deleted from the vault by
@@ -106,7 +111,7 @@ before a stream ended (`aborted`).
 | `stream` | bool | |
 | `bytes` | int | Batch responses only: response size. |
 | `frames` | int | Streamed responses only: SSE frames forwarded. |
-| `restored` | int | Pseudonyms reversed on the way back. |
+| `restored` | int | Tokens restored on the way back. |
 | `duration_ms` | float | **Total** exchange time. |
 | `aborted` | bool | Present (`true`) when the client disconnected mid-stream, e.g. a coding tool's request cancelled with Esc; `frames` and `restored` then count what was sent. Not an error, so `privyx_proxy_errors_total` does not count it. |
 | `usage` | object | Present when the upstream reported token usage: `input` (not read from the prompt cache), `output`, `cache_read`, and `cache_write`. Anthropic, OpenAI Chat Completions, OpenAI Responses, Gemini, and Ollama usage are all reported this way. |
@@ -118,7 +123,7 @@ An exchange failed.
 | field | type | notes |
 |---|---|---|
 | `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `vault` (reading or writing the session failed; the client got `503`), `upstream` (no response from the upstream; the client got `502`, `503`, or `504`, see [Errors](../reference/errors.md)), `stream`, or `response`. |
-| `error_type` | string | The exception's **class name** — never its message. |
+| `error_type` | string | The exception's class name, never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |
 
@@ -149,8 +154,8 @@ request. Written once per launch.
 
 ## Guarantees
 
-- **PII-safe by construction.** No field carries matched text, original values,
-  pseudonyms, or exception messages. `session.transform` takes a `{type: count}`
+- **No content.** No field carries matched text, original values, tokens, or
+  exception messages. `session.transform` takes a `{type: count}`
   histogram, not spans; `proxy.error` takes a class name, not a message.
 - **Correlated.** All events of one exchange share a `request_id`, so a reader can
   reconstruct the timeline (`session.created` → `session.transform` →
@@ -168,7 +173,7 @@ request. Written once per launch.
 - **Resilient.** A failed audit write is logged and swallowed; it can never break
   a proxied request.
 
-## Consuming the trail
+## Reading the trail
 
 For the common questions, no `jq` is needed:
 
@@ -177,9 +182,25 @@ privyx audit stats [FILE] [--since 24h]   # totals: requests, errors, sessions, 
 privyx audit tail [FILE] [-n 20]          # one readable line per event, then follow (--no-follow)
 ```
 
-`FILE` defaults to the configured `audit.path`. A running proxy also serves the
-same totals at `GET /metrics` in the Prometheus text format, counted in memory
-from startup, so they work with `audit.enabled: false` and reset on restart:
+`FILE` defaults to the configured `audit.path`.
+
+The file is append-only JSON Lines: tail it, `jq` it, or load it into a log
+store. Each line carries its `schema_version`; a reader branches on it rather
+than guessing when it changes.
+
+**Rotation.** Privyx opens `audit.path` once and keeps appending to that open
+file, so rotate it with logrotate's `copytruncate`: a rotation that moves the
+file away leaves Privyx writing to the moved file until it restarts.
+`privyx audit tail` follows a truncated file from the top.
+
+Disable the trail entirely with `audit.enabled: false` /
+`PRIVYX_AUDIT_ENABLED=false`.
+
+## Metrics
+
+A running proxy serves the same totals at `GET /metrics` in the Prometheus
+text format, counted in memory from startup, so they work with
+`audit.enabled: false` and reset on restart:
 
 | metric | labels | notes |
 |---|---|---|
@@ -193,16 +214,3 @@ from startup, so they work with `audit.enabled: false` and reset on restart:
 
 `/metrics` needs no key, like `/health`; it exposes counts only, but keep it off
 networks where traffic volume should stay private.
-
-**Rotation.** Privyx opens `audit.path` once and keeps appending to that open
-file, so rotate it with logrotate's `copytruncate`: a rotation that moves the
-file away leaves Privyx writing to the moved file until it restarts.
-`privyx audit tail` follows a truncated file from the top.
-
-The file is append-only JSON Lines: tail it, `jq` it, or bulk-load it. Because
-each line is self-describing (versioned envelope, flat fields) it maps directly to
-a row in a future audit store / dashboard without reshaping. When
-`schema_version` changes, a reader branches on it rather than guessing.
-
-Disable the trail entirely with `audit.enabled: false` /
-`PRIVYX_AUDIT_ENABLED=false`.

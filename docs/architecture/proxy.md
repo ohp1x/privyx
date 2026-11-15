@@ -1,4 +1,8 @@
-# Proxy Architecture
+---
+description: "How the Privyx proxy is built: the two serving modes, which parts of a request are masked and restored, sessions, and streamed tool calls."
+---
+
+# Proxy architecture
 
 This page describes how the proxy is built. To pick a mode, add a route, set
 up HTTPS, or look up an error, see [Proxy modes and routes](../guide/proxy.md),
@@ -9,61 +13,46 @@ up HTTPS, or look up an error, see [Proxy modes and routes](../guide/proxy.md),
 `privyx proxy` serves one of two apps, selected by `proxy.mode` (or
 `--transparent` / `--gateway`):
 
-- **`transparent`** (default) — a drop-in reverse proxy. A client points its
-  `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` at Privyx and *every* path is
-  forwarded to the upstream **origin**; the routed paths (see
-  [Routes](#routes)) are pseudonymized on the way out and restored on the way
-  back, batch or streaming, with no client-side change. Every other path
-  (models, files, …) is forwarded verbatim, and streamed both ways,
-  so a large upload or download is never held in memory. "Transparent" here means
-  *drop-in* — it is an HTTP reverse proxy, not a network-level MITM/SOCKS proxy.
-- **`gateway`** — Privyx's *own* endpoints, all forwarded to the single upstream
-  endpoint from `provider.base_url` (`resolve_base_url`), used **verbatim**: the
-  incoming path is not echoed upstream. Which paths are served, and the wire
-  schema each speaks, comes from the same `proxy.routes` map (see
-  [Routes](#routes)). Every served path posts to that one endpoint (embeddings
-  and legacy completions post beside it, `…/v1/embeddings`), so the
-  token-counting and compaction routes (`/v1/messages/count_tokens`,
-  `/v1/responses/input_tokens`, `/v1/responses/compact`, and the last two
-  without `/v1`) are left unserved —
-  forwarding them would turn a count into a billed completion — and a default
-  gateway answers `/v1/responses` by forwarding it there too; narrow
-  `proxy.routes` to the paths your upstream endpoint actually speaks.
+- **`transparent`** (default): a drop-in reverse proxy. A client points its
+  base URL at Privyx, and every path is forwarded to the upstream's origin.
+  The paths in `proxy.routes` are masked on the way out and restored on the
+  way back, batch or streamed. Every other path (models, files, and so on) is
+  forwarded as sent and streamed in both directions, so a large upload or
+  download is never held in memory. "Transparent" means drop-in: this is an
+  HTTP reverse proxy, not a network-level interceptor.
+- **`gateway`**: Privyx's own endpoints, all forwarded to the one upstream
+  endpoint that `provider.base_url` names (`resolve_base_url`), used as
+  written; the incoming path is not passed on. The same `proxy.routes` map
+  says which paths are served and which wire schema each speaks. Every served
+  path posts to that endpoint, except embeddings and legacy completions,
+  which post beside it (`…/v1/embeddings`). The token-counting and compaction
+  routes are not served, since forwarding one to a chat endpoint would turn a
+  count into a billed completion. A default gateway also forwards
+  `/v1/responses` to that endpoint, so narrow `proxy.routes` to the paths the
+  upstream actually speaks.
 
-Pick `gateway` when the upstream endpoint carries a **base path** —
-`https://api.deepseek.com/anthropic/v1/messages`, an Azure deployment path, an
-OpenRouter prefix. By default transparent mode cannot express one:
-`resolve_origin` strips `base_url` back to `scheme://host` and appends the
-client's path. With `proxy.path_mapping.mode: prefix` it keeps the upstream's
-path and appends the client's path after `strip_prefix`. Pick
-`transparent` when the client's paths must be mirrored, or when non-chat paths
-(models, files) have to reach the upstream too.
+Transparent mode keeps only the upstream's origin: `resolve_origin` cuts
+`base_url` back to `scheme://host[:port]` and appends the client's path. With
+`proxy.path_mapping.mode: prefix` it keeps the upstream's path and appends the
+client's path after `strip_prefix`. When to use which mode is covered in
+[Proxy modes and routes](../guide/proxy.md#two-modes).
 
-Neither mode translates between wire schemas. Privyx only knows *where the text
-leaves live* in each one, so an Anthropic client still needs an Anthropic-speaking
-upstream.
+Neither mode translates between wire schemas. Privyx only knows where the text
+sits in each one, so an Anthropic client still needs an upstream that speaks
+the Anthropic format.
 
-`--reload` (development only, off by default) watches the *config files* in
-use — the one passed with `-c` or named by `PRIVYX_CONFIG`, or else the ones
-Privyx found, not the source code — and restarts the server when one changes: uvicorn shuts down gracefully, then the
-engine, vault, plugins, and provider are built again from the new settings. It
-is a restart, not a hot swap, so in-flight requests get 5 s to finish (as on
-SIGTERM or Ctrl-C) and the listener is briefly gone, and an in-memory vault starts empty again (a `sqlite`/encrypted
-vault keeps its mappings). A config that fails to parse or to build is reported
-and the watcher keeps waiting, so a typo pauses the proxy instead of killing the
-process.
+`--reload` watches the config files in use, not the source code. When one
+changes, uvicorn shuts down gracefully and the engine, vault, plugins, and
+provider are built again from the new settings. Requests in flight get 5 s to
+finish, as on SIGTERM, and the listener is briefly gone. A config that fails
+to parse or to build is reported, and the watcher waits for the next change.
 
-Both modes share one implementation of request pseudonymization
-(`proxy/schemas.py`), batch restore (`proxy/schemas.py`), and streaming restore
-(`proxy/stream_router.py`); the transparent proxy only adds path routing,
-per-request schema selection, and header/credential forwarding on top. The
-`gateway/` package holds nothing but the two FastAPI apps — `server.py` and
-`transparent.py` — since all privacy logic lives in `proxy/`.
-
-## HTTPS & TLS Termination
-
-Serving HTTPS, natively or behind a reverse proxy, is covered in
-[Deployment](../guide/deployment.md#https).
+Both modes share one implementation of request masking and batch restore
+(`proxy/schemas.py`) and of streaming restore (`proxy/stream_router.py`). The
+transparent proxy adds path routing, per-request schema selection, and the
+forwarding of headers and credentials. The `gateway/` package holds only the
+two FastAPI apps, `server.py` and `transparent.py`; all privacy logic lives in
+`proxy/`.
 
 ## Routes
 
@@ -86,14 +75,14 @@ per field, so a field a provider adds later is covered by default:
   or one of them, in another case, or as its id alone when the id is long enough,
   is restored as well, in a batch and in a stream alike, if the session issued
   it; see [Token format](../guide/masking.md#token-format). Streaming restores deltas event by event (a token can split across
-  them) and every other event — `content_block_start`, `citations_delta`,
-  Responses `*.done`, `output_item.done`, `response.completed`, … — leaf by leaf,
-  re-serializing it only when something changed.
-- **Transform walks only the content subtrees** — the top-level keys `messages`,
-  `system`, `input`, `instructions`, `prompt`, `suffix`, `prediction`. Every other
+  them), and every other event (`content_block_start`, `citations_delta`,
+  Responses `*.done`, `output_item.done`, `response.completed`, and so on)
+  leaf by leaf, re-serializing it only when something changed.
+- **Transform walks only the content subtrees:** the top-level keys `messages`,
+  `system`, `input`, `instructions`, `prompt`, `suffix`, and `prediction`. Every other
   top-level key is config (`model`, `tools`, `tool_choice`, `response_format`,
-  Responses `text` / `reasoning`, `metadata`, …) and is forwarded as-is — except
-  every `description` string inside `tools` (tool and parameter descriptions are
+  Responses `text` / `reasoning`, `metadata`, and so on) and is forwarded as
+  is, except every `description` string inside `tools` (tool and parameter descriptions are
   prose an MCP server writes; names, `enum`, `pattern`, `default` stay) and what
   the client reports about its machine (below). Inside
   a content subtree *every* string leaf is pseudonymized except the opaque keys,
@@ -127,8 +116,8 @@ per field, so a field a provider adds later is covered by default:
 - **Tool arguments are documents.** An Anthropic `input` object and a parsed
   `arguments` string are user data with no wire structure, so no key inside
   them is opaque (a `name` argument is PII). A string `arguments` is parsed,
-  walked, and re-serialized — never transformed as one blob, where a match could
-  straddle a JSON escape — and walked as plain text if it does not parse.
+  walked, and re-serialized, never transformed as one blob, where a match could
+  straddle a JSON escape. One that does not parse is walked as plain text.
   Each string of up to 256 characters in one is also checked together with its
   key, so a value that only its key marks, as in `{"password": "hunter2"}`, or
   whose context word is the key, is masked. Numbers are checked alone, so
@@ -165,75 +154,76 @@ next to it), so they answer alike.
 The proxy is deliberately thin. It:
 
 1. Decodes incoming HTTP requests (JSON body).
-2. Hands the text to the privacy engine (pseudonymize).
+2. Hands the text to the privacy engine, which masks it.
 3. Forwards to the upstream provider.
-4. Handles the response — batch or streaming.
-5. Deanonymizes before returning to the client.
+4. Handles the response, batch or streamed.
+5. Restores it before returning it to the client.
 
 ## Sessions
 
-A session owns the token→value mapping used to restore a response. An explicit
-`x-privyx-session` header always picks the session. Most clients (Claude Code,
-codex, aider, the OpenAI CLI) never send one, so `session.strategy` decides the
-fallback (`proxy/session.py::resolve_session_id`, applied by both the transparent
-proxy and the gateway before `get_or_create_session`):
+A session owns the token-to-value mapping used to restore a response. An
+explicit `x-privyx-session` header always picks the session. Most clients
+(Claude Code, Codex, aider, the OpenAI CLI) never send one, so
+`session.strategy` decides (`proxy/session.py::resolve_session_id`, applied by
+both modes before `get_or_create_session`):
 
-- **`ephemeral`** (default) — a fresh session per request, kept in the proxy's
-  memory and never in the vault. Pseudonymize and
-  restore happen within one exchange and the client only ever sees restored text,
-  so a per-request session is correct and — unlike a single shared session —
-  cannot collide two callers' pseudonym maps. The cost is that a multi-turn
-  conversation is re-detected every turn and shows up as *many* sessions, and
-  (without an anchor) its tokens carry no meaning across turns.
-- **`client`** — a stable session derived from the client credential
-  (`Authorization` / `x-api-key`): one API key → one reused session. Simple, but
-  every conversation under that key shares one growing pseudonym map.
-- **`conversation`** — derived from the credential *and* the first user message,
-  so one conversation → one reused session while different conversations (even
-  under the same key) stay isolated. This is what `privyx run` uses.
+- **`ephemeral`** (default): a fresh session per request, kept in the proxy's
+  memory and never in the vault. Masking and restoring happen within one
+  exchange, and the client only ever sees restored text, so a per-request
+  session is correct and, unlike one shared session, cannot mix two callers'
+  mappings. The cost: a multi-turn conversation is detected again on every
+  turn and shows up as many sessions, and without an anchor its tokens carry
+  no meaning from one turn to the next.
+- **`client`**: a stable session derived from the client's credential
+  (`Authorization` or `x-api-key`), one per API key. Simple, but every
+  conversation under that key shares one growing mapping.
+- **`conversation`**: derived from the credential and the first user message,
+  so each conversation reuses its own session while different conversations,
+  even under the same key, stay apart. This is what `privyx run` uses.
 
 Because the id is derived from the request, continuity is automatic:
-`get_or_create_session` reuses the vault session whenever the id already exists,
-so tokens stay stable across turns and only the first turn logs `session.created`.
-Keying every derived id on the credential means two callers can never share a map
-— the cross-user collision a single shared session would cause. The
-`session.created` audit event records a `source` (`header` / `client` /
-`conversation` / `ephemeral`) so the trail shows how each id was chosen.
+`get_or_create_session` reuses the vault session whenever the id exists, so
+tokens stay stable across turns, and only the first turn logs
+`session.created`. Every derived id is keyed on the credential, so two callers
+never share a mapping. The `session.created` audit event records a `source`
+(`header`, `client`, `conversation`, or `ephemeral`), so the trail shows how
+each id was chosen.
 
-**Trade-off of `conversation`:** the fingerprint is the *first user message*, which
-is immutable across a conversation's turns. Two conversations under the same key
-that open with an identical first message therefore merge, and editing or clearing
-the first message starts a new session — usually what you want, but a heuristic, so
-prefer an explicit `x-privyx-session` header when exact isolation matters.
+**The trade-off of `conversation`.** The fingerprint is the first user
+message, which stays the same across a conversation's turns. Two
+conversations under the same key that open with an identical first message
+therefore share a session, and editing or clearing the first message starts a
+new one. That is usually what you want, but it is a heuristic: send an explicit
+`x-privyx-session` header when exact isolation matters.
 
-For cross-turn pseudonym stability *without* continuity — or across restarts and
-across conversations — set an HMAC anchor secret (`PRIVYX_ANCHOR_SECRET`), which
-makes a token value-derived rather than a per-session counter. `privyx run`
-provisions one automatically.
+For tokens that stay the same without a shared session, across restarts and
+across conversations, set an anchor secret (`PRIVYX_ANCHOR_SECRET`): the token
+is then derived from the value instead of counted per session. `privyx run`
+sets one up by itself.
 
-**Responses server-side history.** With `store: true` and `previous_response_id`,
-the earlier turns live on the provider, *in pseudonym space*, and the client
-sends only the new turn. Placeholders in that stored history only mean the same
-thing on the next turn when the same session is reused (an `x-privyx-session`
-header, or the `client` strategy — `conversation` fingerprints the first user
-message, which a chained request no longer carries) or an anchor secret makes
-them value-derived. A client that resends the full history each turn (as Codex
-does by default) is not affected.
+**Responses server-side history.** With `store: true` and
+`previous_response_id`, the earlier turns are stored at the provider, with
+tokens in them, and the client sends only the new turn. Those tokens mean the
+same values on the next turn only when the same session is used again (an
+`x-privyx-session` header, or the `client` strategy; `conversation` needs the
+first user message, which a chained request no longer carries), or when an
+anchor secret derives them from the values. A client that resends the full
+history each turn, as Codex does by default, is not affected.
 
 ## Tool calls in a stream
 
 OpenAI `tool_calls` (and the legacy `function_call`), Anthropic `tool_use`, and
-Responses `function_call_arguments` / `mcp_call_arguments` /
-`custom_tool_call_input` stream their arguments across many events. Forwarding
-the partials would leak pseudonyms and fragment the JSON, so `StreamRouter`
-accumulates them in pseudonym space and emits each — deanonymized, as one frame
-— only once complete (dropping a truncated Chat call rather than forwarding an
-unusable one). Terminal events (`[DONE]`, `message_stop`) are deferred and
-emitted last, after every held-back text fragment and buffered tool call has
-been flushed; Responses flushes every held-back delta before
-`response.completed` / `.incomplete` / `.failed` / `error`.
+Responses `function_call_arguments`, `mcp_call_arguments`, and
+`custom_tool_call_input` stream their arguments across many events. Passing
+the pieces on would deliver tokens and broken JSON, so `StreamRouter` collects
+them and emits each call restored, as one frame, once it is complete. A
+truncated Chat Completions call is dropped rather than forwarded unusable.
+Terminal events (`[DONE]`, `message_stop`) are held back and emitted last,
+after every held-back text fragment and buffered tool call; Responses emits
+every held-back delta before `response.completed`, `.incomplete`, `.failed`,
+or `error`.
 
-## Streaming Path
+## Streaming path
 
 ```text
 Provider
@@ -253,7 +243,7 @@ OpenAI adapter
 SSE event
 ```
 
-## Why SSE Envelope ≠ Text Stream
+## Why the SSE envelope is not the text stream
 
 SSE events carry metadata (`event:`, `id:`, `retry:`), multi-line `data:`,
 and JSON payloads that embed text at different paths (e.g.
