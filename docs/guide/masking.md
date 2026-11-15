@@ -38,6 +38,11 @@ operator:
   length: 12
 ```
 
+Keep `length` between 6 and 64. Other values still work with a warning and
+are rejected from 0.2.0; below 1 is a configuration error. When two values in
+a session would get the same id, the later one gets a longer id from the same
+digest, so a collision never restores the wrong value.
+
 A short unkeyed hash can be matched by anyone who guesses the value. Prefer
 `pseudonym` with an [anchor](#anchors) when that matters.
 

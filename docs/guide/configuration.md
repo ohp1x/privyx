@@ -608,7 +608,7 @@ What a detected value becomes. See [Masking](masking.md).
 |---|---|---|
 | `type` | `pseudonym` | `pseudonym`, `hash`, `encrypt`, `faker`, `fpe`, `partial`, `redact`, or a plugin operator. |
 | `token` | `[REDACTED]` | `redact`: replacement text. |
-| `length` | `12` | `hash`: hex characters of the digest kept in the token. |
+| `length` | `12` | `hash`: hex characters of the digest kept in the token, 6 to 64. Other values warn and are rejected from 0.2.0; below 1 is an error. |
 | `locale` | empty | `faker`: Faker locale such as `en_US`. Empty uses Faker's default. |
 | `seed` | unset | `faker`, `fpe`: makes the same value fake the same way across runs. |
 | `key` | empty | `encrypt`: 64 hex characters (`openssl rand -hex 32`). |

@@ -9,7 +9,9 @@ characters (64 bits) of `HMAC-SHA256(secret, value)`:
 ann@example.com  →  <PRIVYX_EMAIL_E55D8A16FDB2F399>
 ```
 
-- Deterministic: the same value gets the same token in every session.
+- Deterministic: the same value gets the same token in every session. If two
+  values of one session share those 16 characters, the later one gets a
+  longer id from the same digest instead of taking the token.
 - Keyed: only holders of the secret can derive a token or test a guess
   against one.
 - One-way: an HMAC cannot be reversed. Restoring a reply still needs the

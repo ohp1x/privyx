@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
 from privyx.core.context import Context
+from privyx.core.errors import OperatorError
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.transform.text import apply_replacements
@@ -31,6 +32,28 @@ class Operator(Protocol):
         session: Session,
         context: Context,
     ) -> TransformResult: ...
+
+
+def free_token(
+    session: Session, stored: str, digest: str, length: int, encode: Callable[[str], str]
+) -> str:
+    """Return the token for ``stored`` whose id is ``digest[:length]``, or longer.
+
+    When another value of this session already holds that token, the id grows
+    from the same digest one character at a time until it is free, so a
+    collision never overwrites a mapping and restores the wrong value.  The same
+    value walks the same prefixes, so it gets the same token within a session.
+
+    Raises:
+        OperatorError: If every prefix of ``digest`` is taken by another value.
+    """
+    for end in range(min(length, len(digest)), len(digest) + 1):
+        token = encode(digest[:end])
+        if session.mapping.get(token, stored) == stored:
+            return token
+    raise OperatorError(
+        f"no free token id: every prefix of a {len(digest)}-character digest is taken"
+    )
 
 
 def restore(
