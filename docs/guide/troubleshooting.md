@@ -45,6 +45,16 @@ them instead:
 Warning: 1 request(s) from claude reached Privyx, but none was sent upstream on a masking route (1 passed through unmasked, 0 blocked, 0 failed).
 ```
 
+If none of them carried a body, such as a model list or a connection check,
+it says so instead: no model request went through Privyx, so any prompt the
+tool sent went to its provider directly:
+
+```text
+Warning: 1 request(s) from claude reached Privyx, but none carried a body, so none was a model request; if it called its provider, it did so directly, without masking.
+```
+
+This also shows when the tool exits before you send it a prompt.
+
 Requests passed through unmasked took a path outside `proxy.routes`, and the
 tool's model requests may have gone elsewhere: see
 [Paths without a route](proxy.md#paths-without-a-route). The audit log's

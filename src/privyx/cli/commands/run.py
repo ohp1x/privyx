@@ -541,7 +541,17 @@ async def _run_target(
             }
             # The profile's base name, so the trail holds no user paths.
             audit.emit(AuditEventType.RUN_UNPROXIED, profile=Path(plan.profile).name, **counts)
-            if counted.requests:
+            if counted.requests and not (
+                audit.unmasked_bodies or counts["blocked"] or counts["failed"]
+            ):
+                # A model list or a health check: nothing to mask, but no
+                # model request either, so the prompts may have gone elsewhere.
+                warning = (
+                    f"Warning: {counted.requests} request(s) from {spec.command} "
+                    "reached Privyx, but none carried a body, so none was a model "
+                    "request; if it called its provider, it did so directly, without masking."
+                )
+            elif counted.requests:
                 warning = (
                     f"Warning: {counted.requests} request(s) from {spec.command} "
                     "reached Privyx, but none was sent upstream on a masking route "

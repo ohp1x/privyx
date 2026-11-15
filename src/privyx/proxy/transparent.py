@@ -318,6 +318,11 @@ class TransparentProxy:
                 )
             if schema is None:
                 self._audit.route_decision(allowed=self._passthrough_unknown, method=method)
+                if self._passthrough_unknown and (
+                    _ci_get(headers, "content-length") not in ("", "0")
+                    or _ci_get(headers, "transfer-encoding")
+                ):
+                    self._audit.unmasked_bodies += 1
             if schema is None and not self._passthrough_unknown:
                 message = (
                     f"privyx: /{path.lstrip('/')} is not in proxy.routes "

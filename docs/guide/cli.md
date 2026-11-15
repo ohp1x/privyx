@@ -227,7 +227,8 @@ path in `proxy.routes`), `privyx run` warns and records a
 [`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
 tool that calls its provider directly is not masked. Requests that only list
 models, or that took paths outside `proxy.routes`, do not count; the warning
-gives how many passed through unmasked, were blocked, or failed.
+gives how many passed through unmasked, were blocked, or failed, or says that
+none carried a body when no model request reached Privyx at all.
 
 With `--harvest`, the launch prints how many values of each kind it masks, never
 the values. The local OS username is masked as `PERSON`, except names shorter

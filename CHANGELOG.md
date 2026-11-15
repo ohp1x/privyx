@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Masking:** Two values whose `hash`, `encrypt`, or anchored `pseudonym` ids collide in a session get distinct tokens, the later one with a longer id, instead of one token restoring as the other value
 - **Config:** `operator.length` below 1 is rejected as a configuration error instead of failing on the first masked value; values from 1 to 5 or above 64 warn and will be rejected from 0.2.0
+- **CLI:** When a tool's requests to Privyx carried no body, such as a model list or a connection check, the `run` warning says that no model request went through Privyx instead of counting them as passed through unmasked
 
 ## [0.1.36] - 2026-11-15
 

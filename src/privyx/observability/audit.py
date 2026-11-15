@@ -155,6 +155,8 @@ class AuditLogger:
         #: Requests sent upstream on a masking route, counted as they go out,
         #: so one still awaiting its response counts too.
         self.routed = 0
+        #: Requests forwarded with a body on a path outside the masking routes.
+        self.unmasked_bodies = 0
 
     @property
     def enabled(self) -> bool:

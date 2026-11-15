@@ -1601,6 +1601,12 @@ def test_run_repeats_the_codex_override_only_after_a_config_flag_of_the_users() 
             "1 request(s) from",
             {"requests": 1, "passthrough": 1, "failed": 0},
         ),
+        (
+            ["GET /v1/models"],
+            False,
+            "1 request(s) from",
+            {"requests": 1, "passthrough": 1, "failed": 0},
+        ),
         (["/v1/models", "/v1/messages"], False, None, None),
         (
             ["/v1/messages"],
@@ -1609,7 +1615,7 @@ def test_run_repeats_the_codex_override_only_after_a_config_flag_of_the_users() 
             {"requests": 1, "passthrough": 0, "failed": 1},
         ),
     ],
-    ids=["none", "models-only", "mixed", "transform-error"],
+    ids=["none", "models-only", "bodyless-only", "mixed", "transform-error"],
 )
 async def test_run_warns_when_no_request_took_a_masking_route(
     paths: list[str],
@@ -1643,9 +1649,11 @@ async def test_run_warns_when_no_request_took_a_masking_route(
     probe.write_text(
         "import os, urllib.error, urllib.request\n"
         f"for path in {paths!r}:\n"
+        "    get = path.startswith('GET ')\n"
         "    try:\n"
         "        urllib.request.urlopen(urllib.request.Request(\n"
-        "            os.environ['ANTHROPIC_BASE_URL'] + path, data=b'{\"messages\": []}',\n"
+        "            os.environ['ANTHROPIC_BASE_URL'] + path.removeprefix('GET '),\n"
+        "            data=None if get else b'{\"messages\": []}',\n"
         "            headers={'content-type': 'application/json'},\n"
         "        ), timeout=5).read()\n"
         "    except urllib.error.HTTPError:\n"
@@ -1673,6 +1681,8 @@ async def test_run_warns_when_no_request_took_a_masking_route(
         assert unproxied == []
         return
     assert f"Warning: {warning}" in err
+    # Only a run with no body at all says so; a body passed through is counted.
+    assert ("none carried a body" in err) == (paths == ["GET /v1/models"])
     [event] = unproxied
     assert {k: event[k] for k in counts} == counts
     assert event["blocked"] == 0
