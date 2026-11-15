@@ -107,7 +107,7 @@ class OperatorConfig(PluggableConfig):
     builtin_types = frozenset({"pseudonym", "redact", "hash", "faker", "encrypt", "partial", "fpe"})
     type: str = "pseudonym"
     token: str = "[REDACTED]"  # redact operator
-    length: int = 12  # hash operator digest length
+    length: int = Field(default=12, ge=1)  # hash operator digest length
     locale: str = ""  # faker operator: Faker locale (empty → Faker's default)
     seed: int | None = None  # faker and fpe operators: determinism salt
     key: str = ""  # encrypt operator: 64 hex chars (`openssl rand -hex 32`)

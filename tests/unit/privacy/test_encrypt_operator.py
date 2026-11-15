@@ -104,6 +104,20 @@ async def test_distinct_values_get_distinct_tokens_and_all_round_trip() -> None:
 # --- determinism ------------------------------------------------------------
 
 
+async def test_colliding_ids_grow_instead_of_overwriting(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("privyx.privacy.operator.encrypt._ID_LENGTH", 1)
+    values = [f"user{i}@example.com" for i in range(17)]
+    text = " ".join(values)
+    spans, start = [], 0
+    for value in values:
+        spans.append(Span(start, start + len(value), "EMAIL", value))
+        start += len(value) + 1
+    operator, session = _operator(), Session()
+    masked = await operator.pseudonymize(text, Detection(spans=spans), session, Context())
+    assert len(set(masked.text.split())) == 17
+    assert (await operator.deanonymize(masked.text, session, Context())).text == text
+
+
 async def test_same_key_encrypts_a_value_identically() -> None:
     detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
     one = await _operator().pseudonymize("a@b.com", detection, Session(), Context())

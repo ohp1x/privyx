@@ -11,11 +11,13 @@ every session.
 
 from __future__ import annotations
 
+from functools import partial
+
 from privyx.core.context import Context
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.anchor.base import Anchor
-from privyx.privacy.operator.base import BaseOperator, restore
+from privyx.privacy.operator.base import BaseOperator, free_token, restore
 from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
@@ -88,7 +90,13 @@ class PseudonymOperator(BaseOperator):
         """
         if self._anchor is not None:
             anchored = await self._anchor.anchor(original, context)
-            return self._encode(entity_type, self._token(anchored))
+            return free_token(
+                session,
+                original,
+                self._digest(anchored),
+                ANCHOR_TOKEN_LENGTH,
+                partial(self._encode, entity_type),
+            )
 
         counter = len(session.mapping) + 1
         pseudo = self._encode(entity_type, str(counter))
@@ -107,14 +115,14 @@ class PseudonymOperator(BaseOperator):
         )
 
     @staticmethod
-    def _token(anchored: str) -> str:
-        """Reduce an anchor's output to a short uppercase hex identifier.
+    def _digest(anchored: str) -> str:
+        """Reduce an anchor's output to its uppercase digest.
 
         Anchors return their own format (``PRIVYX_<64 hex>`` for HMAC); only the
-        digest tail is kept, so the identifier stays readable and short.
+        digest tail is kept, and the token uses its first
+        :data:`ANCHOR_TOKEN_LENGTH` characters.
         """
-        digest = anchored.rsplit("_", 1)[-1]
-        return digest[:ANCHOR_TOKEN_LENGTH].upper()
+        return anchored.rsplit("_", 1)[-1].upper()
 
     async def deanonymize(
         self,

@@ -7,15 +7,19 @@ reaches the operator through the builder, and without a test that goes through
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
 import time
+from pathlib import Path
 
 import pytest
 
+from privyx.config.loader import load_config
 from privyx.config.schema import Settings
 from privyx.core.builder import build_anchor, build_operator
 from privyx.core.context import Context
-from privyx.core.errors import ConfigError
+from privyx.core.errors import ConfigError, OperatorError
 from privyx.core.result import Detection, Span
 from privyx.core.session import Session
 from privyx.privacy.anchor.hmac import HMACAnchor
@@ -213,6 +217,76 @@ async def test_hash_operator_honours_its_configured_length() -> None:
     assert len(token.identifier) == 8  # the digest was truncated to `length`
     restored = await operator.deanonymize(result.text, session, Context())
     assert restored.text == "a@b.com"
+
+
+@pytest.mark.parametrize("length", [0, -4])
+def test_hash_length_below_one_is_a_config_error(tmp_path: Path, length: int) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text(f"operator:\n  type: hash\n  length: {length}\n")
+    with pytest.raises(ConfigError, match="length"):
+        load_config(config)
+
+
+@pytest.mark.parametrize(
+    ("length", "warns"), [(1, True), (5, True), (6, False), (64, False), (65, True)]
+)
+def test_hash_length_outside_six_to_sixty_four_warns(
+    caplog: pytest.LogCaptureFixture, length: int, warns: bool
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="privyx"):
+        HashOperator(length=length)
+    assert ("operator.length" in caplog.text) is warns
+
+
+# --- id collisions ----------------------------------------------------------
+
+
+def _emails(count: int) -> tuple[str, Detection]:
+    values = [f"user{i}@example.com" for i in range(count)]
+    text = " ".join(values)
+    spans, start = [], 0
+    for value in values:
+        spans.append(Span(start, start + len(value), "EMAIL", value))
+        start += len(value) + 1
+    return text, Detection(spans=spans)
+
+
+class _PrefixAnchor:
+    """An anchor whose digests all share their first 16 characters."""
+
+    def __init__(self, digest: bool = True) -> None:
+        self._digest = digest
+
+    async def anchor(self, text: str, context: Context) -> str:
+        tail = hashlib.sha256(text.encode()).hexdigest() if self._digest else ""
+        return "PRIVYX_" + "A" * ANCHOR_TOKEN_LENGTH + tail
+
+    async def deanchor(self, anchored: str, context: Context) -> str | None:
+        return None
+
+
+@pytest.mark.parametrize(
+    "operator",
+    [HashOperator(length=1), PseudonymOperator(anchor=_PrefixAnchor())],
+    ids=["hash", "anchor"],
+)
+async def test_colliding_ids_grow_instead_of_overwriting(operator: BaseOperator) -> None:
+    """17 values cannot fit in 16 one-character ids: colliders must get longer ids."""
+    text, detection = _emails(17)
+    session = Session()
+    masked = await operator.pseudonymize(text, detection, session, Context())
+    assert len(set(masked.text.split())) == 17
+    assert (await operator.deanonymize(masked.text, session, Context())).text == text
+    again = await operator.pseudonymize(text, detection, session, Context())
+    assert again.text == masked.text
+
+
+async def test_no_free_id_fails_instead_of_overwriting() -> None:
+    operator = PseudonymOperator(anchor=_PrefixAnchor(digest=False))
+    text, detection = _emails(2)
+    session = Session()
+    with pytest.raises(OperatorError):
+        await operator.pseudonymize(text, detection, session, Context())
 
 
 # --- redaction --------------------------------------------------------------

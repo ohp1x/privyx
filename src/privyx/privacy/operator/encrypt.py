@@ -27,12 +27,13 @@ package installed (or without a key) fails at startup with a
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
-from privyx.privacy.operator.base import BaseOperator, restore
+from privyx.privacy.operator.base import BaseOperator, free_token, restore
 from privyx.privacy.transform.text import apply_replacements
 from privyx.security.keys import derive
 from privyx.token.codec import FormatCodec, TokenCodec
@@ -80,8 +81,15 @@ class EncryptOperator(BaseOperator):
         detection = detection.merged(text)
         transforms: list[Transformation] = []
         for span in detection.spans:
-            token = self._encode(span.entity_type, span.text)
-            session.put(token, self._cipher.encrypt(span.text))
+            ciphertext = self._cipher.encrypt(span.text)
+            token = free_token(
+                session,
+                ciphertext,
+                derive(self._key, "id", f"{span.entity_type}:{span.text}").hex().upper(),
+                _ID_LENGTH,
+                partial(self._encode, span.entity_type),
+            )
+            session.put(token, ciphertext)
             transforms.append(Transformation(span.start, span.end, span.text, token))
         return TransformResult(
             text=apply_replacements(text, transforms), transformations=transforms
@@ -111,14 +119,13 @@ class EncryptOperator(BaseOperator):
 
         return resolve
 
-    def _encode(self, entity_type: str, original: str) -> str:
-        """Mint the codec token for ``original``.
+    def _encode(self, entity_type: str, identifier: str) -> str:
+        """Mint the codec token for ``identifier``.
 
         The identifier is a keyed digest of the value, so it is deterministic
         (same value ⇒ same token ⇒ idempotent vault write) yet unguessable
         without the key.
         """
-        identifier = derive(self._key, "id", f"{entity_type}:{original}").hex()[:_ID_LENGTH].upper()
         return self._codec.encode(
             LogicalToken(
                 namespace=self._codec.namespace,

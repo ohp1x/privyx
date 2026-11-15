@@ -7,14 +7,18 @@ what the session vault does).  If used without a vault, this is one-way.
 from __future__ import annotations
 
 import hashlib
+import logging
+from functools import partial
 
 from privyx.core.context import Context
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
-from privyx.privacy.operator.base import BaseOperator, restore
+from privyx.privacy.operator.base import BaseOperator, free_token, restore
 from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
+
+_log = logging.getLogger("privyx")
 
 
 class HashOperator(BaseOperator):
@@ -26,7 +30,8 @@ class HashOperator(BaseOperator):
     have been populated during pseudonymization).
 
     Args:
-        length: Number of hex characters of the SHA-256 digest to keep.
+        length: Number of hex characters of the SHA-256 digest to keep.  A
+            collision with another value of the session lengthens the id.
         codec: Token codec deciding how tokens are serialized.  Defaults to the
             built-in :meth:`~privyx.token.codec.FormatCodec.default` syntax, so
             hash tokens share the one configured syntax rather than inventing
@@ -36,6 +41,12 @@ class HashOperator(BaseOperator):
     name = "hash"
 
     def __init__(self, length: int = 12, codec: TokenCodec | None = None) -> None:
+        if not 6 <= length <= 64:
+            _log.warning(
+                "operator.length %d is outside 6-64; it still works, but will be "
+                "rejected from 0.2.0",
+                length,
+            )
         self._length = length
         self._codec = codec or FormatCodec.default()
 
@@ -49,18 +60,22 @@ class HashOperator(BaseOperator):
         detection = detection.merged(text)
         transforms: list[Transformation] = []
         for span in detection.spans:
-            digest = hashlib.sha256(span.text.encode()).hexdigest()[: self._length]
-            pseudo = self._codec.encode(
-                LogicalToken(
-                    namespace=self._codec.namespace,
-                    type=span.entity_type,
-                    identifier=digest,
-                )
+            pseudo = free_token(
+                session,
+                span.text,
+                hashlib.sha256(span.text.encode()).hexdigest(),
+                self._length,
+                partial(self._encode, span.entity_type),
             )
             session.put(pseudo, span.text)
             transforms.append(Transformation(span.start, span.end, span.text, pseudo))
         return TransformResult(
             text=apply_replacements(text, transforms), transformations=transforms
+        )
+
+    def _encode(self, entity_type: str, identifier: str) -> str:
+        return self._codec.encode(
+            LogicalToken(namespace=self._codec.namespace, type=entity_type, identifier=identifier)
         )
 
     async def deanonymize(
