@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.36] - 2026-11-15
+
 ### Added
 
 - **Detection:** `detector.merge_terms: true` matches both word lists and custom regexes for the same entity instead of letting the regex replace the word list; the default remains unchanged
@@ -657,7 +659,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.35...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.36...HEAD
+[0.1.36]: https://github.com/ohp1x/privyx/compare/v0.1.35...v0.1.36
 [0.1.35]: https://github.com/ohp1x/privyx/compare/v0.1.34...v0.1.35
 [0.1.34]: https://github.com/ohp1x/privyx/compare/v0.1.33...v0.1.34
 [0.1.33]: https://github.com/ohp1x/privyx/compare/v0.1.32...v0.1.33
