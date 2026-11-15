@@ -286,7 +286,7 @@ def test_agent_that_only_checks_health_is_reported(shell: Shell, tmp_path: Path)
     shell.send("quit\n")
     assert shell.exit_code() == 7
     _assert_proxy_closed(info["base"])
-    shell.expect(rb"Warning: 1 request\(s\) from \S+ reached Privyx, but none was sent")
+    shell.expect(rb"Warning: 1 request\(s\) from \S+ reached Privyx, but none carried a body")
     events = [json.loads(line) for line in (tmp_path / "audit.log").read_text().splitlines()]
     [event] = [e for e in events if e["event"] == "run.unproxied"]
     assert (event["requests"], event["passthrough"], event["failed"]) == (1, 0, 0)
