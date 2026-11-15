@@ -25,7 +25,7 @@ only thing that changes in your client is its base URL.
 
     ```bash
     pip install privyx
-    privyx run claude        # or: codex, aider, pi
+    privyx run claude        # or: codex, gemini, opencode, aider, pi
     ```
 
     Claude Code starts as usual, with its traffic going through Privyx.
@@ -53,7 +53,7 @@ The [Quickstart](guide/getting-started.md) walks through each of these.
 
 ## What the provider sees
 
-![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The provider answers using the placeholder, and your tool gets the reply with the address back in it.](assets/how-it-works.svg)
+![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The model answers with a tool call on both placeholders, and your tool runs it with the real values.](assets/how-it-works.svg)
 
 The model works with `<PRIVYX_EMAIL_1>`: it can reason about it, repeat it,
 and hand it to a tool. The mapping back to the real value stays with Privyx.
@@ -66,8 +66,8 @@ and hand it to a tool. The mapping back to the real value stays with Privyx.
 
     ---
 
-    Claude Code, Codex, or aider reads your `.env`, your logs, and your git
-    history. Run it through Privyx with one command.
+    Claude Code, Codex, Gemini CLI, or aider reads your `.env`, your logs,
+    and your git history. Run it through Privyx with one command.
 
     [Coding agents](tutorials/coding-agents.md)
 
@@ -126,11 +126,17 @@ and hand it to a tool. The mapping back to the real value stays with Privyx.
 - **Restores the reply.** In batch and streaming responses, in reasoning text,
   and in [tool-call arguments](tutorials/sdk-app.md#4-tool-calls), so your tools
   receive real values.
-- **Drops in.** It speaks OpenAI Chat Completions and Responses and Anthropic
-  Messages, so [SDKs, frameworks, and coding tools](integrations/index.md)
+- **Drops in.** It speaks OpenAI Chat Completions and Responses, Anthropic
+  Messages, Gemini, and Ollama, so [SDKs, frameworks, and coding tools](integrations/index.md)
   only need a base URL.
 - **Wraps coding agents.** [`privyx run`](guide/cli.md#privyx-run) starts a
-  proxy, launches the tool through it, and cleans up afterwards.
+  proxy, launches Claude Code, Codex, Gemini CLI, opencode, aider, pi, or any
+  tool with a base-URL variable through it, and cleans up afterwards.
+- **Checks what slips past.** [`privyx scan`](guide/cli.md#privyx-scan) finds
+  the names a project should mask (git authors, remotes, `.env` keys),
+  [`privyx lint`](guide/cli.md#privyx-lint) lists spellings of your terms that
+  would get through, and [`privyx install-hook`](guide/cli.md#privyx-install-hook)
+  stops a commit holding a secret or a placeholder.
 - **Keeps sessions your way.** One mapping per request, per client, or per
   conversation, [in memory, SQLite, or Redis](guide/sessions.md).
 - **Shows what it did.** A PII-safe [audit trail](observability/audit-events.md)

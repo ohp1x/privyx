@@ -106,7 +106,9 @@ The other tools it knows:
     ```
 
     The variable gets the proxy's URL without a path. `privyx run --list`
-    shows the tools Privyx knows by name.
+    shows the tools Privyx knows by name: besides those above, `opencode`,
+    `gemini` (Gemini CLI), `grok` (Grok Build), and `ollama`; see
+    [Integrations](../integrations/index.md#coding-tools).
 
 ### Save a launch profile
 
@@ -327,6 +329,13 @@ Matching ignores case and only hits whole words, so `dana` does not match
 inside `danasaur`. [Your own names and terms](custom-terms.md) goes further:
 patterns for IDs, and detectors that find names without a list.
 
+In a project, [`privyx scan`](../guide/cli.md#privyx-scan) collects such names
+for you: git authors, the owner and name of each remote, the project name, and
+the keys of `.env` files. It asks what to leave out and adds the rest to the
+project's config. [`privyx lint`](../guide/cli.md#privyx-lint) then lists the
+spellings of your terms that still get through, such as `DB_DANA` or
+`dana_dev`, with the option that masks each.
+
 ## 5. Share one proxy between terminals
 
 `privyx run` starts a proxy per tool. To run one proxy for several terminals
@@ -387,6 +396,10 @@ change the example placeholder to match. The
 short form of the first three rules with every request, which covers any
 client without a file; the two work together. The last rule matters with every operator: a
 `faker` or `fpe` substitute is restored in a file just as a placeholder is.
+
+If a placeholder lands in a file anyway,
+[`privyx install-hook`](../guide/cli.md#privyx-install-hook) stops the commit
+that holds it, and a commit holding a secret too.
 
 ## What Privyx covers for these tools
 

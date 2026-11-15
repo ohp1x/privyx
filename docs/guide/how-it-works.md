@@ -9,7 +9,7 @@ to the AI provider, and Privyx forwards them. On the way out it replaces the
 sensitive values it detects with placeholders; on the way back it puts the
 original values into the reply.
 
-![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The provider answers using the placeholder, and your tool gets the reply with the address back in it.](../assets/how-it-works.svg)
+![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The model answers with a tool call on both placeholders, and your tool runs it with the real values.](../assets/how-it-works.svg)
 
 The provider works with `<PRIVYX_EMAIL_1>`. Your client never sees that
 placeholder: it gets the address back. Nothing in the client changes except

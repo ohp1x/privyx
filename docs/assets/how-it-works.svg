@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="488" viewBox="0 0 1200 488" role="img" aria-labelledby="hiw-title hiw-desc">
   <title id="hiw-title">How Privyx works</title>
-  <desc id="hiw-desc">Your tool sends a request to Privyx. Privyx replaces the email address and the password it detects with placeholders, remembers the mapping in a session vault, and forwards the request to the AI provider. The provider answers using the placeholders. Privyx puts the original values back and returns the reply to your tool.</desc>
+  <desc id="hiw-desc">Your tool sends a request to Privyx. Privyx replaces the email address and the password it detects with placeholders, remembers the mapping in a session vault, and forwards the request to the AI provider. The model answers with a tool call that uses both placeholders. Privyx puts the original values back, so your tool runs the call with the real address and password.</desc>
   <defs>
     <marker id="hiw-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 10 5 0 10z" fill="#9399b2"/>
@@ -33,7 +33,7 @@
     <text x="496" y="62" font-size="17" font-weight="600" fill="#cdd6f4">Privyx</text>
     <g font-size="13" fill="#a6adc8" text-anchor="middle">
       <text x="600" y="174">detect, then mask</text>
-      <text x="600" y="413">restore</text>
+      <text x="600" y="422">restore</text>
     </g>
 
     <!-- Session vault -->
@@ -51,8 +51,8 @@
     <g font-size="13" fill="#a6adc8">
       <text x="68" y="115">You send</text>
       <text x="838" y="115">The provider receives</text>
-      <text x="838" y="365">The provider answers</text>
-      <text x="68" y="365">You get back</text>
+      <text x="838" y="365">The model calls a tool</text>
+      <text x="68" y="365">Your tool runs</text>
     </g>
   </g>
 
@@ -60,27 +60,29 @@
   <g fill="none" stroke="#9399b2" stroke-width="2" marker-end="url(#hiw-arrow)">
     <path d="M390 170H428"/>
     <path d="M770 170H808"/>
-    <path d="M810 409H772"/>
-    <path d="M430 409H392"/>
+    <path d="M810 418H772"/>
+    <path d="M430 418H392"/>
   </g>
 
   <!-- Messages -->
   <g fill="#313244" stroke="#45475a">
     <rect x="40" y="128" width="350" height="84" rx="10"/>
     <rect x="810" y="128" width="350" height="84" rx="10"/>
-    <rect x="810" y="378" width="350" height="62" rx="10"/>
-    <rect x="40" y="378" width="350" height="62" rx="10"/>
+    <rect x="810" y="376" width="350" height="84" rx="10"/>
+    <rect x="40" y="376" width="350" height="84" rx="10"/>
   </g>
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="14" fill="#cdd6f4">
-    <text x="60" y="164">Mail <tspan fill="#f38ba8">ann@example.com</tspan>.</text>
+    <text x="60" y="164">Add <tspan fill="#f38ba8">ann@example.com</tspan> as admin.</text>
     <text x="60" y="188">Use DB_PASSWORD=<tspan fill="#f38ba8">hunter2</tspan></text>
 
-    <text x="830" y="164">Mail <tspan fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan>.</text>
+    <text x="830" y="164">Add <tspan fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan> as admin.</text>
     <text x="830" y="188">Use DB_PASSWORD=<tspan fill="#b4befe">&lt;PRIVYX_SECRET_2&gt;</tspan></text>
 
-    <text x="830" y="414">Done. I mailed <tspan fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan>.</text>
+    <text x="830" y="412">add_admin("<tspan fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan>",</text>
+    <text x="830" y="436" xml:space="preserve">          "<tspan fill="#b4befe">&lt;PRIVYX_SECRET_2&gt;</tspan>")</text>
 
-    <text x="60" y="414">Done. I mailed <tspan fill="#a6e3a1">ann@example.com</tspan>.</text>
+    <text x="60" y="412">add_admin("<tspan fill="#a6e3a1">ann@example.com</tspan>",</text>
+    <text x="60" y="436" xml:space="preserve">          "<tspan fill="#a6e3a1">hunter2</tspan>")</text>
 
     <g font-size="12">
       <text y="298"><tspan x="466" fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan><tspan x="604">=</tspan><tspan x="622" fill="#f38ba8">ann@example.com</tspan></text>

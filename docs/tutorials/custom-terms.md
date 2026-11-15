@@ -139,6 +139,10 @@ Much better, and it shows the limit of a list: `Marsh` is still there, because
 only `bob` was listed. You can add `bob marsh`, and you will keep adding names
 for as long as new people appear in your text.
 
+A listed word can also hide inside an identifier: `DB_BOB` and `bob_dev` are
+not masked by default. [`privyx lint -c my.yaml`](../guide/cli.md#privyx-lint)
+lists such spellings of your terms, and the detector option that masks each.
+
 ## 5. Find names you cannot list
 
 For names nobody listed in advance, add a detector that reads language. A

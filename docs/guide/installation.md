@@ -33,8 +33,11 @@ Privyx is a Python package with a command-line program, `privyx`. It needs
     ```
 
     [`uvx`](https://docs.astral.sh/uv/guides/tools/) downloads Privyx into a
-    cache and runs it. Every `privyx ...` command in this documentation works
-    as `uvx privyx ...`.
+    cache and runs it. Every `privyx ...` command you type in this
+    documentation works as `uvx privyx ...`. What another program starts,
+    such as the git hooks of [`privyx install-hook`](cli.md#privyx-install-hook)
+    or an MCP server in a client's config, needs `privyx` on the `PATH`:
+    install it with `uv tool install privyx` for those.
 
 === "Docker"
 
