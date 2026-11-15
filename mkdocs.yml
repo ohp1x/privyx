@@ -71,8 +71,9 @@ nav:
   - Get started:
       - Quickstart: guide/getting-started.md
       - Installation: guide/installation.md
-      - Upgrading: guide/upgrading.md
       - How it works: guide/how-it-works.md
+      - Upgrading: guide/upgrading.md
+      - FAQ: guide/faq.md
   - Tutorials:
       - tutorials/index.md
       - Coding agents: tutorials/coding-agents.md
@@ -81,18 +82,18 @@ nav:
       - Files and logs in a pipeline: tutorials/mask-files.md
       - A shared gateway for a team: tutorials/team-gateway.md
       - A detector plugin: tutorials/detector-plugin.md
-  - Guides:
+  - How-to guides:
+      - Agent profiles and presets: guide/agent-profiles.md
+      - Deployment: guide/deployment.md
+      - Docker: docker.md
+      - Troubleshooting: guide/troubleshooting.md
+  - Concepts:
       - Detection: guide/detection.md
       - Masking: guide/masking.md
       - Sessions and vault: guide/sessions.md
       - Proxy modes and routes: guide/proxy.md
-      - Deployment: guide/deployment.md
-      - Docker: docker.md
-      - Troubleshooting: guide/troubleshooting.md
-      - FAQ: guide/faq.md
   - Integrations:
       - integrations/index.md
-      - Examples: guide/examples.md
       - Providers:
           - OpenAI: providers/openai.md
           - Anthropic: providers/anthropic.md
@@ -112,25 +113,25 @@ nav:
           - Roo Code: integrations/roo-code.md
           - Continue: integrations/continue.md
           - Cursor: integrations/cursor.md
+      - Examples: guide/examples.md
   - Reference:
-      - Configuration: guide/configuration.md
       - CLI: guide/cli.md
+      - Configuration: guide/configuration.md
       - Errors: reference/errors.md
       - Audit events and metrics: observability/audit-events.md
       - Session tap: observability/tap.md
       - Tracing: observability/tracing.md
+      - Python library: development/python-library.md
+      - Plugins: development/plugins.md
   - Security:
       - Threat model: security/threat-model.md
       - Limitations: security/limitations.md
       - Data handling: security/data-handling.md
       - Cryptography: security/cryptography.md
-  - Architecture:
-      - Overview: architecture/overview.md
+  - Contributing:
+      - Architecture overview: architecture/overview.md
       - Privacy engine: architecture/privacy-engine.md
       - Proxy: architecture/proxy.md
       - Streaming: architecture/streaming.md
       - Scaling: architecture/scaling.md
-  - Development:
-      - Python library: development/python-library.md
-      - Plugins: development/plugins.md
       - Testing: development/testing.md

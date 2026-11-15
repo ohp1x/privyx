@@ -155,17 +155,19 @@ The documentation is at [ohp1x.github.io/privyx](https://ohp1x.github.io/privyx/
 
 - [Quickstart](https://ohp1x.github.io/privyx/guide/getting-started/) and
   [tutorials](https://ohp1x.github.io/privyx/tutorials/)
-- Guides to [detection](https://ohp1x.github.io/privyx/guide/detection/),
+- Concepts: [detection](https://ohp1x.github.io/privyx/guide/detection/),
   [masking](https://ohp1x.github.io/privyx/guide/masking/),
   [sessions](https://ohp1x.github.io/privyx/guide/sessions/), and
-  [deployment](https://ohp1x.github.io/privyx/guide/deployment/)
+  [the proxy](https://ohp1x.github.io/privyx/guide/proxy/)
+- How-to guides: [agent profiles](https://ohp1x.github.io/privyx/guide/agent-profiles/),
+  [deployment](https://ohp1x.github.io/privyx/guide/deployment/), and
+  [troubleshooting](https://ohp1x.github.io/privyx/guide/troubleshooting/)
 - [Integrations](https://ohp1x.github.io/privyx/integrations/) with providers
   and frameworks
 - Reference for [configuration](https://ohp1x.github.io/privyx/guide/configuration/),
   the [CLI](https://ohp1x.github.io/privyx/guide/cli/), and
   [errors](https://ohp1x.github.io/privyx/reference/errors/)
-- [Troubleshooting](https://ohp1x.github.io/privyx/guide/troubleshooting/) and
-  the [FAQ](https://ohp1x.github.io/privyx/guide/faq/)
+- The [FAQ](https://ohp1x.github.io/privyx/guide/faq/)
 
 Its source is in [`docs/`](https://github.com/ohp1x/privyx/tree/main/docs).
 

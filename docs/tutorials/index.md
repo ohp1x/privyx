@@ -70,8 +70,12 @@ If you have not installed Privyx yet, start with the
 
 ## Where to go after a tutorial
 
-- The [guides](../guide/detection.md) explain one topic each in depth:
-  detection, masking, sessions, the proxy, and deployment.
+- The concept pages explain one topic each in depth:
+  [detection](../guide/detection.md), [masking](../guide/masking.md),
+  [sessions](../guide/sessions.md), and [the proxy](../guide/proxy.md).
+- The how-to guides solve one task each, such as
+  [agent profiles](../guide/agent-profiles.md) or
+  [deployment](../guide/deployment.md).
 - [Integrations](../integrations/index.md) has a page per provider and
   framework.
 - The reference pages list every [setting](../guide/configuration.md),
