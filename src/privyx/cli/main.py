@@ -40,6 +40,7 @@ from privyx.cli.commands.detect import detect
 from privyx.cli.commands.doctor import doctor
 from privyx.cli.commands.hook import hook, install_hook
 from privyx.cli.commands.inspect import inspect
+from privyx.cli.commands.lint import lint
 from privyx.cli.commands.mask import mask, unmask
 from privyx.cli.commands.mcp import mcp
 from privyx.cli.commands.pipe import pipe
@@ -100,6 +101,7 @@ def _adopt_earlier_files() -> None:
 cli.add_command(proxy)
 cli.add_command(run)
 cli.add_command(detect)
+cli.add_command(lint)
 cli.add_command(mask)
 cli.add_command(unmask)
 cli.add_command(pipe)

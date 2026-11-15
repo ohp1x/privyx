@@ -188,6 +188,108 @@ def test_detect_explain_without_policy_masks_everything(runner: CliRunner) -> No
 
 
 # --------------------------------------------------------------------------
+# lint
+
+
+def _lint(runner: CliRunner, tmp_path: Path, config: str) -> tuple[int, dict[str, list[str]]]:
+    """Run ``privyx lint`` and group the spellings under the advice line above them."""
+    path = tmp_path / "c.yaml"
+    path.write_text(config, encoding="utf-8")
+    result = runner.invoke(cli, ["lint", "-c", str(path)])
+    groups: dict[str, list[str]] = {}
+    lines: list[str] = []
+    for line in result.output.splitlines():
+        if line.startswith("  "):
+            lines.append(line.split(maxsplit=2)[2])
+        else:
+            lines = groups[line] = []
+    return result.exit_code, groups
+
+
+def test_lint_suggests_the_option_that_masks_a_spelling(runner: CliRunner, tmp_path: Path) -> None:
+    code, groups = _lint(
+        runner, tmp_path, "detector:\n  type: regex\n  terms:\n    PERSON: [john smith]\n"
+    )
+
+    assert code == 1
+    assert "'DB_JOHN SMITH'" in groups["Set detector.underscore_separates_words: true"]
+    assert "'id_10.0.0.1'" in groups["Set detector.underscore_separates_words: true"]
+    assert groups["Set detector.decode: true"] == ["'john%20smith'"]
+    assert "'j\\u200bohn smith'" in groups["Set detector.normalize: true"]
+    assert groups["Set detector.term_variants: true"] == ["'john_smith'"]
+    assert "'john smith'" not in str(groups)
+
+
+def test_lint_passes_once_the_options_are_on(runner: CliRunner, tmp_path: Path) -> None:
+    code, groups = _lint(
+        runner,
+        tmp_path,
+        "detector:\n  type: regex\n  terms:\n    PERSON: [john, smith, john smith]\n"
+        "  decode: true\n  normalize: true\n  underscore_separates_words: true\n",
+    )
+
+    assert code == 0
+    assert list(groups) == ["Checked 26 spellings of 3 terms and 4 built-in values: all masked."]
+
+
+def test_lint_suggests_options_that_only_mask_together(runner: CliRunner, tmp_path: Path) -> None:
+    code, groups = _lint(
+        runner,
+        tmp_path,
+        "detector:\n  type: yaml\n  terms:\n    PROJECT: [apollo]\n"
+        "  patterns:\n    PROJECT: 'apollo-\\d+'\n",
+    )
+
+    assert code == 1
+    assert groups["Set detector.merge_terms: true"] == ["'apollo'"]
+    both = "Set detector.merge_terms: true and detector.underscore_separates_words: true"
+    assert groups[both] == ["'DB_APOLLO'", "'apollo_dev'"]
+
+
+def test_lint_leaves_out_the_separators_of_a_fullwidth_spelling(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    # The regex masks each word on its own, so the space between them is left.
+    code, groups = _lint(
+        runner,
+        tmp_path,
+        "detector:\n  type: yaml\n  terms:\n    PERSON: [john smith]\n"
+        "  patterns:\n    PERSON: '(?i:john|smith)'\n"
+        "  normalize: true\n  decode: true\n  underscore_separates_words: true\n",
+    )
+
+    assert code == 0, groups
+
+
+def test_lint_names_the_policy_that_drops_a_term(runner: CliRunner, tmp_path: Path) -> None:
+    code, groups = _lint(
+        runner,
+        tmp_path,
+        "detector:\n  type: yaml\n  terms:\n    PERSON: [john]\n"
+        "policy:\n  type: strict\n  allowed: [EMAIL]\n",
+    )
+
+    assert code == 1
+    reason = "Found, but the strict policy masks only the types in policy.allowed"
+    assert "'john'" in groups[reason]
+    assert "'DB_JOHN'" in groups[reason]
+
+
+def test_lint_skips_detectors_it_cannot_run_offline(runner: CliRunner, tmp_path: Path) -> None:
+    code, groups = _lint(
+        runner,
+        tmp_path,
+        "detector:\n  - type: yaml\n    terms:\n      PERSON: [john]\n  - type: llm\n",
+    )
+
+    assert code == 1
+    assert "Not checked: detector #2 (llm)" in groups
+    assert (
+        "'DB_JOHN'" in groups["Set underscore_separates_words: true on each regex or yaml detector"]
+    )
+
+
+# --------------------------------------------------------------------------
 # inspect session
 
 
