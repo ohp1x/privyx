@@ -265,9 +265,13 @@ difference from the [`faker`](#faker) operator.
   `CREDIT_CARD`, `SSN`, and a few more. Other types, such as an API key or a
   `PROJECT` of your own, get a plain token. `operator.locale` sets the
   language of the labels and `operator.seed` varies them.
-- A value gets the same label in every request, so the provider's prompt cache
-  keeps working. A label is never the value itself, and one that shares a word
-  with the value, such as the real first name, is avoided.
+- A label comes from the token, never from the value: the provider sees the
+  token anyway, so the label tells it nothing more, and trying candidate
+  values cannot find one. A token gets the same label in every request, so the
+  provider's prompt cache keeps working.
+- A label never holds the value, nor another value masked in the session (a
+  fake `James Wilson` while `James` is masked too). One that shares a word with
+  the value, such as the real first name, is avoided.
 - An id stands for one value whatever its type, so a format without `{type}`
   still points to one value.
 

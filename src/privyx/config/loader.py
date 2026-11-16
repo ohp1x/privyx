@@ -180,11 +180,15 @@ def _retyped(
 
     They are options of the type below, and would be unknown settings, or wrong
     ones, for the new type.  The section's own fields are merged as before.
+    Below the built-in default type, every key is kept: it was written for the
+    type a later layer picks, as with ``vault: {bucket: b}`` in a file and
+    ``PRIVYX_VAULT`` naming the plugin.
     """
     if section is None or "type" not in override:
         return current
     fields = section.model_fields
-    if override["type"] == current.get("type", fields["type"].default):
+    below = current.get("type", fields["type"].default)
+    if below in (override["type"], fields["type"].default):
         return current
     return {key: value for key, value in current.items() if key in fields}
 
@@ -197,6 +201,7 @@ def load_config(
     agent: str | None = None,
     presets: Sequence[str] | None = None,
     sources: dict[str, str] | None = None,
+    secrets: bool = True,
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
 
@@ -216,6 +221,8 @@ def load_config(
     below ``extra``; without a profile, just ``presets``.  ``presets`` defaults
     to :data:`CHOSEN_PRESETS`.
     ``sources`` optionally receives dotted field paths -> winning layer.
+    ``secrets=False`` leaves secret references (``op://``, ``keychain://``)
+    as written, so no password manager is asked.
     """
     if presets is None:
         presets = CHOSEN_PRESETS.get()
@@ -300,7 +307,8 @@ def load_config(
                 held[name] = {key: profile.pop(key) for key in _DEFERRED if key in profile}
     # So are the presets: the ones in use were applied above.
     definitions = merged.pop("presets", None)
-    merged = resolve_secrets(merged)
+    if secrets:
+        merged = resolve_secrets(merged)
     for name, values in held.items():
         merged["agents"][name].update(values)
     if definitions is not None:

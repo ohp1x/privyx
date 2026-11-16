@@ -224,6 +224,97 @@ def test_a_layer_that_keeps_the_type_keeps_the_plugin_options(home: Path) -> Non
     assert regex.terms == {"P": ["kestrel"]}  # type: ignore[union-attr]
 
 
+def test_options_below_the_default_type_are_kept_for_the_type_above(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The file holds the options; the environment picks the plugin.
+    monkeypatch.setenv("PRIVYX_VAULT", "shelf")
+    settings = load_config(_config(tmp_path, {"vault": {"shelf": "a"}}))
+    assert settings.vault.type == "shelf"
+    assert settings.vault.model_extra == {"shelf": "a"}
+
+
+DEFAULTED_VAULT = """
+from privyx.plugins import BaseVault, ComponentConfig
+
+
+class TimedVault(BaseVault):
+    name = "timed"
+
+    class Config(ComponentConfig):
+        ttl: int = 86400
+        dsn: str
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def from_config(cls, config, ctx):
+        return cls(config)
+
+    async def create(self, session): ...
+    async def get(self, session_id): ...
+    async def save(self, session): ...
+    async def delete(self, session_id): ...
+"""
+
+KEYED_PROVIDER = """
+from privyx.plugins import BaseProvider, ComponentConfig
+
+
+class CloudProvider(BaseProvider):
+    name = "cloud"
+
+    class Config(ComponentConfig):
+        api_key: str = ""
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def from_config(cls, config, ctx):
+        return cls(config)
+
+    async def send(self, payload, session_id=None):
+        return payload
+
+    async def stream(self, payload, session_id=None):
+        yield payload
+"""
+
+
+async def test_a_config_field_named_like_a_section_field_keeps_its_own_default(
+    tmp_path: Path,
+) -> None:
+    paths = [str(_write(tmp_path, "v.py", DEFAULTED_VAULT))]
+    plain = {"plugins": {"paths": paths}, "vault": {"type": "timed"}}
+    unset = load_config(_config(tmp_path, plain))
+    load_plugins(unset)
+    # vault.dsn has a built-in default; it is not this plugin's value.
+    with pytest.raises(ConfigError, match="invalid setting 'vault.dsn'"):
+        await build_vault(unset)
+
+    given = {"plugins": {"paths": paths}, "vault": {"type": "timed", "dsn": "shelf://a"}}
+    vault, _ = await build_vault(load_config(_config(tmp_path, given)))
+    assert (vault.config.ttl, vault.config.dsn) == (86400, "shelf://a")  # type: ignore[attr-defined]
+
+
+def test_a_provider_config_keeps_its_default_without_a_key(tmp_path: Path) -> None:
+    from privyx.providers.registry import build_provider
+
+    paths = [str(_write(tmp_path, "p.py", KEYED_PROVIDER))]
+    settings = Settings(plugins={"paths": paths}, provider={"type": "cloud"})
+    load_plugins(settings)
+    assert build_provider(settings).config.api_key == ""  # type: ignore[attr-defined]
+
+
+def test_doctor_loads_plugins_from_modules(bundle: str) -> None:
+    from privyx.cli.commands.doctor import _check_plugins
+
+    ok, detail = _check_plugins(Settings(plugins={"modules": [bundle]}))
+    assert ok and "bundle" in detail
+
+
 # --- the schema -------------------------------------------------------------
 
 
@@ -270,6 +361,28 @@ def test_config_schema_adds_the_plugins_the_config_loads(tmp_path: Path) -> None
     assert json.loads(plain.output) == json_schema()
     detector = json.loads(loaded.output)["$defs"]["DetectorConfig"]
     assert detector["properties"]["type"]["anyOf"][0]["enum"][0] == "llm"
+    assert "acme_id" in detector["properties"]["type"]["anyOf"][0]["enum"]
+
+
+def test_config_schema_asks_no_password_manager(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from click.testing import CliRunner
+
+    import privyx.config.loader as loader
+    from privyx.cli.main import cli
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a secret was resolved")
+
+    monkeypatch.setattr(loader, "resolve_secrets", refuse)
+    paths = [str(_write(tmp_path, "p.py", CONFIGURED))]
+    config = _config(
+        tmp_path, {"plugins": {"paths": paths}, "provider": {"api_key": "op://vault/item/key"}}
+    )
+    result = CliRunner().invoke(cli, ["config", "--schema", "-c", str(config)])
+
+    detector = json.loads(result.output)["$defs"]["DetectorConfig"]
     assert "acme_id" in detector["properties"]["type"]["anyOf"][0]["enum"]
 
 
@@ -410,6 +523,9 @@ def _router(path: str) -> APIRouter:
         "/{everything:path}",
         # Gemini's /*/cachedContents: the `*` is any API version.
         "/acme/{item}",
+        # /v1/v1/... is masked as the route it means.
+        "/{tenant}/v1/chat/completions",
+        "/v1/{x}/messages",
     ],
 )
 def test_a_route_over_a_masking_route_stops_startup(path: str) -> None:
@@ -438,6 +554,17 @@ async def test_a_route_beside_the_masking_routes_is_served() -> None:
     app = FastAPI()
     include_router(app, _router("/acme/items/{item}"), Settings().proxy.routes)
     assert (await _get(app, "/acme/items/1")).json() == {"ok": True}
+
+
+def test_the_route_check_stays_fast_for_a_large_router() -> None:
+    import time
+
+    router = APIRouter()
+    for i in range(200):
+        router.add_api_route(f"/acme{i}/part{i}/{{item}}/more{i}", lambda: {"ok": True})
+    start = time.perf_counter()
+    include_router(FastAPI(), router, Settings().proxy.routes)
+    assert time.perf_counter() - start < 5
 
 
 async def _get(app: Any, path: str) -> httpx.Response:

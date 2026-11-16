@@ -65,7 +65,8 @@ def _schema(config_path: str | None) -> dict[str, Any]:
     """The config file's JSON Schema, with the plugins the config loads.
 
     Without any, the published ``docs/schema.json``; also when the config
-    cannot be loaded, since the schema is what helps to fix it.
+    cannot be loaded, since the schema is what helps to fix it.  Secret
+    references are not resolved, so no password manager is asked.
     """
     from privyx.config.loader import load_config
     from privyx.config.schema import json_schema
@@ -73,7 +74,11 @@ def _schema(config_path: str | None) -> dict[str, Any]:
     from privyx.plugins.loader import load_plugins, loaded_options
 
     try:
-        load_plugins(load_config(config_path))
+        settings = load_config(config_path, secrets=False)
+        plugins = settings.plugins
+        if not (plugins.enabled and (plugins.paths or plugins.modules)):
+            return json_schema()
+        load_plugins(settings)
     except PrivyxError:
         return json_schema()
     return json_schema(loaded_options() or None)

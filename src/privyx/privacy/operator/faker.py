@@ -189,10 +189,11 @@ class FakerOperator(LiteralOperator):
 class FakeLabels:
     """Fake values that label pseudonym tokens, for ``token.label_format``.
 
-    Derived as :class:`FakerOperator` derives its fakes, from the seed, the
-    entity type, and the value, so a value gets the same label in every
-    request and the provider's prompt cache keeps working.  Only a type that
-    has a Faker provider gets one.
+    Derived from the seed, the entity type, and the token, never from the
+    value: the provider sees the token anyway, so a label tells it nothing
+    about the value, and trying candidate values cannot find one.  A token
+    gets the same label in every request, so the provider's prompt cache
+    keeps working.  Only a type that has a Faker provider gets one.
 
     Raises:
         ConfigError: If the ``faker`` package is not installed.
@@ -202,12 +203,12 @@ class FakeLabels:
         self._faker = _faker(locale, "token.label_format")
         self._seed = seed
 
-    def __call__(self, entity_type: str, original: str, salt: int = 0) -> str | None:
-        """A label for ``original``, another for each ``salt``; ``None`` for a type without one."""
+    def __call__(self, entity_type: str, token: str, salt: int = 0) -> str | None:
+        """A label for ``token``, another for each ``salt``; ``None`` for a type without one."""
         method = _PROVIDER_METHODS.get(entity_type.upper())
         if method is None:
             return None
-        _reseed(self._faker, self._seed, entity_type, original, salt)
+        _reseed(self._faker, self._seed, entity_type, token, salt)
         return str(getattr(self._faker, method)())
 
 

@@ -76,7 +76,8 @@ def _check_plugins(settings: Settings) -> tuple[bool, str]:
     from privyx.plugins.loader import load_plugins
     from privyx.plugins.registry import PLUGINS
 
-    if not settings.plugins.enabled or not settings.plugins.paths:
+    plugins = settings.plugins
+    if not plugins.enabled or not (plugins.paths or plugins.modules):
         return (True, "no plugin paths configured")
 
     load_plugins(settings)  # raises ConfigError on a bad path/module/collision

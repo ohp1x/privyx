@@ -172,7 +172,7 @@
 #   token: "[REDACTED]"    # redact: replacement text
 #   length: 12             # hash: digest characters kept, 6 to 64
 #   locale: ""             # faker, pseudonym labels: Faker locale, such as en_US
-#   seed: null             # faker, fpe, pseudonym labels: same value, same fake across runs
+#   seed: null             # faker, fpe: same value, same fake across runs; varies labels
 #   key: ""                # encrypt: 64 hex chars (privyx[crypto]), or PRIVYX_ENCRYPT_KEY
 
 # --- Anchor ---

@@ -622,7 +622,7 @@ What a detected value becomes. See [Masking](masking.md).
 | `token` | `[REDACTED]` | `redact`: replacement text. |
 | `length` | `12` | `hash`: hex characters of the digest kept in the token, 6 to 64. Other values warn and are rejected from 0.2.0; below 1 is an error. |
 | `locale` | empty | `faker`, and `pseudonym` [labels](masking.md#labels): Faker locale such as `en_US`. Empty uses Faker's default. |
-| `seed` | unset | `faker`, `fpe`, and `pseudonym` labels: makes the same value fake the same way across runs. |
+| `seed` | unset | `faker`, `fpe`: makes the same value fake the same way across runs. Another seed gives `pseudonym` [labels](masking.md#labels) other values. |
 | `key` | empty | `encrypt`: 64 hex characters (`openssl rand -hex 32`). |
 
 ### `anchor`

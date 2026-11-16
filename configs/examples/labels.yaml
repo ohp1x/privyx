@@ -12,7 +12,7 @@ token:
 operator:
   type: pseudonym           # labels work with this operator only
   locale: en_US             # the language of the labels
-  seed: 1234                # optional: other labels for the same values
+  seed: 1234                # optional: other labels for the same tokens
 
 proxy:
   directive: true           # tells the model to keep each placeholder whole

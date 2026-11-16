@@ -144,6 +144,37 @@ async def test_a_label_that_is_the_value_or_shares_its_name_is_not_used() -> Non
     assert result.text == "<PRIVYX_PERSON_1>"
 
 
+async def test_a_label_comes_from_the_token_never_from_the_value() -> None:
+    # Two values behind one counter token get one label: the provider, which
+    # sees the token anyway, cannot try candidate values against a label.
+    engine = await _engine()
+    first = await engine.transform(NAME)
+    second = await engine.transform("kestrel", detection=_person("kestrel"))
+    assert first.text.split(":")[0] == second.text.split(":")[0] == "<PRIVYX_PERSON_1"
+    assert first.text.split(":")[1] == second.text.split(":")[1]
+
+
+def _person(value: str) -> Detection:
+    found = Detection()
+    found.add(0, len(value), "PERSON", value)
+    return found
+
+
+async def test_a_label_never_holds_another_value_of_the_session() -> None:
+    # `James` is masked too, so `James Wilson` would send it, and fail the DLP check.
+    labels = {0: "James Wilson", 1: "Ann Lee"}
+    codec = LabelCodec("<{namespace}_{type}_{id}>", LABELED)
+    operator = PseudonymOperator(codec, labels=lambda _type, _token, salt: labels[salt % 2])
+    text = "James met mary smith"
+    found = Detection()
+    found.add(0, 5, "PERSON", "James")
+    found.add(10, 20, "PERSON", "mary smith")
+
+    result = await operator.pseudonymize(text, found, Session(), Context())
+
+    assert result.text == "<PRIVYX_PERSON_1:Ann Lee> met <PRIVYX_PERSON_2:Ann Lee>"
+
+
 async def test_labels_follow_the_locale() -> None:
     engine = await _engine(
         Settings(

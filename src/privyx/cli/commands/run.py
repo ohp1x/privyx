@@ -494,14 +494,24 @@ async def _run_target(
     engine, close_vault = await build_engine(settings, audit=audit)
     if settings.proxy.mode == "gateway":
         provider = build_provider(settings)
-        app = Gateway(
-            engine=engine, provider=provider, settings=settings, audit=audit, router=px._router
-        ).app
         close_upstream = provider.close
     else:
         proxy = build_transparent_proxy(settings, engine, audit)
-        app = create_transparent_app(engine, proxy, settings, px._router)
         close_upstream = proxy.close
+    try:
+        if settings.proxy.mode == "gateway":
+            app = Gateway(
+                engine=engine, provider=provider, settings=settings, audit=audit, router=px._router
+            ).app
+        else:
+            app = create_transparent_app(engine, proxy, settings, px._router)
+    except BaseException:
+        # A plugin route over a masking route: nothing is served.
+        await close_upstream()
+        await close_vault()
+        audit.close()
+        sock.close()
+        raise
     await hooks.run_startup()
 
     budget = spec.budget

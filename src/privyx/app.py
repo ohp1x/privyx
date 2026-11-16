@@ -158,19 +158,19 @@ def include_router(app: Any, router: APIRouter | None, routes: dict[str, str]) -
     from privyx.proxy.schemas import detect_schema
 
     taken = list(router.routes)
-    paths = [path for route in taken if isinstance(path := getattr(route, "path", None), str)]
-    # Each `*` of a masking route is filled in with `x`, an API version, or a
-    # segment of a plugin path: `/v1beta/models/{name}` takes
-    # `/v1beta/models/x:generateContent`.
-    fillers = {"x", "v1", "v1beta", "v1alpha"}
-    for path in paths:
-        fillers.update(filter(None, re.split(r"[/:]", _PARAM.sub("", path))))
-    examples = [example for masking in routes for example in _filled(masking, fillers)]
+    # Every path the proxy masks, as detect_schema reads it: /v1/v1/... too.
+    masking = [*routes, *(f"/v1{route}" for route in routes if route.startswith("/v1/"))]
     for route in taken:
         # Both ways: each masking path against the route, with the matcher that
         # serves it, and a path the route serves, its parameters filled in,
-        # against the masking routes.
+        # against the masking routes.  Each `*` of a masking route is filled in
+        # with `x`, an API version, or a segment of the route itself:
+        # `/v1beta/models/{name}` takes `/v1beta/models/x:generateContent`.
         path = getattr(route, "path", None)
+        fillers = {"x", "v1", "v1beta", "v1alpha"}
+        if isinstance(path, str):
+            fillers.update(filter(None, re.split(r"[/:]", _PARAM.sub("", path))))
+        examples = (example for pattern in masking for example in _filled(pattern, fillers))
         overlaps = any(route.matches(_scope(example))[0] != Match.NONE for example in examples)
         if overlaps or (isinstance(path, str) and detect_schema(_PARAM.sub("x", path), routes)):
             name = repr(path) if isinstance(path, str) else type(route).__name__
