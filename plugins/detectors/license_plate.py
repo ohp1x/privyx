@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import re
 
-from privyx.core.context import Context
-from privyx.core.result import Detection
-from privyx.privacy.detector.base import BaseDetector
+from privyx.plugins import BaseDetector, Context, Detection
 
 #: Loose plate shape: 1–3 letters, an optional separator, 1–4 digits, and an
 #: optional letter suffix — e.g. "B 1234 XYZ" or "ABC-123".  Illustrative only.

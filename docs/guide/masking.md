@@ -233,6 +233,67 @@ different value of this one when ids are short.
 To shorten tokens without shortening ids, use [compact tokens](#compact-tokens)
 instead; both can be combined (`<E~247102>`).
 
+### Labels
+
+A placeholder tells the model nothing about the value it stands for. With
+`token.label_format`, a `pseudonym` token also carries a label, a fake value
+of the same kind, for the model to read and reason with:
+
+```yaml
+token:
+  label_format: "<{namespace}_{type}_{id}:{label}>"   # <PRIVYX_PERSON_1:Alice Johnson>
+proxy:
+  directive: true           # recommended with labels
+```
+
+`john smith` is sent as `<PRIVYX_PERSON_1:Alice Johnson>`, and the placeholder
+comes back as `john smith`. A reply that only says `Alice Johnson`, or `Alice
+in Wonderland`, is left as written: the session maps the token, never the
+label, so text that happens to hold the label is never restored. That is the
+difference from the [`faker`](#faker) operator.
+
+- The placeholder restores by its id, with its type and namespace when the
+  format holds them; the label is ignored, so one the model changed still
+  restores. A placeholder whose fields point to no token of the session, or to
+  two, is left as written; in another case (`<privyx_person_1:Alice>`), it is
+  restored when exactly one token of the session matches it. Without its
+  closing delimiter, only the token part is restored, as for a
+  [half edge](#token-format).
+- Tokens in `token.format`, and every form of them above, are still restored.
+  If the model drops the label, the placeholder is a plain token and still
+  comes back.
+- Labels come from Faker, for the types it has fakes for: `PERSON`, `EMAIL`,
+  `PHONE`, `LOCATION`, `ORGANIZATION`, `ADDRESS`, `URL`, `IP_ADDRESS`,
+  `CREDIT_CARD`, `SSN`, and a few more. Other types, such as an API key or a
+  `PROJECT` of your own, get a plain token. `operator.locale` sets the
+  language of the labels and `operator.seed` varies them.
+- A label comes from the token, never from the value: the provider sees the
+  token anyway, so the label tells it nothing more, and trying candidate
+  values cannot find one. A token gets the same label in every request, so the
+  provider's prompt cache keeps working.
+- A label never holds the value, nor another value masked in the session (a
+  fake `James Wilson` while `James` is masked too). One that shares a word with
+  the value, such as the real first name, is avoided.
+- An id stands for one value whatever its type, so a format without `{type}`
+  still points to one value.
+
+`label_format` must contain `{id}` and `{label}`, with a literal before and
+after `{label}`: a label may hold spaces, and only those literals bound it.
+A label never holds the character after it, a line break, `"`, or `\`. The
+recommended form is `token.format` with `:{label}` before the closing
+delimiter: if the model drops the label, the rest is a token it knows. A
+shorter form such as `<{namespace}_{id}:{label}>` costs fewer tokens, but
+without its label it is no token at all.
+
+It works with the `pseudonym` operator only, not with `token.compact`, and
+needs `pip install 'privyx[faker]'`; otherwise Privyx stops at startup with
+the setting named. Off by default.
+
+The limits: a model that writes only the label shows the user the label. The
+model may also pass a label on its own as a tool argument (a fake email,
+say), and the tool then gets the fake value, as with `faker`. Each placeholder
+costs as many more tokens as its label.
+
 ## Anchors
 
 By default a `pseudonym` token is a counter within its session:
@@ -302,6 +363,10 @@ fix, or rebuilds one in code.
 proxy:
   directive: true
 ```
+
+With [labels](#labels), the example in the instruction is a labeled
+placeholder, and one more sentence says that the name in a placeholder only
+stands in for the value. Turn both on together.
 
 It goes after Anthropic's `system`, after the leading system messages of a Chat
 Completions request, first in a Responses `input` (in `instructions` when

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Plugins:** `privyx.plugins` exports everything a component needs, from the base classes to `Detection`, `Session`, and `restore`, so a plugin no longer imports from internal modules that may move
+- **Plugins:** A plugin can declare its options as a `Config`, checked at startup with a "did you mean" for a misspelled key; a config layer that switches a section to another `type` no longer carries over the plugin options set below it, and `privyx config --schema` checks each built-in type's settings and, with a config that loads plugins, their types and options
+- **Python API:** `Privyx` (experimental) assembles Privyx in Python: add components, routes, and startup or shutdown hooks in code, then serve the proxy with `px.run()` or take the engine with `px.engine()`. A route that would take a masking route stops startup
+- **Plugins:** `plugins.modules` (or `PRIVYX_PLUGIN_MODULES`) loads plugins from installed packages; each module's `setup(px)` adds components, routes, and hooks. Installed packages are never loaded unless named
+- **Masking:** `token.label_format` (opt-in) writes `pseudonym` tokens with a fake value the model can read, such as `<PRIVYX_PERSON_1:Alice Johnson>`. The placeholder is restored by its id, so a reply that only holds the fake name is left as written; `proxy.directive` explains the labels to the model. Needs `privyx[faker]`
+
 ## [0.1.37] - 2026-11-15
 
 ### Added

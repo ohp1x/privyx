@@ -179,20 +179,27 @@ async def _serve_until_reload(server: Any, event: asyncio.Event | None) -> None:
             signal.signal(sig, handler)
 
 
-async def _run_server(settings: Any, watch_paths: list[Path] | None = None) -> bool:
+async def _run_server(
+    settings: Any, watch_paths: list[Path] | None = None, app: Any = None
+) -> bool:
     """Build the engine from settings, serve the selected app, and release resources.
+
+    ``app``, a :class:`~privyx.app.Privyx`, adds its components, routes, and
+    hooks; without one, ``plugins.modules`` are set up with a new one.
 
     Returns ``True`` when the server stopped because a config file changed.
     """
+    from privyx.app import Privyx
     from privyx.core.builder import build_audit_logger, build_engine
     from privyx.observability import tracing
     from privyx.observability.logging import configure_logging
     from privyx.plugins.loader import load_plugins
 
     configure_logging(settings)
+    px = app if app is not None else Privyx()
     # Load plugins before building the engine so a plugin detector/operator/etc.
     # is registered by the time build_engine resolves the configured types.
-    hooks = load_plugins(settings)
+    hooks = load_plugins(settings, app=px)
     tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
@@ -205,9 +212,9 @@ async def _run_server(settings: Any, watch_paths: list[Path] | None = None) -> b
     )
     try:
         if settings.proxy.mode == "transparent":
-            await _serve_transparent(settings, engine, audit, reload_event)
+            await _serve_transparent(settings, engine, audit, reload_event, px._router)
         else:
-            await _serve_gateway(settings, engine, audit, reload_event)
+            await _serve_gateway(settings, engine, audit, reload_event, px._router)
     finally:
         if watcher is not None:
             watcher.cancel()
@@ -243,7 +250,11 @@ def build_transparent_proxy(settings: Any, engine: Any, audit: Any) -> Any:
 
 
 async def _serve_transparent(
-    settings: Any, engine: Any, audit: Any, reload_event: asyncio.Event | None = None
+    settings: Any,
+    engine: Any,
+    audit: Any,
+    reload_event: asyncio.Event | None = None,
+    router: Any = None,
 ) -> None:
     """Serve the drop-in transparent reverse proxy."""
     import uvicorn
@@ -254,6 +265,11 @@ async def _serve_transparent(
 
     origin = resolve_transparent_upstream(settings)
     proxy_instance = build_transparent_proxy(settings, engine, audit)
+    try:
+        app = create_transparent_app(engine, proxy_instance, settings, router)
+    except BaseException:
+        await proxy_instance.close()
+        raise
 
     scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())
@@ -273,7 +289,6 @@ async def _serve_transparent(
         f"session={settings.session.strategy}"
     )
 
-    app = create_transparent_app(engine, proxy_instance, settings)
     server = uvicorn.Server(
         uvicorn.Config(
             app,
@@ -295,7 +310,11 @@ async def _serve_transparent(
 
 
 async def _serve_gateway(
-    settings: Any, engine: Any, audit: Any, reload_event: asyncio.Event | None = None
+    settings: Any,
+    engine: Any,
+    audit: Any,
+    reload_event: asyncio.Event | None = None,
+    router: Any = None,
 ) -> None:
     """Serve the gateway: our own endpoints, one fixed upstream endpoint."""
     import uvicorn
@@ -305,7 +324,13 @@ async def _serve_gateway(
     from privyx.providers.registry import build_provider, resolve_base_url
 
     provider = build_provider(settings)
-    gateway = Gateway(engine=engine, provider=provider, settings=settings, audit=audit)
+    try:
+        gateway = Gateway(
+            engine=engine, provider=provider, settings=settings, audit=audit, router=router
+        )
+    except BaseException:
+        await provider.close()
+        raise
 
     scheme = "https" if settings.is_tls else "http"
     routes = ", ".join(f"{path}→{schema}" for path, schema in gateway.routes.items())

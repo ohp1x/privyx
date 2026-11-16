@@ -1,7 +1,7 @@
 """Local detector plugins (a conventional drop-in location).
 
-Add a module here that subclasses
-``privyx.privacy.detector.base.BaseDetector`` and sets a class-level ``name``.
+Add a module here that subclasses ``privyx.plugins.BaseDetector`` and sets a
+class-level ``name``.
 List this directory under ``plugins.paths`` in your config and Privyx discovers
 and registers it; select it with ``detector.type: <name>``.
 

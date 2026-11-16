@@ -33,6 +33,9 @@ class Session:
         token_ids: ``mapping`` indexed by token id, with the size it had then
             (memory cache only; kept by
             :func:`~privyx.privacy.operator.base.restore`).
+        issued: The ids and values of ``mapping``, indexed for labels, with
+            the size it had then (memory cache only; kept by the ``pseudonym``
+            operator with ``token.label_format``).
     """
 
     session_id: str = field(default_factory=new_session_id)
@@ -42,6 +45,7 @@ class Session:
     updated_at: float = field(default_factory=time.time)
     metadata: dict[str, Any] = field(default_factory=dict)
     token_ids: tuple[int, Any] | None = field(default=None, repr=False, compare=False)
+    issued: tuple[int, Any] | None = field(default=None, repr=False, compare=False)
 
     def put(self, pseudonym: str, original: str) -> None:
         self.mapping[pseudonym] = original

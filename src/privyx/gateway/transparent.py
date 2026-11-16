@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
-from privyx.config.schema import Settings
+from privyx.app import include_router
+from privyx.config.schema import ProxyConfig, Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.proxy.transparent import TransparentProxy
 
@@ -25,18 +26,25 @@ def create_transparent_app(
     engine: PrivacyEngine,
     proxy: TransparentProxy,
     settings: Settings | None = None,
+    router: APIRouter | None = None,
 ) -> Any:
     """Build the FastAPI app for the transparent proxy.
 
     Args:
-        engine: Configured privacy engine (kept for symmetry / future use).
+        engine: Configured privacy engine, at ``app.state.engine``.
         proxy: The transparent proxy that runs the per-request pipeline.
-        settings: Validated settings (metadata only).
+        settings: Validated settings, at ``app.state.settings``.
+        router: Plugin routes, served before the catch-all.
+
+    Raises:
+        ConfigError: If a plugin route overlaps a masking route.
     """
     # No Swagger UI or OpenAPI document: those paths belong to the upstream.
     app = FastAPI(
         title="Privyx (transparent)", docs_url=None, redoc_url=None, openapi_url=None
     )
+    app.state.engine = engine
+    app.state.settings = settings
 
     # Registered before the catch-all so GET /health and /metrics are answered here.
     @app.get("/health")
@@ -46,6 +54,9 @@ def create_transparent_app(
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> str:
         return proxy.stats.prometheus()
+
+    routes = settings.proxy.routes if settings is not None else ProxyConfig().routes
+    include_router(app, router, routes)
 
     @app.api_route("/{path:path}", methods=_CATCH_ALL_METHODS)
     async def proxy_all(request: Request, path: str) -> Any:

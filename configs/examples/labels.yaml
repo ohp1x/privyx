@@ -1,0 +1,23 @@
+# Example: labeled placeholders, so the model reads a name, not just a number
+#
+# `john smith` is sent as <PRIVYX_PERSON_1:Alice Johnson>, a fake name of the
+# same kind, and the placeholder is restored by its id.  A reply that only says
+# "Alice Johnson" is left as written.  Needs `pip install 'privyx[faker]'`.
+#
+# Every value below is a placeholder — replace it with your own.
+
+token:
+  label_format: "<{namespace}_{type}_{id}:{label}>"
+
+operator:
+  type: pseudonym           # labels work with this operator only
+  locale: en_US             # the language of the labels
+  seed: 1234                # optional: other labels for the same tokens
+
+proxy:
+  directive: true           # tells the model to keep each placeholder whole
+
+detector:
+  type: regex
+  terms:
+    PERSON: [ann, bob]

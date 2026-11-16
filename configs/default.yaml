@@ -171,8 +171,8 @@
 #   type: pseudonym        # pseudonym | hash | encrypt | faker | fpe | partial | redact
 #   token: "[REDACTED]"    # redact: replacement text
 #   length: 12             # hash: digest characters kept, 6 to 64
-#   locale: ""             # faker: Faker locale, such as en_US
-#   seed: null             # faker, fpe: same value, same fake across runs
+#   locale: ""             # faker, pseudonym labels: Faker locale, such as en_US
+#   seed: null             # faker, fpe: same value, same fake across runs; varies labels
 #   key: ""                # encrypt: 64 hex chars (privyx[crypto]), or PRIVYX_ENCRYPT_KEY
 
 # --- Anchor ---
@@ -192,6 +192,9 @@
 #   format: "<{namespace}_{type}_{id}>"
 #   compact: false         # short tokens such as <E~1>; format tokens still restore
 #   id_length: 16          # anchored pseudonym and encrypt ids, 6 to 64 hex characters
+#   # pseudonym only, privyx[faker]: also a fake value for the model, such as
+#   # <PRIVYX_PERSON_1:Alice Johnson>; restored by the id, never by the label.
+#   label_format: ""       # needs {id} and {label}; empty is off
 
 # --- Audit ---
 # PII-safe trail: entity types and counts, never content, as JSON lines.
@@ -209,7 +212,9 @@
 #   enabled: false
 
 # --- Plugins ---
-# Directories or .py files whose components become selectable as a `type`.
+# Directories or .py files whose components become selectable as a `type`,
+# and modules (installed packages) whose setup(px) adds them.
 # plugins:
 #   enabled: true
 #   paths: []
+#   modules: []            # or PRIVYX_PLUGIN_MODULES, comma-separated

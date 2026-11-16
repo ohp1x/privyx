@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from privyx.config.agents import resolve_profiles
 from privyx.config.defaults import DEFAULTS
 from privyx.config.env import discovery_disabled, env_config
-from privyx.config.schema import PluggableConfig, Settings
+from privyx.config.schema import PLUGGABLE, PluggableConfig, Settings
 from privyx.core.errors import ConfigError
 from privyx.security.secrets import resolve_secrets
 
@@ -149,22 +149,48 @@ def active_config_paths(path: str | Path | None = None) -> list[Path]:
     return [file for config in _config_paths(path)[0] for file, _ in _config_layers(config)]
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+def _deep_merge(
+    base: dict[str, Any], override: dict[str, Any], *, top: bool = True
+) -> dict[str, Any]:
     result = dict(base)
     for key, value in override.items():
         current = result.get(key)
+        section = PLUGGABLE.get(key) if top else None
         if isinstance(current, dict) and isinstance(value, dict):
-            result[key] = _deep_merge(current, value)
+            result[key] = _deep_merge(_retyped(section, current, value), value, top=False)
         elif key == "detector" and isinstance(current, list) and isinstance(value, dict):
             # A section given as a list (`detector: [...]`) takes a mapping
             # override such as PRIVYX_DETECTOR_CACHE into each item.  Replacing
             # the list would silently drop the detectors it names.
             result[key] = [
-                _deep_merge(item, value) if isinstance(item, dict) else item for item in current
+                _deep_merge(_retyped(section, item, value), value, top=False)
+                if isinstance(item, dict)
+                else item
+                for item in current
             ]
         else:
             result[key] = value
     return result
+
+
+def _retyped(
+    section: type[PluggableConfig] | None, current: dict[str, Any], override: dict[str, Any]
+) -> dict[str, Any]:
+    """``current`` without a plugin's options when ``override`` picks another ``type``.
+
+    They are options of the type below, and would be unknown settings, or wrong
+    ones, for the new type.  The section's own fields are merged as before.
+    Below the built-in default type, every key is kept: it was written for the
+    type a later layer picks, as with ``vault: {bucket: b}`` in a file and
+    ``PRIVYX_VAULT`` naming the plugin.
+    """
+    if section is None or "type" not in override:
+        return current
+    fields = section.model_fields
+    below = current.get("type", fields["type"].default)
+    if below in (override["type"], fields["type"].default):
+        return current
+    return {key: value for key, value in current.items() if key in fields}
 
 
 def load_config(
@@ -175,6 +201,7 @@ def load_config(
     agent: str | None = None,
     presets: Sequence[str] | None = None,
     sources: dict[str, str] | None = None,
+    secrets: bool = True,
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
 
@@ -194,6 +221,8 @@ def load_config(
     below ``extra``; without a profile, just ``presets``.  ``presets`` defaults
     to :data:`CHOSEN_PRESETS`.
     ``sources`` optionally receives dotted field paths -> winning layer.
+    ``secrets=False`` leaves secret references (``op://``, ``keychain://``)
+    as written, so no password manager is asked.
     """
     if presets is None:
         presets = CHOSEN_PRESETS.get()
@@ -278,7 +307,8 @@ def load_config(
                 held[name] = {key: profile.pop(key) for key in _DEFERRED if key in profile}
     # So are the presets: the ones in use were applied above.
     definitions = merged.pop("presets", None)
-    merged = resolve_secrets(merged)
+    if secrets:
+        merged = resolve_secrets(merged)
     for name, values in held.items():
         merged["agents"][name].update(values)
     if definitions is not None:

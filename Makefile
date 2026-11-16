@@ -1,4 +1,4 @@
-.PHONY: install dev test coverage e2e e2e-next-defaults bench bench-requests lint format check vulns docs run proxy clean
+.PHONY: install dev test coverage e2e e2e-next-defaults e2e-labels bench bench-requests lint format check vulns docs run proxy clean
 
 install:
 	uv sync --all-extras
@@ -22,6 +22,9 @@ e2e:
 
 e2e-next-defaults:
 	$(MAKE) e2e E2E_ARGS=--next-defaults
+
+e2e-labels:
+	$(MAKE) e2e E2E_ARGS=--labels
 
 # Timing of the request path; numbers vary by machine, so not run in CI.
 bench:

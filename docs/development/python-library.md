@@ -83,6 +83,22 @@ Every error Privyx raises derives from `privyx.core.errors.PrivyxError`:
 fails, `VaultError` when the session store does, and `SessionNotFoundError`
 for an unknown session id.
 
+## Assemble it with `Privyx`
+
+[`Privyx`](python-api.md) (experimental) reads the configuration, registers
+components you add in code, and hands you the engine, or serves the proxy
+with routes of your own:
+
+```python
+from privyx import Privyx
+
+px = Privyx(detector={"terms": {"PROJECT": ["bluebird"]}})
+
+async def main() -> None:
+    async with px.engine() as engine:
+        masked = await engine.transform("bluebird ships")
+```
+
 ## Extending the engine
 
 To add a detector, an operator, a policy, a vault, or a provider, write a

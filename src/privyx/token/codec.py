@@ -104,11 +104,20 @@ class TokenIds:
         tokens: dict[str, str | None],
         known: frozenset[str] = frozenset(),
         cased: dict[str, str | None] | None = None,
+        labeled: dict[tuple[str, str, str], str | None] | None = None,
     ) -> None:
         self._tokens = tokens
         self._sorted = sorted(tokens)
         self.known = known
         self._cased = cased or {}
+        self._labeled = labeled or {}
+        # The same keys in any case; two tokens that differ only in case leave none.
+        self._labeled_cased: dict[tuple[str, ...], str | None] = {}
+        for key, token in self._labeled.items():
+            folded = tuple(part.casefold() for part in key)
+            self._labeled_cased[folded] = (
+                None if folded in self._labeled_cased or token is None else token
+            )
 
     @property
     def alone(self) -> bool:
@@ -122,6 +131,17 @@ class TokenIds:
     def token(self, identifier: str) -> str | None:
         """The one token whose id is ``identifier``, or ``None``."""
         return self._tokens.get(identifier)
+
+    def labeled(self, key: tuple[str, str, str]) -> str | None:
+        """The one token a labeled placeholder's fields point to, or ``None``.
+
+        ``key`` is ``(namespace, type, id)``, with ``""`` for a field the
+        label format leaves out (see :class:`LabelCodec`).  Written in another
+        case, it points to the one token that matches it in any case.
+        """
+        if key in self._labeled:
+            return self._labeled[key]
+        return self._labeled_cased.get(tuple(part.casefold() for part in key))
 
     def begins(self, text: str) -> bool:
         """Whether ``text`` is the start of an id, or a whole one."""
@@ -408,7 +428,7 @@ class FormatCodec:
             return None
 
     @staticmethod
-    def _parse_format(format: str) -> list[tuple[str, str]]:
+    def _parse_format(format: str, known: frozenset[str] = _KNOWN_FIELDS) -> list[tuple[str, str]]:
         """Split ``format`` into ordered ``("lit", text)`` / ``("field", name)`` segments."""
         segments: list[tuple[str, str]] = []
         seen: set[str] = set()
@@ -420,9 +440,9 @@ class FormatCodec:
                 segments.append(("lit", literal))
                 prev_kind = "lit"
             name = match.group(1)
-            if name not in _KNOWN_FIELDS:
+            if name not in known:
                 raise TokenFormatError(
-                    f"unknown token field {{{name}}}; expected one of {sorted(_KNOWN_FIELDS)}"
+                    f"unknown token field {{{name}}}; expected one of {sorted(known)}"
                 )
             if name in seen:
                 raise TokenFormatError(f"token field {{{name}}} appears more than once")
@@ -448,7 +468,7 @@ class FormatCodec:
 
     @staticmethod
     def _build_field(name: str, grammars: dict[str, tuple[str, int]]) -> _Field:
-        body, max_len = grammars.get(name, _DEFAULT_GRAMMARS[name])
+        body, max_len = grammars[name] if name in grammars else _DEFAULT_GRAMMARS[name]
         # Cap the trailing repetition so neither regex can run away: a body of the
         # form ``<first><rest>*`` becomes ``<first><rest>{0,max-1}``.
         capped = _cap_repetition(body, max_len)
@@ -459,17 +479,22 @@ class FormatCodec:
             fullmatch=re.compile(f"(?:{capped})\\Z"),
         )
 
-    def _build_token_pattern(self, segments: list[tuple[str, str]]) -> str:
+    def _build_token_pattern(
+        self, segments: list[tuple[str, str]], fields: dict[str, _Field] | None = None
+    ) -> str:
+        fields = fields or self._fields
         parts: list[str] = []
         for kind, value in segments:
             if kind == "lit":
                 parts.append(re.escape(value))
             else:
-                field = self._fields[value]
+                field = fields[value]
                 parts.append(f"(?P<{value}>{field.lazy})")
         return "".join(parts)
 
-    def _build_prefix_pattern(self, segments: list[tuple[str, str]]) -> str:
+    def _build_prefix_pattern(
+        self, segments: list[tuple[str, str]], fields: dict[str, _Field] | None = None
+    ) -> str:
         """Prefix-closure of the token language as a nested-optional pattern.
 
         Each segment must be fully present to advance to the next; only the last
@@ -478,13 +503,15 @@ class FormatCodec:
         into a complete token.
         """
 
+        fields = fields or self._fields
+
         def build(index: int) -> str:
             if index >= len(segments):
                 return ""
             kind, value = segments[index]
             rest = build(index + 1)
             if kind == "field":
-                field = self._fields[value]
+                field = fields[value]
                 cont = f"{field.greedy}(?:{rest})?" if rest else field.greedy
                 return f"(?:{cont})?"
             escaped = re.escape(value)
@@ -589,6 +616,180 @@ class CompactCodec(FormatCodec):
 
 #: How :class:`CompactCodec` writes a token.
 COMPACT_FORMAT = "<{type}~{id}>"
+
+#: The longest label written in a placeholder.
+_LABEL_MAX = 64
+
+
+class LabelCodec(FormatCodec):
+    """Placeholders that also carry a label: ``<PRIVYX_PERSON_1:Alice Johnson>``.
+
+    The tokens are ``format``'s: a session maps them to the original values,
+    and every form of them restores as before.  A token can also be written in
+    ``label_format``, with its id and a label, a stand-in for the model to
+    read.  Such a placeholder restores by its id, with its type and namespace
+    when the format has them, looked up among the session's tokens; the label
+    is ignored.  So a text that holds only the label is never restored, and a
+    placeholder whose fields point to no token, or to two, is left as written.
+
+    Where a labeled placeholder and a form of ``format`` begin at one position
+    (``<PRIVYX_PERSON_1`` is a token with a half edge), the labeled one wins,
+    in a batch and in a stream alike.
+
+    Args:
+        format: The token format, as for :class:`FormatCodec`.
+        label_format: Holds ``{id}`` and ``{label}``, and may hold ``{type}``
+            and ``{namespace}``.  ``{label}`` needs a literal before and after
+            it: a label may hold spaces, so only those literals bound it.
+        namespace: As for :class:`FormatCodec`.
+
+    Raises:
+        TokenFormatError: If either format is unusable.
+    """
+
+    def __init__(self, format: str, label_format: str, namespace: str = "PRIVYX") -> None:
+        super().__init__(format, namespace)
+        try:
+            segments = self._parse_format(label_format, _KNOWN_FIELDS | {"label"})
+        except TokenFormatError as exc:
+            raise TokenFormatError(f"token.label_format: {exc}") from None
+        names = [value for kind, value in segments if kind == "field"]
+        if "id" not in names or "label" not in names:
+            raise TokenFormatError(
+                f"token.label_format must contain {{id}} and {{label}}: {label_format!r}"
+            )
+        at = segments.index(("field", "label"))
+        if at in (0, len(segments) - 1):
+            raise TokenFormatError(
+                f"token.label_format needs a literal before and after {{label}}: {label_format!r}"
+            )
+        # A label never holds the character that ends it, a line break, or what
+        # JSON escapes, so a placeholder reads the same inside a JSON string.
+        stop = re.escape(segments[at + 1][1][0])
+        grammars = {**_DEFAULT_GRAMMARS, "label": (f'[^\\n\\r"\\\\{stop}]+', _LABEL_MAX)}
+        self._label_fields = {name: self._build_field(name, grammars) for name in names}
+        self._label_format = label_format
+        self._label_re = re.compile(self._build_token_pattern(segments, self._label_fields))
+        self._label_prefix_re = re.compile(self._build_prefix_pattern(segments, self._label_fields))
+        # No placeholder is longer: its fields are capped.
+        self._label_max = sum(len(value) for kind, value in segments if kind == "lit") + sum(
+            grammars[value][1] for kind, value in segments if kind == "field"
+        )
+        self._label_lead = segments[0][1] if segments[0][0] == "lit" else ""
+
+    def label(self, token: LogicalToken, label: str) -> str | None:
+        """``token`` written with ``label``, or ``None`` when ``label`` cannot be written there.
+
+        A label cannot hold the character that follows it in the format, a line
+        break, ``"``, or ``\\``, nor be longer than 64 characters.
+        """
+        values = {
+            "namespace": token.namespace,
+            "type": token.type,
+            "id": token.identifier,
+            "label": label,
+        }
+        for name, field in self._label_fields.items():
+            if not field.fullmatch.match(values[name]):
+                return None
+        written = self._label_format.format(**values)
+        match = self._label_re.fullmatch(written)
+        if match is None or self._key(match) != self._key_of(token):
+            return None  # a label that would end the placeholder early
+        return written
+
+    def finditer(self, text: str, start: int = 0) -> Iterator[TokenMatch]:
+        def labeled(at: int) -> tuple[int, int, TokenMatch] | None:
+            match = self._label_re.search(text, at)
+            if match is None:
+                return None
+            groups = match.groupdict()
+            token = LogicalToken(
+                groups.get("namespace") or self._namespace,
+                groups.get("type") or "LABEL",
+                groups["id"],
+            )
+            return match.start(), match.end(), TokenMatch(*match.span(), match.group(), token)
+
+        def plain(at: int) -> tuple[int, int, TokenMatch] | None:
+            match = next(FormatCodec.finditer(self, text, at), None)
+            return None if match is None else (match.start, match.end, match)
+
+        found = _leftmost(labeled, plain, start, _end)
+        return (match for _, _, match in found)
+
+    def ids(self, tokens: Iterable[str]) -> TokenIds:
+        """:meth:`FormatCodec.ids`, and every token by the fields a labeled placeholder holds."""
+        tokens = list(tokens)
+        found = super().ids(tokens)
+        labeled: dict[tuple[str, str, str], str | None] = {}
+        for token in tokens:
+            match = self._fullmatch(token)
+            if match is not None:
+                key = self._key(match)
+                labeled[key] = None if key in labeled else token
+        return TokenIds(found._tokens, found.known, found._cased, labeled)
+
+    def restorable(
+        self, text: str, ids: TokenIds | None = None, start: int = 0
+    ) -> Iterator[tuple[int, int, str]]:
+        def labeled(at: int) -> tuple[int, int, str] | None:
+            match = self._label_re.search(text, at)
+            if match is None:
+                return None
+            return match.start(), match.end(), self._issued(match, ids)
+
+        return _leftmost(
+            labeled,
+            lambda at: next(FormatCodec.restorable(self, text, ids, at), None),
+            start,
+            _end,
+        )
+
+    def restorable_at(
+        self, text: str, pos: int, ids: TokenIds | None = None
+    ) -> tuple[int, str] | None:
+        match = self._label_re.match(text, pos)
+        plain = super().restorable_at(text, pos, ids)
+        if match is not None and (plain is None or match.end() >= plain[0]):
+            return match.end(), self._issued(match, ids)
+        return plain
+
+    def restorable_prefix_len(self, text: str, pos: int, ids: TokenIds | None = None) -> int:
+        # The whole rest of ``text``, or nothing: a field that takes the next
+        # literal's characters (``{type}`` takes ``_1``) would otherwise end a
+        # match early, and ``<PRIVYX_PERSON_1:`` would not be held back.
+        rest = len(text) - pos
+        whole = rest <= self._label_max and self._label_prefix_re.fullmatch(text, pos)
+        return max(super().restorable_prefix_len(text, pos, ids), rest if whole else 0)
+
+    def start_chars(self, ids: TokenIds | None = None) -> tuple[str, ...] | None:
+        plain = super().start_chars(ids)
+        if plain is None or not self._label_lead:
+            return None
+        return tuple(sorted({*plain, self._label_lead[0]}))
+
+    def _issued(self, match: re.Match[str], ids: TokenIds | None) -> str:
+        """The session token a labeled placeholder points to, or the placeholder itself.
+
+        The placeholder is no session's token, so it is left as written.
+        """
+        token = ids.labeled(self._key(match)) if ids is not None else None
+        return token or match.group()
+
+    def _key(self, match: re.Match[str]) -> tuple[str, str, str]:
+        groups = match.groupdict()
+        namespace = groups.get("namespace") or self._namespace
+        return self._key_of(LogicalToken(namespace, groups.get("type") or "-", groups["id"]))
+
+    def _key_of(self, token: LogicalToken) -> tuple[str, str, str]:
+        """``token``'s fields that a labeled placeholder holds, ``""`` for the others."""
+        fields = self._label_fields
+        return (
+            token.namespace if "namespace" in fields else "",
+            token.type if "type" in fields else "",
+            token.identifier,
+        )
 
 
 def _end(match: tuple[int, int, Any]) -> int:

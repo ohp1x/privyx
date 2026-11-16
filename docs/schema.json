@@ -112,7 +112,17 @@
         "type": {
           "default": "hmac",
           "title": "Type",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "hmac",
+                "pasp"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "secret": {
           "default": "",
@@ -121,7 +131,28 @@
         }
       },
       "title": "AnchorConfig",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "hmac",
+                  "pasp"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "secret": true
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     },
     "AuditConfig": {
       "description": "PII-safe audit trail.\n\nEvents (session created, transform, restore, proxy request) are appended as\nJSON lines to ``path``.  The trail records counts and entity *types*, never\npayload content; see :mod:`privyx.observability.audit`.",
@@ -265,7 +296,19 @@
         "type": {
           "default": "regex",
           "title": "Type",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "llm",
+                "presidio",
+                "regex",
+                "yaml"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "patterns": {
           "additionalProperties": {
@@ -499,7 +542,52 @@
         }
       },
       "title": "DetectorConfig",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "llm",
+                  "presidio",
+                  "regex",
+                  "yaml"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "patterns": true,
+              "terms": true,
+              "merge_terms": true,
+              "term_variants": true,
+              "underscore_separates_words": true,
+              "context": true,
+              "enable": true,
+              "disable": true,
+              "entropy_threshold": true,
+              "decode": true,
+              "normalize": true,
+              "cache": true,
+              "language": true,
+              "model": true,
+              "entities": true,
+              "score_threshold": true,
+              "llm_provider": true,
+              "llm_model": true,
+              "llm_api_key": true,
+              "llm_instructions": true,
+              "llm_timeout": true,
+              "llm_max_chars": true,
+              "llm_fallback_on_error": true
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     },
     "ModelPrice": {
       "description": "USD per million tokens; cache rates default to 0.1x and 1.25x of input.",
@@ -587,7 +675,22 @@
         "type": {
           "default": "pseudonym",
           "title": "Type",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "encrypt",
+                "faker",
+                "fpe",
+                "hash",
+                "partial",
+                "pseudonym",
+                "redact"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "token": {
           "default": "[REDACTED]",
@@ -640,7 +743,37 @@
         }
       },
       "title": "OperatorConfig",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "encrypt",
+                  "faker",
+                  "fpe",
+                  "hash",
+                  "partial",
+                  "pseudonym",
+                  "redact"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "token": true,
+              "length": true,
+              "locale": true,
+              "seed": true,
+              "key": true
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     },
     "PathMappingConfig": {
       "description": "How the transparent proxy joins the upstream URL and a request path.\n\n``origin`` keeps only the upstream's ``scheme://host[:port]`` and appends\nthe request path.  ``prefix`` keeps the upstream's path as well and appends\nthe request path after ``strip_prefix``, so a router at\n``https://router.example.com/api/v1`` serves ``/v1/chat/completions`` at\n``/api/v1/chat/completions``.  ``privyx run`` strips the agent's\n``base_path``.  Requests outside ``strip_prefix`` are refused.",
@@ -673,7 +806,7 @@
       "additionalProperties": false
     },
     "PluginsConfig": {
-      "description": "Local plugin discovery.\n\nOpt-in: nothing is loaded unless ``paths`` lists a directory or a ``.py``\nfile.  Each path is imported and scanned for concrete subclasses of the\nPrivyx component base classes, which are registered under their ``name`` and\nbecome selectable as a component ``type``.  Discovery is local to this\ndeployment \u2014 there is no third-party entry-point mechanism.  Set\n``enabled: false`` to skip loading even when paths are configured.",
+      "description": "Plugin loading.\n\nOpt-in: nothing is loaded unless ``paths`` or ``modules`` name something.\nEach path, a directory or a ``.py`` file, is imported and scanned for\nconcrete subclasses of the Privyx component base classes, which are\nregistered under their ``name`` and become selectable as a component\n``type``.  Each module, such as an installed package, is imported and its\n``setup(px)`` called.  Installed packages are never loaded on their own:\nthere is no entry-point discovery.  Set ``enabled: false`` to skip both.",
       "properties": {
         "enabled": {
           "title": "Enabled",
@@ -694,6 +827,13 @@
           },
           "title": "Paths",
           "type": "array"
+        },
+        "modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Modules",
+          "type": "array"
         }
       },
       "title": "PluginsConfig",
@@ -706,7 +846,17 @@
         "type": {
           "default": "default",
           "title": "Type",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "default",
+                "strict"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "allowed": {
           "items": {
@@ -717,7 +867,28 @@
         }
       },
       "title": "PolicyConfig",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "default",
+                  "strict"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "allowed": true
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     },
     "ProviderConfig": {
       "additionalProperties": true,
@@ -726,7 +897,19 @@
         "type": {
           "default": "generic",
           "title": "Type",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "anthropic",
+                "generic",
+                "google",
+                "openai"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "base_url": {
           "default": "",
@@ -762,7 +945,35 @@
         }
       },
       "title": "ProviderConfig",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "anthropic",
+                  "generic",
+                  "google",
+                  "openai"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "base_url": true,
+              "api_key": true,
+              "headers": true,
+              "openai_api_key": true,
+              "anthropic_api_key": true,
+              "google_api_key": true
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     },
     "ProxyConfig": {
       "description": "Proxy serving mode.\n\n``mode`` selects which app :command:`privyx proxy` serves:\n\n- ``gateway`` \u2014 configured routes sent to a fixed upstream endpoint;\n  embeddings and legacy completions use sibling endpoints. Native Ollama\n  and OpenAI/Anthropic token-counting or compaction routes are not served.\n  Gemini routes require the Google provider.\n- ``transparent`` \u2014 a drop-in reverse proxy.  Point a client's\n  ``OPENAI_BASE_URL`` / ``ANTHROPIC_BASE_URL`` at Privyx and every path is\n  forwarded to the upstream; configured masking routes are pseudonymized\n  on the way out and restored on the way back. ``path_mapping`` can keep\n  an upstream path prefix.\n\n``routes`` maps a request path to the wire schema used to transform it.\nIn transparent mode, paths not listed are forwarded verbatim when\n``passthrough_unknown`` is set (the default) and refused with 403 when it is\nnot.  The gateway serves only the listed paths either way.",
@@ -1007,6 +1218,11 @@
               "pattern": "\\$\\{"
             }
           ]
+        },
+        "label_format": {
+          "default": "",
+          "title": "Label Format",
+          "type": "string"
         }
       },
       "title": "TokenConfig",
@@ -1040,7 +1256,18 @@
         "type": {
           "default": "memory",
           "title": "Type",
-          "type": "string"
+          "anyOf": [
+            {
+              "enum": [
+                "memory",
+                "redis",
+                "sqlite"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
         },
         "dsn": {
           "default": "sqlite+aiosqlite:///~/.privyx/privyx.db",
@@ -1075,7 +1302,31 @@
         }
       },
       "title": "VaultConfig",
-      "type": "object"
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "memory",
+                  "redis",
+                  "sqlite"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "dsn": true,
+              "redis_url": true,
+              "ttl": true
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     }
   },
   "description": "Top-level Privyx settings.",

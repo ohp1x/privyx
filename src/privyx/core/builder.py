@@ -30,14 +30,21 @@ from privyx.config.schema import Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ConfigError
 from privyx.observability.audit import AuditLogger
-from privyx.plugins.registry import PLUGINS, Registry
+from privyx.plugins.registry import (
+    ANCHOR_KEY,
+    CODEC_KEY,
+    ID_LENGTH_KEY,
+    PLUGINS,
+    Registry,
+    plugin_section,
+)
 from privyx.privacy.anchor.base import Anchor
 from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.operator.base import Operator
 from privyx.privacy.operator.encrypt import EncryptOperator
-from privyx.privacy.operator.faker import FakerOperator
+from privyx.privacy.operator.faker import FakeLabels, FakerOperator
 from privyx.privacy.operator.fpe import FPEOperator
 from privyx.privacy.operator.hash import HashOperator
 from privyx.privacy.operator.partial import PartialOperator
@@ -46,7 +53,7 @@ from privyx.privacy.operator.redact import RedactOperator
 from privyx.privacy.policy.base import Policy
 from privyx.privacy.policy.loader import build_policy
 from privyx.security.keys import load_key
-from privyx.token.codec import CompactCodec, FormatCodec, TokenCodec
+from privyx.token.codec import CompactCodec, FormatCodec, LabelCodec, TokenCodec
 from privyx.vault.base import Vault
 from privyx.vault.memory import MemoryVault
 
@@ -54,28 +61,21 @@ from privyx.vault.memory import MemoryVault
 Closer = Callable[[], Awaitable[None]]
 
 
-#: Keys under which :func:`build_operator` passes live objects to a factory.
-#: They are not settable from YAML — the values are objects, not config — so they
-#: are namespaced to make an accidental collision with a real config key obvious.
-_ANCHOR_KEY = "__anchor__"
-_CODEC_KEY = "__codec__"
-_ID_LENGTH_KEY = "__id_length__"
-
-
 def _operator_registry() -> Registry[Operator]:
     registry: Registry[Operator] = Registry("operator")
     registry.register(
         "pseudonym",
         lambda cfg: PseudonymOperator(
-            codec=cfg.get(_CODEC_KEY),
-            anchor=cfg.get(_ANCHOR_KEY),
-            id_length=cfg.get(_ID_LENGTH_KEY, ANCHOR_TOKEN_LENGTH),
+            codec=cfg.get(CODEC_KEY),
+            anchor=cfg.get(ANCHOR_KEY),
+            id_length=cfg.get(ID_LENGTH_KEY, ANCHOR_TOKEN_LENGTH),
+            labels=_labels(cfg),
         ),
     )
     registry.register("redact", lambda cfg: RedactOperator(cfg.get("token", "[REDACTED]")))
     registry.register(
         "hash",
-        lambda cfg: HashOperator(length=int(cfg.get("length", 12)), codec=cfg.get(_CODEC_KEY)),
+        lambda cfg: HashOperator(length=int(cfg.get("length", 12)), codec=cfg.get(CODEC_KEY)),
     )
     registry.register(
         "faker",
@@ -87,11 +87,18 @@ def _operator_registry() -> Registry[Operator]:
         "encrypt",
         lambda cfg: EncryptOperator(
             key=load_key(cfg.get("key", "")),
-            codec=cfg.get(_CODEC_KEY),
-            id_length=cfg.get(_ID_LENGTH_KEY, ANCHOR_TOKEN_LENGTH),
+            codec=cfg.get(CODEC_KEY),
+            id_length=cfg.get(ID_LENGTH_KEY, ANCHOR_TOKEN_LENGTH),
         ),
     )
     return registry
+
+
+def _labels(cfg: dict[str, Any]) -> FakeLabels | None:
+    """The labels of a ``pseudonym`` operator whose codec writes them."""
+    if not isinstance(cfg.get(CODEC_KEY), LabelCodec):
+        return None
+    return FakeLabels(locale=cfg.get("locale") or None, seed=cfg.get("seed"))
 
 
 OPERATORS = _operator_registry()
@@ -101,11 +108,23 @@ def build_codec(settings: Settings) -> TokenCodec:
     """Build the configured token codec.
 
     Raises:
-        TokenFormatError: If ``token.format`` is unusable (a ``ConfigError``, so
-            an invalid syntax fails at startup rather than on the first request).
+        TokenFormatError: If ``token.format`` or ``token.label_format`` is
+            unusable (a ``ConfigError``, so an invalid syntax fails at startup
+            rather than on the first request).
+        ConfigError: If ``token.label_format`` is set with another operator
+            than ``pseudonym``, or with ``token.compact``.
     """
-    codec = FormatCodec(settings.token.format, settings.token.namespace)
-    return CompactCodec(codec) if settings.token.compact else codec
+    token = settings.token
+    if token.label_format:
+        if token.compact:
+            raise ConfigError("token.label_format cannot be combined with token.compact")
+        if settings.operator.type != "pseudonym":
+            raise ConfigError(
+                f"token.label_format needs operator.type: pseudonym, not {settings.operator.type!r}"
+            )
+        return LabelCodec(token.format, token.label_format, token.namespace)
+    codec = FormatCodec(token.format, token.namespace)
+    return CompactCodec(codec) if token.compact else codec
 
 
 def build_operator(
@@ -134,11 +153,11 @@ def build_operator(
     """
     config = config or {}
     if anchor is not None:
-        config = {**config, _ANCHOR_KEY: anchor}
+        config = {**config, ANCHOR_KEY: anchor}
     if codec is not None:
-        config = {**config, _CODEC_KEY: codec}
+        config = {**config, CODEC_KEY: codec}
     if id_length is not None:
-        config = {**config, _ID_LENGTH_KEY: id_length}
+        config = {**config, ID_LENGTH_KEY: id_length}
     otype = config.get("type", "pseudonym")
     if otype not in OPERATORS and otype in PLUGINS.operators:
         return PLUGINS.operators.build(config)
@@ -175,7 +194,7 @@ def build_anchor(settings: Settings) -> Anchor | None:
     if atype == "pasp":
         raise ConfigError("anchor type 'pasp' is not implemented yet; use 'hmac'")
     if atype in PLUGINS.anchors:
-        return PLUGINS.anchors.build({**settings.anchor.model_dump(), "secret": secret})
+        return PLUGINS.anchors.build({**plugin_section(settings.anchor), "secret": secret})
     raise ConfigError(f"unknown anchor type: {atype!r}")
 
 
@@ -217,7 +236,7 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
         return RedisVault(client, ttl=settings.vault.ttl), client.aclose
 
     if vault_type in PLUGINS.vaults:
-        plugin_vault = PLUGINS.vaults.build(settings.vault.model_dump())
+        plugin_vault = PLUGINS.vaults.build(plugin_section(settings.vault))
         # A plugin vault may need an async handshake and may own resources to
         # release; call ``connect``/``close`` if present, mirroring SQLiteVault.
         connect = getattr(plugin_vault, "connect", None)
@@ -272,13 +291,13 @@ def build_audit_logger(settings: Settings) -> AuditLogger:
 def build_detector_from(settings: Settings) -> Detector:
     """Build the configured detector (a composite when a list is configured)."""
     if isinstance(settings.detector, list):
-        return build_detector([d.model_dump() for d in settings.detector])
-    return build_detector(settings.detector.model_dump())
+        return build_detector([plugin_section(d) for d in settings.detector])
+    return build_detector(plugin_section(settings.detector))
 
 
 def build_policy_from(settings: Settings) -> Policy:
     """Build the configured policy."""
-    return build_policy(settings.policy.model_dump())
+    return build_policy(plugin_section(settings.policy))
 
 
 async def build_engine(
@@ -307,7 +326,7 @@ async def build_engine(
         detector=build_detector_from(settings),
         policy=build_policy_from(settings),
         operator=build_operator(
-            settings.operator.model_dump(),
+            plugin_section(settings.operator),
             anchor=anchor,
             codec=codec,
             id_length=settings.token.id_length,

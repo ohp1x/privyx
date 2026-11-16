@@ -79,42 +79,29 @@ DEFAULTS: dict[str, object] = {
     # Empty on purpose: this is the explicit override, and a value here would
     # make `provider.base_url` and the per-provider defaults unreachable.
     "upstream_url": "",
-    "vault": {
-        "type": "memory",
-        "dsn": "sqlite+aiosqlite:///~/.privyx/privyx.db",
-        "redis_url": "redis://localhost:6379/0",
-        "ttl": None,
-    },
-    "detector": {
-        "type": "regex",
-        # Empty: the `regex` detector adds the built-in patterns itself.  A copy
-        # here would be merged into a `yaml` detector, which must see only the
-        # patterns it is given.
-        "patterns": {},
-        # Literal term lists (entity -> list of strings); empty by default.
-        "terms": {},
-    },
+    # A pluggable section names its type only: a field set here would count
+    # as set in the config, and reach a plugin's Config in place of its own
+    # default.  The fields' defaults are in privyx.config.schema.
+    "vault": {"type": "memory"},
+    # No built-in patterns: the `regex` detector adds them itself.  A copy here
+    # would be merged into a `yaml` detector, which must see only its own.
+    "detector": {"type": "regex"},
     "policy": {"type": "default"},
     "operator": {"type": "pseudonym"},
-    "anchor": {"type": "hmac", "secret": ""},
+    "anchor": {"type": "hmac"},
     # Session identity when the client sends no x-privyx-session header.
     # ephemeral (default) is safe and unchanged; see SessionConfig for the rest.
     "session": {"strategy": "ephemeral"},
     "token": {"namespace": "PRIVYX", "format": "<{namespace}_{type}_{id}>"},
-    "provider": {
-        "type": "generic",
-        # Also empty: an unset base_url resolves to the provider type's own
-        # default (see privyx.providers.registry.DEFAULT_BASE_URLS).
-        "base_url": "",
-        "api_key": "",
-        "headers": {},
-    },
+    # An unset base_url resolves to the provider type's own default (see
+    # privyx.providers.registry.DEFAULT_BASE_URLS).
+    "provider": {"type": "generic"},
     "audit": {
         "enabled": True,
         "path": "~/.privyx/audit.log",
     },
     # Opt-in: no paths means no plugins are loaded.
-    "plugins": {"enabled": True, "paths": []},
+    "plugins": {"enabled": True, "paths": [], "modules": []},
     # Server TLS / HTTPS termination: empty paths mean plain HTTP.
     "tls": {
         "certfile": "",

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from common import DUMMY_KEY, PROMPT, TOKEN, Agent, Record
+from common import DUMMY_KEY, PROMPT, Agent, Record, tokens_in
 
 
 def offered(body: dict[str, Any]) -> set[str]:
@@ -26,7 +26,7 @@ def script(body: dict[str, Any]) -> list[dict[str, Any]]:
         raise ValueError("Codex did not advertise its exec tool")
     items = body.get("input", [])
     done = sum(item.get("type") == "custom_tool_call_output" for item in items)
-    tokens = " ".join(dict.fromkeys(TOKEN.findall(json.dumps(body))))
+    tokens = " ".join(tokens_in(body))
     if done >= 2:
         return [
             {

@@ -93,6 +93,41 @@ $ privyx proxy -c sqlite.yaml
 Error: aiosqlite is required. Install with `pip install privyx[sqlite]`.
 ```
 
+## Plugin packages
+
+A [plugin package](../development/plugins.md#plugins-from-a-package) has to
+be installed in the environment Privyx runs in, then named under
+`plugins.modules`. Installing it alone loads nothing.
+
+=== "pip"
+
+    ```bash
+    pip install privyx privyx-acme
+    ```
+
+=== "uv"
+
+    ```bash
+    uv tool install privyx --with privyx-acme
+    ```
+
+=== "Docker"
+
+    Build an image on top of Privyx's. Its environment has no pip, so the
+    package goes in with uv:
+
+    ```dockerfile
+    FROM ohp1x/privyx:X.Y.Z
+    COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+    USER root
+    RUN uv pip install --python /app/.venv/bin/python privyx-acme
+    USER privyx
+    ENV PRIVYX_PLUGIN_MODULES=privyx_acme
+    ```
+
+`privyx-acme` and `privyx_acme` stand for the package's name and the module
+it installs.
+
 ## Check the installation
 
 ```console

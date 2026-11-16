@@ -35,7 +35,12 @@ class Operator(Protocol):
 
 
 def free_token(
-    session: Session, stored: str, digest: str, length: int, encode: Callable[[str], str]
+    session: Session,
+    stored: str,
+    digest: str,
+    length: int,
+    encode: Callable[[str], str],
+    taken: Callable[[str], bool] | None = None,
 ) -> str:
     """Return the token for ``stored`` whose id is ``digest[:length]``, or longer.
 
@@ -43,13 +48,14 @@ def free_token(
     from the same digest one character at a time until it is free, so a
     collision never overwrites a mapping and restores the wrong value.  The same
     value walks the same prefixes, so it gets the same token within a session.
+    ``taken`` says whether an id is taken anyway, by a token of another type.
 
     Raises:
         OperatorError: If every prefix of ``digest`` is taken by another value.
     """
     for end in range(min(length, len(digest)), len(digest) + 1):
         token = encode(digest[:end])
-        if session.mapping.get(token, stored) == stored:
+        if session.mapping.get(token, stored) == stored and not (taken and taken(digest[:end])):
             return token
     raise OperatorError(
         f"no free token id: every prefix of a {len(digest)}-character digest is taken"

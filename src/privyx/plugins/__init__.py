@@ -1,12 +1,55 @@
-"""Local plugin system — discover and register components from configured paths.
+"""The module to write a Privyx component with.
+
+Everything a plugin needs is imported from here: the base class of each
+family, :class:`ComponentConfig` and :class:`BuildContext` for a component
+with options, the result and session types, and :func:`restore`.  Other import
+paths work too, but may move between releases.
 
 :data:`PLUGINS` is the process-wide registry the ``build_*`` functions consult;
-:func:`privyx.plugins.loader.load_plugins` populates it.  ``load_plugins`` is
-imported from :mod:`privyx.plugins.loader` directly (not re-exported here) so
-that merely reading :data:`PLUGINS` does not pull in every component base class.
+:func:`privyx.plugins.loader.load_plugins` populates it.
 """
 
-from privyx.plugins.hooks import HookManager
-from privyx.plugins.registry import PLUGINS, PluginRegistry, Registry
+from __future__ import annotations
 
-__all__ = ["PLUGINS", "HookManager", "PluginRegistry", "Registry"]
+from privyx.core.context import Context
+from privyx.core.errors import ConfigError
+from privyx.core.result import Detection, TransformResult
+from privyx.core.session import Session
+from privyx.plugins.hooks import HookManager
+from privyx.plugins.registry import (
+    PLUGINS,
+    BuildContext,
+    ComponentConfig,
+    PluginRegistry,
+    Registry,
+)
+from privyx.privacy.anchor.base import BaseAnchor
+from privyx.privacy.detector.base import BaseDetector
+from privyx.privacy.operator.base import BaseOperator, restore
+from privyx.privacy.policy.base import BasePolicy
+from privyx.providers.base import BaseProvider
+from privyx.token.model import LogicalToken
+from privyx.vault.base import BaseVault
+
+__all__ = [
+    "PLUGINS",
+    "BaseAnchor",
+    "BaseDetector",
+    "BaseOperator",
+    "BasePolicy",
+    "BaseProvider",
+    "BaseVault",
+    "BuildContext",
+    "ComponentConfig",
+    "ConfigError",
+    "Context",
+    "Detection",
+    "HookManager",
+    "LogicalToken",
+    "PluginRegistry",
+    "Registry",
+    "Session",
+    "TransformResult",
+    "restore",
+]
+
