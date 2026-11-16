@@ -114,7 +114,7 @@ DEFAULTS: dict[str, object] = {
         "path": "~/.privyx/audit.log",
     },
     # Opt-in: no paths means no plugins are loaded.
-    "plugins": {"enabled": True, "paths": []},
+    "plugins": {"enabled": True, "paths": [], "modules": []},
     # Server TLS / HTTPS termination: empty paths mean plain HTTP.
     "tls": {
         "certfile": "",

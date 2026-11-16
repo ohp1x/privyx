@@ -6,6 +6,7 @@
     uv run python scripts/test-e2e/run.py --agent codex
     uv run python scripts/test-e2e/run.py --auto          # Claude Code's auto mode
     uv run python scripts/test-e2e/run.py --next-defaults  # candidate 0.2 defaults
+    uv run python scripts/test-e2e/run.py --labels        # labeled placeholders
 
 Each agent has its own file next to this one (claude.py, codex.py) and is an
 ``Agent`` from common.py; this file is the run they share.
@@ -64,7 +65,18 @@ from typing import Any
 
 import claude
 import codex
-from common import CANARIES, DUMMY_KEY, EMAIL, GIT_USER, IP, ORG, PERSON, TOKEN, Agent, Record
+from common import (
+    CANARIES,
+    DUMMY_KEY,
+    EMAIL,
+    GIT_USER,
+    IP,
+    ORG,
+    PERSON,
+    Agent,
+    Record,
+    tokens_in,
+)
 
 AGENTS: dict[str, Agent] = {"claude": claude.AGENT, "codex": codex.AGENT}
 CONFIG = f"""\
@@ -86,6 +98,14 @@ anchor:
   secret: auto
 """
 )
+
+#: Labeled placeholders, explained to the model by the directive.
+LABELS = """\
+token:
+  label_format: "<{namespace}_{type}_{id}:{label}>"
+proxy:
+  directive: true
+"""
 
 BARE = "PRIVYX_"  # what every token holds, with or without its < >
 RECORDS: list[Record] = []
@@ -248,7 +268,9 @@ def drift(bodies: list[dict[str, Any]], key: str) -> str:
     return ""
 
 
-def seed(root: Path, env: dict[str, str], next_defaults: bool = False) -> Path:
+def seed(
+    root: Path, env: dict[str, str], next_defaults: bool = False, labels: bool = False
+) -> Path:
     """Create the canary-laden workspace and the Privyx config; return the workspace."""
     work = root / f"{ORG.lower()}-app"  # the path lands in the agent's environment section
     work.mkdir()
@@ -265,7 +287,8 @@ def seed(root: Path, env: dict[str, str], next_defaults: bool = False) -> Path:
         ["commit", "-qm", f"Onboard {PERSON} to {ORG}"],
     ):
         subprocess.run([*git, *args], env=env, check=True)
-    (root / "privyx.yaml").write_text(NEXT_DEFAULTS if next_defaults else CONFIG)
+    config = NEXT_DEFAULTS if next_defaults else CONFIG
+    (root / "privyx.yaml").write_text(config + LABELS if labels else config)
     return work
 
 
@@ -298,6 +321,7 @@ def main(
     model: str | None,
     auto: bool = False,
     next_defaults: bool = False,
+    labels: bool = False,
 ) -> int:
     global REAL, FAKE
     agent = AGENTS[name]
@@ -323,7 +347,7 @@ def main(
         PRIVYX_AUDIT_PATH=str(root / "audit.log"),
     )
     env.update(creds if REAL else {agent.creds[0]: DUMMY_KEY})
-    work = seed(root, env, next_defaults)
+    work = seed(root, env, next_defaults, labels)
     mcp = {
         "command": sys.executable,
         "args": [os.path.abspath(__file__), "--mcp", str(root / "mcp-calls.jsonl")],
@@ -394,8 +418,9 @@ def main(
 
     # A model may write a token without its < >, or its id alone: either counts
     # as a missed restore.  A counter id is too short to tell from other text.
-    issued = TOKEN.findall(json.dumps([r["body"] for r in RECORDS]))
-    ids = {token[:-1].rpartition("_")[2] for token in issued}
+    issued = tokens_in([r["body"] for r in RECORDS])
+    # <PRIVYX_PERSON_1F2E…:Alice Johnson>: the id ends where a label begins.
+    ids = {token[:-1].split(":", 1)[0].rpartition("_")[2] for token in issued}
 
     def leftover(text: str) -> bool:
         return BARE in text or any(part in text for part in ids if len(part) >= 8)
@@ -448,8 +473,13 @@ if __name__ == "__main__":
         parser.add_argument("--upstream", default="", help="origin of a real provider to relay to")
         parser.add_argument("--model", help="model the agent asks for")
         parser.add_argument("--auto", action="store_true", help="the agent's auto permission mode")
-        parser.add_argument(
+        # Both set `proxy:`.
+        config = parser.add_mutually_exclusive_group()
+        config.add_argument(
             "--next-defaults", action="store_true", help="enable candidate 0.2 defaults"
+        )
+        config.add_argument(
+            "--labels", action="store_true", help="token.label_format and proxy.directive"
         )
         opts = parser.parse_args()
         sys.exit(
@@ -460,5 +490,6 @@ if __name__ == "__main__":
                 opts.model,
                 opts.auto,
                 opts.next_defaults,
+                opts.labels,
             )
         )

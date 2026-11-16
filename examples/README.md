@@ -10,6 +10,7 @@ runs as it is (`python examples/basic.py`), and the test suite runs them all.
 | [`stream_restore_openai.py`](stream_restore_openai.py) | Restoring a simulated OpenAI-style stream whose token is split between two chunks. |
 | [`stream_restore_anthropic.py`](stream_restore_anthropic.py) | The same for Anthropic-style stream events. |
 | [`fastapi_gateway.py`](fastapi_gateway.py) | Serving the gateway from your own program. |
+| [`privyx_app.py`](privyx_app.py) | Assembling Privyx with the `Privyx` class: a detector and a route added in code, then the engine, or the proxy with `serve`. |
 
 None of them calls a provider. For client code that talks to OpenAI or
 Anthropic through a running proxy, see the

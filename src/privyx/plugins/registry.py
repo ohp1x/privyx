@@ -16,7 +16,10 @@ Example::
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel, ConfigDict
 
 from privyx.core.errors import ConfigError
 
@@ -26,10 +29,43 @@ if TYPE_CHECKING:
     from privyx.privacy.operator.base import Operator
     from privyx.privacy.policy.base import Policy
     from privyx.providers.base import Provider
+    from privyx.token.codec import TokenCodec
     from privyx.vault.base import Vault
 
 #: A factory takes the component's config dict and returns an instance.
 Factory = Callable[[dict[str, Any]], Any]
+
+#: Keys under which :func:`~privyx.core.builder.build_operator` hands live
+#: objects to an operator factory.  They are not settable from YAML (the values
+#: are objects, not config), so they are namespaced to make an accidental
+#: collision with a real config key obvious.  A plugin with a ``Config`` gets
+#: them as a :class:`BuildContext` instead.
+ANCHOR_KEY = "__anchor__"
+CODEC_KEY = "__codec__"
+ID_LENGTH_KEY = "__id_length__"
+
+
+class ComponentConfig(BaseModel):
+    """Base of a plugin's ``Config``: the options its section takes.
+
+    A key the model does not define is an error, as a misspelled setting is
+    elsewhere in a config file.  Values are never shown in the error.
+    """
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+
+@dataclass(frozen=True, slots=True)
+class BuildContext:
+    """Live objects a component is built with, beside its ``Config``.
+
+    Only operators get any: the token ``codec``, the ``anchor`` (``None`` when
+    anchoring is off), and ``token.id_length``.
+    """
+
+    codec: TokenCodec | None = None
+    anchor: Anchor | None = None
+    id_length: int | None = None
 
 
 class Registry[T]:
@@ -72,6 +108,10 @@ class Registry[T]:
     def names(self) -> list[str]:
         """Return the registered type names, sorted."""
         return sorted(self._factories)
+
+    def factory(self, name: str) -> Callable[[dict[str, Any]], T] | None:
+        """The factory registered under ``name``, or ``None``."""
+        return self._factories.get(name)
 
     def clear(self) -> None:
         """Forget every registration."""

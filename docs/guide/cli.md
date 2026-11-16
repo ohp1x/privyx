@@ -673,6 +673,9 @@ privyx config --path     # the config files in use, or "defaults"
 privyx config --schema   # the JSON Schema of a config file
 ```
 
+`--schema` adds the plugin types and their options when the config loads
+plugins; it prints the plain schema when the config cannot be loaded.
+
 `--path` lists files without validating setting values or contacting password
 managers. Included files appear before the file that includes them. File and
 include errors are still reported.

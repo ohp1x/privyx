@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -14,7 +15,17 @@ ORG = "Canarycorp"
 EMAIL = "zorblatt.quandry@canary.test"
 IP = "10.20.30.40"
 CANARIES = (PERSON, GIT_USER, ORG, EMAIL, IP)
-TOKEN = re.compile(r"<PRIVYX_[^<>\s]+>")
+#: A token, labeled ones too: a label may hold spaces.
+TOKEN = re.compile(r"<PRIVYX_[^<>\n]+>")
+#: The text ``proxy.directive`` adds: its example placeholder is no session's.
+DIRECTIVE = re.compile(r'Privacy notice from the Privyx proxy[^"]*')
+
+
+def tokens_in(value: Any) -> list[str]:
+    """The tokens in ``value`` as JSON, each once, but not the directive's example."""
+    return list(dict.fromkeys(TOKEN.findall(DIRECTIVE.sub("", json.dumps(value)))))
+
+
 PROMPT = (
     f"Look up {PERSON} at {ORG} ({EMAIL}) with the lookup tool, read notes.txt, then "
     "answer with one line: Echo: <name>, <organization>, <email>, <IP address>"

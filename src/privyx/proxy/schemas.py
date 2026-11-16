@@ -52,7 +52,7 @@ from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import LeakError
 from privyx.core.session import Session
 from privyx.privacy.transform.json import leaf_text, put_back
-from privyx.token.codec import TokenCodec
+from privyx.token.codec import LabelCodec, TokenCodec
 from privyx.token.model import LogicalToken
 
 #: The schemas whose request/response bodies this module knows how to walk.
@@ -389,15 +389,29 @@ def _has_cache_control(value: Any) -> bool:
 
 
 def directive(codec: TokenCodec) -> str:
-    """The instruction ``proxy.directive`` adds: keep placeholders exactly as written."""
+    """The instruction ``proxy.directive`` adds: keep placeholders exactly as written.
+
+    With ``token.label_format``, the example is a labeled placeholder, and a
+    sentence says that its label only stands in for the value.
+    """
     example = codec.encode(LogicalToken(namespace=codec.namespace, type="EMAIL", identifier="1"))
-    return (
+    labeled = None
+    if isinstance(codec, LabelCodec):
+        person = LogicalToken(namespace=codec.namespace, type="PERSON", identifier="1")
+        labeled = codec.label(person, "Alice Johnson")
+    text = (
         "Privacy notice from the Privyx proxy: some values in this conversation are "
-        f"replaced by placeholders such as {example}. Treat each placeholder as the value "
-        "itself and copy it exactly as written, brackets included, wherever that value is "
-        "needed: in replies, code, commands, file contents, and tool calls. Do not change, "
-        "split, encode, translate, or guess what is behind a placeholder."
+        f"replaced by placeholders such as {labeled or example}. Treat each placeholder as "
+        "the value itself and copy it exactly as written, brackets included, wherever that "
+        "value is needed: in replies, code, commands, file contents, and tool calls. Do not "
+        "change, split, encode, translate, or guess what is behind a placeholder."
     )
+    if labeled:
+        text += (
+            " The name inside a placeholder only stands in for the value: write the whole "
+            "placeholder wherever the value is meant, never the name alone."
+        )
+    return text
 
 
 def _add_directive(

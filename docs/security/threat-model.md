@@ -54,7 +54,7 @@ Client ──► [Privyx] ──► Provider
 | A token split across stream chunks reaches the client unrestored | The stream is restored with a hold-back scan, and property tests check that streamed output equals batch output for any chunking; see [Streaming](../architecture/streaming.md). |
 | Two values get the same token | Counters are issued under a per-session lock: within one process, and across processes sharing a SQLite file or instances sharing a Redis vault. With an anchor, the token is derived from the value instead. |
 | Keys leak through process lists, shell history, or diagnostics | Provider keys, the anchor secret, and the encryption key come from the environment, a config file, or a password manager, never from a command-line flag. `privyx config --show` and the startup lines mask them. |
-| A plugin does harm | Plugins are opt-in and load from local paths you list, never from installed packages. A plugin cannot replace a built-in component. |
+| A plugin does harm | Plugins are opt-in and load only from the local paths and modules a config names; an installed package is never loaded on its own. A plugin cannot replace a built-in component, and a plugin route that would take a masking route stops startup. |
 
 ## Assumptions
 

@@ -20,6 +20,9 @@ class PluggableConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
     #: The ``type`` values Privyx implements itself (a plugin never shadows one).
     builtin_types: ClassVar[frozenset[str]] = frozenset()
+    #: Fields Privyx applies itself, whatever the type, so a plugin's section
+    #: takes them beside its own options.
+    shared_fields: ClassVar[frozenset[str]] = frozenset()
 
 
 class VaultConfig(PluggableConfig):
@@ -58,6 +61,7 @@ class DetectorConfig(PluggableConfig):
     """
 
     builtin_types = frozenset({"regex", "yaml", "presidio", "llm"})
+    shared_fields = frozenset({"cache", "underscore_separates_words"})
     type: str = "regex"
     patterns: dict[str, str] = Field(default_factory=dict)
     terms: dict[str, list[str]] = Field(default_factory=dict)
@@ -159,6 +163,10 @@ class TokenConfig(BaseModel):
     #: Hex characters in the id of an anchored ``pseudonym`` or ``encrypt``
     #: token; counters and ``hash`` (``operator.length``) are unaffected.
     id_length: int = Field(default=16, ge=6, le=64)
+    #: Write ``pseudonym`` tokens with a fake value the model reads, such as
+    #: ``<PRIVYX_PERSON_1:Alice Johnson>``; empty is off.  Needs ``{id}`` and
+    #: ``{label}``.  Restored by the id; ``format`` tokens still restore.
+    label_format: str = ""
 
 
 class ProviderConfig(PluggableConfig):
@@ -171,6 +179,8 @@ class ProviderConfig(PluggableConfig):
     """
 
     builtin_types = frozenset({"generic", "openai", "anthropic", "google"})
+    # The transparent proxy uses them whatever the type.
+    shared_fields = frozenset({"base_url", "api_key", "headers"})
     type: str = "generic"
     base_url: str = ""
     api_key: str = ""
@@ -332,18 +342,20 @@ class AuditConfig(BaseModel):
 
 
 class PluginsConfig(BaseModel):
-    """Local plugin discovery.
+    """Plugin loading.
 
-    Opt-in: nothing is loaded unless ``paths`` lists a directory or a ``.py``
-    file.  Each path is imported and scanned for concrete subclasses of the
-    Privyx component base classes, which are registered under their ``name`` and
-    become selectable as a component ``type``.  Discovery is local to this
-    deployment — there is no third-party entry-point mechanism.  Set
-    ``enabled: false`` to skip loading even when paths are configured.
+    Opt-in: nothing is loaded unless ``paths`` or ``modules`` name something.
+    Each path, a directory or a ``.py`` file, is imported and scanned for
+    concrete subclasses of the Privyx component base classes, which are
+    registered under their ``name`` and become selectable as a component
+    ``type``.  Each module, such as an installed package, is imported and its
+    ``setup(px)`` called.  Installed packages are never loaded on their own:
+    there is no entry-point discovery.  Set ``enabled: false`` to skip both.
     """
 
     enabled: bool = True
     paths: list[str] = Field(default_factory=list)
+    modules: list[str] = Field(default_factory=list)
 
 
 class TLSConfig(BaseModel):
@@ -516,16 +528,33 @@ class Settings(BaseModel):
         return cls(**merged)
 
 
+#: Each section whose ``type`` may name a plugin, by key.
+PLUGGABLE: dict[str, type[PluggableConfig]] = {
+    "vault": VaultConfig,
+    "detector": DetectorConfig,
+    "policy": PolicyConfig,
+    "operator": OperatorConfig,
+    "anchor": AnchorConfig,
+    "provider": ProviderConfig,
+}
+
 #: Where the published copy of :func:`json_schema` is served (``docs/schema.json``).
 SCHEMA_URL = "https://ohp1x.github.io/privyx/schema.json"
 
 
-def json_schema() -> dict[str, Any]:
+def json_schema(
+    plugins: dict[str, dict[str, type[BaseModel] | None]] | None = None,
+) -> dict[str, Any]:
     """The JSON Schema of a config file, for editors that complete and check YAML.
 
     A section that is not pluggable takes no other keys, as in
-    :func:`~privyx.config.loader.load_config`; a pluggable one takes any, since
-    a plugin type has options of its own.
+    :func:`~privyx.config.loader.load_config`.  A pluggable one takes only its
+    fields under a built-in type, and any key under another, since a plugin
+    type has options of its own.
+
+    ``plugins`` maps a section to the plugin types loaded for it, each to its
+    ``Config`` or ``None``.  With it, ``type`` takes only the built-in and
+    loaded names, and a plugin with a ``Config`` only its options.
     """
     schema = Settings.model_json_schema()
     schema["properties"]["include"] = {
@@ -537,7 +566,62 @@ def json_schema() -> dict[str, Any]:
     # A profile may take its command from the profile it extends.
     schema["$defs"]["AgentConfig"].pop("required", None)
     _allow_references(schema)
+    for name, model in PLUGGABLE.items():
+        loaded = None if plugins is None else plugins.get(name, {})
+        _by_type(schema["$defs"], name, model, loaded)
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": SCHEMA_URL, **schema}
+
+
+def _by_type(
+    defs: dict[str, Any],
+    section: str,
+    model: type[PluggableConfig],
+    loaded: dict[str, type[BaseModel] | None] | None,
+) -> None:
+    """Make ``model``'s definition check each ``type`` with that type's settings.
+
+    The checks are ``if``/``then`` pairs, so a ``${NAME}`` type, which matches
+    no name, is checked as an unknown plugin's: with any key.
+    """
+    node = defs[model.__name__]
+    builtin = sorted(model.builtin_types)
+    names = builtin if loaded is None else builtin + sorted(loaded)
+    kind = {k: v for k, v in node["properties"]["type"].items() if k in ("default", "title")}
+    if loaded is None:  # suggest the built-in names, take any other
+        kind["anyOf"] = [{"enum": names}, {"type": "string"}]
+    else:
+        kind["anyOf"] = [{"enum": names}, {"type": "string", "pattern": r"\$\{"}]
+    node["properties"]["type"] = kind
+    node["additionalProperties"] = True
+    checks = [
+        {
+            # Also when `type` is left out: the default is a built-in.
+            "if": {"properties": {"type": {"enum": builtin}}},
+            "then": {
+                "properties": dict.fromkeys(node["properties"], True),
+                "additionalProperties": False,
+            },
+        }
+    ]
+    for name, options in sorted((loaded or {}).items()):
+        if options is None:
+            continue  # no Config: any key is the plugin's to read
+        prefix = f"{section}.{name}."
+        own = options.model_json_schema(ref_template=f"#/$defs/{prefix}{{model}}")
+        for key, value in own.pop("$defs", {}).items():
+            defs[prefix + key] = value
+        _allow_references(own)
+        taken = {"type": True, **dict.fromkeys(model.shared_fields, True)}
+        checks.append(
+            {
+                "if": {"properties": {"type": {"const": name}}, "required": ["type"]},
+                "then": {
+                    "properties": {**taken, **own.get("properties", {})},
+                    "additionalProperties": False,
+                },
+            }
+        )
+    node["allOf"] = checks
 
 
 def _allow_references(node: Any) -> None:

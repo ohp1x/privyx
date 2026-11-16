@@ -465,6 +465,7 @@ async def _run_target(
     Returns:
         The tool's exit code.
     """
+    from privyx.app import Privyx
     from privyx.cli.budget import Budget
     from privyx.cli.commands.proxy import build_transparent_proxy
     from privyx.core.builder import build_audit_logger, build_engine
@@ -486,17 +487,20 @@ async def _run_target(
     # Bound before the rest opens, so a port in use leaves nothing to undo.
     sock, bound_port = _listen(settings.host, port)
 
-    hooks = load_plugins(settings)
+    px = Privyx()
+    hooks = load_plugins(settings, app=px)
     tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
     if settings.proxy.mode == "gateway":
         provider = build_provider(settings)
-        app = Gateway(engine=engine, provider=provider, settings=settings, audit=audit).app
+        app = Gateway(
+            engine=engine, provider=provider, settings=settings, audit=audit, router=px._router
+        ).app
         close_upstream = provider.close
     else:
         proxy = build_transparent_proxy(settings, engine, audit)
-        app = create_transparent_app(engine, proxy, settings)
+        app = create_transparent_app(engine, proxy, settings, px._router)
         close_upstream = proxy.close
     await hooks.run_startup()
 

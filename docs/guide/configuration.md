@@ -157,8 +157,16 @@ Or map the schema to the file names once, in VS Code's `settings.json`:
 }
 ```
 
+Under a built-in `type`, a pluggable section (`detector`, `operator`, `vault`,
+...) takes only its own settings; under any other type, any key, since a
+plugin reads options of its own.
+
 The published schema follows the latest release; to match an older install,
 save `privyx config --schema` to a file and point the comment at its path.
+With a config that loads plugins, `privyx config --schema` also knows their
+types: `type` then takes only the built-in and loaded names, and a plugin with
+a [`Config`](../development/plugins.md#options) only its own options. Save it
+to a file and point the comment at that file.
 
 ## Example
 
@@ -613,8 +621,8 @@ What a detected value becomes. See [Masking](masking.md).
 | `type` | `pseudonym` | `pseudonym`, `hash`, `encrypt`, `faker`, `fpe`, `partial`, `redact`, or a plugin operator. |
 | `token` | `[REDACTED]` | `redact`: replacement text. |
 | `length` | `12` | `hash`: hex characters of the digest kept in the token, 6 to 64. Other values warn and are rejected from 0.2.0; below 1 is an error. |
-| `locale` | empty | `faker`: Faker locale such as `en_US`. Empty uses Faker's default. |
-| `seed` | unset | `faker`, `fpe`: makes the same value fake the same way across runs. |
+| `locale` | empty | `faker`, and `pseudonym` [labels](masking.md#labels): Faker locale such as `en_US`. Empty uses Faker's default. |
+| `seed` | unset | `faker`, `fpe`, and `pseudonym` labels: makes the same value fake the same way across runs. |
 | `key` | empty | `encrypt`: 64 hex characters (`openssl rand -hex 32`). |
 
 ### `anchor`
@@ -634,6 +642,7 @@ How placeholders look. See [Token format](masking.md#token-format).
 | `format` | `<{namespace}_{type}_{id}>` | Placeholder template. Must contain `{type}` and `{id}`. |
 | `compact` | `false` | Issue short tokens such as `<E~1>`. Tokens in `format` are still restored. See [Compact tokens](masking.md#compact-tokens). |
 | `id_length` | `16` | Hex characters in the id of an anchored `pseudonym` or an `encrypt` token, 6 to 64. Counters and `hash` are unaffected. See [Id length](masking.md#id-length). |
+| `label_format` | empty | Write `pseudonym` tokens with a fake value for the model to read, such as `<{namespace}_{type}_{id}:{label}>`; empty is off. Must contain `{id}` and `{label}`. Needs `privyx[faker]`, the `pseudonym` operator, and `compact: false`. See [Labels](masking.md#labels). |
 
 ### `audit`
 
@@ -661,8 +670,9 @@ audit:
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Load the plugins in `paths`. |
+| `enabled` | `true` | Load the plugins in `paths` and `modules`. |
 | `paths` | `[]` | Directories or `.py` files to load plugins from. See [Plugins](../development/plugins.md). |
+| `modules` | `[]` | Importable modules, such as installed packages, whose `setup(px)` adds components, routes, and hooks. Experimental. See [Plugins from a package](../development/plugins.md#plugins-from-a-package). |
 
 ## Environment variables
 
@@ -688,6 +698,7 @@ audit:
 | `PRIVYX_TOKEN_FORMAT`, `PRIVYX_TOKEN_NAMESPACE` | `token.format`, `token.namespace` |
 | `PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH` | `audit.enabled`, `audit.path` |
 | `PRIVYX_PLUGIN_PATHS` | `plugins.paths`, comma-separated |
+| `PRIVYX_PLUGIN_MODULES` | `plugins.modules`, comma-separated |
 | `PRIVYX_SSL_CERTFILE`, `PRIVYX_SSL_KEYFILE`, `PRIVYX_SSL_KEYFILE_PASSWORD`, `PRIVYX_SSL_CA_CERTS` | `tls.*` (a `PRIVYX_TLS_` prefix works too) |
 
 Boolean variables are true for `1`, `true`, `yes`, or `on`, and false for

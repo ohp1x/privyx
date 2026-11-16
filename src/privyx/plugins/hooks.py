@@ -40,6 +40,11 @@ class HookManager:
     def add_shutdown(self, name: str, hook: Hook) -> None:
         self._shutdown.append((name, hook))
 
+    def extend(self, other: HookManager) -> None:
+        """Add ``other``'s hooks after these."""
+        self._startup += other._startup
+        self._shutdown += other._shutdown
+
     async def run_startup(self) -> None:
         """Fire every startup hook in registration order.
 

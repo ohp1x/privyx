@@ -114,7 +114,10 @@ $ privyx detect -c privyx.yaml --transform "GB82WEST12345698765432 or NL91ABNA04
 GB82WEST12345698765432 or <PRIVYX_IBAN_1>
 ```
 
-Without a `from_config`, Privyx builds the class with no arguments.
+Without a `from_config`, Privyx builds the class with no arguments. To have
+Privyx check the options, so that a misspelled one stops the proxy instead of
+being ignored, give the class a `Config`; see
+[Options](../development/plugins.md#options).
 
 ## 5. Check it with doctor
 
@@ -151,7 +154,7 @@ Privyx does, build the detector from a config, and check what it finds:
 
 ```python
 from privyx.config.schema import Settings
-from privyx.core.context import Context
+from privyx.plugins import Context
 from privyx.plugins.loader import load_plugins
 from privyx.privacy.detector.yaml import build_detector
 
@@ -192,8 +195,8 @@ relative to where Privyx starts.
 ## What a plugin has to respect
 
 - **It runs inside the proxy and sees unmasked text.** Load only code you
-  trust. Privyx loads plugins from the local paths you list and from nowhere
-  else.
+  trust. Privyx loads plugins from the local paths and modules you list and
+  from nowhere else.
 - **It runs on every piece of text in every request.** Keep it fast. Results
   are cached by text, so a long conversation is not rescanned each turn.
 - **A failure fails the request.** If `detect_sync` raises, Privyx answers

@@ -177,6 +177,12 @@ Docker image under `/app/configs`.
 --8<-- "configs/examples/encrypt.yaml"
 ```
 
+### Names the model can read
+
+```yaml
+--8<-- "configs/examples/labels.yaml"
+```
+
 ### A stricter deployment
 
 ```yaml

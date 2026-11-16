@@ -25,15 +25,13 @@ def config_cmd(
     show: bool, sources: bool, path: bool, schema: bool, config_path: str | None
 ) -> None:
     """Inspect configuration."""
-    if schema:
-        from privyx.config.schema import json_schema
-
-        click.echo(json.dumps(json_schema(), indent=2))
-        return
     from privyx.config.loader import active_config_paths, load_config
     from privyx.core.errors import PrivyxError
     from privyx.providers.registry import resolve_base_url
 
+    if schema:
+        click.echo(json.dumps(_schema(config_path), indent=2))
+        return
     try:
         if path and not show and not sources:
             active = active_config_paths(config_path)
@@ -61,6 +59,24 @@ def config_cmd(
         click.echo(f"  Detector: {settings.detector_type}")
         click.echo(f"  Policy: {settings.policy.type}")
         click.echo(f"  Operator: {settings.operator.type}")
+
+
+def _schema(config_path: str | None) -> dict[str, Any]:
+    """The config file's JSON Schema, with the plugins the config loads.
+
+    Without any, the published ``docs/schema.json``; also when the config
+    cannot be loaded, since the schema is what helps to fix it.
+    """
+    from privyx.config.loader import load_config
+    from privyx.config.schema import json_schema
+    from privyx.core.errors import PrivyxError
+    from privyx.plugins.loader import load_plugins, loaded_options
+
+    try:
+        load_plugins(load_config(config_path))
+    except PrivyxError:
+        return json_schema()
+    return json_schema(loaded_options() or None)
 
 
 def _with_sources(

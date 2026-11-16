@@ -25,8 +25,9 @@ import time
 from typing import Any
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 
+from privyx.app import include_router
 from privyx.config.schema import ProxyConfig, Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ProviderError, VaultError
@@ -85,6 +86,11 @@ class Gateway:
         provider: Upstream provider (owned by the caller, which closes it).
         settings: Validated settings; ``proxy.routes`` selects the served paths.
         audit: Optional audit logger for the PII-safe ``proxy.request`` event.
+        router: Plugin routes, served before the proxy's.  ``app.state``
+            holds ``engine`` and ``settings`` for their handlers.
+
+    Raises:
+        ConfigError: If a plugin route overlaps a route of ``proxy.routes``.
     """
 
     def __init__(
@@ -93,6 +99,7 @@ class Gateway:
         provider: Provider,
         settings: Settings | None = None,
         audit: AuditLogger | None = None,
+        router: APIRouter | None = None,
     ) -> None:
         self._engine = engine
         self._settings = settings
@@ -117,7 +124,9 @@ class Gateway:
         }
         # No Swagger UI or OpenAPI document: a privacy proxy has no API to browse.
         self._app = FastAPI(title="Privyx", docs_url=None, redoc_url=None, openapi_url=None)
-        self._register_routes()
+        self._app.state.engine = engine
+        self._app.state.settings = settings
+        self._register_routes(router, routes)
 
     @property
     def app(self) -> Any:
@@ -128,9 +137,7 @@ class Gateway:
         """The served path → wire-schema map."""
         return dict(self._routes)
 
-    def _register_routes(self) -> None:
-        # FastAPI is guaranteed non-None here: __init__ raises ImportError if missing.
-
+    def _register_routes(self, router: APIRouter | None, routes: dict[str, str]) -> None:
         from fastapi.responses import PlainTextResponse
 
         @self._app.get("/health")
@@ -141,6 +148,7 @@ class Gateway:
         async def metrics() -> str:
             return self._audit.stats.prometheus()
 
+        include_router(self._app, router, routes)
         for path, schema in self._routes.items():
             self._app.post(_route_path(path))(self._make_handler(path, schema))
 

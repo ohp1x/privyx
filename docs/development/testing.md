@@ -193,6 +193,17 @@ is created under the harness's temporary HOME; `XDG_STATE_HOME` is cleared.
 `fpe` and `merge_terms` are excluded: FPE does not produce the tokens the
 restore checks look for, and making `merge_terms` a default is undecided.
 
+### Labeled placeholders
+
+```bash
+make e2e-labels
+```
+
+This repeats the six combinations with `token.label_format` and
+`proxy.directive`: the agents' requests carry labeled placeholders, and the
+checks require each to be restored by its id. It cannot be combined with
+`--next-defaults`.
+
 The checks and exit codes are the same as for current defaults. A failed
 candidate run blocks adopting those defaults; it is not an expected success
 or an ignored CI failure. The Claude loop includes signed thinking containing

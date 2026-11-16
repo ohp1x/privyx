@@ -27,6 +27,11 @@ def _env_bool(key: str) -> bool:
     raise ConfigError(f"PRIVYX_{key} must be 1, true, yes, on, 0, false, no, or off")
 
 
+def _names(value: str) -> list[str]:
+    """A comma-separated list, each item stripped, the empty ones dropped."""
+    return [name.strip() for name in value.split(",") if name.strip()]
+
+
 def discovery_disabled() -> bool:
     """Whether ``PRIVYX_NO_DISCOVERY`` turns off reading config files not named."""
     return bool(_env("NO_DISCOVERY")) and _env_bool("NO_DISCOVERY")
@@ -109,7 +114,10 @@ def env_config() -> dict[str, Any]:
         cfg.setdefault("audit", {})["path"] = audit_path
     plugin_paths = _env("PLUGIN_PATHS")
     if plugin_paths:
-        cfg["plugins"] = {"paths": [p.strip() for p in plugin_paths.split(",") if p.strip()]}
+        cfg.setdefault("plugins", {})["paths"] = _names(plugin_paths)
+    plugin_modules = _env("PLUGIN_MODULES")
+    if plugin_modules:
+        cfg.setdefault("plugins", {})["modules"] = _names(plugin_modules)
     if _env("DETECTOR_CACHE"):
         cfg.setdefault("detector", {})["cache"] = _env_bool("DETECTOR_CACHE")
     ssl_certfile = _env("SSL_CERTFILE") or _env("TLS_CERTFILE")

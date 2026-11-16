@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from common import DUMMY_KEY, PROMPT, TOKEN, Agent, Record
+from common import DUMMY_KEY, PROMPT, Agent, Record, tokens_in
 
 # Not a canary: the model's own output, which must come back byte-identical.
 MODEL_EMAIL = "support@vendor.test"
@@ -57,7 +57,7 @@ def script(body: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
     def tokens(value: Any) -> str:
-        return " ".join(dict.fromkeys(TOKEN.findall(json.dumps(value)))) or "none"
+        return " ".join(tokens_in(value)) or "none"
 
     if "Bash" in called:
         return [{"type": "text", "text": f"Echo: {tokens(body)}"}]

@@ -122,6 +122,7 @@ nav:
       - Session tap: observability/tap.md
       - Tracing: observability/tracing.md
       - Python library: development/python-library.md
+      - Python API: development/python-api.md
       - Plugins: development/plugins.md
   - Security:
       - Threat model: security/threat-model.md
