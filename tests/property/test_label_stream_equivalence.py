@@ -35,6 +35,7 @@ PIECES_OF = [
     "<PRIVYX_PERSON_1>",
     "PRIVYX_EMAIL_2",
     "<privyx_person_1",
+    "<privyx_email_2:Rachel>",
     "9F3A1C2B7D4E5F60",
     "Alice Johnson",
     "[1|Alice]",

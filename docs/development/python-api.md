@@ -49,7 +49,8 @@ async def count(session_id: str, request: Request) -> dict[str, int]:
 ```
 
 - A route that would take a path of `proxy.routes` stops startup: requests
-  there must reach masking. The `*` in a Gemini route stands for any segment,
+  there must reach masking. A request on a masking path never reaches a
+  plugin route either way. The `*` in a Gemini route stands for any segment,
   so `/acme/{item}` is refused for `/acme/cachedContents`; use
   `/acme/items/{item}`.
 - `/health` and `/metrics` stay Privyx's.

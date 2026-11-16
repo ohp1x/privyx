@@ -111,6 +111,13 @@ class TokenIds:
         self.known = known
         self._cased = cased or {}
         self._labeled = labeled or {}
+        # The same keys in any case; two tokens that differ only in case leave none.
+        self._labeled_cased: dict[tuple[str, ...], str | None] = {}
+        for key, token in self._labeled.items():
+            folded = tuple(part.casefold() for part in key)
+            self._labeled_cased[folded] = (
+                None if folded in self._labeled_cased or token is None else token
+            )
 
     @property
     def alone(self) -> bool:
@@ -129,9 +136,12 @@ class TokenIds:
         """The one token a labeled placeholder's fields point to, or ``None``.
 
         ``key`` is ``(namespace, type, id)``, with ``""`` for a field the
-        label format leaves out (see :class:`LabelCodec`).
+        label format leaves out (see :class:`LabelCodec`).  Written in another
+        case, it points to the one token that matches it in any case.
         """
-        return self._labeled.get(key)
+        if key in self._labeled:
+            return self._labeled[key]
+        return self._labeled_cased.get(tuple(part.casefold() for part in key))
 
     def begins(self, text: str) -> bool:
         """Whether ``text`` is the start of an id, or a whole one."""

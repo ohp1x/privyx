@@ -585,7 +585,9 @@ def _by_type(
     """
     node = defs[model.__name__]
     builtin = sorted(model.builtin_types)
-    names = builtin if loaded is None else builtin + sorted(loaded)
+    # A plugin never shadows a built-in type, so one named like it gets no check.
+    plugins = {name: options for name, options in (loaded or {}).items() if name not in builtin}
+    names = builtin if loaded is None else builtin + sorted(plugins)
     kind = {k: v for k, v in node["properties"]["type"].items() if k in ("default", "title")}
     if loaded is None:  # suggest the built-in names, take any other
         kind["anyOf"] = [{"enum": names}, {"type": "string"}]
@@ -603,7 +605,7 @@ def _by_type(
             },
         }
     ]
-    for name, options in sorted((loaded or {}).items()):
+    for name, options in sorted(plugins.items()):
         if options is None:
             continue  # no Config: any key is the plugin's to read
         prefix = f"{section}.{name}."

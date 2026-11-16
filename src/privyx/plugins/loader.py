@@ -57,6 +57,7 @@ from privyx.plugins.registry import (
     CODEC_KEY,
     ID_LENGTH_KEY,
     PLUGINS,
+    SET_KEY,
     BuildContext,
     ComponentConfig,
 )
@@ -271,12 +272,14 @@ class _Factory:
     def __call__(self, config: dict[str, Any]) -> Any:
         from_config = getattr(self.cls, "from_config", None)
         options = self.options
+        explicit = config.get(SET_KEY)
+        config = {key: value for key, value in config.items() if key != SET_KEY}
         if options is None:
             return from_config(config) if callable(from_config) else self.cls()
-        # Its own options, and the section's fields its Config declares, but
-        # not with the value they have for the built-in types (vault.dsn,
-        # say) or one Privyx left unset (no provider key): the Config's own
-        # default applies then.
+        # Its own options, and the section's fields its Config declares and
+        # the config sets: not a default the section has for the built-in
+        # types (vault.dsn, say), nor one Privyx left unset (no provider key).
+        # The Config's own default applies then.
         fields = self.model.model_fields
         given = {
             key: value
@@ -288,7 +291,7 @@ class _Factory:
                 or (
                     key in options.model_fields
                     and value is not None
-                    and value != fields[key].get_default(call_default_factory=True)
+                    and (explicit is None or key in explicit)
                 )
             )
         }

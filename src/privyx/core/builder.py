@@ -30,7 +30,14 @@ from privyx.config.schema import Settings
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import ConfigError
 from privyx.observability.audit import AuditLogger
-from privyx.plugins.registry import ANCHOR_KEY, CODEC_KEY, ID_LENGTH_KEY, PLUGINS, Registry
+from privyx.plugins.registry import (
+    ANCHOR_KEY,
+    CODEC_KEY,
+    ID_LENGTH_KEY,
+    PLUGINS,
+    Registry,
+    plugin_section,
+)
 from privyx.privacy.anchor.base import Anchor
 from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.base import Detector
@@ -187,7 +194,7 @@ def build_anchor(settings: Settings) -> Anchor | None:
     if atype == "pasp":
         raise ConfigError("anchor type 'pasp' is not implemented yet; use 'hmac'")
     if atype in PLUGINS.anchors:
-        return PLUGINS.anchors.build({**settings.anchor.model_dump(), "secret": secret})
+        return PLUGINS.anchors.build({**plugin_section(settings.anchor), "secret": secret})
     raise ConfigError(f"unknown anchor type: {atype!r}")
 
 
@@ -229,7 +236,7 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
         return RedisVault(client, ttl=settings.vault.ttl), client.aclose
 
     if vault_type in PLUGINS.vaults:
-        plugin_vault = PLUGINS.vaults.build(settings.vault.model_dump())
+        plugin_vault = PLUGINS.vaults.build(plugin_section(settings.vault))
         # A plugin vault may need an async handshake and may own resources to
         # release; call ``connect``/``close`` if present, mirroring SQLiteVault.
         connect = getattr(plugin_vault, "connect", None)
@@ -284,13 +291,13 @@ def build_audit_logger(settings: Settings) -> AuditLogger:
 def build_detector_from(settings: Settings) -> Detector:
     """Build the configured detector (a composite when a list is configured)."""
     if isinstance(settings.detector, list):
-        return build_detector([d.model_dump() for d in settings.detector])
-    return build_detector(settings.detector.model_dump())
+        return build_detector([plugin_section(d) for d in settings.detector])
+    return build_detector(plugin_section(settings.detector))
 
 
 def build_policy_from(settings: Settings) -> Policy:
     """Build the configured policy."""
-    return build_policy(settings.policy.model_dump())
+    return build_policy(plugin_section(settings.policy))
 
 
 async def build_engine(
@@ -319,7 +326,7 @@ async def build_engine(
         detector=build_detector_from(settings),
         policy=build_policy_from(settings),
         operator=build_operator(
-            settings.operator.model_dump(),
+            plugin_section(settings.operator),
             anchor=anchor,
             codec=codec,
             id_length=settings.token.id_length,

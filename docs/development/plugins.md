@@ -174,7 +174,9 @@ def setup(px) -> None:
   same name, from any of `paths`, `modules`, and `px.add`, stop startup with
   an error.
 - A route that would take a masking route of `proxy.routes` stops startup
-  too; otherwise it could turn masking off for `/v1/messages`. The `*` in a
+  too; otherwise it could turn masking off for `/v1/messages`. A request on a
+  masking path never reaches a plugin route in any case, also where startup
+  could not tell the two apart (a route's converter, say). The `*` in a
   Gemini route stands for any segment, so `/acme/{item}` would also take
   `/acme/cachedContents`; use `/acme/items/{item}`. `/health` and `/metrics`
   stay Privyx's.

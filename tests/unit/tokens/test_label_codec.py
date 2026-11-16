@@ -95,6 +95,16 @@ def test_a_format_without_type_finds_the_token_by_its_id() -> None:
     )
 
 
+def test_a_labeled_placeholder_in_another_case_restores_when_one_token_matches() -> None:
+    mapping = {"<PRIVYX_PERSON_1>": "john smith"}
+    assert _restore("<privyx_person_1:Alice> and <Privyx_Person_1:Bob>", mapping) == (
+        "john smith and john smith"
+    )
+    # Two tokens that differ only in case: which one is meant is unknown.
+    both = {"<PRIVYX_PERSON_1>": "john smith", "<PRIVYX_person_1>": "ann lee"}
+    assert _restore("<privyx_person_1:Alice>", both) == "<privyx_person_1:Alice>"
+
+
 def test_the_type_and_namespace_must_match_when_the_format_has_them() -> None:
     mapping = {"<PRIVYX_PERSON_1>": "john smith"}
     assert _restore("<PRIVYX_EMAIL_1:Alice>", mapping) == "<PRIVYX_EMAIL_1:Alice>"

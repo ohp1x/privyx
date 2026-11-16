@@ -43,6 +43,17 @@ Factory = Callable[[dict[str, Any]], Any]
 ANCHOR_KEY = "__anchor__"
 CODEC_KEY = "__codec__"
 ID_LENGTH_KEY = "__id_length__"
+#: The fields of a plugin's section that the config sets, so its ``Config``
+#: gets the values the user wrote, not the defaults the section has.
+SET_KEY = "__set__"
+
+
+def plugin_section(model: BaseModel) -> dict[str, Any]:
+    """``model.model_dump()``, with the fields the config set when its type is a plugin's."""
+    data = model.model_dump()
+    if data.get("type") not in getattr(model, "builtin_types", ()):
+        data[SET_KEY] = frozenset(model.model_fields_set)
+    return data
 
 
 class ComponentConfig(BaseModel):

@@ -298,6 +298,12 @@ async def test_a_config_field_named_like_a_section_field_keeps_its_own_default(
     vault, _ = await build_vault(load_config(_config(tmp_path, given)))
     assert (vault.config.ttl, vault.config.dsn) == (86400, "shelf://a")  # type: ignore[attr-defined]
 
+    # A value the user writes counts, even when it is the built-in default.
+    builtin = Settings().vault.dsn
+    same = {"plugins": {"paths": paths}, "vault": {"type": "timed", "dsn": builtin}}
+    vault, _ = await build_vault(load_config(_config(tmp_path, same)))
+    assert vault.config.dsn == builtin  # type: ignore[attr-defined]
+
 
 def test_a_provider_config_keeps_its_default_without_a_key(tmp_path: Path) -> None:
     from privyx.providers.registry import build_provider
@@ -347,6 +353,18 @@ def test_the_schema_with_loaded_plugins_closes_type_and_checks_their_options(
     assert not _valid(schema, {"detector": {"type": "acme"}})  # a misspelled type
     assert _valid(schema, {"detector": {"type": "${DETECTOR}"}})
     assert _valid(schema, {"operator": {"type": "seen"}})
+
+
+def test_a_plugin_named_like_a_builtin_type_does_not_change_its_schema(tmp_path: Path) -> None:
+    from privyx.plugins.loader import loaded_options
+
+    source = KEYED_PROVIDER.replace('name = "cloud"', 'name = "openai"')
+    load_plugins(Settings(plugins={"paths": [str(_write(tmp_path, "p.py", source))]}))
+    schema = json_schema(loaded_options())
+    # The built-in provider is what `type: openai` selects at runtime.
+    assert _valid(schema, {"provider": {"type": "openai", "openai_api_key": "x"}})
+    enum = schema["$defs"]["ProviderConfig"]["properties"]["type"]["anyOf"][0]["enum"]
+    assert enum.count("openai") == 1
 
 
 def test_config_schema_adds_the_plugins_the_config_loads(tmp_path: Path) -> None:
@@ -554,6 +572,17 @@ async def test_a_route_beside_the_masking_routes_is_served() -> None:
     app = FastAPI()
     include_router(app, _router("/acme/items/{item}"), Settings().proxy.routes)
     assert (await _get(app, "/acme/items/1")).json() == {"ok": True}
+
+
+async def test_a_masking_path_never_reaches_a_plugin_route_the_check_missed() -> None:
+    # The startup check tries sample paths; none of them is an int for this route.
+    app, router = FastAPI(), APIRouter()
+    router.add_api_route("/api/{item:int}", lambda item: {"item": item}, methods=["POST"])
+    include_router(app, router, {"/api/7*": "openai"})
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        assert (await client.post("/api/12")).json() == {"item": 12}
+        assert (await client.post("/api/71")).status_code == 404  # the proxy's, not the plugin's
 
 
 def test_the_route_check_stays_fast_for_a_large_router() -> None:

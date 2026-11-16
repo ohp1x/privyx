@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from privyx.core.errors import ConfigError
-from privyx.plugins.registry import PLUGINS
+from privyx.plugins.registry import PLUGINS, SET_KEY
 from privyx.providers.base import Provider
 from privyx.providers.generic import GenericProvider
 from privyx.providers.google import GoogleProvider
@@ -220,5 +220,6 @@ def build_provider(settings: Any) -> Any:
     if ptype in PLUGINS.providers:
         # Keys the schema does not define are the plugin's own options.
         options = provider_config.model_extra or {}
-        return PLUGINS.providers.build({**options, **config, "type": ptype})
+        given = frozenset(provider_config.model_fields_set)
+        return PLUGINS.providers.build({**options, **config, "type": ptype, SET_KEY: given})
     raise ConfigError(f"unknown provider: {ptype}")

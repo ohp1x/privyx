@@ -255,8 +255,10 @@ difference from the [`faker`](#faker) operator.
 - The placeholder restores by its id, with its type and namespace when the
   format holds them; the label is ignored, so one the model changed still
   restores. A placeholder whose fields point to no token of the session, or to
-  two, is left as written. Without its closing delimiter, only the token part
-  is restored, as for a [half edge](#token-format).
+  two, is left as written; in another case (`<privyx_person_1:Alice>`), it is
+  restored when exactly one token of the session matches it. Without its
+  closing delimiter, only the token part is restored, as for a
+  [half edge](#token-format).
 - Tokens in `token.format`, and every form of them above, are still restored.
   If the model drops the label, the placeholder is a plain token and still
   comes back.
