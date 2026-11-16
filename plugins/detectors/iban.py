@@ -19,9 +19,7 @@ from __future__ import annotations
 import re
 from typing import Any, Self
 
-from privyx.core.context import Context
-from privyx.core.result import Detection
-from privyx.privacy.detector.base import BaseDetector
+from privyx.plugins import BaseDetector, Context, Detection
 
 #: A country code, two check digits, then the account part: 11 to 30 letters
 #: or digits, written solid or in groups of four.

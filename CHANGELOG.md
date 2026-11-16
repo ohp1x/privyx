@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Plugins:** `privyx.plugins` exports everything a component needs, from the base classes to `Detection`, `Session`, and `restore`, so a plugin no longer imports from internal modules that may move
+
 ## [0.1.37] - 2026-11-15
 
 ### Added

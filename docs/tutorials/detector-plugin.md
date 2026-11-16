@@ -23,9 +23,7 @@ spans it considers sensitive, each with a start, an end, an entity type, and
 the matched text:
 
 ```python
-from privyx.core.context import Context
-from privyx.core.result import Detection
-from privyx.privacy.detector.base import BaseDetector
+from privyx.plugins import BaseDetector, Context, Detection
 
 
 class MyDetector(BaseDetector):

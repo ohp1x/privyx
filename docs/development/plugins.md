@@ -10,16 +10,23 @@ you list a path) and works by **subclass**: a plugin module defines a concrete
 subclass of a Privyx component base class, and Privyx registers it under its
 `name`.
 
+Import everything a plugin needs from `privyx.plugins`. Other import paths
+work too, but may move between releases.
+
 ## What can be plugged in
 
 | Family | Base class | Methods to implement | Selected by |
 |---|---|---|---|
-| Detector | `privyx.privacy.detector.base.BaseDetector` | `detect_sync` | `detector.type` |
-| Policy | `privyx.privacy.policy.base.BasePolicy` | `_decide_sync` | `policy.type` |
-| Operator | `privyx.privacy.operator.base.BaseOperator` | `pseudonymize`, `deanonymize` | `operator.type` |
-| Anchor | `privyx.privacy.anchor.base.BaseAnchor` | `anchor`, `deanchor` | `anchor.type` |
-| Vault | `privyx.vault.base.BaseVault` | `create`, `get`, `save`, `delete` (opt. `connect`/`close`, and `list_sessions` for `privyx session list`/`prune`) | `vault.type` |
-| Provider | `privyx.providers.base.BaseProvider` | `send`, `stream`, `close` | `provider.type` |
+| Detector | `BaseDetector` | `detect_sync` | `detector.type` |
+| Policy | `BasePolicy` | `_decide_sync` | `policy.type` |
+| Operator | `BaseOperator` | `pseudonymize`, `deanonymize` | `operator.type` |
+| Anchor | `BaseAnchor` | `anchor`, `deanchor` | `anchor.type` |
+| Vault | `BaseVault` | `create`, `get`, `save`, `delete` (opt. `connect`/`close`, and `list_sessions` for `privyx session list`/`prune`) | `vault.type` |
+| Provider | `BaseProvider` | `send`, `stream`, `close` | `provider.type` |
+
+All are in `privyx.plugins`, with `Detection`, `TransformResult`, `Context`,
+`Session`, `LogicalToken`, `ConfigError`, and `restore`, the routine the
+built-in operators restore tokens with.
 
 ## The contract
 
@@ -63,9 +70,7 @@ discovered before serving.
 ## Writing a detector
 
 ```python
-from privyx.core.context import Context
-from privyx.core.result import Detection
-from privyx.privacy.detector.base import BaseDetector
+from privyx.plugins import BaseDetector, Context, Detection
 
 class LicensePlateDetector(BaseDetector):
     name = "license_plate"
@@ -90,8 +95,7 @@ so the detection cache does not keep it in place of a real scan.
 ## Writing an operator
 
 ```python
-from privyx.core.result import TransformResult
-from privyx.privacy.operator.base import BaseOperator
+from privyx.plugins import BaseOperator, TransformResult
 
 class MyOperator(BaseOperator):
     name = "myop"
