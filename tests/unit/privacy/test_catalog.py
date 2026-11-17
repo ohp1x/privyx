@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import secrets
-import string
 
 import pytest
 
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
-from privyx.privacy.detector.catalog import _BASE58
+from privyx.privacy.detector.catalog import _BASE58, shannon
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.policy.strict import StrictPolicy
 
@@ -156,7 +154,8 @@ def test_enable_rejects_an_unknown_entity() -> None:
         build_detector({"type": "regex", "enable": ["MRNN"]})
 
 
-_KEY = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(40))
+#: Fixed, so the check cannot fail on a draw without a digit or with a long word.
+_KEY = "Xk7pR2mQ9vLt4" + "Wn8sJd3HbZ6cY"
 
 
 @pytest.mark.parametrize(
@@ -189,8 +188,10 @@ def test_hashes_uuids_and_identifiers_are_not_high_entropy(text: str) -> None:
 
 def test_entropy_threshold_is_configurable() -> None:
     text = f"key {_KEY}"
+    bits = shannon(_KEY)
     assert _found(text, enable=["HIGH_ENTROPY"]) == [("HIGH_ENTROPY", _KEY)]
-    assert _found(text, enable=["HIGH_ENTROPY"], entropy_threshold=7.0) == []
+    assert _found(text, enable=["HIGH_ENTROPY"], entropy_threshold=bits) == [("HIGH_ENTROPY", _KEY)]
+    assert _found(text, enable=["HIGH_ENTROPY"], entropy_threshold=bits + 0.01) == []
 
 
 @pytest.mark.parametrize(
