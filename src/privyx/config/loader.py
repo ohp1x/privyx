@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from privyx.config.agents import resolve_profiles
 from privyx.config.defaults import DEFAULTS
 from privyx.config.env import discovery_disabled, env_config
-from privyx.config.schema import PLUGGABLE, PluggableConfig, Settings
+from privyx.config.schema import PLUGGABLE, DetectorConfig, PluggableConfig, Settings
 from privyx.core.errors import ConfigError
 from privyx.security.secrets import resolve_secrets
 
@@ -202,6 +202,7 @@ def load_config(
     presets: Sequence[str] | None = None,
     sources: dict[str, str] | None = None,
     secrets: bool = True,
+    warnings: list[str] | None = None,
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
 
@@ -223,6 +224,8 @@ def load_config(
     ``sources`` optionally receives dotted field paths -> winning layer.
     ``secrets=False`` leaves secret references (``op://``, ``keychain://``)
     as written, so no password manager is asked.
+    The settings a section's type does not use (:func:`_unused`) are logged,
+    once per process, or appended to ``warnings`` when it is given.
     """
     if presets is None:
         presets = CHOSEN_PRESETS.get()
@@ -295,6 +298,7 @@ def load_config(
     if sources is not None:
         sources.clear()
         sources.update(origins)
+    unused = _unused(layers, merged, origins)
 
     merged = _settle(merged, expand=False)
     # Another profile's deferred settings keep their secret references as
@@ -314,9 +318,114 @@ def load_config(
     if definitions is not None:
         merged["presets"] = definitions
     try:
-        return Settings(**merged)
+        settings = Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
+    if warnings is not None:
+        warnings.extend(unused)
+    for warning in unused:
+        if warnings is None and warning not in _UNUSED_WARNED:
+            _UNUSED_WARNED.add(warning)
+            _log.warning("%s", warning)
+    return settings
+
+
+#: The :func:`_unused` warnings given in this process.
+_UNUSED_WARNED: set[str] = set()
+
+#: The detector settings that name what to mask, each a set of entities.
+_MASKING = ("terms", "patterns", "enable")
+
+
+def _unused(
+    layers: list[tuple[str, dict[str, Any]]], merged: dict[str, Any], origins: dict[str, str]
+) -> list[str]:
+    """Warnings for the settings of a section that its built-in ``type`` does not use.
+
+    A setting written in the layer that picks the type, or with no type picked
+    above the defaults, is reported: a later release refuses it.  One from
+    another layer is an option of a type no longer in use, and is dropped
+    without a word, except a detector's ``terms``, ``patterns``, or ``enable``:
+    each entity of theirs that reaches no detector using it is reported,
+    whether a layer picks another type or sets a ``detector`` list.  Only keys,
+    entities, types, and layers are named, never values.
+    """
+    found: list[str] = []
+    reported: set[str] = set()  # layers whose detector masking keys were reported above
+    for name, model in PLUGGABLE.items():
+        value = merged.get(name)
+        for index, item in enumerate(value) if isinstance(value, list) else [(None, value)]:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("type", model.model_fields["type"].default)
+            if not isinstance(kind, str) or kind not in model.builtin_types:
+                continue  # a plugin's options are its own
+            prefix = f"{name}." if index is None else f"{name}.{index}."
+            shown = name if index is None else f"{name}[{index}]"
+            owner = origins.get(prefix + "type", "defaults")
+            used = model.type_fields(kind)
+            for key in item:
+                if key in used or key not in model.model_fields:
+                    continue  # an unknown key is an error already
+                written = {
+                    source
+                    for path, source in origins.items()
+                    if path == prefix + key or path.startswith(f"{prefix}{key}.")
+                }
+                for source in sorted(written - {"defaults"}):
+                    if owner in ("defaults", source):
+                        if name == "detector" and key in _MASKING:
+                            reported.add(f"{source}\0{key}")
+                        found.append(
+                            f"{shown + '.' + key!r} from {source} is not used by {name} type "
+                            f"{kind!r}; a later release will refuse it"
+                        )
+    detector = merged.get("detector")
+    final = detector if isinstance(detector, list) else [detector]
+    # Per key: an entity's terms do not reach a detector that only has a
+    # pattern or an opt-in built-in of that name.
+    reached: set[tuple[str, str]] = set()
+    for item in final:
+        if not isinstance(item, dict) or not isinstance(kind := item.get("type", "regex"), str):
+            continue  # a malformed type is pydantic's to report
+        plugin = kind not in DetectorConfig.builtin_types
+        for key in _MASKING:
+            if plugin or key in DetectorConfig.type_fields(kind):
+                reached |= {(key, e) for e in _entities(item.get(key), empty=True)}
+    if isinstance(detector, list):
+        why = f"the detector list from {origins.get('detector')} replaces it"
+    else:
+        kind = detector.get("type") if isinstance(detector, dict) else None
+        why = f"detector type {kind!r} from {origins.get('detector.type')} does not use it"
+    for source, data in layers:
+        given = data.get("detector") if source != "defaults" else None
+        for item in given if isinstance(given, list) else [given]:
+            if not isinstance(item, dict):
+                continue
+            for key in _MASKING:
+                if f"{source}\0{key}" in reported:
+                    continue
+                for entity in sorted(
+                    e for e in _entities(item.get(key)) if (key, e) not in reached
+                ):
+                    found.append(
+                        f"{entity!r} in 'detector.{key}' from {source} reaches no detector "
+                        f"that uses it, so it is not masked: {why}"
+                    )
+    return list(dict.fromkeys(found))
+
+
+def _entities(value: Any, *, empty: bool = False) -> set[str]:
+    """The entities a ``terms``, ``patterns``, or ``enable`` value names.
+
+    An entity given no value, which a layer above may write to drop the terms
+    below on purpose, counts only with ``empty``.
+    """
+    if isinstance(value, dict):
+        return {str(entity) for entity, item in value.items() if item or empty}
+    if isinstance(value, list):
+        return {str(entity) for entity in value if isinstance(entity, str)}
+    return set()
 
 
 def _check_overrides(profiles: dict[str, Any]) -> None:

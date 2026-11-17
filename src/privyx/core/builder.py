@@ -187,15 +187,21 @@ def build_anchor(settings: Settings) -> Anchor | None:
         from privyx.security.keys import read_or_create_anchor_secret
 
         secret = read_or_create_anchor_secret()
-    if atype == "hmac":
-        if not secret:
-            return None
-        return HMACAnchor(secret)
-    if atype == "pasp":
-        raise ConfigError("anchor type 'pasp' is not implemented yet; use 'hmac'")
+    if atype in ANCHORS:
+        return ANCHORS.build({**settings.anchor.model_dump(), "secret": secret})
     if atype in PLUGINS.anchors:
         return PLUGINS.anchors.build({**plugin_section(settings.anchor), "secret": secret})
     raise ConfigError(f"unknown anchor type: {atype!r}")
+
+
+def _pasp(config: dict[str, Any]) -> Anchor | None:
+    raise ConfigError("anchor type 'pasp' is not implemented yet; use 'hmac'")
+
+
+#: The built-in anchor types; they win over a plugin of the same name.
+ANCHORS: Registry[Anchor | None] = Registry("anchor")
+ANCHORS.register("hmac", lambda config: HMACAnchor(config["secret"]) if config["secret"] else None)
+ANCHORS.register("pasp", _pasp)
 
 
 async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
@@ -210,30 +216,9 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
             not installed.
     """
 
-    async def _noop() -> None:
-        return None
-
     vault_type = settings.vault.type
-    if vault_type == "memory":
-        return MemoryVault(ttl=settings.vault.ttl), _noop
-
-    if vault_type == "sqlite":
-        from privyx.vault.sqlite import SQLiteVault
-
-        vault = SQLiteVault(_sqlite_path(settings.vault.dsn), ttl=settings.vault.ttl)
-        await vault.connect()
-        return vault, vault.close
-
-    if vault_type == "redis":
-        try:
-            from privyx.vault.redis import RedisVault, redis_client
-        except ImportError as exc:  # pragma: no cover - optional extra
-            raise ConfigError(
-                "redis vault requires the redis extra: pip install privyx[redis]"
-            ) from exc
-
-        client = redis_client(settings.vault.redis_url)
-        return RedisVault(client, ttl=settings.vault.ttl), client.aclose
+    if vault_type in VAULTS:
+        return await VAULTS.build(settings.vault.model_dump())
 
     if vault_type in PLUGINS.vaults:
         plugin_vault = PLUGINS.vaults.build(plugin_section(settings.vault))
@@ -249,6 +234,42 @@ async def build_vault(settings: Settings) -> tuple[Vault, Closer]:
         return plugin_vault, closer
 
     raise ConfigError(f"unknown vault type: {vault_type!r}")
+
+
+async def _noop() -> None:
+    return None
+
+
+async def _memory_vault(config: dict[str, Any]) -> tuple[Vault, Closer]:
+    return MemoryVault(ttl=config["ttl"]), _noop
+
+
+async def _sqlite_vault(config: dict[str, Any]) -> tuple[Vault, Closer]:
+    from privyx.vault.sqlite import SQLiteVault
+
+    vault = SQLiteVault(_sqlite_path(config["dsn"]), ttl=config["ttl"])
+    await vault.connect()
+    return vault, vault.close
+
+
+async def _redis_vault(config: dict[str, Any]) -> tuple[Vault, Closer]:
+    try:
+        from privyx.vault.redis import RedisVault, redis_client
+    except ImportError as exc:  # pragma: no cover - optional extra
+        raise ConfigError(
+            "redis vault requires the redis extra: pip install privyx[redis]"
+        ) from exc
+
+    client = redis_client(config["redis_url"])
+    return RedisVault(client, ttl=config["ttl"]), client.aclose
+
+
+#: The built-in vault types, each built with its closer; they win over a
+#: plugin of the same name.
+VAULTS: Registry[Awaitable[tuple[Vault, Closer]]] = Registry("vault")
+VAULTS.register("memory", _memory_vault)
+VAULTS.register("sqlite", _sqlite_vault)
+VAULTS.register("redis", _redis_vault)
 
 
 def _sqlite_path(dsn: str) -> str:

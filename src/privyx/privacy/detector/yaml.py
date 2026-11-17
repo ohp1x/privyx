@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from privyx.core.errors import ConfigError
-from privyx.plugins.registry import PLUGINS
+from privyx.plugins.registry import PLUGINS, Registry
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.builtin import (
     DEFAULT_PATTERNS,
@@ -63,38 +63,9 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
         raise ConfigError(f"invalid detector config: {config!r}")
 
     dtype = config.get("type", "regex")
-    patterns = _patterns_from(config)
     detector: Detector
-    if dtype in ("regex", "yaml"):
-        combined = {**_enabled(config), **patterns}
-        if dtype == "regex":
-            combined = {**_builtins(config), **combined}
-        _validate(combined)
-        options = _pattern_options(config, combined)
-        cls = RegexDetector if dtype == "regex" else YamlDetector
-        detector = cls(combined, **options)
-    elif dtype == "presidio":
-        from privyx.privacy.detector.presidio import PresidioDetector
-
-        detector = PresidioDetector(
-            language=config.get("language", "en"),
-            model=config.get("model", ""),
-            entities=list(config.get("entities", [])) or None,
-            score_threshold=float(config.get("score_threshold", 0.35)),
-        )
-    elif dtype == "llm":
-        from privyx.privacy.detector.llm import LLMDetector
-
-        detector = LLMDetector(
-            provider=config.get("llm_provider", "openai"),
-            model=config.get("llm_model", ""),
-            api_key=config.get("llm_api_key", ""),
-            instructions=config.get("llm_instructions") or None,
-            timeout=float(config.get("llm_timeout", 30.0)),
-            max_chars=int(config.get("llm_max_chars", 4000)),
-            fallback_on_error=bool(config.get("llm_fallback_on_error", False)),
-            underscore=bool(config.get("underscore_separates_words")),
-        )
+    if dtype in DETECTORS:
+        detector = DETECTORS.build(config, default="regex")
     elif dtype in PLUGINS.detectors:
         detector = PLUGINS.detectors.build(config)
     else:
@@ -107,6 +78,51 @@ def build_detector(config: dict[str, Any] | list[dict[str, Any]]) -> Detector:
             max_size = 10000 if isinstance(cache, bool) else cache.get("max_size", 10000)
             return CachedDetector(detector, max_size=max_size)
     return detector
+
+
+def _patterned(config: dict[str, Any], *, builtins: bool) -> Detector:
+    """A ``regex`` detector (``builtins``), or a ``yaml`` one with only the configured patterns."""
+    combined = {**_enabled(config), **_patterns_from(config)}
+    if builtins:
+        combined = {**_builtins(config), **combined}
+    _validate(combined)
+    options = _pattern_options(config, combined)
+    cls = RegexDetector if builtins else YamlDetector
+    return cls(combined, **options)
+
+
+def _presidio(config: dict[str, Any]) -> Detector:
+    from privyx.privacy.detector.presidio import PresidioDetector
+
+    return PresidioDetector(
+        language=config.get("language", "en"),
+        model=config.get("model", ""),
+        entities=list(config.get("entities", [])) or None,
+        score_threshold=float(config.get("score_threshold", 0.35)),
+    )
+
+
+def _llm(config: dict[str, Any]) -> Detector:
+    from privyx.privacy.detector.llm import LLMDetector
+
+    return LLMDetector(
+        provider=config.get("llm_provider", "openai"),
+        model=config.get("llm_model", ""),
+        api_key=config.get("llm_api_key", ""),
+        instructions=config.get("llm_instructions") or None,
+        timeout=float(config.get("llm_timeout", 30.0)),
+        max_chars=int(config.get("llm_max_chars", 4000)),
+        fallback_on_error=bool(config.get("llm_fallback_on_error", False)),
+        underscore=bool(config.get("underscore_separates_words")),
+    )
+
+
+#: The built-in detector types; they win over a plugin of the same name.
+DETECTORS: Registry[Detector] = Registry("detector")
+DETECTORS.register("regex", lambda config: _patterned(config, builtins=True))
+DETECTORS.register("yaml", lambda config: _patterned(config, builtins=False))
+DETECTORS.register("presidio", _presidio)
+DETECTORS.register("llm", _llm)
 
 
 def _enabled(config: dict[str, Any]) -> dict[str, str]:

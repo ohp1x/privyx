@@ -154,6 +154,11 @@ alone, so `{"password": 123456}` is not.
 
 A plugin can add more types; see [Plugins](../development/plugins.md).
 
+`patterns`, `terms`, `enable`, and the other pattern settings apply to `regex`
+and `yaml` only. A `presidio` or `llm` detector does not use them, and Privyx
+warns when they are set for one; see
+[Settings per type](configuration.md#settings-per-type).
+
 ## Your own patterns
 
 `patterns` maps an entity name to a regular expression. For `regex`, they are
@@ -351,7 +356,9 @@ detector:
 ```
 
 Each item is a complete detector config. A `regex` item includes the built-in
-patterns; a `yaml` item has only its own.
+patterns; a `yaml` item has only its own. A list replaces a `detector` mapping
+from a file below it, `terms` included; Privyx warns about each entity that no
+item then masks.
 
 ## Cache
 

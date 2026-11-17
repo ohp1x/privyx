@@ -98,6 +98,14 @@ error in 0.2. Keep a single occurrence of each key before upgrading. The
 warning includes the file and line; it is distinct from an intentional
 override between files in an `include` chain.
 
+From 0.1.38, a setting that its section's `type` does not use warns when it
+is written beside that `type`, or with no `type` chosen, such as `terms` under
+`detector.type: presidio` or `vault.redis_url` without `type: redis`. Those
+warnings are planned to become errors in 0.2; remove the setting or set the
+type that uses it. The warning for `terms`, `patterns`, or `enable` from
+another file stays a warning. See
+[Settings per type](configuration.md#settings-per-type).
+
 From 0.1.37, `operator.length`, the id length of `hash` tokens, is an error
 below 1 and warns from 1 to 5 or above 64. Those warnings are planned to
 become errors in 0.2; keep it between 6 and 64. See [`hash`](masking.md#hash).
