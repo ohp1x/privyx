@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Config:** the Docker image and compose file no longer warn at every start that `vault.dsn` is unused and will be refused: a setting from an environment variable that the chosen type does not use is ignored without a warning
+
 ## [0.1.38] - 2026-11-17
 
 ### Added

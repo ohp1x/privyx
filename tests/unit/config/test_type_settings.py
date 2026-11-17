@@ -167,6 +167,18 @@ def test_other_keys_from_a_layer_below_are_dropped_without_a_word(tmp_path: Path
     assert _load(tmp_path, base=base, top=top) == []
 
 
+@pytest.mark.parametrize("vault", [None, "redis"])
+def test_a_key_of_another_type_from_the_environment_is_dropped_without_a_word(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vault: str | None
+) -> None:
+    # What the Docker image and compose file set, whichever vault is chosen.
+    monkeypatch.setenv("PRIVYX_VAULT_DSN", "sqlite+aiosqlite:////data/privyx.db")
+    if vault:
+        monkeypatch.setenv("PRIVYX_VAULT", vault)
+
+    assert _load(tmp_path, top="detector: {type: regex}\n") == []
+
+
 def test_load_logs_each_warning_once(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     path = tmp_path / "top.yaml"
     path.write_text("detector: {type: llm, normalize: true}\n")

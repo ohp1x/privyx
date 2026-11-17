@@ -214,6 +214,9 @@ the file or layer, never a value:
 
 Other settings from a file below that the new type does not use, such as
 `language` once a file above sets `type: regex`, are dropped without a warning.
+So are settings from environment variables, which a container image or a
+compose file sets for every type it offers: `PRIVYX_VAULT_DSN` stays unused
+until `PRIVYX_VAULT=sqlite`.
 
 With `PROJECT: [kestrel]` under `detector.terms` in `~/.privyx/config.yaml`
 and `detector: {type: presidio}` in the project's `privyx.yaml`:

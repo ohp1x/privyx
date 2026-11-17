@@ -345,10 +345,13 @@ def _unused(
     A setting written in the layer that picks the type, or with no type picked
     above the defaults, is reported: a later release refuses it.  One from
     another layer is an option of a type no longer in use, and is dropped
-    without a word, except a detector's ``terms``, ``patterns``, or ``enable``:
-    each entity of theirs that reaches no detector using it is reported,
-    whether a layer picks another type or sets a ``detector`` list.  Only keys,
-    entities, types, and layers are named, never values.
+    without a word, as is one from the environment, which a container image or
+    a compose file sets for every type it offers (``PRIVYX_VAULT_DSN`` for
+    ``sqlite`` beside ``PRIVYX_VAULT=redis``).  The exception is a detector's
+    ``terms``, ``patterns``, or ``enable``: each entity of theirs that reaches
+    no detector using it is reported, whether a layer picks another type or
+    sets a ``detector`` list.  Only keys, entities, types, and layers are
+    named, never values.
     """
     found: list[str] = []
     reported: set[str] = set()  # layers whose detector masking keys were reported above
@@ -372,7 +375,7 @@ def _unused(
                     for path, source in origins.items()
                     if path == prefix + key or path.startswith(f"{prefix}{key}.")
                 }
-                for source in sorted(written - {"defaults"}):
+                for source in sorted(written - {"defaults", "environment"}):
                     if owner in ("defaults", source):
                         if name == "detector" and key in _MASKING:
                             reported.add(f"{source}\0{key}")
