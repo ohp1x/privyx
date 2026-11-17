@@ -85,7 +85,8 @@ def _fingerprint(path: Path) -> str:
     """
     digest = hashlib.sha256(_read_bytes(path))
     try:
-        included = _included(path, _read_yaml(path))
+        # A key given twice must not drop the includes: the load reports it.
+        included = _included(path, _read_yaml(path, loader=yaml.SafeLoader))
     except ConfigError:
         included = []  # a broken file is reported when it is loaded
     for file in included:
@@ -224,8 +225,10 @@ def load_config(
     ``sources`` optionally receives dotted field paths -> winning layer.
     ``secrets=False`` leaves secret references (``op://``, ``keychain://``)
     as written, so no password manager is asked.
-    The settings a section's type does not use (:func:`_unused`) are logged,
-    once per process, or appended to ``warnings`` when it is given.
+    A setting a section's type does not use (:func:`_unused`) is an error when
+    written beside the type; masking keys from another layer that no detector
+    uses are logged, once per process, or appended to ``warnings`` when it is
+    given.
     """
     if presets is None:
         presets = CHOSEN_PRESETS.get()
@@ -298,7 +301,9 @@ def load_config(
     if sources is not None:
         sources.clear()
         sources.update(origins)
-    unused = _unused(layers, merged, origins)
+    refused, unused = _unused(layers, merged, origins)
+    if refused:
+        raise ConfigError("; ".join(refused))
 
     merged = _settle(merged, expand=False)
     # Another profile's deferred settings keep their secret references as
@@ -339,22 +344,22 @@ _MASKING = ("terms", "patterns", "enable")
 
 def _unused(
     layers: list[tuple[str, dict[str, Any]]], merged: dict[str, Any], origins: dict[str, str]
-) -> list[str]:
-    """Warnings for the settings of a section that its built-in ``type`` does not use.
+) -> tuple[list[str], list[str]]:
+    """Errors and warnings for the settings of a section its built-in ``type`` does not use.
 
     A setting written in the layer that picks the type, or with no type picked
-    above the defaults, is reported: a later release refuses it.  One from
+    above the defaults, is an error.  One from
     another layer is an option of a type no longer in use, and is dropped
     without a word, as is one from the environment, which a container image or
     a compose file sets for every type it offers (``PRIVYX_VAULT_DSN`` for
     ``sqlite`` beside ``PRIVYX_VAULT=redis``).  The exception is a detector's
     ``terms``, ``patterns``, or ``enable``: each entity of theirs that reaches
-    no detector using it is reported, whether a layer picks another type or
+    no detector using it is a warning, whether a layer picks another type or
     sets a ``detector`` list.  Only keys, entities, types, and layers are
     named, never values.
     """
+    refused: list[str] = []
     found: list[str] = []
-    reported: set[str] = set()  # layers whose detector masking keys were reported above
     for name, model in PLUGGABLE.items():
         value = merged.get(name)
         for index, item in enumerate(value) if isinstance(value, list) else [(None, value)]:
@@ -377,11 +382,9 @@ def _unused(
                 }
                 for source in sorted(written - {"defaults", "environment"}):
                     if owner in ("defaults", source):
-                        if name == "detector" and key in _MASKING:
-                            reported.add(f"{source}\0{key}")
-                        found.append(
+                        refused.append(
                             f"{shown + '.' + key!r} from {source} is not used by {name} type "
-                            f"{kind!r}; a later release will refuse it"
+                            f"{kind!r}; remove it or set a type that uses it"
                         )
     detector = merged.get("detector")
     final = detector if isinstance(detector, list) else [detector]
@@ -406,8 +409,6 @@ def _unused(
             if not isinstance(item, dict):
                 continue
             for key in _MASKING:
-                if f"{source}\0{key}" in reported:
-                    continue
                 for entity in sorted(
                     e for e in _entities(item.get(key)) if (key, e) not in reached
                 ):
@@ -415,7 +416,7 @@ def _unused(
                         f"{entity!r} in 'detector.{key}' from {source} reaches no detector "
                         f"that uses it, so it is not masked: {why}"
                     )
-    return list(dict.fromkeys(found))
+    return list(dict.fromkeys(refused)), list(dict.fromkeys(found))
 
 
 def _entities(value: Any, *, empty: bool = False) -> set[str]:
@@ -718,16 +719,12 @@ def _included(path: Path, data: dict[str, Any]) -> list[Path]:
     return files
 
 
-#: Duplicate keys already reported, so a file read twice warns once.
-_DUPLICATES_WARNED: set[tuple[str, int, str]] = set()
-
-
 class _UniqueKeyLoader(yaml.SafeLoader):  # type: ignore[misc]
-    """A safe loader that warns about a key given twice in one mapping.
+    """A safe loader that refuses a key given twice in one mapping.
 
     PyYAML keeps the last one without a word, so an agent profile written
-    twice silently loses its first definition.  The last one still wins, as
-    before; only the key and its line are reported, never a value.
+    twice would silently lose its first definition.  Only the key and its line
+    are reported, never a value.
     """
 
     def construct_mapping(self, node: Any, deep: bool = False) -> Any:
@@ -740,25 +737,22 @@ class _UniqueKeyLoader(yaml.SafeLoader):  # type: ignore[misc]
                 duplicate = key in seen
             except TypeError:
                 continue  # unhashable: the base class reports it
-            mark = key_node.start_mark
-            where = (str(mark.name), mark.line + 1, str(key))
-            if duplicate and where not in _DUPLICATES_WARNED:
-                _DUPLICATES_WARNED.add(where)
-                _log.warning(
-                    "%s, line %d: key %r is given twice in one mapping; the last one is "
-                    "used, and a later release will refuse the file",
-                    *where,
+            if duplicate:
+                mark = key_node.start_mark
+                raise ConfigError(
+                    f"{mark.name}, line {mark.line + 1}: key {str(key)!r} is given twice "
+                    "in one mapping; remove one of them"
                 )
             seen.add(key)
         return super().construct_mapping(node, deep)
 
 
-def _read_yaml(path: Path) -> dict[str, Any]:
+def _read_yaml(path: Path, *, loader: type[yaml.SafeLoader] = _UniqueKeyLoader) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"config file not found: {path}")
     with path.open("r", encoding="utf-8") as fh:
         try:
-            data = yaml.load(fh, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader
+            data = yaml.load(fh, Loader=loader)  # noqa: S506 - a SafeLoader
         except yaml.YAMLError as exc:
             raise ConfigError(f"config file is not valid YAML: {path}: {exc}") from exc
     if data is None:

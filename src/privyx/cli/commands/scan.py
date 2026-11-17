@@ -182,8 +182,9 @@ def _check_included(config_file: Path, terms_file: Path) -> None:
     try:
         data = _read_yaml(config_file)
         included = terms_file in [file.resolve() for file in _included(config_file, data)]
-    except ConfigError:
-        included = False
+    except ConfigError as exc:
+        click.echo(f"{exc}; fix it to use {TERMS_FILE}.", err=True)
+        return
     if not included:
         click.echo(f"Add {TERMS_FILE} to the include list of {config_file} to use it.")
     elif isinstance(data.get("detector"), list):

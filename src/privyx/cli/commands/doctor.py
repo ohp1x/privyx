@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import secrets
 import sys
 from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any
@@ -41,6 +42,10 @@ def doctor(config_path: str | None) -> None:
     except Exception as exc:
         click.echo(f"  ✗ configuration: {type(exc).__name__}: {exc}")
         sys.exit(1)
+    if settings.anchor.secret == "auto":
+        # A diagnosis must not create ~/.privyx/anchor.key: check with a key of its own.
+        anchor = settings.anchor.model_copy(update={"secret": secrets.token_hex(32)})
+        settings = settings.model_copy(update={"anchor": anchor})
 
     checks: list[tuple[str, Check]] = [
         # First: loads plugins into the registry so the component checks below

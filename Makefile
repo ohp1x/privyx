@@ -1,4 +1,4 @@
-.PHONY: install dev test coverage e2e e2e-next-defaults e2e-labels bench bench-requests lint format check vulns docs run proxy clean
+.PHONY: install dev test coverage e2e e2e-labels bench bench-requests lint format check vulns docs run proxy clean
 
 install:
 	uv sync --all-extras
@@ -19,9 +19,6 @@ e2e:
 	uv run python scripts/test-e2e/run.py --agent codex --transparent $(E2E_ARGS)
 	uv run python scripts/test-e2e/run.py --auto $(E2E_ARGS)
 	uv run python scripts/test-e2e/run.py --transparent --auto $(E2E_ARGS)
-
-e2e-next-defaults:
-	$(MAKE) e2e E2E_ARGS=--next-defaults
 
 e2e-labels:
 	$(MAKE) e2e E2E_ARGS=--labels

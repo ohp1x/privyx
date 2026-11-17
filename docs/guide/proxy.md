@@ -244,9 +244,9 @@ rule is in
 - In a stream, text and reasoning deltas as they arrive; a token split
   between two chunks is held back until it is whole. Tool-call arguments are
   collected and delivered restored in one piece.
-- A token the model wrote without its outer delimiters (`PRIVYX_EMAIL_1`) or
-  with only one of them (`<PRIVYX_EMAIL_1`), in another case
-  (`<privyx_email_1>`), or as its id alone when the id is long, is restored
+- A token the model wrote without its outer delimiters (`PRIVYX_EMAIL_4FF5EF825E496E1A`)
+  or with only one of them (`<PRIVYX_EMAIL_4FF5EF825E496E1A`), in another case
+  (`<privyx_email_4ff5ef825e496e1a>`), or as its id alone when the id is long, is restored
   too. See
   [Token format](masking.md#token-format).
 

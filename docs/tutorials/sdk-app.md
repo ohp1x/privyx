@@ -95,7 +95,7 @@ and Privyx relays it to the provider.
     }
     ```
 
-The model received `Write a short greeting to <PRIVYX_EMAIL_1>` and wrote its
+The model received `Write a short greeting to <PRIVYX_EMAIL_4FF5EF825E496E1A>` and wrote its
 answer around that token. Your program prints a greeting to
 `alice@example.com`.
 
@@ -219,7 +219,7 @@ tokens. Privyx restores them before your code sees the call:
 send_email {'to': 'alice@example.com'}
 ```
 
-The model asked for `send_email` with `<PRIVYX_EMAIL_1>`; your function
+The model asked for `send_email` with `<PRIVYX_EMAIL_4FF5EF825E496E1A>`; your function
 receives the address. The result you send back in the next request is masked
 again like any other message. In a streamed reply, Privyx collects a tool
 call's arguments and delivers them restored in one piece, since a half-restored
@@ -302,14 +302,14 @@ Session: user-42
   Updated:    2026-10-02T14:38:38
   Mappings:   2
 
-  <PRIVYX_EMAIL_1>                 → al*************om
-  <PRIVYX_EMAIL_2>                 → bo***********om
+  <PRIVYX_EMAIL_4FF5EF825E496E1A>  → al*************om
+  <PRIVYX_EMAIL_423FB33D92FB967D>  → bo***********om
 
   (values masked; pass --reveal to show them)
 ```
 
-Alice kept `<PRIVYX_EMAIL_1>` in the second request, and Bob got the next
-number.
+Alice kept `<PRIVYX_EMAIL_4FF5EF825E496E1A>` in the second request, and Bob got
+a token of his own.
 
 !!! warning "Set the session in your backend"
 

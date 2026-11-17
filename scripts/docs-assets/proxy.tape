@@ -14,8 +14,10 @@ Set TypingSpeed 30ms
 
 # The request is written here, with the key in two parts, so that this file
 # holds no key-shaped string.
+# Its own HOME and a fixed anchor secret: the recording never uses your
+# anchor key, and shows the same tokens as the docs.
 Hide
-Type `unset PROMPT_COMMAND; PS1='$ '; R=$PWD; cd "$(mktemp -d)"`
+Type `unset PROMPT_COMMAND; PS1='$ '; R=$PWD; cd "$(mktemp -d)"; export HOME=$PWD PRIVYX_ANCHOR_SECRET=docs-example`
 Enter
 Type `printf '{\n  "model": "gpt-4o",\n  "messages": [\n    {"role": "user", "content": "Rotate %s%s and email ann@example.com"}\n  ]\n}\n' sk-proj- Ab3dEf5gHi7jKl9mNo1pQr3sTu5vWx7y > request.json`
 Enter

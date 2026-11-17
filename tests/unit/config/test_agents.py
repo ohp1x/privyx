@@ -443,9 +443,7 @@ def test_bad_budget_fails_at_startup(tmp_path: Path) -> None:
         load_config(config)
 
 
-def test_a_key_given_twice_is_warned_about_and_the_last_one_still_wins(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_a_key_given_twice_is_refused(tmp_path: Path) -> None:
     config = tmp_path / "named.yaml"
     config.write_text(
         "agents:\n"
@@ -455,17 +453,12 @@ def test_a_key_given_twice_is_warned_about_and_the_last_one_still_wins(
         "    upstream: https://two.example\n"
     )
 
-    settings = load_config(config)
-    load_config(config)
-
-    assert settings.agents["claude:work"].upstream == "https://two.example"
-    warnings = [r.getMessage() for r in caplog.records if "given twice" in r.getMessage()]
-    assert len(warnings) == 1  # once, however often the file is read
-    assert "line 4: key 'claude:work'" in warnings[0]
-    assert "two.example" not in warnings[0]
+    with pytest.raises(ConfigError, match="line 4: key 'claude:work' is given twice") as exc:
+        load_config(config)
+    assert "two.example" not in str(exc.value)
 
 
-def test_a_merge_key_may_be_overridden(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_a_merge_key_may_be_overridden(tmp_path: Path) -> None:
     config = tmp_path / "named.yaml"
     config.write_text(
         "base: &base {command: tool, upstream: 'https://one.example'}\n"
@@ -476,7 +469,6 @@ def test_a_merge_key_may_be_overridden(tmp_path: Path, caplog: pytest.LogCapture
     )
     with pytest.raises(ConfigError, match="unknown setting 'base'"):
         load_config(config)  # parsed fine: the anchor key is the only complaint
-    assert not [r for r in caplog.records if "given twice" in r.getMessage()]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits")

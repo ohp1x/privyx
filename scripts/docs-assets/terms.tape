@@ -11,8 +11,10 @@ Set Padding 24
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 30ms
 
+# Its own HOME and a fixed anchor secret: the recording never uses your
+# anchor key, and shows the same tokens as the docs.
 Hide
-Type `unset PROMPT_COMMAND; PS1='$ '; cd "$(mktemp -d)"`
+Type `unset PROMPT_COMMAND; PS1='$ '; cd "$(mktemp -d)"; export HOME=$PWD PRIVYX_ANCHOR_SECRET=docs-example`
 Enter
 Type `printf '%s\n' 'detector:' '  type: regex' '  terms:' '    PERSON:       [ann, bob]' '    ORGANIZATION: [acme, initech]' '    PROJECT:      [bluebird]' > my.yaml; clear`
 Enter

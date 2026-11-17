@@ -144,7 +144,7 @@ Privyx Doctor
   ✓ proxy: request transformed, 1 mapping(s) vaulted
   ✓ streaming: pseudonym restored across a split chunk
   ...
-  ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=off
+  ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=hmac
 ```
 
 `X.Y.Z` is your installed version; the doctor output above is abbreviated.

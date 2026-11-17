@@ -26,11 +26,11 @@ Take a log you would like help with:
 
 ```console
 $ privyx mask --map map.json -i app.log -o app.masked.log
-session: ses_b46149964cd144c7
+session: ses_07b99feb252541f3
 $ cat app.masked.log
-2026-10-02 09:12:44 ERROR payment failed user=<PRIVYX_EMAIL_1> ip=<PRIVYX_IP_ADDRESS_2> card=<PRIVYX_CREDIT_CARD_3>
-2026-10-02 09:12:45 WARN  retry with DB_PASSWORD=<PRIVYX_SECRET_4> against db-3
-2026-10-02 09:12:46 INFO  connecting to postgres://app:<PRIVYX_URL_CREDENTIAL_5>@db-3:5432/shop
+2026-10-02 09:12:44 ERROR payment failed user=<PRIVYX_EMAIL_F04C885A31827851> ip=<PRIVYX_IP_ADDRESS_C8E127AF2D5584C3> card=<PRIVYX_CREDIT_CARD_9D9EDBCE95014B38>
+2026-10-02 09:12:45 WARN  retry with DB_PASSWORD=<PRIVYX_SECRET_A2907293658B4995> against db-3
+2026-10-02 09:12:46 INFO  connecting to postgres://app:<PRIVYX_URL_CREDENTIAL_CDCD0EB22012CECC>@db-3:5432/shop
 ```
 
 `app.masked.log` is safe to paste or send. `map.json` is not: besides the
@@ -39,11 +39,11 @@ its original value:
 
 ```json
 {
-  "<PRIVYX_EMAIL_1>": "ann@example.com",
-  "<PRIVYX_IP_ADDRESS_2>": "10.0.4.17",
-  "<PRIVYX_CREDIT_CARD_3>": "4111 1111 1111 1111",
-  "<PRIVYX_SECRET_4>": "hunter2",
-  "<PRIVYX_URL_CREDENTIAL_5>": "s3cr3tpw"
+  "<PRIVYX_EMAIL_F04C885A31827851>": "ann@example.com",
+  "<PRIVYX_IP_ADDRESS_C8E127AF2D5584C3>": "10.0.4.17",
+  "<PRIVYX_CREDIT_CARD_9D9EDBCE95014B38>": "4111 1111 1111 1111",
+  "<PRIVYX_SECRET_A2907293658B4995>": "hunter2",
+  "<PRIVYX_URL_CREDENTIAL_CDCD0EB22012CECC>": "s3cr3tpw"
 }
 ```
 
@@ -56,8 +56,8 @@ The model's answer talks about tokens. Save it, and restore it with the same
 map:
 
 ```text
-The payment for <PRIVYX_EMAIL_1> failed because the card <PRIVYX_CREDIT_CARD_3> was declined.
-Rotate <PRIVYX_SECRET_4>: it was written to the log in plain text.
+The payment for <PRIVYX_EMAIL_F04C885A31827851> failed because the card <PRIVYX_CREDIT_CARD_9D9EDBCE95014B38> was declined.
+Rotate <PRIVYX_SECRET_A2907293658B4995>: it was written to the log in plain text.
 ```
 
 ```console
@@ -104,8 +104,8 @@ same map and a value seen before keeps its token:
 
 ```console
 $ privyx mask --map map.json -i second.txt
-session: ses_b46149964cd144c7
-<PRIVYX_EMAIL_1> retried from <PRIVYX_IP_ADDRESS_6>
+session: ses_07b99feb252541f3
+<PRIVYX_EMAIL_F04C885A31827851> retried from <PRIVYX_IP_ADDRESS_2B178AF7C81A883C>
 ```
 
 ## 4. JSON and JSONL
@@ -115,10 +115,10 @@ and structure alone:
 
 ```console
 $ privyx mask --map request-map.json -i request.json
-session: ses_ec806bcac7864c83
+session: ses_c733258f84b142f0
 {
   "model": "gpt-4o-mini",
-  "user": "<PRIVYX_EMAIL_1>",
+  "user": "<PRIVYX_EMAIL_F04C885A31827851>",
   "messages": [
     {
       "role": "system",
@@ -126,7 +126,7 @@ session: ses_ec806bcac7864c83
     },
     {
       "role": "user",
-      "content": "Refund <PRIVYX_EMAIL_1>, phone <PRIVYX_PHONE_2>"
+      "content": "Refund <PRIVYX_EMAIL_F04C885A31827851>, phone <PRIVYX_PHONE_36C1764FD294E3EC>"
     }
   ]
 }
@@ -144,10 +144,10 @@ line, which suits datasets and event logs:
 
 ```console
 $ cat tickets.jsonl | privyx mask --map tickets-map.json -f jsonl -i - -o tickets.masked.jsonl
-session: ses_128b787e1bb14d3a
+session: ses_bd76c9559e124589
 $ cat tickets.masked.jsonl
-{"id": 1, "from": "<PRIVYX_EMAIL_1>", "text": "Order ORD-2026-000123 still shows the old address."}
-{"id": 2, "from": "<PRIVYX_EMAIL_2>", "text": "Please call me on <PRIVYX_PHONE_3>."}
+{"id": 1, "from": "<PRIVYX_EMAIL_F04C885A31827851>", "text": "Order ORD-2026-000123 still shows the old address."}
+{"id": 2, "from": "<PRIVYX_EMAIL_423FB33D92FB967D>", "text": "Please call me on <PRIVYX_PHONE_36C1764FD294E3EC>."}
 ```
 
 The format comes from the file's extension. Reading from a pipe there is no
@@ -156,23 +156,29 @@ treated as plain text.
 
 ## 5. The same token in every file
 
-A map file keeps tokens consistent across the files you mask against it. To
-get the same token for the same value everywhere, without sharing a map, set
-an anchor secret. The token's id is then derived from the value:
+A token's id is derived from the value with your anchor key, so the same value
+gets the same token in every file, with a different map or none:
 
 ```console
-$ export PRIVYX_ANCHOR_SECRET=$(openssl rand -hex 32)
 $ privyx mask --map a.json "mail ann@example.com"
-session: ses_c5bc5e7ff6a94e23
-mail <PRIVYX_EMAIL_E55D8A16FDB2F399>
+session: ses_de55cc01b7ba4168
+mail <PRIVYX_EMAIL_F04C885A31827851>
 $ privyx mask --map b.json "cc ann@example.com and bob@example.com"
-session: ses_8dc07daa04b745ee
-cc <PRIVYX_EMAIL_E55D8A16FDB2F399> and <PRIVYX_EMAIL_B4C7EDA9B547BA1C>
+session: ses_ba9bb3b097aa4623
+cc <PRIVYX_EMAIL_F04C885A31827851> and <PRIVYX_EMAIL_423FB33D92FB967D>
 ```
 
 That makes masked datasets joinable: the same customer has the same token in
-every file. Whoever holds the secret can test a guess against a token, so
-keep it as private as a key. See [Anchors](../guide/masking.md#anchors).
+every file. The key is created in `~/.privyx/anchor.key` on first use; to get
+the same tokens on another machine or for another user, give both the same
+secret:
+
+```bash
+export PRIVYX_ANCHOR_SECRET=$(openssl rand -hex 32)
+```
+
+Whoever holds the key can test a guess against a token, so keep it as private
+as an API key. See [Anchors](../guide/masking.md#anchors).
 
 ## 6. Redact for good
 

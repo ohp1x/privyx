@@ -13,8 +13,10 @@ Set TypingSpeed 30ms
 
 # The log is written here, with each key in two parts, so that this file holds
 # no key-shaped string.
+# Its own HOME and a fixed anchor secret: the recording never uses your
+# anchor key, and shows the same tokens as the docs.
 Hide
-Type `unset PROMPT_COMMAND; PS1='$ '; cd "$(mktemp -d)"`
+Type `unset PROMPT_COMMAND; PS1='$ '; cd "$(mktemp -d)"; export HOME=$PWD PRIVYX_ANCHOR_SECRET=docs-example`
 Enter
 Type `printf '%s\n' '09:12:44 ERROR payment failed user=ann@example.com ip=10.0.4.17 card=4111 1111 1111 1111' '09:12:44 DEBUG retry auth=Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dGVzdHNpZ25hdHVyZQ' > app.log`
 Enter

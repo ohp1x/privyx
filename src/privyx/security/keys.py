@@ -68,7 +68,13 @@ def generate_key() -> str:
 
 
 def default_anchor_secret_path() -> Path:
-    """Where a per-user anchor secret is persisted by default: ``~/.privyx/anchor.key``."""
+    """Where the per-user anchor secret is persisted.
+
+    ``PRIVYX_ANCHOR_KEY_PATH`` when set (the Docker image keeps it on its
+    volume), else ``~/.privyx/anchor.key``.
+    """
+    if configured := os.environ.get("PRIVYX_ANCHOR_KEY_PATH"):
+        return Path(configured)
     return Path(os.path.expanduser("~"), ".privyx", "anchor.key")
 
 
@@ -105,11 +111,11 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
     except (OSError, UnicodeError):
         raise ConfigError(
             "cannot read or persist automatic anchor secret; check "
-            "~/.privyx/anchor.key permissions or set anchor.secret explicitly"
+            f"{target} permissions or set anchor.secret explicitly"
         ) from None
     if not existing:
         raise ConfigError(
             "automatic anchor secret file is empty; remove the empty file "
-            "at ~/.privyx/anchor.key to create a new key, or set anchor.secret explicitly"
+            f"at {target} to create a new key, or set anchor.secret explicitly"
         )
     return existing

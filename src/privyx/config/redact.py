@@ -31,7 +31,8 @@ def redact(value: Any, name: str = "") -> Any:
     if not isinstance(value, str) or not value:
         return value
     if _sensitive(name):
-        return _MASK
+        # `auto` names the per-user key file (anchor.secret), not a secret.
+        return value if (name, value) == ("secret", "auto") else _MASK
     if name == "upstream" or name.endswith(("url", "dsn")):
         try:
             parts = urlsplit(value)

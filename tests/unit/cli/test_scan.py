@@ -172,6 +172,16 @@ def test_scan_leaves_a_config_that_came_with_the_project_untrusted(
     assert not is_trusted(config)
 
 
+def test_scan_names_the_error_of_a_broken_config(runner: CliRunner, repo: Path) -> None:
+    config = repo / "privyx.yaml"
+    config.write_text("include: [privyx.d/*.yaml]\nport: 1\nport: 2\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["scan", "--yes"])
+
+    assert "key 'port' is given twice" in result.output
+    assert "include list" not in result.output
+
+
 def test_scan_keeps_a_trusted_config_trusted(runner: CliRunner, repo: Path) -> None:
     config = repo / "privyx.yaml"
     config.write_text("include: [privyx.d/*.yaml]\nport: 9001\n", encoding="utf-8")

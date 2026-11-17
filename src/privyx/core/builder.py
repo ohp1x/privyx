@@ -174,8 +174,9 @@ def build_anchor(settings: Settings) -> Anchor | None:
     guessable key".  This gate is specific to ``hmac``; a plugin anchor decides
     for itself whether it needs a secret.
 
-    ``auto`` uses the persisted per-user key, shared with ``privyx run``.
-    Settings retain the marker so inspection cannot expose that key.
+    ``auto`` uses the persisted per-user key, shared with ``privyx run``,
+    read only for an anchor that receives the secret.  Settings retain the
+    marker so inspection cannot expose that key.
 
     Raises:
         ConfigError: If ``anchor.type`` is unknown or the automatic key cannot
@@ -183,7 +184,7 @@ def build_anchor(settings: Settings) -> Anchor | None:
     """
     atype = settings.anchor.type
     secret = settings.anchor.secret
-    if secret == "auto" and (atype == "hmac" or atype in PLUGINS.anchors):
+    if secret == "auto" and _takes_secret(settings):
         from privyx.security.keys import read_or_create_anchor_secret
 
         secret = read_or_create_anchor_secret()
@@ -192,6 +193,24 @@ def build_anchor(settings: Settings) -> Anchor | None:
     if atype in PLUGINS.anchors:
         return PLUGINS.anchors.build({**plugin_section(settings.anchor), "secret": secret})
     raise ConfigError(f"unknown anchor type: {atype!r}")
+
+
+def _takes_secret(settings: Settings) -> bool:
+    """Whether the anchor receives ``anchor.secret``.
+
+    ``hmac`` does, as does a plugin without a ``Config``, which gets the whole
+    section.  A plugin with one gets only the fields it declares and the config
+    sets, so the default ``auto`` would create a key it never sees.
+    """
+    atype = settings.anchor.type
+    if atype == "hmac":
+        return True
+    if atype not in PLUGINS.anchors:
+        return False
+    options = getattr(PLUGINS.anchors.factory(atype), "options", None)
+    if options is None:
+        return True
+    return "secret" in options.model_fields and "secret" in settings.anchor.model_fields_set
 
 
 def _pasp(config: dict[str, Any]) -> Anchor | None:

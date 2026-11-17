@@ -16,7 +16,7 @@ back into the reply.
 
 Redaction is one-way: once `ann@example.com` is `[REDACTED]`, the answer can
 only say `[REDACTED]`. Privyx keeps the mapping, so the model works with
-`<PRIVYX_EMAIL_1>` and you read `ann@example.com` in the answer, and a tool
+`<PRIVYX_EMAIL_F04C885A31827851>` and you read `ann@example.com` in the answer, and a tool
 the model calls receives the real address. One-way redaction is available
 too, as the [`redact` operator](masking.md#redact).
 

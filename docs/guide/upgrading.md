@@ -1,5 +1,5 @@
 ---
-description: Versioning, deprecation, and how to try or opt out of the defaults planned for Privyx 0.2.
+description: Versioning, deprecation, and what changes from Privyx 0.1 to 0.2, with how to keep the 0.1 behavior.
 ---
 
 # Upgrading
@@ -43,69 +43,95 @@ opt-out can remain without a deprecation warning. Tightening validation of
 previously accepted input follows the same warning period: an input that
 warns in `0.1` can first become an error in `0.2`.
 
-## Preparing for 0.2
+## From 0.1 to 0.2
 
-**0.2 is not released yet.** The settings below remain opt-in in `0.1.x`.
-Only candidates that pass compatibility checks will become defaults. This
-page will be updated with the final changes before the release.
+0.2 turns behavior that was opt-in in 0.1 into the default, and makes three
+inputs that warned in 0.1 an error. Each new default has an opt-out that
+already works in 0.1.x, so one config behaves the same on both.
 
-| Setting | Available since | Try the planned behavior in 0.1 | Keep the 0.1 behavior after the change |
+### New defaults
+
+| Setting | Opt-in since | New default | Keep the 0.1 behavior |
 |---|---|---|---|
-| `detector.underscore_separates_words` | 0.1.33 | `true` finds terms and built-ins inside names separated by `_` | Set `false` |
-| `detector.term_variants` | 0.1.26 | `true` finds alternate spellings of multiword terms | Set `false` |
-| `detector.merge_terms` | 0.1.36 | `true` matches `terms` and `patterns` of the same entity together, instead of the regex replacing the terms | Set `false` |
-| `anchor.secret` | 0.1.35 for `auto` on all commands | `auto` reuses a private per-user key for stable tokens | Set `""` explicitly to use no anchor |
-| Checksum/structure-based detectors | 0.1.26 | List the entities below in `detector.enable` | List unwanted entities in `detector.disable` |
-| `proxy.dlp_check` | 0.1.27 | `true` rejects requests that still contain values masked elsewhere in the request | Set `false` |
+| `detector.underscore_separates_words` | 0.1.33 | `true`: terms and built-ins are found inside names such as `ACME_API_KEY` or `host_10.0.0.1` | `false` |
+| `detector.term_variants` | 0.1.26 | `true`: a term of several words also matches `acme-corp` or `acme_corp` for `Acme Corp` | `false` |
+| `detector.merge_terms` | 0.1.36 | `true`: `terms` and `patterns` of the same entity are both matched, instead of the regex replacing the terms | `false` |
+| Checksum- and structure-validated entities | 0.1.26, with `enable` | built into the `regex` detector | list them in `detector.disable` |
+| `proxy.dlp_check` | 0.1.27 | `true`: a masked request that still holds a value it masked elsewhere is refused with `422` | `false` |
+| `anchor.secret` | 0.1.35, `auto` on every command | `auto`: a per-user key in `~/.privyx/anchor.key` | `""` |
 
-`run` already uses `anchor.secret: auto` unless an anchor choice is explicit.
-For commands that currently use counters, choosing `auto` changes the token
-IDs. Keep the same key to keep those IDs stable; a different key changes them.
-An explicit empty secret, including `PRIVYX_ANCHOR_SECRET=""`, disables the
-anchor. See [Anchors](masking.md#anchors).
+The entities are `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`,
+`MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, and `IN_AADHAAR`. `enable` still
+accepts their names, so a 0.1 config that opted in keeps loading; a `yaml`
+detector, which has no built-ins, still takes them with `enable`.
+`HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, and `ICD10` stay opt-in.
 
-The detector candidates are `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`,
-`SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, and `IN_AADHAAR`.
-`HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, and `ICD10` remain opt-in. Starting
-with 0.1.36, `disable` accepts inactive opt-in entities, so an opt-out config
-can be prepared before their defaults change. An entity cannot be in both
-`enable` and `disable`; remove it from `enable` when opting out.
-
-Try the compatible detection and anchor candidates together:
+To keep all of the 0.1 behavior:
 
 ```yaml
 detector:
-  underscore_separates_words: true
-  term_variants: true
-  merge_terms: true
-  enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR]
+  underscore_separates_words: false
+  term_variants: false
+  merge_terms: false
+  disable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR]
+proxy:
+  dlp_check: false
 anchor:
-  secret: auto
+  secret: ""
 ```
 
-Test `proxy.dlp_check: true` separately before using it with an agent. Echoed
-Claude thinking is replaced with the exact text remembered from the upstream
-response after DLP checks the masked request, preserving its signature. Only
-that remembered text is exempt; the rest of the request remains checked. See
-the [leak check](masking.md#leak-check) and
-[agent tests](../development/testing.md#end-to-end-a-real-agent-make-e2e).
+In a `detector` list, the detector keys go on each `regex` item. An entity
+cannot be in both `enable` and `disable`; remove it from `enable` to opt out.
+Set only the keys you want to keep: each one is independent. `privyx run`
+anchored with the per-user key in 0.1 already, so leave `anchor` out for it:
+`secret: ""` would switch it to counters.
 
-The default operator does not change: `fpe` stays opt-in. See
-[Masking](masking.md).
+### What changes for you
 
-Duplicate YAML keys have warned since 0.1.29 and are planned to become an
-error in 0.2. Keep a single occurrence of each key before upgrading. The
-warning includes the file and line; it is distinct from an intentional
-override between files in an `include` chain.
+**Tokens.** A `pseudonym` token's id is derived from the value with the
+anchor key instead of counted, so `<PRIVYX_EMAIL_1>` becomes a token such as
+`<PRIVYX_EMAIL_4FF5EF825E496E1A>`, the same for that value in every session
+and command. `privyx run` already worked this way, and its tokens do not
+change. A map file or vault session from 0.1 keeps its counter tokens and
+still restores them; a value it already holds keeps its token, and a new value
+gets an anchored one. Keep `~/.privyx/anchor.key`: a new key changes every
+anchored token. In the Docker image the key is in `/data/anchor.key`
+(`PRIVYX_ANCHOR_KEY_PATH`), so it lasts as long as the `/data` volume. Machines or users that must share
+tokens need the same `PRIVYX_ANCHOR_SECRET`. `PRIVYX_ANCHOR_SECRET=""` turns
+anchoring off, and `privyx run --no-anchor` uses no anchor unless the config
+or environment sets one. See [Anchors](masking.md#anchors).
 
-From 0.1.38, a setting that its section's `type` does not use warns when it
-is written beside that `type`, or with no `type` chosen, such as `terms` under
-`detector.type: presidio` or `vault.redis_url` without `type: redis`. Those
-warnings are planned to become errors in 0.2; remove the setting or set the
-type that uses it. The warning for `terms`, `patterns`, or `enable` from
-another file stays a warning. See
-[Settings per type](configuration.md#settings-per-type).
+**More is masked.** With `_` as a word separator, term variants, merged terms,
+and the new built-in entities, values that 0.1 sent as is are now masked.
+Run `privyx lint -c your.yaml` and `privyx detect -c your.yaml --transform
+"..."` on representative fake data to see what your config now finds. Cold
+detection of a large text takes longer; cached text does not.
 
-From 0.1.37, `operator.length`, the id length of `hash` tokens, is an error
-below 1 and warns from 1 to 5 or above 64. Those warnings are planned to
-become errors in 0.2; keep it between 6 and 64. See [`hash`](masking.md#hash).
+**Refused requests.** With the leak check on, a request whose masked value
+also appears where it was not masked, such as in a URL or a header other
+than the credential, answers `422` and is not forwarded. Echoed Claude
+thinking is exempt only as the exact text remembered from the upstream
+response. See the [leak check](masking.md#leak-check).
+
+**Python library.** `load_config`, `build_engine`, and `privyx.app` take the
+new defaults. Components built by hand, or `build_detector` with a plain dict,
+take only what their arguments say, as before. See the
+[Python library](../development/python-library.md).
+
+### New errors
+
+- A key given twice in one mapping of a config file warned from 0.1.29 and
+  now stops startup, with the file and line in the error. Keep one of them.
+  An override between files in an `include` chain is not affected.
+- A setting its section's `type` does not use, written beside that `type` or
+  with no `type` chosen, such as `terms` under `detector.type: presidio` or
+  `vault.redis_url` without `type: redis`, warned from 0.1.38 and is now an
+  error. Remove it or set the type that uses it. `terms`, `patterns`, or
+  `enable` from another file that no detector uses still only warn, and a
+  setting from an environment variable is still ignored. See
+  [Settings per type](configuration.md#settings-per-type).
+- `operator.length`, the id length of `hash` tokens, warned outside 6 to 64
+  from 0.1.37 and is now an error there. See [`hash`](masking.md#hash).
+
+The default operator does not change: `fpe` stays opt-in. No option is
+removed in 0.2.

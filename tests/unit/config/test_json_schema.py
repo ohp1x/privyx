@@ -62,3 +62,11 @@ def test_references_fit_non_string_and_enum_settings() -> None:
     assert validator.is_valid({"session": {"strategy": "${STRATEGY:-client}"}})
     assert validator.is_valid({"proxy": {"mode": "${MODE}"}})
     assert not validator.is_valid({"proxy": {"mode": "sideways"}})
+
+
+def test_hash_length_has_the_bounds_the_loader_checks() -> None:
+    validator = _validator()
+    for length, valid in ((5, False), (6, True), (64, True), (65, False), ("${N}", True)):
+        config = {"operator": {"type": "hash", "length": length}}
+        assert validator.is_valid(config) is valid, length
+    assert validator.is_valid({"operator": {"type": "my_plugin", "length": 3}})

@@ -973,6 +973,92 @@ def test_find_leaks_counts_whole_words_only() -> None:
     assert schemas.find_leaks("Bobby", {"Bob"}, underscore=True) == 0
 
 
+def test_find_leaks_skips_the_tokens_that_replaced_the_values() -> None:
+    from privyx.token.codec import FormatCodec
+
+    sent = "ask <PRIVYX_PERSON_1> or [TED-HIDDEN]"
+    codec = FormatCodec.default()
+    assert schemas.find_leaks(sent, {"PERSON", "TED"}, underscore=True) == 2
+    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=codec) == 0
+    assert schemas.find_leaks(sent, {"TED"}, fixed="[TED-HIDDEN]") == 0
+    assert schemas.find_leaks(sent + " TED", {"TED"}, fixed="[TED-HIDDEN]") == 1
+
+
+def test_find_leaks_still_searches_text_derived_from_a_value() -> None:
+    from privyx.token.codec import FormatCodec, LabelCodec
+
+    # A `partial` mask keeps the domain, and a label is a fake value.
+    sent = "mail b****@acme.example, ask <PRIVYX_PERSON_1:James Wilson>"
+    masked = {"bob@acme.example", "acme.example", "James"}
+    assert schemas.find_leaks(sent, masked, codec=FormatCodec.default()) == 2
+    labels = LabelCodec("<{namespace}_{type}_{id}>", "<{namespace}_{type}_{id}:{label}>")
+    assert schemas.find_leaks(sent, masked, codec=labels) == 2
+    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=labels) == 0
+
+
+def test_find_leaks_looks_past_fixed_text_only_where_it_stands_as_a_word() -> None:
+    # A one-letter redaction marker must not cut a leaked value apart.
+    assert schemas.find_leaks("mail x, cc alex@example.com", {"alex@example.com"}, fixed="x") == 1
+    assert schemas.find_leaks("mail x", {"x"}, fixed="x") == 0
+
+
+def test_find_leaks_skips_declared_tool_names_only() -> None:
+    tools = frozenset({"mcp__acme__search"})
+    sent = {"tools": [{"name": "mcp__acme__search"}], "content": [{"name": "mcp__acme__search"}]}
+    assert schemas.find_leaks(sent, {"acme"}, underscore=True) == 1
+    assert schemas.find_leaks(sent, {"acme"}, underscore=True, tools=tools) == 0
+    # Another `name`, such as a message's, is still searched.
+    assert schemas.find_leaks({"name": "acme_bot"}, {"acme"}, underscore=True, tools=tools) == 1
+
+
+@pytest.mark.parametrize(
+    "tools",
+    [
+        [{"name": "mcp__acme__search", "input_schema": {"type": "object"}}],
+        [{"type": "function", "function": {"name": "mcp__acme__search"}}],
+        [{"functionDeclarations": [{"name": "mcp__acme__search"}]}],
+    ],
+)
+async def test_dlp_check_does_not_refuse_a_term_in_a_tool_name(tools: list[Any]) -> None:
+    engine = PrivacyEngine(
+        detector=RegexDetector({"ORGANIZATION": r"\bacme\b"}),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        underscore_separates_words=True,
+    )
+    engine.dlp_check = True
+    sid = await _session(engine)
+    call = {"type": "tool_use", "id": "t1", "name": "mcp__acme__search", "input": {}}
+    messages = [
+        {"role": "user", "content": "search acme"},
+        {"role": "assistant", "content": [call]},
+    ]
+    payload = {"tools": tools, "messages": messages}
+    masked = await transform_request(payload, engine, sid)
+    assert masked["tools"] == tools
+    with pytest.raises(LeakError):
+        await transform_request({**payload, "metadata": {"name": "acme"}}, engine, sid)
+
+
+async def test_dlp_check_does_not_refuse_a_value_inside_the_redaction_text() -> None:
+    from privyx.privacy.operator.redact import RedactOperator
+
+    engine = PrivacyEngine(
+        detector=RegexDetector({"PERSON": r"\bTED\b"}),
+        policy=DefaultPolicy(),
+        operator=RedactOperator("[TED-HIDDEN]"),
+        vault=MemoryVault(),
+    )
+    engine.dlp_check = True
+    sid = await _session(engine)
+    payload = {"messages": [{"role": "user", "content": "ask TED"}]}
+    masked = await transform_request(payload, engine, sid)
+    assert masked["messages"][0]["content"] == "ask [TED-HIDDEN]"
+    with pytest.raises(LeakError):
+        await transform_request({**payload, "user": "TED"}, engine, sid)
+
+
 async def test_dlp_check_looks_in_every_header_sent_but_the_credentials() -> None:
     engine = _dlp_engine()
     headers = {"authorization": f"Bearer {EMAIL}", "x-user-email": EMAIL}

@@ -93,14 +93,14 @@ class PatternDetectorConfig(BaseModel):
     ``patterns`` and ``terms`` are complementary and may both be set: the first
     is entity -> regex, the second entity -> a list of literal strings that
     Privyx escapes and compiles for you (case-insensitively).  They are merged
-    into one pattern map; a hand-written ``patterns`` entry wins over a ``terms``
-    entry for the same entity unless ``merge_terms`` is enabled.
+    into one pattern map; with ``merge_terms`` off, a hand-written ``patterns``
+    entry wins over a ``terms`` entry for the same entity.
     """
 
     patterns: dict[str, str] = Field(default_factory=dict)
     terms: dict[str, list[str]] = Field(default_factory=dict)
-    merge_terms: bool = False  # match terms before patterns for the same entity
-    term_variants: bool = False  # terms also match acme-corp, acme_corp, … for "Acme Corp"
+    merge_terms: bool = True  # match terms before patterns for the same entity
+    term_variants: bool = True  # terms also match acme-corp, acme_corp, … for "Acme Corp"
     # entity -> words, one of which must be near a match
     context: dict[str, list[str]] = Field(default_factory=dict)
     enable: list[str] = Field(default_factory=list)  # opt-in built-in entities
@@ -151,7 +151,7 @@ class DetectorConfig(
     type: str = "regex"
     # `_` separates words, so acme is found in ACME_API_KEY (and the leak
     # check follows it, whatever the type)
-    underscore_separates_words: bool = False
+    underscore_separates_words: bool = True
     cache: DetectorCacheConfig | bool = Field(default_factory=DetectorCacheConfig)
 
     @field_validator("cache", mode="before")
@@ -179,10 +179,14 @@ class RedactOperatorConfig(BaseModel):
     token: str = "[REDACTED]"
 
 
+#: The digest lengths a ``hash`` operator takes.
+HASH_LENGTH = (6, 64)
+
+
 class HashOperatorConfig(BaseModel):
     """The settings of a ``hash`` operator."""
 
-    length: int = Field(default=12, ge=1)  # digest length
+    length: int = Field(default=12, ge=HASH_LENGTH[0], le=HASH_LENGTH[1])  # digest length
 
 
 class FPEOperatorConfig(BaseModel):
@@ -220,12 +224,22 @@ class OperatorConfig(
         "fpe": FPEOperatorConfig,
     }
     type: str = "pseudonym"
+    # Unbounded here: a plugin type may have a `length` of its own.  `hash`'s
+    # bounds are checked below, and the JSON schema takes them from its model.
+    length: int = Field(default=12, ge=1)
+
+    @model_validator(mode="after")
+    def _hash_length(self) -> OperatorConfig:
+        low, high = HASH_LENGTH
+        if self.type == "hash" and not low <= self.length <= high:
+            raise ValueError(f"operator.length must be between {low} and {high}, not {self.length}")
+        return self
 
 
 class HMACAnchorConfig(BaseModel):
     """The settings of an ``hmac`` anchor."""
 
-    secret: str = ""
+    secret: str = "auto"  # the per-user key in ~/.privyx/anchor.key; "" for none
 
 
 class AnchorConfig(HMACAnchorConfig, PluggableConfig):
@@ -409,7 +423,7 @@ class ProxyConfig(BaseModel):
     connect_timeout: float = Field(default=10.0, gt=0)
     max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
     #: Refuse a masked request that still holds, anywhere, a value it masked.
-    dlp_check: bool = False
+    dlp_check: bool = True
     #: Tell the model, in each masked chat request, to keep placeholders as written.
     directive: bool = False
     #: Mark a large Anthropic ``tools`` / ``system`` prefix for prompt caching
@@ -727,7 +741,12 @@ def _by_type(
         check: dict[str, Any] = {"properties": {"type": {"enum": types}}}
         if default not in types:  # the default's check also applies with no `type`
             check["required"] = ["type"]
-        own = {key: props[key] for key in settings.model_fields}
+        # A field the section redeclares, looser for plugins, is the type's own here.
+        mine = settings.model_json_schema()["properties"]
+        _allow_references(mine)
+        own = {
+            k: mine[k] if k in model.__annotations__ else props[k] for k in settings.model_fields
+        }
         checks.append(
             {"if": check, "then": {"properties": {**taken, **own}, "additionalProperties": False}}
         )

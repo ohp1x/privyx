@@ -19,7 +19,9 @@ services:
       - PRIVYX_OPENAI_API_KEY=${PRIVYX_OPENAI_API_KEY:-}
       - PRIVYX_ANTHROPIC_API_KEY=${PRIVYX_ANTHROPIC_API_KEY:-}
       - PRIVYX_ENCRYPT_KEY=${PRIVYX_ENCRYPT_KEY:-}
-      - PRIVYX_ANCHOR_SECRET=${PRIVYX_ANCHOR_SECRET:-}
+      # Passed only when set, so an anchor.secret in a mounted config still applies.
+      # Unset, the default `auto` keeps a key on the /data volume; empty: no anchor.
+      - PRIVYX_ANCHOR_SECRET
       - PRIVYX_VAULT=${PRIVYX_VAULT:-redis}
       - PRIVYX_REDIS_URL=${PRIVYX_REDIS_URL:-redis://redis:6379/0}
       - PRIVYX_VAULT_DSN=${PRIVYX_VAULT_DSN:-sqlite+aiosqlite:////data/privyx.db}

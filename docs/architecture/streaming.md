@@ -6,11 +6,11 @@ description: How Privyx restores a streamed reply when a token is split across c
 
 ## The problem
 
-A pseudonym like `<PRIVYX_EMAIL_1>` may be split across stream chunks:
+A pseudonym like `<PRIVYX_EMAIL_4FF5EF825E496E1A>` may be split across stream chunks:
 
 ```text
-chunk 1: "...<PRIVYX_EMAI"
-chunk 2: "L_1> is the email..."
+chunk 1: "...<PRIVYX_EMAIL_4FF5EF"
+chunk 2: "825E496E1A> is the email..."
 ```
 
 Naive substring replacement fails on chunk boundaries. Replacing on the

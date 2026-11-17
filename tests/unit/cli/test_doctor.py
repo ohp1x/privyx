@@ -188,7 +188,8 @@ def test_doctor_restores_configured_terms_without_printing_them(tmp_path: Path, 
 @pytest.mark.parametrize("operator", ["redact", "hash", "partial", "encrypt"])
 def test_doctor_handles_configured_operators(tmp_path: Path, operator: str) -> None:
     config = tmp_path / "config.yaml"
-    config.write_text(f"operator:\n  type: {operator}\n  key: '{'ab' * 32}'\n")
+    key = f"  key: '{'ab' * 32}'\n" if operator == "encrypt" else ""
+    config.write_text(f"operator:\n  type: {operator}\n{key}")
 
     result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
 
@@ -249,11 +250,19 @@ def test_doctor_never_sends_configured_terms_to_llm(
             return "[]"
 
     monkeypatch.setattr("privyx.privacy.detector.llm._load_client", lambda *args: Client())
-    remote = {"type": "llm", "terms": {"PERSON": [term]}}
-    detector = [{"type": "yaml", "terms": {"PERSON": [term]}}, remote] if mixed else remote
+    local = {"type": "yaml", "terms": {"PERSON": [term]}}
+    # Unmixed, the terms come from a file below the one that picks `llm`.
+    (tmp_path / "base.yaml").write_text(yaml.safe_dump({"detector": local}))
+    detector = [local, {"type": "llm"}] if mixed else {"type": "llm"}
     config = tmp_path / "config.yaml"
     config.write_text(
-        yaml.safe_dump({"detector": detector, "policy": {"type": "strict", "allowed": [allowed]}})
+        yaml.safe_dump(
+            {
+                "include": "base.yaml",
+                "detector": detector,
+                "policy": {"type": "strict", "allowed": [allowed]},
+            }
+        )
     )
 
     result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
@@ -330,3 +339,12 @@ def test_doctor_accounts_for_redaction_token(
 
     assert result.exit_code == expected, result.output
     assert ("✗ proxy:" in result.output) == bool(expected)
+
+
+def test_doctor_does_not_create_the_anchor_key(tmp_path: Path) -> None:
+    from privyx.security.keys import default_anchor_secret_path
+
+    result = CliRunner().invoke(cli, ["doctor"])
+
+    assert "anchor=hmac" in result.output
+    assert not default_anchor_secret_path().exists()

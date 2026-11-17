@@ -145,10 +145,15 @@ DEFAULT_PATTERNS: dict[str, str] = {
     "AUTH_TOKEN": r"(?i)(?:bearer|basic)[ \t]+(?P<value>[\w.~+/-]{16,}=*)",
     "URL_CREDENTIAL": URL_CREDENTIAL_PATTERN,
     "SECRET": SECRET_PATTERN,
+    **catalog.CHECKED_PATTERNS,
 }
 
 #: Built-in entities a detector turns on with ``enable``.
 OPTIONAL_PATTERNS: dict[str, str] = dict(catalog.OPTIONAL_PATTERNS)
+
+#: The built-ins ``enable`` accepts: the opt-in ones, and the checked ones a
+#: ``yaml`` detector lacks (a no-op in a ``regex`` detector, which has them).
+ENABLEABLE_PATTERNS: dict[str, str] = {**catalog.CHECKED_PATTERNS, **OPTIONAL_PATTERNS}
 
 
 def _luhn(match: re.Match[str]) -> bool:

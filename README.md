@@ -74,7 +74,7 @@ $ uvx privyx detect --transform "DB_PASSWORD=hunter2 deploy to 10.0.4.17, cc dan
     30:39    IP_ADDRESS        '10.0.4.17'
     44:61    EMAIL             'dana@acme.example'
 
-DB_PASSWORD=<PRIVYX_SECRET_1> deploy to <PRIVYX_IP_ADDRESS_2>, cc <PRIVYX_EMAIL_3>
+DB_PASSWORD=<PRIVYX_SECRET_A2907293658B4995> deploy to <PRIVYX_IP_ADDRESS_C8E127AF2D5584C3>, cc <PRIVYX_EMAIL_19ECE4788CA5AE6F>
 ```
 
 The [Quickstart](https://ohp1x.github.io/privyx/guide/getting-started/) walks
@@ -85,8 +85,8 @@ through each of these, and there is a Docker image:
 
 ![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The model answers with a tool call on both placeholders, and your tool runs it with the real values.](https://raw.githubusercontent.com/ohp1x/privyx/main/docs/assets/how-it-works.svg)
 
-The model works with `<PRIVYX_EMAIL_1>`: it can reason about it, repeat it,
-and hand it to a tool. The mapping back to the real value stays with Privyx.
+The model works with `<PRIVYX_EMAIL_F04C885A31827851>`: it can reason about
+it, repeat it, and hand it to a tool. The mapping back to the real value stays with Privyx.
 More in [How it works](https://ohp1x.github.io/privyx/guide/how-it-works/).
 
 ## Who it is for

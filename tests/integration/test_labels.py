@@ -38,6 +38,7 @@ def _settings(**token: Any) -> Settings:
         detector=TERMS,
         audit={"enabled": False},
         proxy={"directive": True},
+        anchor={"secret": ""},  # counter tokens, which the tests name
     )
 
 
@@ -73,7 +74,7 @@ async def test_labels_are_the_same_in_every_request() -> None:
 
 
 async def test_without_label_format_nothing_changes() -> None:
-    settings = Settings(detector=TERMS, audit={"enabled": False})
+    settings = Settings(detector=TERMS, audit={"enabled": False}, anchor={"secret": ""})
     engine = await _engine(settings)
     masked = await engine.transform(f"{NAME} wrote to {EMAIL}")
     assert masked.text == "<PRIVYX_PERSON_1> wrote to <PRIVYX_EMAIL_2>"

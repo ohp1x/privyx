@@ -47,7 +47,8 @@ Common settings come from environment variables:
 | `PRIVYX_REDIS_URL` | Redis URL when `PRIVYX_VAULT=redis` |
 | `PRIVYX_VAULT_TTL` | Seconds a session may sit idle before it expires; `docker-compose.yml` sets a week (`604800`) |
 | `PRIVYX_ENCRYPT_KEY` | Key for the `encrypt` operator (64 hex chars) |
-| `PRIVYX_ANCHOR_SECRET` | HMAC secret that keeps pseudonyms stable across turns and restarts |
+| `PRIVYX_ANCHOR_SECRET` | HMAC secret that keeps pseudonyms stable across turns and restarts. The default, `auto`, keeps a key in `/data/anchor.key`, so it lasts as long as the `/data` volume; an empty value turns anchoring off |
+| `PRIVYX_ANCHOR_KEY_PATH` | Where `auto` keeps that key; the image sets `/data/anchor.key` |
 | `PRIVYX_LOG_LEVEL` | `debug`, `info` (default), `warning`, … |
 | `PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH` | PII-safe audit trail (default `/data/privyx-audit.log`) |
 | `PRIVYX_SSL_CERTFILE`, `PRIVYX_SSL_KEYFILE` | Serve HTTPS directly |

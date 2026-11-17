@@ -81,22 +81,27 @@ def _load(tmp_path: Path, **files: str) -> list[str]:
 GLOBAL_TERMS = "detector:\n  type: regex\n  terms: {PROJECT: [kestrel]}\n  language: id\n"
 
 
-def test_a_key_of_another_type_in_the_same_layer_warns(tmp_path: Path) -> None:
-    warnings = _load(
-        tmp_path,
-        top="detector: {type: presidio, terms: {PROJECT: [kestrel]}, decode: true}\n"
-        "vault: {redis_url: 'redis://localhost:6379/0'}\n",
+def test_a_key_of_another_type_in_the_same_layer_is_an_error(tmp_path: Path) -> None:
+    (tmp_path / "top.yaml").write_text(
+        "detector: {type: presidio, terms: {PROJECT: [kestrel]}, decode: true}\n"
+        "vault: {redis_url: 'redis://localhost:6379/0'}\n"
     )
 
-    assert warnings == [
-        "'vault.redis_url' from top.yaml is not used by vault type 'memory'; "
-        "a later release will refuse it",
-        "'detector.terms' from top.yaml is not used by detector type 'presidio'; "
-        "a later release will refuse it",
-        "'detector.decode' from top.yaml is not used by detector type 'presidio'; "
-        "a later release will refuse it",
-    ]
-    assert "kestrel" not in str(warnings)
+    with pytest.raises(ConfigError) as exc:
+        load_config(tmp_path / "top.yaml")
+
+    top = (tmp_path / "top.yaml").resolve()
+    assert str(exc.value) == "; ".join(
+        [
+            f"'vault.redis_url' from {top} is not used by vault type 'memory'; "
+            "remove it or set a type that uses it",
+            f"'detector.terms' from {top} is not used by detector type 'presidio'; "
+            "remove it or set a type that uses it",
+            f"'detector.decode' from {top} is not used by detector type 'presidio'; "
+            "remove it or set a type that uses it",
+        ]
+    )
+    assert "kestrel" not in str(exc.value)
 
 
 def test_global_terms_under_another_type_above_warn(tmp_path: Path) -> None:
@@ -180,16 +185,18 @@ def test_a_key_of_another_type_from_the_environment_is_dropped_without_a_word(
 
 
 def test_load_logs_each_warning_once(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    (tmp_path / "base.yaml").write_text(GLOBAL_TERMS)
     path = tmp_path / "top.yaml"
-    path.write_text("detector: {type: llm, normalize: true}\n")
+    path.write_text("include: base.yaml\ndetector: {type: presidio}\n")
 
     with caplog.at_level(logging.WARNING, logger="privyx"):
         load_config(path)
         load_config(path)
 
     assert [r.getMessage() for r in caplog.records] == [
-        f"'detector.normalize' from {path.resolve()} is not used by detector type 'llm'; "
-        "a later release will refuse it"
+        f"'PROJECT' in 'detector.terms' from {(tmp_path / 'base.yaml').resolve()} reaches no "
+        "detector that uses it, so it is not masked: "
+        f"detector type 'presidio' from {path.resolve()} does not use it"
     ]
 
 

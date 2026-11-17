@@ -3,7 +3,7 @@
 # `terms` takes plain strings — Privyx escapes them, orders the longest first so
 # a compound term wins over a substring of itself, and adds word boundaries.
 # Matching is case-insensitive.  The entity name is yours to choose; it is the
-# {type} in the emitted token, e.g. <PRIVYX_PERSON_1>.
+# {type} in the emitted token, e.g. <PRIVYX_PERSON_A81B3C9AEE08DE11>.
 #
 # Every value below is a placeholder — replace it with your own.
 

@@ -333,7 +333,14 @@ async def transform_request(
                 [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
             ]
             sent += [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS]
-            leaks = find_leaks(sent, masked, underscore=engine.underscore_separates_words)
+            leaks = find_leaks(
+                sent,
+                masked,
+                underscore=engine.underscore_separates_words,
+                codec=engine.codec,
+                fixed=getattr(engine.operator, "fixed_text", ""),
+                tools=_tool_names(payload.get("tools")),
+            )
             if leaks:
                 raise LeakError(f"{leaks} masked value(s) still in the request")
         # Only text remembered from an upstream response may bypass DLP: it
@@ -487,7 +494,15 @@ def _role(message: Any) -> Any:
     return message.get("role") if isinstance(message, dict) else None
 
 
-def find_leaks(value: Any, masked: set[str], *, underscore: bool = False) -> int:
+def find_leaks(
+    value: Any,
+    masked: set[str],
+    *,
+    underscore: bool = False,
+    codec: TokenCodec | None = None,
+    fixed: str = "",
+    tools: frozenset[str] = frozenset(),
+) -> int:
     """How many of the ``masked`` values are still in ``value``'s strings.
 
     The check behind ``proxy.dlp_check``: a value masked in one place of a
@@ -497,13 +512,32 @@ def find_leaks(value: Any, masked: set[str], *, underscore: bool = False) -> int
     and a value that starts or ends with a letter or digit must stand as a
     whole word there (``Bob`` is not found in ``Bobby``).  With ``underscore``,
     as the detector has it, ``_`` separates words (``Bob`` is in ``DB_BOB``).
+    The tokens of ``codec`` and the ``fixed`` text an operator writes for every
+    value are not searched, where it stands as a word: a value may be part of
+    the token that replaced it (``PERSON`` in ``<PRIVYX_PERSON_1>``, ``TED`` in
+    ``[TED-HIDDEN]``).  Text an operator derives from a value, such as a
+    ``partial`` mask or a placeholder's label, still is.  Neither are the
+    ``tools`` names where a ``name`` or ``tool_name`` holds one: they are sent
+    as declared, so a term in ``mcp__acme__search`` would refuse every request.
     """
-    sent = "\0".join(_strings(value))
+    sent = "\0".join(_strings(value, tools))
     # A plain substring search first: most values are not there at all.
     words = sorted((w for w in masked if w in sent), key=len, reverse=True)
     if not words:
         return 0
     pattern = re.compile("|".join(_whole(word, underscore) for word in words))  # longest first
+    if pattern.search(sent) is None:
+        return 0  # only inside other words: no token to look past
+    if codec is not None:
+        parts, at = [], 0
+        for token in codec.finditer(sent):
+            parts.append(sent[at : token.start])
+            if token.label is not None:  # the label is text like any other
+                parts.append(sent[slice(*token.label)])
+            at = token.end
+        sent = "\0".join([*parts, sent[at:]])
+    if fixed:
+        sent = re.sub(_whole(fixed, underscore), "\0", sent)
     return len(set(pattern.findall(sent)))
 
 
@@ -514,7 +548,7 @@ def _whole(word: str, underscore: bool = False) -> str:
     return f"{left}{re.escape(word)}{right}"
 
 
-def _strings(value: Any) -> Iterator[str]:
+def _strings(value: Any, tools: frozenset[str] = frozenset()) -> Iterator[str]:
     if isinstance(value, str):
         yield value
     elif isinstance(value, int | float) and not isinstance(value, bool):
@@ -522,10 +556,25 @@ def _strings(value: Any) -> Iterator[str]:
     elif isinstance(value, dict):
         for key, item in value.items():
             yield from _strings(key)
-            yield from _strings(item)
+            if key in ("name", "tool_name") and isinstance(item, str) and item in tools:
+                continue
+            yield from _strings(item, tools)
     elif isinstance(value, list):
         for item in value:
-            yield from _strings(item)
+            yield from _strings(item, tools)
+
+
+def _tool_names(tools: Any) -> frozenset[str]:
+    """The tool names ``tools`` declares: ``name``, ``function.name``, or Gemini's declarations."""
+    names: set[str] = set()
+    for tool in tools if isinstance(tools, list) else []:
+        if not isinstance(tool, dict):
+            continue
+        declared = tool.get("functionDeclarations") or tool.get("function_declarations") or []
+        for item in [tool, tool.get("function"), *declared]:
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                names.add(item["name"])
+    return frozenset(names)
 
 
 def _unescaped(text: str) -> str:

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="488" viewBox="0 0 1200 488" role="img" aria-labelledby="hiw-title hiw-desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540" role="img" aria-labelledby="hiw-title hiw-desc">
   <title id="hiw-title">How Privyx works</title>
   <desc id="hiw-desc">Your tool sends a request to Privyx. Privyx replaces the email address and the password it detects with placeholders, remembers the mapping in a session vault, and forwards the request to the AI provider. The model answers with a tool call that uses both placeholders. Privyx puts the original values back, so your tool runs the call with the real address and password.</desc>
   <defs>
@@ -7,7 +7,7 @@
     </marker>
   </defs>
 
-  <rect width="1200" height="488" rx="16" fill="#1e1e2e"/>
+  <rect width="1200" height="540" rx="16" fill="#1e1e2e"/>
 
   <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
     <!-- Column headings -->
@@ -21,7 +21,7 @@
     </g>
 
     <!-- Privyx -->
-    <rect x="430" y="28" width="340" height="432" rx="14" fill="#25253a" stroke="#6366F1" stroke-width="2"/>
+    <rect x="430" y="28" width="340" height="482" rx="14" fill="#25253a" stroke="#6366F1" stroke-width="2"/>
     <g transform="translate(452 40) scale(0.25)">
       <rect width="128" height="128" rx="28" fill="#4F46E5"/>
       <g transform="translate(6.4 6.4) scale(.9)" fill="none" stroke-width="12">
@@ -32,61 +32,67 @@
     </g>
     <text x="496" y="62" font-size="17" font-weight="600" fill="#cdd6f4">Privyx</text>
     <g font-size="13" fill="#a6adc8" text-anchor="middle">
-      <text x="600" y="174">detect, then mask</text>
-      <text x="600" y="422">restore</text>
+      <text x="600" y="180">detect, then mask</text>
+      <text x="600" y="468">restore</text>
     </g>
 
     <!-- Session vault -->
-    <rect x="450" y="226" width="300" height="110" rx="10" fill="#1e1e2e" stroke="#45475a"/>
-    <text x="466" y="252" font-size="13" font-weight="600" fill="#cdd6f4">Session vault</text>
-    <text x="466" y="270" font-size="12" fill="#a6adc8">the mapping stays on your side</text>
+    <rect x="450" y="236" width="300" height="144" rx="10" fill="#1e1e2e" stroke="#45475a"/>
+    <text x="466" y="262" font-size="13" font-weight="600" fill="#cdd6f4">Session vault</text>
+    <text x="466" y="280" font-size="12" fill="#a6adc8">the mapping stays on your side</text>
 
     <!-- Step captions -->
     <g font-size="12" font-weight="700" fill="#1e1e2e" text-anchor="middle">
       <circle cx="50" cy="110" r="10" fill="#b4befe"/><text x="50" y="114">1</text>
       <circle cx="820" cy="110" r="10" fill="#b4befe"/><text x="820" y="114">2</text>
-      <circle cx="820" cy="360" r="10" fill="#b4befe"/><text x="820" y="364">3</text>
-      <circle cx="50" cy="360" r="10" fill="#b4befe"/><text x="50" y="364">4</text>
+      <circle cx="820" cy="398" r="10" fill="#b4befe"/><text x="820" y="402">3</text>
+      <circle cx="50" cy="398" r="10" fill="#b4befe"/><text x="50" y="402">4</text>
     </g>
     <g font-size="13" fill="#a6adc8">
       <text x="68" y="115">You send</text>
       <text x="838" y="115">The provider receives</text>
-      <text x="838" y="365">The model calls a tool</text>
-      <text x="68" y="365">Your tool runs</text>
+      <text x="838" y="403">The model calls a tool</text>
+      <text x="68" y="403">Your tool runs</text>
     </g>
   </g>
 
   <!-- Arrows: the request across the top, the reply across the bottom -->
   <g fill="none" stroke="#9399b2" stroke-width="2" marker-end="url(#hiw-arrow)">
-    <path d="M390 170H428"/>
-    <path d="M770 170H808"/>
-    <path d="M810 418H772"/>
-    <path d="M430 418H392"/>
+    <path d="M390 175H428"/>
+    <path d="M770 175H808"/>
+    <path d="M810 463H772"/>
+    <path d="M430 463H392"/>
   </g>
 
   <!-- Messages -->
   <g fill="#313244" stroke="#45475a">
-    <rect x="40" y="128" width="350" height="84" rx="10"/>
-    <rect x="810" y="128" width="350" height="84" rx="10"/>
-    <rect x="810" y="376" width="350" height="84" rx="10"/>
-    <rect x="40" y="376" width="350" height="84" rx="10"/>
+    <rect x="40" y="128" width="350" height="94" rx="10"/>
+    <rect x="810" y="128" width="350" height="94" rx="10"/>
+    <rect x="810" y="416" width="350" height="94" rx="10"/>
+    <rect x="40" y="416" width="350" height="94" rx="10"/>
   </g>
-  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="14" fill="#cdd6f4">
-    <text x="60" y="164">Add <tspan fill="#f38ba8">ann@example.com</tspan> as admin.</text>
-    <text x="60" y="188">Use DB_PASSWORD=<tspan fill="#f38ba8">hunter2</tspan></text>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace" font-size="13" fill="#cdd6f4">
+    <text x="60" y="158">Add <tspan fill="#f38ba8">ann@example.com</tspan></text>
+    <text x="60" y="180">as admin. Use DB_PASSWORD=</text>
+    <text x="60" y="202"><tspan fill="#f38ba8">hunter2</tspan></text>
 
-    <text x="830" y="164">Add <tspan fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan> as admin.</text>
-    <text x="830" y="188">Use DB_PASSWORD=<tspan fill="#b4befe">&lt;PRIVYX_SECRET_2&gt;</tspan></text>
+    <text x="830" y="158">Add <tspan fill="#b4befe">&lt;PRIVYX_EMAIL_F04C885A31827851&gt;</tspan></text>
+    <text x="830" y="180">as admin. Use DB_PASSWORD=</text>
+    <text x="830" y="202"><tspan fill="#b4befe">&lt;PRIVYX_SECRET_A2907293658B4995&gt;</tspan></text>
 
-    <text x="830" y="412">add_admin("<tspan fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan>",</text>
-    <text x="830" y="436" xml:space="preserve">          "<tspan fill="#b4befe">&lt;PRIVYX_SECRET_2&gt;</tspan>")</text>
+    <text x="830" y="446">add_admin(</text>
+    <text x="830" y="468" xml:space="preserve">  "<tspan fill="#b4befe">&lt;PRIVYX_EMAIL_F04C885A31827851&gt;</tspan>",</text>
+    <text x="830" y="490" xml:space="preserve">  "<tspan fill="#b4befe">&lt;PRIVYX_SECRET_A2907293658B4995&gt;</tspan>")</text>
 
-    <text x="60" y="412">add_admin("<tspan fill="#a6e3a1">ann@example.com</tspan>",</text>
-    <text x="60" y="436" xml:space="preserve">          "<tspan fill="#a6e3a1">hunter2</tspan>")</text>
+    <text x="60" y="446">add_admin(</text>
+    <text x="60" y="468" xml:space="preserve">  "<tspan fill="#a6e3a1">ann@example.com</tspan>",</text>
+    <text x="60" y="490" xml:space="preserve">  "<tspan fill="#a6e3a1">hunter2</tspan>")</text>
 
     <g font-size="12">
-      <text y="298"><tspan x="466" fill="#b4befe">&lt;PRIVYX_EMAIL_1&gt;</tspan><tspan x="604">=</tspan><tspan x="622" fill="#f38ba8">ann@example.com</tspan></text>
-      <text y="320"><tspan x="466" fill="#b4befe">&lt;PRIVYX_SECRET_2&gt;</tspan><tspan x="604">=</tspan><tspan x="622" fill="#f38ba8">hunter2</tspan></text>
+      <text x="466" y="306" fill="#b4befe">&lt;PRIVYX_EMAIL_F04C885A31827851&gt;</text>
+      <text x="466" y="324" xml:space="preserve">  = <tspan fill="#f38ba8">ann@example.com</tspan></text>
+      <text x="466" y="346" fill="#b4befe">&lt;PRIVYX_SECRET_A2907293658B4995&gt;</text>
+      <text x="466" y="364" xml:space="preserve">  = <tspan fill="#f38ba8">hunter2</tspan></text>
     </g>
   </g>
 </svg>

@@ -325,7 +325,12 @@ async def test_compact_tokens_from_config_round_trip() -> None:
     from privyx.core.builder import build_engine
 
     engine, close = await build_engine(
-        Settings(vault={"type": "memory"}, token={"compact": True}, audit={"enabled": False})
+        Settings(
+            vault={"type": "memory"},
+            token={"compact": True},
+            audit={"enabled": False},
+            anchor={"secret": ""},  # a counter id, which the test names
+        )
     )
     try:
         session = await engine.get_or_create_session()
@@ -390,8 +395,10 @@ async def test_dlp_check_comes_from_proxy_config() -> None:
     from privyx.config.schema import Settings
     from privyx.core.builder import build_engine
 
-    off, close_off = await build_engine(Settings(vault={"type": "memory"}))
-    on, close_on = await build_engine(Settings(vault={"type": "memory"}, proxy={"dlp_check": True}))
+    on, close_on = await build_engine(Settings(vault={"type": "memory"}))  # the default
+    off, close_off = await build_engine(
+        Settings(vault={"type": "memory"}, proxy={"dlp_check": False})
+    )
     await close_off()
     await close_on()
     assert (off.dlp_check, on.dlp_check) == (False, True)
@@ -403,8 +410,11 @@ async def test_the_dlp_check_splits_at_underscores_when_a_detector_does() -> Non
 
     flags = []
     for detector in (
-        {"type": "regex"},
-        [{"type": "regex"}, {"type": "yaml", "underscore_separates_words": True}],
+        {"type": "regex", "underscore_separates_words": False},
+        [
+            {"type": "regex", "underscore_separates_words": False},
+            {"type": "yaml", "underscore_separates_words": True},
+        ],
     ):
         engine, close = await build_engine(Settings(vault={"type": "memory"}, detector=detector))
         await close()

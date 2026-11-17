@@ -119,3 +119,17 @@ def test_invalid_existing_secret_is_not_replaced(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="automatic anchor secret"):
         read_or_create_anchor_secret(path)
     assert path.read_bytes() == b"\xff"
+
+
+def test_anchor_key_path_moves_the_default_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from privyx.security.keys import default_anchor_secret_path
+
+    target = tmp_path / "data" / "anchor.key"
+    monkeypatch.setenv("PRIVYX_ANCHOR_KEY_PATH", str(target))
+    assert default_anchor_secret_path() == target
+    secret = read_or_create_anchor_secret()
+    assert target.read_text(encoding="utf-8").strip() == secret
+    monkeypatch.delenv("PRIVYX_ANCHOR_KEY_PATH")
+    assert default_anchor_secret_path() != target

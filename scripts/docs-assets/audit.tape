@@ -15,8 +15,10 @@ Set TypingSpeed 30ms
 # A few requests through the proxy so the audit log has something to
 # summarize. Each key is written in two parts so that this file holds no
 # key-shaped string.
+# Its own HOME and a fixed anchor secret: the recording never uses your
+# anchor key, and shows the same tokens as the docs.
 Hide
-Type `unset PROMPT_COMMAND; PS1='$ '; R=$PWD; cd "$(mktemp -d)"`
+Type `unset PROMPT_COMMAND; PS1='$ '; R=$PWD; cd "$(mktemp -d)"; export HOME=$PWD PRIVYX_ANCHOR_SECRET=docs-example`
 Enter
 Type `python "$R/scripts/docs-assets/stub_upstream.py" 9000 & privyx proxy --upstream http://127.0.0.1:9000 >proxy.out 2>&1 &`
 Enter

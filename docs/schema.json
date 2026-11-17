@@ -143,7 +143,7 @@
             "properties": {
               "type": true,
               "secret": {
-                "default": "",
+                "default": "auto",
                 "title": "Secret",
                 "type": "string"
               }
@@ -313,7 +313,7 @@
           "title": "Underscore Separates Words",
           "anyOf": [
             {
-              "default": false,
+              "default": true,
               "type": "boolean"
             },
             {
@@ -382,7 +382,7 @@
                 "title": "Merge Terms",
                 "anyOf": [
                   {
-                    "default": false,
+                    "default": true,
                     "type": "boolean"
                   },
                   {
@@ -395,7 +395,7 @@
                 "title": "Term Variants",
                 "anyOf": [
                   {
-                    "default": false,
+                    "default": true,
                     "type": "boolean"
                   },
                   {
@@ -805,7 +805,8 @@
                 "anyOf": [
                   {
                     "default": 12,
-                    "minimum": 1,
+                    "maximum": 64,
+                    "minimum": 6,
                     "type": "integer"
                   },
                   {
@@ -1229,7 +1230,7 @@
           "title": "Dlp Check",
           "anyOf": [
             {
-              "default": false,
+              "default": true,
               "type": "boolean"
             },
             {

@@ -57,6 +57,13 @@ To skip the configuration layer, pass the four components yourself:
 --8<-- "examples/basic.py"
 ```
 
+The defaults of the configuration are not applied then. A component built by
+hand, or a detector from `build_detector` with a plain dict, takes what its
+arguments say, and each option it is not given is off: no anchor, no leak
+check (`dlp_check`), and none of `underscore_separates_words`,
+`term_variants`, or `merge_terms`, which the configuration turns on by default
+since 0.2. Set them yourself, or start from `load_config`.
+
 ## Restore a stream
 
 A model's reply usually arrives in pieces, and a token can be cut in two.
