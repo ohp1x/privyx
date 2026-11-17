@@ -339,7 +339,7 @@ async def transform_request(
                 underscore=engine.underscore_separates_words,
                 codec=engine.codec,
                 fixed=getattr(engine.operator, "fixed_text", ""),
-                tools=_tool_names(payload.get("tools")),
+                tools=_declared_names(payload, schema),
             )
             if leaks:
                 raise LeakError(f"{leaks} masked value(s) still in the request")
@@ -512,13 +512,14 @@ def find_leaks(
     and a value that starts or ends with a letter or digit must stand as a
     whole word there (``Bob`` is not found in ``Bobby``).  With ``underscore``,
     as the detector has it, ``_`` separates words (``Bob`` is in ``DB_BOB``).
-    The tokens of ``codec`` and the ``fixed`` text an operator writes for every
-    value are not searched, where it stands as a word: a value may be part of
-    the token that replaced it (``PERSON`` in ``<PRIVYX_PERSON_1>``, ``TED`` in
-    ``[TED-HIDDEN]``).  Text an operator derives from a value, such as a
-    ``partial`` mask or a placeholder's label, still is.  Neither are the
-    ``tools`` names where a ``name`` or ``tool_name`` holds one: they are sent
-    as declared, so a term in ``mcp__acme__search`` would refuse every request.
+    The tokens of ``codec`` are not searched, nor does a match count that lies
+    inside the ``fixed`` text an operator writes for every value, where that
+    text stands as a word: a value may be part of the token that replaced it
+    (``PERSON`` in ``<PRIVYX_PERSON_1>``, ``TED`` in ``[TED-HIDDEN]``).  Text an
+    operator derives from a value, such as a ``partial`` mask or a
+    placeholder's label, still is.  Neither are the ``tools`` names where a
+    ``name`` or ``tool_name`` holds one: they are sent as declared, so a term
+    in ``mcp__acme__search`` would refuse every request.
     """
     sent = "\0".join(_strings(value, tools))
     # A plain substring search first: most values are not there at all.
@@ -536,9 +537,16 @@ def find_leaks(
                 parts.append(sent[slice(*token.label)])
             at = token.end
         sent = "\0".join([*parts, sent[at:]])
-    if fixed:
-        sent = re.sub(_whole(fixed, underscore), "\0", sent)
-    return len(set(pattern.findall(sent)))
+    # A match is the operator's own text only where it lies inside that text:
+    # cut out, the text would split a value around it (`john x smith`).
+    covered = [m.span() for m in re.finditer(_whole(fixed, underscore), sent)] if fixed else []
+    return len(
+        {
+            m.group()
+            for m in pattern.finditer(sent)
+            if not any(a <= m.start() and m.end() <= b for a, b in covered)
+        }
+    )
 
 
 def _searched(request: dict[str, Any], schema: str | None) -> dict[str, Any]:
@@ -578,6 +586,16 @@ def _strings(value: Any, tools: frozenset[str] = frozenset()) -> Iterator[str]:
     elif isinstance(value, list):
         for item in value:
             yield from _strings(item, tools)
+
+
+def _declared_names(payload: Mapping[str, Any], schema: str | None) -> frozenset[str]:
+    """The tool names a request declares, a wrapped Gemini request's included."""
+    names = _tool_names(payload.get("tools"))
+    if schema == "gemini":
+        for key in _GEMINI_WRAPPED & payload.keys():
+            if isinstance(payload[key], dict):
+                names |= _tool_names(payload[key].get("tools"))
+    return names
 
 
 def _tool_names(tools: Any) -> frozenset[str]:

@@ -1000,6 +1000,8 @@ def test_find_leaks_looks_past_fixed_text_only_where_it_stands_as_a_word() -> No
     # A one-letter redaction marker must not cut a leaked value apart.
     assert schemas.find_leaks("mail x, cc alex@example.com", {"alex@example.com"}, fixed="x") == 1
     assert schemas.find_leaks("mail x", {"x"}, fixed="x") == 0
+    # Nor a leaked value that holds it.
+    assert schemas.find_leaks("hdr: john x smith", {"john x smith"}, fixed="x") == 1
 
 
 def test_find_leaks_skips_declared_tool_names_only() -> None:
@@ -1039,6 +1041,29 @@ async def test_dlp_check_does_not_refuse_a_term_in_a_tool_name(tools: list[Any])
     assert masked["tools"] == tools
     with pytest.raises(LeakError):
         await transform_request({**payload, "metadata": {"name": "acme"}}, engine, sid)
+
+
+async def test_dlp_check_does_not_refuse_a_tool_name_of_a_wrapped_gemini_request() -> None:
+    engine = PrivacyEngine(
+        detector=RegexDetector({"ORGANIZATION": r"\bacme\b"}),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        underscore_separates_words=True,
+    )
+    engine.dlp_check = True
+    sid = await _session(engine)
+    call = {"functionCall": {"name": "mcp__acme__search", "args": {}}}
+    request = {
+        "contents": [
+            {"role": "user", "parts": [{"text": "ask acme"}]},
+            {"role": "model", "parts": [call]},
+        ],
+        "tools": [{"functionDeclarations": [{"name": "mcp__acme__search"}]}],
+    }
+    payload = {"generateContentRequest": request}
+    masked = await transform_request(payload, engine, sid, schema="gemini")
+    assert masked["generateContentRequest"]["contents"][1]["parts"][0] == call
 
 
 async def test_dlp_check_searches_only_the_descriptions_of_tools() -> None:
