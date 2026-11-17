@@ -123,11 +123,6 @@
               "type": "string"
             }
           ]
-        },
-        "secret": {
-          "default": "",
-          "title": "Secret",
-          "type": "string"
         }
       },
       "title": "AnchorConfig",
@@ -147,7 +142,11 @@
           "then": {
             "properties": {
               "type": true,
-              "secret": true
+              "secret": {
+                "default": "",
+                "title": "Secret",
+                "type": "string"
+              }
             },
             "additionalProperties": false
           }
@@ -291,7 +290,7 @@
     },
     "DetectorConfig": {
       "additionalProperties": true,
-      "description": "Detector selection and its rules.\n\n``patterns`` and ``terms`` are complementary and may both be set: the first\nis entity -> regex, the second entity -> a list of literal strings that\nPrivyx escapes and compiles for you (case-insensitively).  They are merged\ninto one pattern map; a hand-written ``patterns`` entry wins over a ``terms``\nentry for the same entity unless ``merge_terms`` is enabled.",
+      "description": "Detector selection and its rules.",
       "properties": {
         "type": {
           "default": "regex",
@@ -310,115 +309,8 @@
             }
           ]
         },
-        "patterns": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "title": "Patterns",
-          "type": "object"
-        },
-        "terms": {
-          "additionalProperties": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": "Terms",
-          "type": "object"
-        },
-        "merge_terms": {
-          "title": "Merge Terms",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "term_variants": {
-          "title": "Term Variants",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
         "underscore_separates_words": {
           "title": "Underscore Separates Words",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "context": {
-          "additionalProperties": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "title": "Context",
-          "type": "object"
-        },
-        "enable": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Enable",
-          "type": "array"
-        },
-        "disable": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Disable",
-          "type": "array"
-        },
-        "entropy_threshold": {
-          "title": "Entropy Threshold",
-          "anyOf": [
-            {
-              "default": 3.0,
-              "exclusiveMinimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "decode": {
-          "title": "Decode",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "normalize": {
-          "title": "Normalize",
           "anyOf": [
             {
               "default": false,
@@ -448,97 +340,6 @@
             }
           ],
           "title": "Cache"
-        },
-        "language": {
-          "default": "en",
-          "title": "Language",
-          "type": "string"
-        },
-        "model": {
-          "default": "",
-          "title": "Model",
-          "type": "string"
-        },
-        "entities": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Entities",
-          "type": "array"
-        },
-        "score_threshold": {
-          "title": "Score Threshold",
-          "anyOf": [
-            {
-              "default": 0.35,
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "llm_provider": {
-          "default": "openai",
-          "title": "Llm Provider",
-          "type": "string"
-        },
-        "llm_model": {
-          "default": "",
-          "title": "Llm Model",
-          "type": "string"
-        },
-        "llm_api_key": {
-          "default": "",
-          "title": "Llm Api Key",
-          "type": "string"
-        },
-        "llm_instructions": {
-          "default": "",
-          "title": "Llm Instructions",
-          "type": "string"
-        },
-        "llm_timeout": {
-          "title": "Llm Timeout",
-          "anyOf": [
-            {
-              "default": 30.0,
-              "exclusiveMinimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "llm_max_chars": {
-          "title": "Llm Max Chars",
-          "anyOf": [
-            {
-              "default": 4000,
-              "exclusiveMinimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "llm_fallback_on_error": {
-          "title": "Llm Fallback On Error",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
         }
       },
       "title": "DetectorConfig",
@@ -549,8 +350,6 @@
             "properties": {
               "type": {
                 "enum": [
-                  "llm",
-                  "presidio",
                   "regex",
                   "yaml"
                 ]
@@ -560,29 +359,250 @@
           "then": {
             "properties": {
               "type": true,
-              "patterns": true,
-              "terms": true,
-              "merge_terms": true,
-              "term_variants": true,
-              "underscore_separates_words": true,
-              "context": true,
-              "enable": true,
-              "disable": true,
-              "entropy_threshold": true,
-              "decode": true,
-              "normalize": true,
               "cache": true,
-              "language": true,
-              "model": true,
-              "entities": true,
-              "score_threshold": true,
-              "llm_provider": true,
-              "llm_model": true,
-              "llm_api_key": true,
-              "llm_instructions": true,
-              "llm_timeout": true,
-              "llm_max_chars": true,
-              "llm_fallback_on_error": true
+              "underscore_separates_words": true,
+              "patterns": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "title": "Patterns",
+                "type": "object"
+              },
+              "terms": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": "Terms",
+                "type": "object"
+              },
+              "merge_terms": {
+                "title": "Merge Terms",
+                "anyOf": [
+                  {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              },
+              "term_variants": {
+                "title": "Term Variants",
+                "anyOf": [
+                  {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              },
+              "context": {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": "Context",
+                "type": "object"
+              },
+              "enable": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Enable",
+                "type": "array"
+              },
+              "disable": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Disable",
+                "type": "array"
+              },
+              "entropy_threshold": {
+                "title": "Entropy Threshold",
+                "anyOf": [
+                  {
+                    "default": 3.0,
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              },
+              "decode": {
+                "title": "Decode",
+                "anyOf": [
+                  {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              },
+              "normalize": {
+                "title": "Normalize",
+                "anyOf": [
+                  {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "presidio"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "cache": true,
+              "underscore_separates_words": true,
+              "language": {
+                "default": "en",
+                "title": "Language",
+                "type": "string"
+              },
+              "model": {
+                "default": "",
+                "title": "Model",
+                "type": "string"
+              },
+              "entities": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Entities",
+                "type": "array"
+              },
+              "score_threshold": {
+                "title": "Score Threshold",
+                "anyOf": [
+                  {
+                    "default": 0.35,
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "llm"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "cache": true,
+              "underscore_separates_words": true,
+              "llm_provider": {
+                "default": "openai",
+                "title": "Llm Provider",
+                "type": "string"
+              },
+              "llm_model": {
+                "default": "",
+                "title": "Llm Model",
+                "type": "string"
+              },
+              "llm_api_key": {
+                "default": "",
+                "title": "Llm Api Key",
+                "type": "string"
+              },
+              "llm_instructions": {
+                "default": "",
+                "title": "Llm Instructions",
+                "type": "string"
+              },
+              "llm_timeout": {
+                "title": "Llm Timeout",
+                "anyOf": [
+                  {
+                    "default": 30.0,
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              },
+              "llm_max_chars": {
+                "title": "Llm Max Chars",
+                "anyOf": [
+                  {
+                    "default": 4000,
+                    "exclusiveMinimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              },
+              "llm_fallback_on_error": {
+                "title": "Llm Fallback On Error",
+                "anyOf": [
+                  {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              }
             },
             "additionalProperties": false
           }
@@ -691,55 +711,6 @@
               "type": "string"
             }
           ]
-        },
-        "token": {
-          "default": "[REDACTED]",
-          "title": "Token",
-          "type": "string"
-        },
-        "length": {
-          "title": "Length",
-          "anyOf": [
-            {
-              "default": 12,
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "locale": {
-          "default": "",
-          "title": "Locale",
-          "type": "string"
-        },
-        "seed": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "string",
-                  "pattern": "\\$\\{"
-                }
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Seed"
-        },
-        "key": {
-          "default": "",
-          "title": "Key",
-          "type": "string"
         }
       },
       "title": "OperatorConfig",
@@ -750,13 +721,8 @@
             "properties": {
               "type": {
                 "enum": [
-                  "encrypt",
-                  "faker",
-                  "fpe",
-                  "hash",
-                  "partial",
                   "pseudonym",
-                  "redact"
+                  "faker"
                 ]
               }
             }
@@ -764,11 +730,175 @@
           "then": {
             "properties": {
               "type": true,
-              "token": true,
-              "length": true,
-              "locale": true,
-              "seed": true,
-              "key": true
+              "seed": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "\\$\\{"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Seed"
+              },
+              "locale": {
+                "default": "",
+                "title": "Locale",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "redact"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "token": {
+                "default": "[REDACTED]",
+                "title": "Token",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "hash"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "length": {
+                "title": "Length",
+                "anyOf": [
+                  {
+                    "default": 12,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "\\$\\{"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "encrypt"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "key": {
+                "default": "",
+                "title": "Key",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "partial"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "fpe"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "seed": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "\\$\\{"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Seed"
+              }
             },
             "additionalProperties": false
           }
@@ -857,13 +987,6 @@
               "type": "string"
             }
           ]
-        },
-        "allowed": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Allowed",
-          "type": "array"
         }
       },
       "title": "PolicyConfig",
@@ -874,16 +997,41 @@
             "properties": {
               "type": {
                 "enum": [
-                  "default",
-                  "strict"
+                  "default"
                 ]
               }
             }
           },
           "then": {
             "properties": {
+              "type": true
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "strict"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
               "type": true,
-              "allowed": true
+              "allowed": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Allowed",
+                "type": "array"
+              }
             },
             "additionalProperties": false
           }
@@ -927,21 +1075,6 @@
           },
           "title": "Headers",
           "type": "object"
-        },
-        "openai_api_key": {
-          "default": "",
-          "title": "Openai Api Key",
-          "type": "string"
-        },
-        "anthropic_api_key": {
-          "default": "",
-          "title": "Anthropic Api Key",
-          "type": "string"
-        },
-        "google_api_key": {
-          "default": "",
-          "title": "Google Api Key",
-          "type": "string"
         }
       },
       "title": "ProviderConfig",
@@ -952,10 +1085,10 @@
             "properties": {
               "type": {
                 "enum": [
-                  "anthropic",
                   "generic",
-                  "google",
-                  "openai"
+                  "openai",
+                  "anthropic",
+                  "google"
                 ]
               }
             }
@@ -966,9 +1099,21 @@
               "base_url": true,
               "api_key": true,
               "headers": true,
-              "openai_api_key": true,
-              "anthropic_api_key": true,
-              "google_api_key": true
+              "openai_api_key": {
+                "default": "",
+                "title": "Openai Api Key",
+                "type": "string"
+              },
+              "anthropic_api_key": {
+                "default": "",
+                "title": "Anthropic Api Key",
+                "type": "string"
+              },
+              "google_api_key": {
+                "default": "",
+                "title": "Google Api Key",
+                "type": "string"
+              }
             },
             "additionalProperties": false
           }
@@ -1268,37 +1413,6 @@
               "type": "string"
             }
           ]
-        },
-        "dsn": {
-          "default": "sqlite+aiosqlite:///~/.privyx/privyx.db",
-          "title": "Dsn",
-          "type": "string"
-        },
-        "redis_url": {
-          "default": "redis://localhost:6379/0",
-          "title": "Redis Url",
-          "type": "string"
-        },
-        "ttl": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "exclusiveMinimum": 0,
-                  "type": "integer"
-                },
-                {
-                  "type": "string",
-                  "pattern": "\\$\\{"
-                }
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Ttl"
         }
       },
       "title": "VaultConfig",
@@ -1309,9 +1423,7 @@
             "properties": {
               "type": {
                 "enum": [
-                  "memory",
-                  "redis",
-                  "sqlite"
+                  "memory"
                 ]
               }
             }
@@ -1319,9 +1431,119 @@
           "then": {
             "properties": {
               "type": true,
-              "dsn": true,
-              "redis_url": true,
-              "ttl": true
+              "ttl": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "\\$\\{"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Ttl"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "sqlite"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "ttl": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "\\$\\{"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Ttl"
+              },
+              "dsn": {
+                "default": "sqlite+aiosqlite:///~/.privyx/privyx.db",
+                "title": "Dsn",
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "redis"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": true,
+              "ttl": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "\\$\\{"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Ttl"
+              },
+              "redis_url": {
+                "default": "redis://localhost:6379/0",
+                "title": "Redis Url",
+                "type": "string"
+              }
             },
             "additionalProperties": false
           }

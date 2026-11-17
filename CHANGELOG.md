@@ -9,9 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Plugins:** `privyx.plugins` exports everything a component needs, from the base classes to `Detection`, `Session`, and `restore`, so a plugin no longer imports from internal modules that may move
-- **Plugins:** A plugin can declare its options as a `Config`, checked at startup with a "did you mean" for a misspelled key; a config layer that switches a section to another `type` no longer carries over the plugin options set below it, and `privyx config --schema` checks each built-in type's settings and, with a config that loads plugins, their types and options
+- **Plugins:** A plugin can declare its options as a `Config`, checked at startup with a "did you mean" for a misspelled key; a config layer that switches a section to another `type` no longer carries over the plugin options set below it, and with a config that loads plugins, `privyx config --schema` checks their types and options
 - **Python API:** `Privyx` (experimental) assembles Privyx in Python: add components, routes, and startup or shutdown hooks in code, then serve the proxy with `px.run()` or take the engine with `px.engine()`. A route that would take a masking route stops startup
 - **Plugins:** `plugins.modules` (or `PRIVYX_PLUGIN_MODULES`) loads plugins from installed packages; each module's `setup(px)` adds components, routes, and hooks. Installed packages are never loaded unless named
+- **Config:** A setting that its section's `type` does not use, such as `terms` under `detector.type: presidio` or `vault.redis_url` without `type: redis`, warns at startup and in `privyx lint` with the key, type, and file; when written beside the `type`, it is planned to be refused from 0.2.0
+- **Detection:** `terms`, `patterns`, or `enable` from one config file that no detector uses, because a file above switches the detector type or sets a detector list, warn that those entities are not masked
+- **Config:** The JSON schema, published and from `privyx config --schema`, checks each built-in `type` with its own settings, so an editor offers only the Presidio settings under `detector.type: presidio`
 - **Masking:** `token.label_format` (opt-in) writes `pseudonym` tokens with a fake value the model can read, such as `<PRIVYX_PERSON_1:Alice Johnson>`. The placeholder is restored by its id, so a reply that only holds the fake name is left as written; `proxy.directive` explains the labels to the model. Needs `privyx[faker]`
 
 ## [0.1.37] - 2026-11-15

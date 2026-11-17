@@ -8,6 +8,9 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+#: A model of settings (``type`` is shadowed by a field inside the sections).
+_Model = type[BaseModel]
+
 
 class PluggableConfig(BaseModel):
     """A section whose ``type`` may name a plugin.
@@ -15,28 +18,62 @@ class PluggableConfig(BaseModel):
     Keys the schema does not define are kept: they are a plugin's own options,
     handed to its ``from_config``.  Under a built-in type they can only be typos,
     so :func:`~privyx.config.loader.load_config` rejects them there.
+
+    A section's fields are the union of its built-in types' settings, each a
+    mixin listed before this class, so a field is defined once.  This class
+    comes last among the bases so that ``type`` is the first field.
     """
 
     model_config = ConfigDict(extra="allow")
-    #: The ``type`` values Privyx implements itself (a plugin never shadows one).
-    builtin_types: ClassVar[frozenset[str]] = frozenset()
+    #: The ``type`` values Privyx implements itself, each to the settings it
+    #: takes beside :attr:`shared_fields`.  A plugin never shadows one.
+    builtin_types: ClassVar[dict[str, _Model]] = {}
     #: Fields Privyx applies itself, whatever the type, so a plugin's section
     #: takes them beside its own options.
     shared_fields: ClassVar[frozenset[str]] = frozenset()
+    type: str = ""
+
+    @classmethod
+    def type_fields(cls, kind: str) -> frozenset[str]:
+        """The fields built-in type ``kind`` uses: its own, ``type``, and the shared ones."""
+        return frozenset({"type", *cls.shared_fields, *cls.builtin_types[kind].model_fields})
 
 
-class VaultConfig(PluggableConfig):
-    builtin_types = frozenset({"memory", "sqlite", "redis"})
-    # Open string rather than a closed Literal so a plugin vault type validates;
-    # build_vault still raises ConfigError for a type that is neither built-in
-    # nor registered by a plugin.
-    type: str = "memory"
-    dsn: str = "sqlite+aiosqlite:///~/.privyx/privyx.db"
-    redis_url: str = "redis://localhost:6379/0"
+class NoSettings(BaseModel):
+    """The settings of a built-in type that takes none of its own."""
+
+
+class MemoryVaultConfig(BaseModel):
+    """The settings of a ``memory`` vault."""
+
     # Idle expiry in seconds, measured from a session's last transform.  Unset
     # keeps sessions until deleted; 0 is rejected (it would expire every
     # session on creation, and Redis refuses it).
     ttl: int | None = Field(default=None, gt=0)
+
+
+class SQLiteVaultConfig(MemoryVaultConfig):
+    """The settings of a ``sqlite`` vault."""
+
+    dsn: str = "sqlite+aiosqlite:///~/.privyx/privyx.db"
+
+
+class RedisVaultConfig(MemoryVaultConfig):
+    """The settings of a ``redis`` vault."""
+
+    redis_url: str = "redis://localhost:6379/0"
+
+
+class VaultConfig(RedisVaultConfig, SQLiteVaultConfig, PluggableConfig):
+    builtin_types = {
+        "memory": MemoryVaultConfig,
+        "sqlite": SQLiteVaultConfig,
+        "redis": RedisVaultConfig,
+    }
+    # Open string rather than a closed Literal so a plugin vault type validates;
+    # build_vault still raises ConfigError for a type that is neither built-in
+    # nor registered by a plugin.
+    type: str = "memory"
 
 
 class DetectorCacheConfig(BaseModel):
@@ -50,8 +87,8 @@ class DetectorCacheConfig(BaseModel):
     max_size: int = 10000
 
 
-class DetectorConfig(PluggableConfig):
-    """Detector selection and its rules.
+class PatternDetectorConfig(BaseModel):
+    """The settings of a ``regex`` or ``yaml`` detector.
 
     ``patterns`` and ``terms`` are complementary and may both be set: the first
     is entity -> regex, the second entity -> a list of literal strings that
@@ -60,38 +97,62 @@ class DetectorConfig(PluggableConfig):
     entry for the same entity unless ``merge_terms`` is enabled.
     """
 
-    builtin_types = frozenset({"regex", "yaml", "presidio", "llm"})
-    shared_fields = frozenset({"cache", "underscore_separates_words"})
-    type: str = "regex"
     patterns: dict[str, str] = Field(default_factory=dict)
     terms: dict[str, list[str]] = Field(default_factory=dict)
-    merge_terms: bool = False  # regex/yaml: match terms before patterns for the same entity
+    merge_terms: bool = False  # match terms before patterns for the same entity
     term_variants: bool = False  # terms also match acme-corp, acme_corp, … for "Acme Corp"
-    # regex/yaml/llm: `_` separates words, so acme is found in ACME_API_KEY
-    underscore_separates_words: bool = False
-    # regex/yaml: entity -> words, one of which must be near a match
+    # entity -> words, one of which must be near a match
     context: dict[str, list[str]] = Field(default_factory=dict)
-    enable: list[str] = Field(default_factory=list)  # regex/yaml: opt-in built-in entities
-    disable: list[str] = Field(default_factory=list)  # regex/yaml: built-in entities to turn off
+    enable: list[str] = Field(default_factory=list)  # opt-in built-in entities
+    disable: list[str] = Field(default_factory=list)  # built-in entities to turn off
     entropy_threshold: float = Field(default=3.0, gt=0)  # HIGH_ENTROPY: bits per character
-    decode: bool = False  # regex/yaml: also scan split strings and Base64/hex/URL-encoded text
-    normalize: bool = False  # regex/yaml: also scan with fullwidth and zero-width characters folded
+    decode: bool = False  # also scan split strings and Base64/hex/URL-encoded text
+    normalize: bool = False  # also scan with fullwidth and zero-width characters folded
+
+
+class PresidioDetectorConfig(BaseModel):
+    """The settings of a ``presidio`` detector."""
+
+    language: str = "en"
+    model: str = ""  # spaCy model (empty → {language}_core_web_sm)
+    entities: list[str] = Field(default_factory=list)  # empty → all recognizers
+    score_threshold: float = 0.35  # minimum confidence
+
+
+class LLMDetectorConfig(BaseModel):
+    """The settings of an ``llm`` detector.
+
+    Prefixed (unlike presidio's) because their unprefixed names would be
+    ambiguous in the flat section: "provider" could read as the proxy's
+    upstream ProviderConfig, and "model" already means a spaCy model name.
+    """
+
+    llm_provider: str = "openai"  # built-in SDK ("openai" or "anthropic")
+    llm_model: str = ""  # model name (empty → a small default per provider)
+    llm_api_key: str = ""  # empty defers to the SDK's own env lookup
+    llm_instructions: str = ""  # prompt instructions (empty → built-in default)
+    llm_timeout: float = Field(default=30.0, gt=0)  # seconds before a scan fails
+    llm_max_chars: int = Field(default=4000, gt=0)  # longer text is chunked
+    llm_fallback_on_error: bool = False  # regex-only scan instead of failing
+
+
+class DetectorConfig(
+    LLMDetectorConfig, PresidioDetectorConfig, PatternDetectorConfig, PluggableConfig
+):
+    """Detector selection and its rules."""
+
+    builtin_types = {
+        "regex": PatternDetectorConfig,
+        "yaml": PatternDetectorConfig,
+        "presidio": PresidioDetectorConfig,
+        "llm": LLMDetectorConfig,
+    }
+    shared_fields = frozenset({"cache", "underscore_separates_words"})
+    type: str = "regex"
+    # `_` separates words, so acme is found in ACME_API_KEY (and the leak
+    # check follows it, whatever the type)
+    underscore_separates_words: bool = False
     cache: DetectorCacheConfig | bool = Field(default_factory=DetectorCacheConfig)
-    language: str = "en"  # presidio detector
-    model: str = ""  # presidio detector: spaCy model (empty → {language}_core_web_sm)
-    entities: list[str] = Field(default_factory=list)  # presidio: empty → all recognizers
-    score_threshold: float = 0.35  # presidio detector: minimum confidence
-    # llm detector fields are prefixed (unlike presidio's) because their
-    # unprefixed names would be ambiguous here: "provider" could read as the
-    # proxy's upstream ProviderConfig, and "model" already means a spaCy model
-    # name for presidio in this same schema.
-    llm_provider: str = "openai"  # llm detector: built-in SDK ("openai" or "anthropic")
-    llm_model: str = ""  # llm detector: model name (empty → a small default per provider)
-    llm_api_key: str = ""  # llm detector: empty defers to the SDK's own env lookup
-    llm_instructions: str = ""  # llm detector: prompt instructions (empty → built-in default)
-    llm_timeout: float = Field(default=30.0, gt=0)  # llm detector: seconds before a scan fails
-    llm_max_chars: int = Field(default=4000, gt=0)  # llm detector: longer text is chunked
-    llm_fallback_on_error: bool = False  # llm detector: regex-only scan instead of failing
 
     @field_validator("cache", mode="before")
     @classmethod
@@ -101,26 +162,75 @@ class DetectorConfig(PluggableConfig):
         return v
 
 
-class PolicyConfig(PluggableConfig):
-    builtin_types = frozenset({"default", "strict"})
-    type: str = "default"
+class StrictPolicyConfig(BaseModel):
+    """The settings of a ``strict`` policy."""
+
     allowed: list[str] = Field(default_factory=list)
 
 
-class OperatorConfig(PluggableConfig):
-    builtin_types = frozenset({"pseudonym", "redact", "hash", "faker", "encrypt", "partial", "fpe"})
+class PolicyConfig(StrictPolicyConfig, PluggableConfig):
+    builtin_types = {"default": NoSettings, "strict": StrictPolicyConfig}
+    type: str = "default"
+
+
+class RedactOperatorConfig(BaseModel):
+    """The settings of a ``redact`` operator."""
+
+    token: str = "[REDACTED]"
+
+
+class HashOperatorConfig(BaseModel):
+    """The settings of a ``hash`` operator."""
+
+    length: int = Field(default=12, ge=1)  # digest length
+
+
+class FPEOperatorConfig(BaseModel):
+    """The settings of an ``fpe`` operator."""
+
+    seed: int | None = None  # determinism salt
+
+
+class FakerOperatorConfig(FPEOperatorConfig):
+    """The settings of a ``faker`` operator, and of ``pseudonym`` labels."""
+
+    locale: str = ""  # Faker locale (empty → Faker's default)
+
+
+class EncryptOperatorConfig(BaseModel):
+    """The settings of an ``encrypt`` operator."""
+
+    key: str = ""  # 64 hex chars (`openssl rand -hex 32`)
+
+
+class OperatorConfig(
+    EncryptOperatorConfig,
+    FakerOperatorConfig,
+    HashOperatorConfig,
+    RedactOperatorConfig,
+    PluggableConfig,
+):
+    builtin_types = {
+        "pseudonym": FakerOperatorConfig,
+        "redact": RedactOperatorConfig,
+        "hash": HashOperatorConfig,
+        "faker": FakerOperatorConfig,
+        "encrypt": EncryptOperatorConfig,
+        "partial": NoSettings,
+        "fpe": FPEOperatorConfig,
+    }
     type: str = "pseudonym"
-    token: str = "[REDACTED]"  # redact operator
-    length: int = Field(default=12, ge=1)  # hash operator digest length
-    locale: str = ""  # faker operator: Faker locale (empty → Faker's default)
-    seed: int | None = None  # faker and fpe operators: determinism salt
-    key: str = ""  # encrypt operator: 64 hex chars (`openssl rand -hex 32`)
 
 
-class AnchorConfig(PluggableConfig):
-    builtin_types = frozenset({"hmac", "pasp"})
-    type: str = "hmac"
+class HMACAnchorConfig(BaseModel):
+    """The settings of an ``hmac`` anchor."""
+
     secret: str = ""
+
+
+class AnchorConfig(HMACAnchorConfig, PluggableConfig):
+    builtin_types = {"hmac": HMACAnchorConfig, "pasp": HMACAnchorConfig}
+    type: str = "hmac"
 
 
 class SessionConfig(BaseModel):
@@ -169,7 +279,19 @@ class TokenConfig(BaseModel):
     label_format: str = ""
 
 
-class ProviderConfig(PluggableConfig):
+class ProviderKeysConfig(BaseModel):
+    """The key of each built-in provider type, which every built-in type takes.
+
+    One environment can hold a key per type (``PRIVYX_OPENAI_API_KEY``, ...);
+    the one for the selected type wins over ``api_key``.
+    """
+
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    google_api_key: str = ""
+
+
+class ProviderConfig(ProviderKeysConfig, PluggableConfig):
     """Provider transport settings.
 
     ``base_url`` defaults to empty rather than to a URL: an empty value lets
@@ -178,16 +300,13 @@ class ProviderConfig(PluggableConfig):
     non-empty default here would silently override every such fallback.
     """
 
-    builtin_types = frozenset({"generic", "openai", "anthropic", "google"})
+    builtin_types = dict.fromkeys(("generic", "openai", "anthropic", "google"), ProviderKeysConfig)
     # The transparent proxy uses them whatever the type.
     shared_fields = frozenset({"base_url", "api_key", "headers"})
     type: str = "generic"
     base_url: str = ""
     api_key: str = ""
     headers: dict[str, str] = Field(default_factory=dict)
-    openai_api_key: str = ""
-    anthropic_api_key: str = ""
-    google_api_key: str = ""
 
 
 def _default_routes() -> dict[str, str]:
@@ -548,9 +667,9 @@ def json_schema(
     """The JSON Schema of a config file, for editors that complete and check YAML.
 
     A section that is not pluggable takes no other keys, as in
-    :func:`~privyx.config.loader.load_config`.  A pluggable one takes only its
-    fields under a built-in type, and any key under another, since a plugin
-    type has options of its own.
+    :func:`~privyx.config.loader.load_config`.  A pluggable one takes, under a
+    built-in type, only the settings of that type and the shared ones, and any
+    key under another, since a plugin type has options of its own.
 
     ``plugins`` maps a section to the plugin types loaded for it, each to its
     ``Config`` or ``None``.  With it, ``type`` takes only the built-in and
@@ -593,18 +712,25 @@ def _by_type(
         kind["anyOf"] = [{"enum": names}, {"type": "string"}]
     else:
         kind["anyOf"] = [{"enum": names}, {"type": "string", "pattern": r"\$\{"}]
-    node["properties"]["type"] = kind
+    props = node["properties"]
+    # Only `type` and the shared fields apply whatever the type; each built-in
+    # type adds its own below, so an editor offers only those.
+    node["properties"] = {"type": kind, **{k: props[k] for k in props if k in model.shared_fields}}
     node["additionalProperties"] = True
-    checks = [
-        {
-            # Also when `type` is left out: the default is a built-in.
-            "if": {"properties": {"type": {"enum": builtin}}},
-            "then": {
-                "properties": dict.fromkeys(node["properties"], True),
-                "additionalProperties": False,
-            },
-        }
-    ]
+    taken = {"type": True, **dict.fromkeys(model.shared_fields, True)}
+    default = model.model_fields["type"].default
+    groups: dict[type[BaseModel], list[str]] = {}
+    for name, settings in model.builtin_types.items():
+        groups.setdefault(settings, []).append(name)
+    checks: list[dict[str, Any]] = []
+    for settings, types in groups.items():
+        check: dict[str, Any] = {"properties": {"type": {"enum": types}}}
+        if default not in types:  # the default's check also applies with no `type`
+            check["required"] = ["type"]
+        own = {key: props[key] for key in settings.model_fields}
+        checks.append(
+            {"if": check, "then": {"properties": {**taken, **own}, "additionalProperties": False}}
+        )
     for name, options in sorted(plugins.items()):
         if options is None:
             continue  # no Config: any key is the plugin's to read
@@ -613,7 +739,6 @@ def _by_type(
         for key, value in own.pop("$defs", {}).items():
             defs[prefix + key] = value
         _allow_references(own)
-        taken = {"type": True, **dict.fromkeys(model.shared_fields, True)}
         checks.append(
             {
                 "if": {"properties": {"type": {"const": name}}, "required": ["type"]},

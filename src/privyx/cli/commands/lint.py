@@ -65,7 +65,9 @@ def lint(config_path: str | None) -> None:
     john%20smith, zero-width and fullwidth characters), and a few fake built-in
     values inside identifiers (host_10.0.0.1), through the configured regex and
     yaml detectors and policy.  A detector option is suggested only when a
-    retry with it masks the value.  Exits 1 when a spelling is not fully masked.
+    retry with it masks the value.  Settings the detector type does not use,
+    such as terms under presidio, are reported first.  Exits 1 when a spelling
+    is not fully masked.
     """
     from privyx.core.errors import PrivyxError
 
@@ -84,7 +86,10 @@ async def _lint(config_path: str | None) -> int:
     from privyx.plugins.loader import load_plugins
     from privyx.privacy.detector.yaml import build_detector
 
-    settings = load_config(config_path)
+    unused: list[str] = []
+    settings = load_config(config_path, warnings=unused)
+    for warning in unused:
+        click.echo(f"warning: {warning}")
     load_plugins(settings)
     sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
     checked = [s.model_dump() for s in sections if s.type in ("regex", "yaml")]

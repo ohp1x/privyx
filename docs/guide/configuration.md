@@ -60,6 +60,7 @@ itself holds no credential and one file serves several machines:
 provider:
   api_key: ${ANTHROPIC_API_KEY}
 vault:
+  type: redis
   redis_url: redis://${REDIS_HOST:-localhost}:6379/0
 port: ${PROXY_PORT:-8080}
 ```
@@ -158,8 +159,9 @@ Or map the schema to the file names once, in VS Code's `settings.json`:
 ```
 
 Under a built-in `type`, a pluggable section (`detector`, `operator`, `vault`,
-...) takes only its own settings; under any other type, any key, since a
-plugin reads options of its own.
+...) takes only the [settings of that type](#settings-per-type), so the
+editor offers only those; under any other type, any key, since a plugin reads
+options of its own.
 
 The published schema follows the latest release; to match an older install,
 save `privyx config --schema` to a file and point the comment at its path.
@@ -167,6 +169,58 @@ With a config that loads plugins, `privyx config --schema` also knows their
 types: `type` then takes only the built-in and loaded names, and a plugin with
 a [`Config`](../development/plugins.md#options) only its own options. Save it
 to a file and point the comment at that file.
+
+## Settings per type
+
+`vault`, `detector`, `policy`, `operator`, `anchor`, and `provider` choose a
+component with `type`, and each built-in type uses only some of the section's
+settings:
+
+| Section | `type` | Settings it uses |
+|---|---|---|
+| `vault` | `memory` | `ttl` |
+| | `sqlite` | `dsn`, `ttl` |
+| | `redis` | `redis_url`, `ttl` |
+| `detector` | `regex`, `yaml` | `patterns`, `terms`, `merge_terms`, `term_variants`, `context`, `enable`, `disable`, `entropy_threshold`, `decode`, `normalize` |
+| | `presidio` | `language`, `model`, `entities`, `score_threshold` |
+| | `llm` | `llm_provider`, `llm_model`, `llm_api_key`, `llm_instructions`, `llm_timeout`, `llm_max_chars`, `llm_fallback_on_error` |
+| `policy` | `default` | none |
+| | `strict` | `allowed` |
+| `operator` | `pseudonym`, `faker` | `locale`, `seed` (for `pseudonym`, used by [labels](masking.md#labels)) |
+| | `fpe` | `seed` |
+| | `hash` | `length` |
+| | `encrypt` | `key` |
+| | `redact` | `token` |
+| | `partial` | none |
+| `anchor` | `hmac` | `secret` |
+| `provider` | every built-in type | `base_url`, `api_key`, `headers`, `openai_api_key`, `anthropic_api_key`, `google_api_key` |
+
+`detector.cache` and `detector.underscore_separates_words` apply to every
+detector type.
+
+Privyx warns at startup, and [`privyx lint`](cli.md#privyx-lint) reports,
+when a type does not use a setting. A warning names the key, the type, and
+the file or layer, never a value:
+
+- A setting written in the same file as the `type`, or with no `type` chosen
+  at all, such as `redis_url` without `type: redis`. 0.2 is planned to refuse
+  it; see [Upgrading](upgrading.md#preparing-for-02).
+- `terms`, `patterns`, or `enable` from another file, for each entity that no
+  detector using them receives: a file above picks another type, or sets
+  `detector` as a list, which replaces the mapping below. This stays a
+  warning, since the file that picks the type may not be yours to change.
+  Listing the same entity again under the same key in the file above
+  silences it; a pattern or an opt-in built-in of that name does not.
+
+Other settings from a file below that the new type does not use, such as
+`language` once a file above sets `type: regex`, are dropped without a warning.
+
+With `PROJECT: [kestrel]` under `detector.terms` in `~/.privyx/config.yaml`
+and `detector: {type: presidio}` in the project's `privyx.yaml`:
+
+```console
+'PROJECT' in 'detector.terms' from /home/alice/.privyx/config.yaml reaches no detector that uses it, so it is not masked: detector type 'presidio' from /home/alice/app/privyx.yaml does not use it
+```
 
 ## Example
 

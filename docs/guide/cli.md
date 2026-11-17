@@ -418,7 +418,10 @@ Checked 16 spellings of 1 term and 4 built-in values: 14 not fully masked.
 `missed` means no part of the value is masked, `partly` that some of it is
 sent as is. A spelling the detector finds but the policy drops is listed under
 `Found, but` and the policy's reason. A term of one or two characters gets a
-warning, since it masks that word wherever it stands alone.
+warning, since it masks that word wherever it stands alone. Before the
+spellings, lint prints the warnings Privyx gives on load for a setting the
+detector type does not use, such as `terms` under `type: presidio`; see
+[Settings per type](configuration.md#settings-per-type).
 
 The exit code is 1 when a spelling is not fully masked, so lint can run in CI.
 The output shows your terms, like `detect`. `presidio`, `llm`, and plugin

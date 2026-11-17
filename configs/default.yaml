@@ -105,8 +105,8 @@
 # Where sessions and their mappings live.
 # vault:
 #   type: memory           # memory | sqlite (privyx[sqlite]) | redis (privyx[redis])
-#   dsn: sqlite+aiosqlite:///~/.privyx/privyx.db
-#   redis_url: redis://localhost:6379/0
+#   dsn: sqlite+aiosqlite:///~/.privyx/privyx.db  # sqlite
+#   redis_url: redis://localhost:6379/0          # redis
 #   ttl: null              # expire a session idle this many seconds; null keeps it
 
 # --- Session ---
@@ -121,9 +121,12 @@
 # --- Detector ---
 # What counts as sensitive.  One mapping, or a list of them whose findings are
 # pooled.  The regex built-ins cover EMAIL, PHONE, CREDIT_CARD, IP_ADDRESS, SSN,
-# API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, and SECRET.
+# API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, and SECRET.  Each type
+# uses only its own settings below, plus cache and underscore_separates_words;
+# Privyx warns about the others.
 # detector:
 #   type: regex            # regex | yaml | presidio (privyx[presidio]) | llm
+#   # regex, yaml
 #   # Entity -> regex, merged over the built-ins.  A (?P<value>...) group masks
 #   # only that part.  Example, EMPLOYEE_ID: '\bEMP-\d{6}\b'
 #   patterns: {}
