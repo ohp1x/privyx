@@ -69,6 +69,9 @@ class PrivacyEngine:
             to each chat request they mask.
         cache_control: Ask transports to mark a large Anthropic prefix for
             prompt caching (:func:`privyx.proxy.schemas.add_cache_control`).
+        shared_anchor: Whether every process sharing the vault anchors with
+            the same key.  Only then may an anchored engine skip a shared
+            vault's session lock; an ``auto`` key is each host's own.
     """
 
     def __init__(
@@ -83,6 +86,7 @@ class PrivacyEngine:
         directive: bool = False,
         cache_control: bool = False,
         underscore_separates_words: bool = False,
+        shared_anchor: bool = True,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -102,6 +106,7 @@ class PrivacyEngine:
         self.underscore_separates_words = underscore_separates_words
         self.directive = directive
         self.cache_control = cache_control
+        self.shared_anchor = shared_anchor
         # One lock per live session id; an entry disappears once nobody holds it.
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
@@ -206,13 +211,14 @@ class PrivacyEngine:
             return session
 
         # The in-process lock covers one process.  Replicas sharing a Redis vault
-        # also take its lock, unless an anchor makes pseudonyms value-derived:
-        # then two replicas mint the same token for a value anyway.
+        # also take its lock, unless an anchor with one key for all of them
+        # makes pseudonyms value-derived: then they mint the same token anyway.
         lock = self._locks.get(session_id)
         if lock is None:
             lock = self._locks[session_id] = asyncio.Lock()
         vault: Any = self._vault
-        shared = hasattr(vault, "lock") and getattr(self._operator, "_anchor", None) is None
+        anchored = self.shared_anchor and getattr(self._operator, "_anchor", None) is not None
+        shared = hasattr(vault, "lock") and not anchored
         async with lock:
             if shared:
                 async with vault.lock(session_id) as token:

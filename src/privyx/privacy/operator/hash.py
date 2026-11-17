@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 from functools import partial
 
+from privyx.config.schema import HASH_LENGTH
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
 from privyx.core.result import Detection, Transformation, TransformResult
@@ -39,8 +40,9 @@ class HashOperator(BaseOperator):
     name = "hash"
 
     def __init__(self, length: int = 12, codec: TokenCodec | None = None) -> None:
-        if not 6 <= length <= 64:
-            raise ConfigError(f"operator.length must be between 6 and 64, not {length}")
+        low, high = HASH_LENGTH
+        if not low <= length <= high:
+            raise ConfigError(f"operator.length must be between {low} and {high}, not {length}")
         self._length = length
         self._codec = codec or FormatCodec.default()
 

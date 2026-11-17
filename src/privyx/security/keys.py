@@ -71,10 +71,14 @@ def default_anchor_secret_path() -> Path:
     """Where the per-user anchor secret is persisted.
 
     ``PRIVYX_ANCHOR_KEY_PATH`` when set (the Docker image keeps it on its
-    volume), else ``~/.privyx/anchor.key``.
+    volume), else ``~/.privyx/anchor.key``.  A relative path is refused: each
+    working directory would get a key of its own.
     """
     if configured := os.environ.get("PRIVYX_ANCHOR_KEY_PATH"):
-        return Path(configured)
+        path = Path(os.path.expanduser(configured))
+        if not path.is_absolute():
+            raise ConfigError(f"PRIVYX_ANCHOR_KEY_PATH must be an absolute path: {configured!r}")
+        return path
     return Path(os.path.expanduser("~"), ".privyx", "anchor.key")
 
 

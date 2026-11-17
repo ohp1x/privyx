@@ -137,6 +137,7 @@ $ privyx doctor
 Privyx Doctor
 =============
   ✓ plugins: no plugin paths configured
+  ✓ anchor key: /home/alice/.privyx/anchor.key is created on first use
   ✓ detector: regex: 1 span(s) ['EMAIL']
   ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok

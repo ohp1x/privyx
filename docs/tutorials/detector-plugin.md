@@ -128,6 +128,7 @@ $ privyx doctor -c privyx.yaml
 Privyx Doctor
 =============
   ✓ plugins: 1 plugin(s) — detector: iban
+  ✓ anchor key: /home/alice/.privyx/anchor.key is created on first use
   ✓ detector: regex+iban: 1 span(s) ['EMAIL']
   ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok

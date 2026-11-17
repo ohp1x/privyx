@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- **Masking:** `PRIVYX_ANCHOR_KEY_PATH` sets where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default
+- **Masking:** `PRIVYX_ANCHOR_KEY_PATH` sets where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default; it takes an absolute path, `~` included
 - **Plugins:** an operator that writes the same text for every value can declare it as `fixed_text`, so the leak check does not refuse a request whose masked value is part of that text
 
 ### Changed
@@ -28,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **Docker:** Compose passes `PRIVYX_ANCHOR_SECRET` only when it is set, so an `anchor.secret` in a mounted config is no longer replaced by an empty value
-- **Proxy:** the leak check no longer refuses a request when a masked term is part of a tool name the request declares, such as `acme` in `mcp__acme__search`
+- **Proxy:** the leak check no longer refuses a request when a masked term is part of a tool name the request declares, such as `acme` in `mcp__acme__search`, or in the rest of a tool definition it sends unchanged, such as a parameter title or `enum`
 - **Proxy:** the leak check no longer refuses a request when a masked value is part of its own placeholder or redaction token, such as a term `PERSON` in `<PRIVYX_PERSON_1>` with `_` separating words
 
 ## [0.1.39] - 2026-11-17

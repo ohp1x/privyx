@@ -45,6 +45,7 @@ session's idle time restarts with each request that uses it.
 - Without an anchor, tokens are counters, so an instance masking a request
   holds the session's Redis lock (`SET NX EX`, renewed while held) until it
   has saved the mapping. With an anchor no lock is taken: the token comes from
-  the value.
+  the value. An `auto` anchor secret still takes it, since each host
+  generates its own key.
 - Streaming deanonymizers are per-connection; the mapping is the request's own
   (ephemeral) or loaded from the vault at stream start.

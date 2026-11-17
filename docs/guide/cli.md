@@ -808,7 +808,8 @@ Build every configured component and push a request through it: plugins,
 detector, vault (a real write and read), provider, proxy, and streaming
 restore. The `permissions` check fails when the SQLite vault, the audit log,
 or the anchor key file allows any access beyond its owner, and names the
-`chmod 600` that fixes it. The `routes` check lists masking paths, gaps in the default route map,
+`chmod 600` that fixes it. With `anchor.secret: auto`, the `anchor key` check
+reads that file, or checks that it can be created, without creating it. The `routes` check lists masking paths, gaps in the default route map,
 and the disposition of unlisted paths. Passthrough prints a warning; invalid
 routes fail. Exits with a non-zero status if any check fails.
 
@@ -837,6 +838,7 @@ $ privyx doctor
 Privyx Doctor
 =============
   ✓ plugins: no plugin paths configured
+  ✓ anchor key: /home/alice/.privyx/anchor.key is created on first use
   ✓ detector: regex: 1 span(s) ['EMAIL']
   ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok

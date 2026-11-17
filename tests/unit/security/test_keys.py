@@ -133,3 +133,15 @@ def test_anchor_key_path_moves_the_default_key(
     assert target.read_text(encoding="utf-8").strip() == secret
     monkeypatch.delenv("PRIVYX_ANCHOR_KEY_PATH")
     assert default_anchor_secret_path() != target
+
+
+def test_anchor_key_path_expands_home_and_refuses_a_relative_path(
+    home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from privyx.security.keys import default_anchor_secret_path
+
+    monkeypatch.setenv("PRIVYX_ANCHOR_KEY_PATH", "~/keys/anchor.key")
+    assert default_anchor_secret_path() == home / "keys" / "anchor.key"
+    monkeypatch.setenv("PRIVYX_ANCHOR_KEY_PATH", "keys/anchor.key")
+    with pytest.raises(ConfigError, match="absolute"):
+        default_anchor_secret_path()

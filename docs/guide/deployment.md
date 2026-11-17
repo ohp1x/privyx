@@ -235,7 +235,9 @@ Give all instances the same anchor secret (or `encrypt` key). Tokens are then
 derived from the value. Without one, tokens are numbered per session, and an
 instance holds a Redis lock on the session while it masks a request, so two
 instances never hand out the same number; requests of one session then wait
-for each other. See [Scaling](../architecture/scaling.md).
+for each other. The default `anchor.secret: auto` is each host's own key, so
+it is locked the same way, and the same value gets a different token on each
+instance: set an explicit secret. See [Scaling](../architecture/scaling.md).
 
 One piece of state is per process: the text of Anthropic `thinking` blocks,
 which Privyx remembers so that an echoed block still matches its signature.

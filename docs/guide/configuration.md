@@ -750,7 +750,7 @@ audit:
 | `PRIVYX_DETECTOR_CACHE` | `detector.cache` |
 | `PRIVYX_ENCRYPT_KEY` | `operator.key` |
 | `PRIVYX_ANCHOR_SECRET` | `anchor.secret` (an explicit empty value disables HMAC anchoring) |
-| `PRIVYX_ANCHOR_KEY_PATH` | Where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default |
+| `PRIVYX_ANCHOR_KEY_PATH` | Where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default; an absolute path, `~` is expanded |
 | `PRIVYX_TOKEN_FORMAT`, `PRIVYX_TOKEN_NAMESPACE` | `token.format`, `token.namespace` |
 | `PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH` | `audit.enabled`, `audit.path` |
 | `PRIVYX_PLUGIN_PATHS` | `plugins.paths`, comma-separated |

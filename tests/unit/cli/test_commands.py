@@ -182,6 +182,26 @@ def test_detect_explain_credits_merged_terms_and_patterns(
     assert "found by  regex: pattern PERSON" in result.output
 
 
+def test_detect_explain_credits_only_merged_entities_to_their_terms(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "detector:\n  terms: {PERSON: [john smith], EMAIL: [ops desk]}\n"
+        "  patterns: {PERSON: 'EMP-\\d+', EMPLOYEE_ID: 'E\\d{6}', EMAIL: 'alice@example\\.com'}\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        cli,
+        ["detect", "--explain", "-c", str(config), "ask john smith, E123456, alice@example.com"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "found by  regex: pattern EMPLOYEE_ID" in result.output
+    assert "found by  regex: pattern EMAIL" in result.output
+    assert "found by  regex: terms EMAIL" not in result.output
+
+
 def test_detect_explain_credits_merged_terms_found_once_folded(
     runner: CliRunner, tmp_path: Path
 ) -> None:
@@ -776,7 +796,7 @@ def test_doctor_resolves_secrets_once_per_invocation(
             assert "configuration: ConfigError: password manager unavailable" in result.output
             assert result.output.count("✗") == 1
         else:
-            assert result.output.count("✓") == 9
+            assert result.output.count("✓") == 10
         assert "example-credential" not in result.output
         assert calls.count(reference) == 1
     assert len(calls) == 2
@@ -820,7 +840,7 @@ def test_doctor_shares_settings_between_checks(
 def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
     """All component checks plus effective route coverage are visible."""
     result = runner.invoke(cli, ["doctor"])
-    assert result.output.count("✓") + result.output.count("✗") == 9
+    assert result.output.count("✓") + result.output.count("✗") == 10
 
 
 def test_doctor_fails_on_broken_config(runner: CliRunner, tmp_path: Path) -> None:
@@ -2210,7 +2230,9 @@ def test_config_path_names_the_files_in_use_or_defaults(
     assert result.output.splitlines() == [str(home_config), str(included), str(project)]
 
 
-@pytest.mark.parametrize("reference", ["op://example/item/credential", "keychain://example/account"])
+@pytest.mark.parametrize(
+    "reference", ["op://example/item/credential", "keychain://example/account"]
+)
 def test_config_path_does_not_resolve_secrets(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
 ) -> None:

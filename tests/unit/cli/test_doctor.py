@@ -348,3 +348,22 @@ def test_doctor_does_not_create_the_anchor_key(tmp_path: Path) -> None:
 
     assert "anchor=hmac" in result.output
     assert not default_anchor_secret_path().exists()
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [(None, "✓ anchor key: "), ("", "✗ anchor key: "), ("k" * 64, "✓ anchor key: ")],
+)
+def test_doctor_checks_the_anchor_key_without_creating_it(
+    content: str | None, expected: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    key = tmp_path / "keys" / "anchor.key"
+    monkeypatch.setenv("PRIVYX_ANCHOR_KEY_PATH", str(key))
+    if content is not None:
+        key.parent.mkdir()
+        key.write_text(content)
+
+    result = CliRunner().invoke(cli, ["doctor"])
+
+    assert expected in result.output
+    assert key.exists() == (content is not None)

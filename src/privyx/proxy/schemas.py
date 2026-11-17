@@ -329,7 +329,7 @@ async def transform_request(
                     params[idx] = (name, await metadata(val))
         if masked:
             sent = [
-                rebuilt,
+                _searched(rebuilt, schema),
                 [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
             ]
             sent += [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS]
@@ -539,6 +539,22 @@ def find_leaks(
     if fixed:
         sent = re.sub(_whole(fixed, underscore), "\0", sent)
     return len(set(pattern.findall(sent)))
+
+
+def _searched(request: dict[str, Any], schema: str | None) -> dict[str, Any]:
+    """``request`` as the leak check sees it: of its ``tools``, only the descriptions.
+
+    The rest of ``tools`` is sent as declared (see :func:`_descriptions`), so a
+    term in a property key, ``title``, or ``enum`` would refuse every request.
+    """
+    out = dict(request)
+    if "tools" in out:
+        out["tools"] = list(_descriptions(out["tools"]))
+    if schema == "gemini":
+        for key in _GEMINI_WRAPPED & out.keys():
+            if isinstance(out[key], dict):
+                out[key] = _searched(out[key], schema)
+    return out
 
 
 def _whole(word: str, underscore: bool = False) -> str:

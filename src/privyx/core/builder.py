@@ -35,6 +35,7 @@ from privyx.plugins.registry import (
     CODEC_KEY,
     ID_LENGTH_KEY,
     PLUGINS,
+    SET_KEY,
     Registry,
     plugin_section,
 )
@@ -191,7 +192,10 @@ def build_anchor(settings: Settings) -> Anchor | None:
     if atype in ANCHORS:
         return ANCHORS.build({**settings.anchor.model_dump(), "secret": secret})
     if atype in PLUGINS.anchors:
-        return PLUGINS.anchors.build({**plugin_section(settings.anchor), "secret": secret})
+        section = {**plugin_section(settings.anchor), "secret": secret}
+        if secret != settings.anchor.secret:  # the resolved ``auto`` counts as set
+            section[SET_KEY] = section[SET_KEY] | {"secret"}
+        return PLUGINS.anchors.build(section)
     raise ConfigError(f"unknown anchor type: {atype!r}")
 
 
@@ -199,8 +203,8 @@ def _takes_secret(settings: Settings) -> bool:
     """Whether the anchor receives ``anchor.secret``.
 
     ``hmac`` does, as does a plugin without a ``Config``, which gets the whole
-    section.  A plugin with one gets only the fields it declares and the config
-    sets, so the default ``auto`` would create a key it never sees.
+    section, or one whose ``Config`` declares ``secret``.  Any other would never
+    see the key ``auto`` creates.
     """
     atype = settings.anchor.type
     if atype == "hmac":
@@ -210,7 +214,7 @@ def _takes_secret(settings: Settings) -> bool:
     options = getattr(PLUGINS.anchors.factory(atype), "options", None)
     if options is None:
         return True
-    return "secret" in options.model_fields and "secret" in settings.anchor.model_fields_set
+    return "secret" in options.model_fields
 
 
 def _pasp(config: dict[str, Any]) -> Anchor | None:
@@ -377,6 +381,7 @@ async def build_engine(
         dlp_check=settings.proxy.dlp_check,
         directive=settings.proxy.directive,
         cache_control=settings.proxy.cache_control,
+        shared_anchor=settings.anchor.secret != "auto",
         underscore_separates_words=any(
             d.underscore_separates_words
             for d in (

@@ -267,6 +267,25 @@ def test_default_auto_secret_is_read_only_for_an_anchor_that_receives_it(
     assert read == [True]  # without a Config it gets the whole section, secret included
 
 
+SECRET_ANCHOR = (
+    CONFIGURED_ANCHOR.replace('name = "keyed"', 'name = "secret"')
+    .replace('key_id: str = "k1"', 'secret: str = ""')
+    .replace("return cls()", "anchor = cls(); anchor.secret = config.secret; return anchor")
+)
+
+
+def test_default_auto_secret_reaches_a_config_that_declares_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import privyx.security.keys as keys
+
+    monkeypatch.setattr(keys, "read_or_create_anchor_secret", lambda: "persisted")
+    settings = _settings(tmp_path, SECRET_ANCHOR, name="secret.py", anchor={"type": "secret"})
+    load_plugins(settings)
+    assert build_anchor(settings).secret == "persisted"  # type: ignore[union-attr]
+    assert settings.anchor.secret == "auto"
+
+
 async def test_vault_plugin_connect_and_close(tmp_path: Path) -> None:
     settings = _settings(tmp_path, VAULT, vault={"type": "dict"})
     load_plugins(settings)

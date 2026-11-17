@@ -1041,6 +1041,22 @@ async def test_dlp_check_does_not_refuse_a_term_in_a_tool_name(tools: list[Any])
         await transform_request({**payload, "metadata": {"name": "acme"}}, engine, sid)
 
 
+async def test_dlp_check_searches_only_the_descriptions_of_tools() -> None:
+    engine = PrivacyEngine(
+        detector=RegexDetector({"ORGANIZATION": r"\bAcme\b"}),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+    )
+    engine.dlp_check = True
+    sid = await _session(engine)
+    schema = {"properties": {"Acme": {"title": "Acme Region", "enum": ["Acme"]}}}
+    tools = [{"name": "deploy", "description": "Deploy an Acme service", "input_schema": schema}]
+    masked = await transform_request({"tools": tools, "messages": []}, engine, sid)
+    assert masked["tools"][0]["input_schema"] == schema
+    assert "Acme" not in masked["tools"][0]["description"]
+
+
 async def test_dlp_check_does_not_refuse_a_value_inside_the_redaction_text() -> None:
     from privyx.privacy.operator.redact import RedactOperator
 
