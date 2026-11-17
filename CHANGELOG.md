@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.38] - 2026-11-17
+
 ### Added
 
 - **Plugins:** `privyx.plugins` exports everything a component needs, from the base classes to `Detection`, `Session`, and `restore`, so a plugin no longer imports from internal modules that may move
@@ -683,7 +685,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.37...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.38...HEAD
+[0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
 [0.1.37]: https://github.com/ohp1x/privyx/compare/v0.1.36...v0.1.37
 [0.1.36]: https://github.com/ohp1x/privyx/compare/v0.1.35...v0.1.36
 [0.1.35]: https://github.com/ohp1x/privyx/compare/v0.1.34...v0.1.35
