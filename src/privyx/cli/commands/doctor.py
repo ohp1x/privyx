@@ -418,9 +418,11 @@ def _check_anchor_key(settings: Settings) -> tuple[bool, str]:
     Checked without creating it: a key file that exists must be readable and
     not empty, and a missing one needs a writable directory to be made in.
     """
-    from privyx.core.builder import _takes_secret
+    from privyx.core.builder import _operator_takes_anchor, _takes_secret
     from privyx.security.keys import default_anchor_secret_path
 
+    if not _operator_takes_anchor(settings):
+        return (True, f"not used by operator={settings.operator.type}")
     if not _takes_secret(settings):
         return (True, f"not used by anchor={settings.anchor.type}")
     path = default_anchor_secret_path()

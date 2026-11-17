@@ -284,6 +284,7 @@ async def transform_request(
 
     rebuilt: dict[str, Any] = {}
     masked: set[str] = set()  # what this request masked, for engine.dlp_check
+    written = [0]  # ... and how many values it replaced
     scope: AbstractAsyncContextManager[Session] = (
         engine.session_scope(session_id) if session is None else nullcontext(session)
     )
@@ -295,6 +296,7 @@ async def transform_request(
             result = await engine.transform(str(text), session=held, persist=False, key=key)
             if engine.dlp_check:
                 masked.update(t.original for t in result.transformations)
+                written[0] += len(result.transformations)
             return result.text
 
         async def metadata(text: str) -> str:
@@ -339,6 +341,7 @@ async def transform_request(
                 underscore=engine.underscore_separates_words,
                 codec=engine.codec,
                 fixed=getattr(engine.operator, "fixed_text", ""),
+                written=written[0],
                 tools=_declared_names(payload, schema),
             )
             if leaks:
@@ -501,6 +504,7 @@ def find_leaks(
     underscore: bool = False,
     codec: TokenCodec | None = None,
     fixed: str = "",
+    written: int | None = None,
     tools: frozenset[str] = frozenset(),
 ) -> int:
     """How many of the ``masked`` values are still in ``value``'s strings.
@@ -515,11 +519,14 @@ def find_leaks(
     The tokens of ``codec`` are not searched, nor does a match count that lies
     inside the ``fixed`` text an operator writes for every value, where that
     text stands as a word: a value may be part of the token that replaced it
-    (``PERSON`` in ``<PRIVYX_PERSON_1>``, ``TED`` in ``[TED-HIDDEN]``).  Text an
-    operator derives from a value, such as a ``partial`` mask or a
-    placeholder's label, still is.  Neither are the ``tools`` names where a
-    ``name`` or ``tool_name`` holds one: they are sent as declared, so a term
-    in ``mcp__acme__search`` would refuse every request.
+    (``PERSON`` in ``<PRIVYX_PERSON_1>``, ``TED`` in ``[TED-HIDDEN]``).  When
+    more copies of that text hold a masked value than the ``written`` times
+    the operator wrote it, they all count: a raw ``Bob`` cannot be told from
+    the ``Bob`` of ``redact.token: Bob``.  Text an operator derives from a
+    value, such as a ``partial`` mask or a placeholder's label, still is.
+    Neither are the ``tools`` names where a ``name`` or ``tool_name`` holds
+    one: they are sent as declared, so a term in ``mcp__acme__search`` would
+    refuse every request.
     """
     sent = "\0".join(_strings(value, tools))
     # A plain substring search first: most values are not there at all.
@@ -539,30 +546,54 @@ def find_leaks(
         sent = "\0".join([*parts, sent[at:]])
     # A match is the operator's own text only where it lies inside that text:
     # cut out, the text would split a value around it (`john x smith`).
-    covered = [m.span() for m in re.finditer(_whole(fixed, underscore), sent)] if fixed else []
-    return len(
-        {
-            m.group()
-            for m in pattern.finditer(sent)
-            if not any(a <= m.start() and m.end() <= b for a, b in covered)
-        }
-    )
+    spans = [m.span() for m in re.finditer(_whole(fixed, underscore), sent)] if fixed else []
+    leaked: set[str] = set()
+    inside: dict[tuple[int, int], str] = {}  # the operator's text a match lies in
+    for m in pattern.finditer(sent):
+        span = next((s for s in spans if s[0] <= m.start() and m.end() <= s[1]), None)
+        if span is None:
+            leaked.add(m.group())
+        else:
+            inside[span] = m.group()
+    if written is not None and len(inside) > written:
+        leaked.update(inside.values())  # more of that text than the operator wrote
+    return len(leaked)
+
+
+#: JSON-schema keywords in ``tools`` that hold values, not labels.
+_SCHEMA_VALUES = frozenset({"default", "const", "enum", "examples", "example"})
 
 
 def _searched(request: dict[str, Any], schema: str | None) -> dict[str, Any]:
-    """``request`` as the leak check sees it: of its ``tools``, only the descriptions.
+    """``request`` as the leak check sees it: of its ``tools``, the descriptions and values.
 
-    The rest of ``tools`` is sent as declared (see :func:`_descriptions`), so a
-    term in a property key, ``title``, or ``enum`` would refuse every request.
+    The rest of ``tools`` is sent as declared (see :func:`_descriptions`): a
+    term in a property key or ``title`` would refuse every request.  A value
+    such as a ``default`` is data, so it is still searched.
     """
     out = dict(request)
     if "tools" in out:
-        out["tools"] = list(_descriptions(out["tools"]))
+        out["tools"] = list(_tool_texts(out["tools"]))
     if schema == "gemini":
         for key in _GEMINI_WRAPPED & out.keys():
             if isinstance(out[key], dict):
                 out[key] = _searched(out[key], schema)
     return out
+
+
+def _tool_texts(value: Any, key: str | None = None) -> Iterator[str]:
+    """The masked descriptions of a ``tools`` value, and the values its schemas hold."""
+    if key in _SCHEMA_VALUES:
+        yield from _strings(value)
+    elif isinstance(value, str):
+        if key == "description":
+            yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _tool_texts(item, key)
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _tool_texts(v, k)
 
 
 def _whole(word: str, underscore: bool = False) -> str:

@@ -176,7 +176,8 @@ def build_anchor(settings: Settings) -> Anchor | None:
     for itself whether it needs a secret.
 
     ``auto`` uses the persisted per-user key, shared with ``privyx run``,
-    read only for an anchor that receives the secret.  Settings retain the
+    read only for an anchor that receives the secret and an operator that can
+    use an anchor (``pseudonym`` or a plugin's).  Settings retain the
     marker so inspection cannot expose that key.
 
     Raises:
@@ -185,6 +186,8 @@ def build_anchor(settings: Settings) -> Anchor | None:
     """
     atype = settings.anchor.type
     secret = settings.anchor.secret
+    if secret == "auto" and not _operator_takes_anchor(settings):
+        return None  # no key to create for an operator that never uses it
     if secret == "auto" and _takes_secret(settings):
         from privyx.security.keys import read_or_create_anchor_secret
 
@@ -197,6 +200,12 @@ def build_anchor(settings: Settings) -> Anchor | None:
             section[SET_KEY] = section[SET_KEY] | {"secret"}
         return PLUGINS.anchors.build(section)
     raise ConfigError(f"unknown anchor type: {atype!r}")
+
+
+def _operator_takes_anchor(settings: Settings) -> bool:
+    """Whether the operator can use an anchor: ``pseudonym``, or a plugin's."""
+    otype = settings.operator.type
+    return otype == "pseudonym" or otype not in OPERATORS
 
 
 def _takes_secret(settings: Settings) -> bool:

@@ -1002,6 +1002,9 @@ def test_find_leaks_looks_past_fixed_text_only_where_it_stands_as_a_word() -> No
     assert schemas.find_leaks("mail x", {"x"}, fixed="x") == 0
     # Nor a leaked value that holds it.
     assert schemas.find_leaks("hdr: john x smith", {"john x smith"}, fixed="x") == 1
+    # Nor more copies of it than the operator wrote: one is the raw value.
+    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=2) == 0
+    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=1) == 1
 
 
 def test_find_leaks_skips_declared_tool_names_only() -> None:
@@ -1066,7 +1069,7 @@ async def test_dlp_check_does_not_refuse_a_tool_name_of_a_wrapped_gemini_request
     assert masked["generateContentRequest"]["contents"][1]["parts"][0] == call
 
 
-async def test_dlp_check_searches_only_the_descriptions_of_tools() -> None:
+async def test_dlp_check_searches_the_descriptions_and_values_of_tools() -> None:
     engine = PrivacyEngine(
         detector=RegexDetector({"ORGANIZATION": r"\bAcme\b"}),
         policy=DefaultPolicy(),
@@ -1075,11 +1078,17 @@ async def test_dlp_check_searches_only_the_descriptions_of_tools() -> None:
     )
     engine.dlp_check = True
     sid = await _session(engine)
-    schema = {"properties": {"Acme": {"title": "Acme Region", "enum": ["Acme"]}}}
+    schema = {"properties": {"Acme": {"title": "Acme Region", "type": "string"}}}
     tools = [{"name": "deploy", "description": "Deploy an Acme service", "input_schema": schema}]
     masked = await transform_request({"tools": tools, "messages": []}, engine, sid)
     assert masked["tools"][0]["input_schema"] == schema
     assert "Acme" not in masked["tools"][0]["description"]
+    # A value the schema holds is data, sent as is: still searched.
+    for keyword, value in [("default", "Acme"), ("enum", ["Acme", "other"])]:
+        valued = {"properties": {"org": {"type": "string", keyword: value}}}
+        tool = {**tools[0], "input_schema": valued}
+        with pytest.raises(LeakError):
+            await transform_request({"tools": [tool], "messages": []}, engine, sid)
 
 
 async def test_dlp_check_does_not_refuse_a_value_inside_the_redaction_text() -> None:
@@ -1098,6 +1107,8 @@ async def test_dlp_check_does_not_refuse_a_value_inside_the_redaction_text() -> 
     assert masked["messages"][0]["content"] == "ask [TED-HIDDEN]"
     with pytest.raises(LeakError):
         await transform_request({**payload, "user": "TED"}, engine, sid)
+    with pytest.raises(LeakError):  # the operator wrote one, not two
+        await transform_request({**payload, "user": "[TED-HIDDEN]"}, engine, sid)
 
 
 async def test_dlp_check_looks_in_every_header_sent_but_the_credentials() -> None:
