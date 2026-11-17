@@ -53,6 +53,7 @@ page will be updated with the final changes before the release.
 |---|---|---|---|
 | `detector.underscore_separates_words` | 0.1.33 | `true` finds terms and built-ins inside names separated by `_` | Set `false` |
 | `detector.term_variants` | 0.1.26 | `true` finds alternate spellings of multiword terms | Set `false` |
+| `detector.merge_terms` | 0.1.36 | `true` matches `terms` and `patterns` of the same entity together, instead of the regex replacing the terms | Set `false` |
 | `anchor.secret` | 0.1.35 for `auto` on all commands | `auto` reuses a private per-user key for stable tokens | Set `""` explicitly to use no anchor |
 | Checksum/structure-based detectors | 0.1.26 | List the entities below in `detector.enable` | List unwanted entities in `detector.disable` |
 | `proxy.dlp_check` | 0.1.27 | `true` rejects requests that still contain values masked elsewhere in the request | Set `false` |
@@ -76,6 +77,7 @@ Try the compatible detection and anchor candidates together:
 detector:
   underscore_separates_words: true
   term_variants: true
+  merge_terms: true
   enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR]
 anchor:
   secret: auto
@@ -88,9 +90,7 @@ that remembered text is exempt; the rest of the request remains checked. See
 the [leak check](masking.md#leak-check) and
 [agent tests](../development/testing.md#end-to-end-a-real-agent-make-e2e).
 
-Whether the default operator changes is not decided. `detector.merge_terms: true`
-is available in 0.1.36, but making it a default is also undecided. Keep these
-separate from the settings above; see [Detection](detection.md) and
+The default operator does not change: `fpe` stays opt-in. See
 [Masking](masking.md).
 
 Duplicate YAML keys have warned since 0.1.29 and are planned to become an

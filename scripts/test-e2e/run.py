@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -86,9 +87,13 @@ detector:
     PERSON: ["{PERSON}", "{GIT_USER}"]
     ORGANIZATION: ["{ORG}"]
 """
+#: ``patterns`` covers one PERSON term, so the other is masked only if terms merge.
 NEXT_DEFAULTS = (
     CONFIG
-    + """\
+    + f"""\
+  patterns:
+    PERSON: '{re.escape(GIT_USER)}'
+  merge_terms: true
   underscore_separates_words: true
   term_variants: true
   enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC, ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR]

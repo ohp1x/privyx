@@ -187,11 +187,12 @@ uv run python scripts/test-e2e/run.py --agent codex --transparent --next-default
 ```
 
 This repeats the six combinations with `underscore_separates_words`,
-`term_variants`, the nine checksum/structure-based opt-in detectors,
-`proxy.dlp_check`, and `anchor.secret: auto` enabled. The automatic anchor key
-is created under the harness's temporary HOME; `XDG_STATE_HOME` is cleared.
-`fpe` and `merge_terms` are excluded: FPE does not produce the tokens the
-restore checks look for, and making `merge_terms` a default is undecided.
+`term_variants`, `merge_terms`, the nine checksum/structure-based opt-in
+detectors, `proxy.dlp_check`, and `anchor.secret: auto` enabled. A `patterns`
+regex covers one of the two PERSON terms, so the other is masked only when
+terms and patterns merge. The automatic anchor key is created under the
+harness's temporary HOME; `XDG_STATE_HOME` is cleared. `fpe` is excluded: it
+does not produce the tokens the restore checks look for.
 
 ### Labeled placeholders
 
