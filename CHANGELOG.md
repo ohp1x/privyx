@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.39] - 2026-11-17
+
 ### Fixed
 
 - **Config:** the Docker image and compose file no longer warn at every start that `vault.dsn` is unused and will be refused: a setting from an environment variable that the chosen type does not use is ignored without a warning
@@ -689,7 +691,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.38...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.39...HEAD
+[0.1.39]: https://github.com/ohp1x/privyx/compare/v0.1.38...v0.1.39
 [0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
 [0.1.37]: https://github.com/ohp1x/privyx/compare/v0.1.36...v0.1.37
 [0.1.36]: https://github.com/ohp1x/privyx/compare/v0.1.35...v0.1.36
