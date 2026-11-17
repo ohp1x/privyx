@@ -95,7 +95,7 @@ docker run -d -p 127.0.0.1:8000:8000 \
 
 - `X.Y.Z`: an exact release, e.g. `0.1.2`
 - `X.Y`: the newest patch release of that line
-- `latest`: the newest stable release (never a pre-release)
+- `latest`: the highest stable version (never a pre-release, nor a patch to an older line)
 
 ## More
 

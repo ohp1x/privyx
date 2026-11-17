@@ -19,8 +19,12 @@ jobs:
       contents: write
     outputs:
       is_prerelease: ${{ steps.check_prerelease.outputs.is_prerelease }}
+      is_latest: ${{ steps.release_line.outputs.is_latest }}
     steps:
+      # Full history and tags, to find the previous release and the highest one.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -58,6 +62,25 @@ jobs:
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # A release from a maintenance branch (release/0.1) must not become
+      # GitHub's Latest or Docker's `latest` once a higher version exists, and
+      # its notes start from the previous stable tag on the same branch.
+      - name: Find the previous release and whether this is the highest
+        id: release_line
+        env:
+          IS_PRERELEASE: ${{ steps.check_prerelease.outputs.is_prerelease }}
+        run: |
+          PRE='(a|b|rc|alpha|beta|pre)[0-9]*$|\.?dev[0-9]*$'
+          HIGHEST="$(git tag -l 'v*.*.*' | grep -vE "$PRE" | sort -V | tail -n 1)"
+          if [ "$IS_PRERELEASE" = "false" ] && [ "$HIGHEST" = "$GITHUB_REF_NAME" ]; then
+            echo "is_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_latest=false" >> "$GITHUB_OUTPUT"
+          fi
+          PREVIOUS="$(git describe --tags --abbrev=0 --match 'v*.*.*' --exclude 'v*.*.*[a-z]*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          echo "::notice::highest stable tag: ${HIGHEST:-none}; previous stable tag: ${PREVIOUS:-none}"
+
       - name: Build sdist and wheel
         run: uv build
 
@@ -79,9 +102,11 @@ jobs:
       - name: Generate PR-based release notes (categorized via .github/release.yml)
         env:
           GH_TOKEN: ${{ github.token }}
+          PREVIOUS: ${{ steps.release_line.outputs.previous }}
         run: |
           gh api "repos/${{ github.repository }}/releases/generate-notes" \
             -f tag_name="${GITHUB_REF_NAME}" \
+            ${PREVIOUS:+-f previous_tag_name="$PREVIOUS"} \
             --jq .body > generated-notes.md
           echo "--- generated-notes.md ---"
           cat generated-notes.md
@@ -102,6 +127,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           IS_PRERELEASE: ${{ steps.check_prerelease.outputs.is_prerelease }}
+          IS_LATEST: ${{ steps.release_line.outputs.is_latest }}
         run: |
           PRERELEASE_FLAG=""
           if [ "$IS_PRERELEASE" = "true" ]; then
@@ -110,6 +136,7 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file release-notes.md \
+            --latest="$IS_LATEST" \
             $PRERELEASE_FLAG \
             dist/*.whl dist/*.tar.gz
 
@@ -183,8 +210,9 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # vX.Y.Z -> X.Y.Z and X.Y; `latest` only for stable releases, so a
-      # pre-release tag never moves what `docker pull` gives users by default.
+      # vX.Y.Z -> X.Y.Z and X.Y; `latest` only for the highest stable release,
+      # so neither a pre-release nor a backport moves what `docker pull` gives
+      # users by default.
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -195,7 +223,7 @@ jobs:
           tags: |
             type=pep440,pattern={{version}}
             type=pep440,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ needs.build.outputs.is_prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ needs.build.outputs.is_latest == 'true' }}
 
       - uses: docker/build-push-action@v7
         with:
