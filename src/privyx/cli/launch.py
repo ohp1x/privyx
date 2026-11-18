@@ -34,7 +34,17 @@ def codex_args(base_url: str, argv: list[str], provider: str | None = None) -> l
     return [*override, *argv[:end], *(override if own else []), *argv[end:]]
 
 
+#: pi's subcommands, which it reads only as the first argument.
+PI_COMMANDS = frozenset(
+    {"auth", "config", "install", "list", "mcp", "remove", "uninstall", "update"}
+)
+
+
 def pi_args(base_url: str, argv: list[str]) -> list[str]:
+    # A subcommand calls no model, and before it the extension's -e would turn
+    # it into a prompt.
+    if argv[:1] and argv[0] in PI_COMMANDS:
+        return argv
     # pi reads no base-URL variable; the extension takes PRIVYX_PI_BASE_URL.
     return ["-e", str(Path(__file__).with_name("pi_extension.js")), *argv]
 

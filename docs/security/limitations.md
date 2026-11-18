@@ -37,7 +37,7 @@ request, only the fields covered by its wire schema are scanned.
 | JSON keys are never rewritten, and a chat message's participant `name` is kept. | Put the value, not the key, where the sensitive text is. |
 | Request headers are not masked, with one exception for Codex's turn metadata. | Do not send sensitive values in custom headers. |
 | A WebSocket connection is refused with `426`, since Privyx could not mask its frames. | Clients fall back to HTTP; Codex does so by itself. |
-| Privyx sees only the traffic a tool sends to its provider's base URL. Telemetry or other requests to different hosts do not pass through it, and a tool that ignores its base URL setting bypasses Privyx entirely. | `privyx run` warns when no request took a masking route, even if other requests reached the proxy; see [Check that it works](../tutorials/coding-agents.md#3-check-that-it-works). |
+| Privyx sees only the traffic a tool sends to its provider's base URL. Telemetry or other requests to different hosts do not pass through it, and a tool that ignores its base URL setting bypasses Privyx entirely. | `privyx run` records a launch in which no request took a masking route, and warns when a request passed through unmasked with a body, or was blocked or failed; see [Check that it works](../tutorials/coding-agents.md#3-check-that-it-works). |
 | Exact signed thinking remembered from an upstream response is reinstated after DLP checks the masked request, so model-written original values in that text may return to the provider. | Only the remembered text is exempt; other fields remain checked. Unknown or evicted signatures get normal masking. See [Leak check](../guide/masking.md#leak-check). |
 
 ## Restoring

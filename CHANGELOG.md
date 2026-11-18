@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **CLI:** `privyx run` warns, after the tool exits, only when a request was passed through unmasked with a body, or was blocked or failed. A run with no request, or only requests without a body, such as `--help`, a tool closed before its first prompt, or a model pi refused, is recorded as `run.unproxied` in the audit trail without a line after the shell's prompt
+
+### Fixed
+
+- **CLI:** `privyx run pi` prints why it refused the model pi starts with after pi has closed its screen, and pi exits with status 1; before, the reason vanished with the screen and pi exited with 0
+- **CLI:** pi's subcommands, such as `pi list` or `pi install`, work through `privyx run pi` instead of reaching pi as a prompt
+
 ## [0.2.0] - 2026-11-18
 
 ### Added

@@ -125,8 +125,10 @@ the proxy's URL ending in `/v1`; with `--provider anthropic`, it sets
 `ANTHROPIC_BASE_URL` to the proxy's URL. The provider can also come from
 `provider.type` in the config. For a tool that reads another variable, pass
 `--env-var` instead: that variable gets the proxy's URL with no path, and no
-other is set. If no request takes a masking route, Privyx warns when the tool
-exits and counts requests passed through unmasked, blocked, or failed.
+other is set. If no request takes a masking route, Privyx records it in the
+audit trail, and warns when the tool exits if a request was passed through
+unmasked with a body, or was blocked or failed (see
+[When no request is masked](#when-no-request-is-masked)).
 
 You can also define [agent profiles](configuration.md#agents) in your config
 and use their names as `TARGET`. `--list` includes those profiles. Built-in
@@ -210,8 +212,12 @@ pi has no base-URL variable or flag; the extension changes its provider for
 this run only, never `models.json`. Only that one provider goes through
 Privyx, so pi refuses a model of any other provider at startup, puts the
 previous model back when `/model` picks one, and does not send a prompt to
-it. For another provider, set `PRIVYX_PI_PROVIDER` and the upstream in a
-profile (`pi:deepseek` in [Coding agents](../tutorials/coding-agents.md)).
+it. A refusal at startup is printed once pi has closed its screen, and pi
+exits with status 1. For another provider, set `PRIVYX_PI_PROVIDER` and the
+upstream in a profile (`pi:deepseek` in
+[Coding agents](../tutorials/coding-agents.md)). pi's subcommands, such as
+`pi list` or `pi install`, run without the extension: pi reads them only as
+its first argument, and they call no model.
 A provider whose base URL has a path of its own (groq, openrouter) needs
 `proxy.path_mapping.mode: prefix`, set in the profile's `privyx:` block, and
 that base URL as the upstream. Without it the transparent proxy keeps only the
@@ -308,12 +314,19 @@ Presets: strict [/home/alice/.privyx/config.yaml], debug [CLI]
 ### When no request is masked
 
 If the tool exits without a single request forwarded on a masking route (a
-path in `proxy.routes`), `privyx run` warns and records a
-[`run.unproxied`](../observability/audit-events.md#rununproxied) audit event: a
-tool that calls its provider directly is not masked. Requests that only list
-models, or that took paths outside `proxy.routes`, do not count; the warning
-gives how many passed through unmasked, were blocked, or failed, or says that
-none carried a body when no model request reached Privyx at all.
+path in `proxy.routes`), `privyx run` records a
+[`run.unproxied`](../observability/audit-events.md#rununproxied) audit event:
+a tool that calls its provider directly is not masked. `privyx audit tail`
+shows it.
+
+It warns on the terminal only when that run holds evidence of a problem: a
+request that carried a body and was passed through unmasked, or a request
+that was blocked or failed. The warning counts them. A run with no request at
+all, or only requests without a body such as a model list, gets no warning:
+that is also what `--help`, a tool closed before its first prompt, or a model
+that pi refused look like. To check that a tool goes through Privyx, send it
+a prompt and look at `privyx audit stats`
+([Check that it works](../tutorials/coding-agents.md#3-check-that-it-works)).
 
 ### The terminal
 

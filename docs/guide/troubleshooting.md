@@ -32,36 +32,13 @@ privyx detect -c my.yaml --transform "the text that went out"
 
 ## The tool does not go through Privyx
 
-`privyx run` prints this when the tool exits without having sent it a request:
-
-```text
-Warning: no request from claude reached Privyx; if it called its provider, it did so directly, without masking.
-```
-
-If requests did arrive, but none was forwarded on a masking route, it counts
-them instead:
-
-```text
-Warning: 1 request(s) from claude reached Privyx, but none was sent upstream on a masking route (1 passed through unmasked, 0 blocked, 0 failed).
-```
-
-If none of them carried a body, such as a model list or a connection check,
-it says so instead: no model request went through Privyx, so any prompt the
-tool sent went to its provider directly:
-
-```text
-Warning: 1 request(s) from claude reached Privyx, but none carried a body, so none was a model request; if it called its provider, it did so directly, without masking.
-```
-
-This also shows when the tool exits before you send it a prompt.
-
-Requests passed through unmasked took a path outside `proxy.routes`, and the
-tool's model requests may have gone elsewhere: see
-[Paths without a route](proxy.md#paths-without-a-route). The audit log's
-`proxy.error` events say where failed ones broke. One that failed in
-`transform` (masking failed) was refused by Privyx and not sent; one that
-failed in `upstream` after passing through was sent unmasked and counts in
-both numbers.
+After you send the tool a prompt, `privyx audit stats` counts it under
+`Requests`. If it does not, the prompt did not reach Privyx, and
+`privyx audit tail` shows a
+[`run.unproxied`](../observability/audit-events.md#rununproxied) event for
+that launch. `privyx run` does not print this on the terminal: no request at
+all is also what `--help`, a tool closed before its first prompt, or a model
+that pi refused look like. Common causes:
 
 - The tool uses a native configuration source Privyx cannot inspect, such as
   a `model_provider` set only in a project's `.codex/config.toml`.
@@ -72,8 +49,21 @@ both numbers.
 - For a tool Privyx does not know, the variable named with `--env-var` is not
   the one the tool reads.
 
-The warning also appears, harmlessly, when the tool did nothing that needed
-its provider, such as `claude --version`.
+If requests did reach Privyx, but none was forwarded on a masking route, and
+one passed through unmasked with a body, or was blocked or failed,
+`privyx run` warns when the tool exits:
+
+```text
+Warning: 1 request(s) from claude reached Privyx, but none was sent upstream on a masking route (1 passed through unmasked, 0 blocked, 0 failed).
+```
+
+Requests passed through unmasked took a path outside `proxy.routes`, and the
+tool's model requests may have gone elsewhere: see
+[Paths without a route](proxy.md#paths-without-a-route). The audit log's
+`proxy.error` events say where failed ones broke. One that failed in
+`transform` (masking failed) was refused by Privyx and not sent; one that
+failed in `upstream` after passing through was sent unmasked and counts in
+both numbers.
 
 ## The provider answers 404
 

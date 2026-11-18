@@ -90,11 +90,13 @@ The other tools it knows:
     ```
 
     ```bash
-    privyx run pi:deepseek -- --provider deepseek
+    privyx run pi:deepseek -- --model deepseek/deepseek-flash
     ```
 
+    Leave out `--model` when a deepseek model is already pi's default.
     A model from any other pi provider would bypass Privyx, so pi refuses
-    it: at startup, and when you switch to it with `/model`.
+    it: at startup, where it says so once its screen has closed and exits
+    with status 1, and when you switch to it with `/model`.
 
 === "Another tool"
 
@@ -179,15 +181,16 @@ a second terminal.
 
 Two things to look for:
 
-- **Requests on a masking route.** If the tool exits without a single request
-  forwarded on a masking route, `privyx run` says so. With no request at all:
+- **Requests on a masking route.** After you sent the tool a prompt,
+  `Requests` counts it. If it does not, the prompt did not go through Privyx,
+  and `privyx audit tail` shows a `run.unproxied` event for that launch.
+  `privyx run` warns on the terminal only when a request passed through
+  unmasked with a body, or was blocked or failed: no request at all is also
+  what `--help`, or a tool closed before its first prompt, looks like.
 
-    ```text
-    Warning: no request from claude reached Privyx; if it called its provider, it did so directly, without masking.
-    ```
-
-    That happens when the tool's own configuration outranks what `privyx run`
-    sets, such as a `model_provider` set only in a project's `.codex/config.toml`.
+    A prompt that misses Privyx usually means the tool's own configuration
+    outranks what `privyx run` sets, such as a `model_provider` set only in a
+    project's `.codex/config.toml`.
     Supported native endpoints, including Claude's `ANTHROPIC_BASE_URL`
     settings, are followed automatically unless you set an explicit upstream.
     Claude settings that would override proxy routing are rejected before

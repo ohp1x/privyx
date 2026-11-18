@@ -554,30 +554,20 @@ async def _run_target(
             }
             # The profile's base name, so the trail holds no user paths.
             audit.emit(AuditEventType.RUN_UNPROXIED, profile=Path(plan.profile).name, **counts)
-            if counted.requests and not (
-                audit.unmasked_bodies or counts["blocked"] or counts["failed"]
-            ):
-                # A model list or a health check: nothing to mask, but no
-                # model request either, so the prompts may have gone elsewhere.
-                warning = (
-                    f"Warning: {counted.requests} request(s) from {spec.command} "
-                    "reached Privyx, but none carried a body, so none was a model "
-                    "request; if it called its provider, it did so directly, without masking."
-                )
-            elif counted.requests:
-                warning = (
-                    f"Warning: {counted.requests} request(s) from {spec.command} "
+            # Only content passed through unmasked, or a request blocked or
+            # failed, shows something went wrong. No request at all is what
+            # help, a tool closed before its first prompt, or a refused model
+            # look like too, so that is left to the audit trail.
+            if audit.unmasked_bodies or counts["blocked"] or counts["failed"]:
+                # After exec the shell has likely drawn its prompt already.
+                click.echo(
+                    ("\n" if parent is not None else "")
+                    + f"Warning: {counted.requests} request(s) from {spec.command} "
                     "reached Privyx, but none was sent upstream on a masking route "
                     f"({counts['passthrough']} passed through unmasked, "
-                    f"{counts['blocked']} blocked, {counts['failed']} failed)."
+                    f"{counts['blocked']} blocked, {counts['failed']} failed).",
+                    err=True,
                 )
-            else:
-                warning = (
-                    f"Warning: no request from {spec.command} reached Privyx; if it called "
-                    "its provider, it did so directly, without masking."
-                )
-            # After exec the shell has likely drawn its prompt already.
-            click.echo(("\n" if parent is not None else "") + warning, err=True)
         if guard is not None and guard.exceeded:
             click.echo(
                 ("\n" if parent is not None else "")

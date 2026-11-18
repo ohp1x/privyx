@@ -1665,7 +1665,7 @@ def test_run_repeats_the_codex_override_only_after_a_config_flag_of_the_users() 
 @pytest.mark.parametrize(
     ("paths", "fail_transform", "warning", "counts"),
     [
-        ([], False, "no request from", {"requests": 0, "passthrough": 0, "failed": 0}),
+        ([], False, None, {"requests": 0, "passthrough": 0, "failed": 0}),
         (
             ["/v1/models"],
             False,
@@ -1675,7 +1675,7 @@ def test_run_repeats_the_codex_override_only_after_a_config_flag_of_the_users() 
         (
             ["GET /v1/models"],
             False,
-            "1 request(s) from",
+            None,
             {"requests": 1, "passthrough": 1, "failed": 0},
         ),
         (["/v1/models", "/v1/messages"], False, None, None),
@@ -1698,7 +1698,12 @@ async def test_run_warns_when_no_request_took_a_masking_route(
     capsys: pytest.CaptureFixture[str],
     upstream: tuple[str, Seen],
 ) -> None:
-    """Requests that reach Privyx prove nothing until one is masked on its way out."""
+    """Requests that reach Privyx prove nothing until one is masked on its way out.
+
+    The terminal hears of it only when a request carried content or failed: no
+    request, or none with a body, is what help or a tool closed before its first
+    prompt looks like too, so only the audit trail records it.
+    """
     import sys
 
     pytest.importorskip("uvicorn")
@@ -1749,11 +1754,11 @@ async def test_run_warns_when_no_request_took_a_masking_route(
     unproxied = [e for e in events if e["event"] == "run.unproxied"]
     if warning is None:
         assert "Warning:" not in err
+    else:
+        assert f"Warning: {warning}" in err
+    if counts is None:
         assert unproxied == []
         return
-    assert f"Warning: {warning}" in err
-    # Only a run with no body at all says so; a body passed through is counted.
-    assert ("none carried a body" in err) == (paths == ["GET /v1/models"])
     [event] = unproxied
     assert {k: event[k] for k in counts} == counts
     assert event["blocked"] == 0
