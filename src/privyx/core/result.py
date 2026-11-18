@@ -122,6 +122,8 @@ class Transformation:
     end: int
     original: str
     replacement: str
+    #: The entity type of the span masked; ``None`` when restoring.
+    entity_type: str | None = None
 
 
 @dataclass(slots=True)

@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Awaitable, Callable, Generator, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Collection, Generator, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
 from functools import lru_cache
 from typing import Any
@@ -51,6 +51,7 @@ from typing import Any
 from privyx.core.engine import PrivacyEngine
 from privyx.core.errors import LeakError
 from privyx.core.session import Session
+from privyx.privacy.detector.builtin import SECRET_TYPES
 from privyx.privacy.transform.json import leaf_text, put_back
 from privyx.token.codec import LabelCodec, TokenCodec
 from privyx.token.model import LogicalToken
@@ -307,6 +308,7 @@ async def transform_request(
 
     rebuilt: dict[str, Any] = {}
     masked: dict[str, str] = {}  # what this request masked, for engine.dlp_check, and with what
+    glued: set[str] = set()  # ... and which of it counts glued to other text too
     written = [0]  # ... and how many values it replaced
     texts: list[str] = []  # ... and each text as masked, in walk order
     scope: AbstractAsyncContextManager[Session] = (
@@ -321,6 +323,8 @@ async def transform_request(
             if engine.dlp_check:
                 for t in result.transformations:
                     masked.setdefault(t.original, t.replacement)
+                    if _glued(t.original, t.entity_type):
+                        glued.add(t.original)
                 written[0] += len(result.transformations)
                 texts.append(result.text)
             return result.text
@@ -376,6 +380,7 @@ async def transform_request(
                 codec=engine.codec,
                 fixed=getattr(engine.operator, "fixed_text", ""),
                 written=written[0],
+                glued=glued,
                 tools=_declared_names(payload, schema),
             )
 
@@ -393,6 +398,7 @@ async def transform_request(
                     underscore=engine.underscore_separates_words,
                     codec=engine.codec,
                     fixed=getattr(engine.operator, "fixed_text", ""),
+                    glued=glued,
                 )
                 written[0] += count
                 return text
@@ -560,6 +566,7 @@ def find_leaks(
     fixed: str = "",
     written: int | None = None,
     tools: frozenset[str] = frozenset(),
+    glued: Collection[str] = (),
 ) -> set[str]:
     """The ``masked`` values that are still in ``value``'s strings.
 
@@ -568,8 +575,10 @@ def find_leaks(
     header) is found here, and the request is refused. The caller reinstates
     remembered upstream thinking only after this check. Keys count as strings,
     and a value that starts or ends with a letter or digit must stand as a
-    whole word there (``Bob`` is not found in ``Bobby``).  With ``underscore``,
-    as the detector has it, ``_`` separates words (``Bob`` is in ``DB_BOB``).
+    whole word there (``Bob`` is not found in ``Bobby``), unless it is
+    ``glued``: then also inside a word (``hunter2-x9`` in ``-phunter2-x9``).
+    With ``underscore``, as the detector has it, ``_`` separates words (``Bob``
+    is in ``DB_BOB``).
     The tokens of ``codec`` are not searched, nor does a match count that lies
     inside the ``fixed`` text an operator writes for every value, where that
     text stands as a word: a value may be part of the token that replaced it
@@ -598,7 +607,8 @@ def find_leaks(
                 held.add((sent.rfind("\0", 0, at) + 1, end))
                 at = sent.find(word, end)
         sent = "\0".join(sent[start:end] for start, end in sorted(held))
-    pattern = re.compile("|".join(_whole(word, underscore) for word in words))  # longest first
+    # longest first
+    pattern = re.compile("|".join(_copy(word, underscore, glued) for word in words))
     if pattern.search(sent) is None:
         return set()  # only inside other words: no token to look past
     if codec is not None:
@@ -626,12 +636,18 @@ def find_leaks(
 
 
 def _mask_copies(
-    text: str, copies: dict[str, str], *, underscore: bool, codec: TokenCodec, fixed: str
+    text: str,
+    copies: dict[str, str],
+    *,
+    underscore: bool,
+    codec: TokenCodec,
+    fixed: str,
+    glued: Collection[str],
 ) -> tuple[str, int]:
     """``text`` with each copy of a key of ``copies`` replaced by its value, and how many.
 
-    A copy is what :func:`find_leaks` would find: a whole word, not in a token
-    of ``codec`` nor inside the ``fixed`` text.
+    A copy is what :func:`find_leaks` would find: a whole word unless
+    ``glued``, not in a token of ``codec`` nor inside the ``fixed`` text.
     """
     words = sorted((w for w in copies if w in text), key=len, reverse=True)
     if not words:
@@ -640,7 +656,7 @@ def _mask_copies(
     fixed_spans = [m.span() for m in re.finditer(_whole(fixed, underscore), text)] if fixed else []
     parts: list[str] = []
     at = 0
-    for m in re.finditer("|".join(_whole(word, underscore) for word in words), text):
+    for m in re.finditer("|".join(_copy(word, underscore, glued) for word in words), text):
         start, end = m.span()
         if any(s < end and start < e for s, e in tokens) or any(
             s <= start and end <= e for s, e in fixed_spans
@@ -685,6 +701,23 @@ def _tool_texts(value: Any, key: str | None = None) -> Iterator[str]:
     elif isinstance(value, dict):
         for k, v in value.items():
             yield from _tool_texts(v, k)
+
+
+def _glued(value: str, entity_type: str | None) -> bool:
+    """Whether a copy of ``value`` counts also glued to other text, as in ``-phunter2-x9``.
+
+    For a credential of at least 8 characters with a digit or symbol in it:
+    ``postgres`` of ``PGPASSWORD=postgres`` is no copy in ``postgresql``.
+    """
+    return (
+        entity_type in SECRET_TYPES
+        and len(value) >= 8
+        and any(not (char.isalpha() or char.isspace()) for char in value)
+    )
+
+
+def _copy(word: str, underscore: bool, glued: Collection[str]) -> str:
+    return re.escape(word) if word in glued else _whole(word, underscore)
 
 
 def _whole(word: str, underscore: bool = False) -> str:

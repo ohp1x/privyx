@@ -95,7 +95,9 @@ class EncryptOperator(BaseOperator):
                 partial(self._encode, span.entity_type),
             )
             session.put(token, ciphertext)
-            transforms.append(Transformation(span.start, span.end, span.text, token))
+            transforms.append(
+                Transformation(span.start, span.end, span.text, token, span.entity_type)
+            )
         return TransformResult(
             text=apply_replacements(text, transforms), transformations=transforms
         )

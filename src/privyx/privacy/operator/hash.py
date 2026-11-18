@@ -64,7 +64,9 @@ class HashOperator(BaseOperator):
                 partial(self._encode, span.entity_type),
             )
             session.put(pseudo, span.text)
-            transforms.append(Transformation(span.start, span.end, span.text, pseudo))
+            transforms.append(
+                Transformation(span.start, span.end, span.text, pseudo, span.entity_type)
+            )
         return TransformResult(
             text=apply_replacements(text, transforms), transformations=transforms
         )

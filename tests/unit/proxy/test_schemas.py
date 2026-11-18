@@ -1022,6 +1022,53 @@ async def test_dlp_check_counts_the_fixed_text_it_writes_for_a_copy() -> None:
     assert out["messages"][0]["content"] == "DB_PASSWORD=[TED-HIDDEN]\nAPP=[TED-HIDDEN]"
 
 
+@pytest.mark.parametrize(
+    "operator",
+    [{"type": name} for name in ("pseudonym", "redact", "hash", "fpe", "partial", "faker")]
+    + [{"type": "encrypt", "key": "ab" * 32}],
+)
+async def test_dlp_check_masks_a_copy_of_a_credential_glued_to_other_text(
+    operator: dict[str, str],
+) -> None:
+    from privyx.config.schema import Settings
+    from privyx.core.builder import build_engine
+
+    pytest.importorskip({"faker": "faker", "encrypt": "cryptography"}.get(operator["type"], "re"))
+    engine, close = await build_engine(
+        Settings(vault={"type": "memory"}, operator=operator, audit={"enabled": False})
+    )
+    env = "DB_PASSWORD=hunter2-x9\nmysql -phunter2-x9\nPGPASSWORD=postgres\npsql postgresql://db"
+    try:
+        out = await transform_request(
+            {"messages": [{"role": "user", "content": env}]}, engine, await _session(engine)
+        )
+    finally:
+        await close()
+    text = out["messages"][0]["content"]
+    assert "hunter2-x9" not in text
+    assert text.endswith("\npsql postgresql://db")  # `postgres` is a word: no copy in it
+
+
+async def test_dlp_check_refuses_a_glued_credential_where_it_does_not_mask() -> None:
+    engine = _dlp_engine()
+    payload = {
+        "messages": [{"role": "user", "content": "DB_PASSWORD=hunter2-x9"}],
+        "user": "-phunter2-x9",  # config: not masked
+    }
+
+    with pytest.raises(LeakError):
+        await transform_request(payload, engine, await _session(engine))
+
+
+def test_only_a_long_credential_with_a_digit_or_symbol_counts_glued() -> None:
+    assert schemas._glued("hunter2-x9", "SECRET")
+    assert schemas._glued("/home/alice/apollo", "SECRET")
+    assert not schemas._glued("postgres", "SECRET")  # letters only: a word of its own
+    assert not schemas._glued("pass-x9", "SECRET")  # shorter than 8
+    assert not schemas._glued("alice-2024", "PERSON")  # not a credential
+    assert not schemas._glued("hunter2-x9", None)  # an operator that names no type
+
+
 async def test_dlp_check_masks_a_copy_in_headers_and_params_as_they_were_masked() -> None:
     from privyx.privacy.operator.fpe import FPEOperator
 
@@ -1069,6 +1116,12 @@ def test_find_leaks_searches_every_string_that_holds_a_value_in_full() -> None:
     assert schemas.find_leaks(["Bobby", "x", "Bobbie"], {"Bob"}) == set()
     # A value that holds the \0 the strings are joined with is searched in all of them.
     assert schemas.find_leaks(["x", "Bob\0Smith"], {"Bob\0Smith"}) == {"Bob\0Smith"}
+
+
+def test_find_leaks_finds_a_glued_value_inside_a_word() -> None:
+    sent = "mysql -phunter2-x9"
+    assert schemas.find_leaks(sent, {"hunter2-x9"}) == set()
+    assert schemas.find_leaks(sent, {"hunter2-x9"}, glued={"hunter2-x9"}) == {"hunter2-x9"}
 
 
 def test_find_leaks_skips_the_tokens_that_replaced_the_values() -> None:

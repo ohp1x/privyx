@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+- **Proxy:** with `proxy.dlp_check`, a copy of a credential glued to other text, such as `hunter2-x9` in `mysql -phunter2-x9` after `DB_PASSWORD=hunter2-x9`, is masked, or refused where Privyx does not mask; before, it was sent as is. This holds for a credential of 8 or more characters with a digit or symbol in it, so `postgresql` after `PGPASSWORD=postgres` is left as it is
 - **Proxy:** a Gemini request whose path has no API version, as pi sends it to a base URL that ends in one, is masked as a Gemini request; before, it matched no route and was passed through unmasked
 - **CLI:** `privyx run pi` with `PRIVYX_PI_PROVIDER` refuses a model of that provider whose API Privyx cannot mask, such as Azure OpenAI; before, its requests were passed through unmasked, or, with Azure's endpoint variables set, went to Azure without reaching Privyx
 - **CLI:** `privyx run pi` refuses a model whose login names a base URL of its own, as GitHub Copilot's does; before, with `PRIVYX_PI_PROVIDER` naming that provider, pi sent its requests there unmasked
