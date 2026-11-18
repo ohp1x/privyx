@@ -21,23 +21,30 @@ const SCHEMAS = {
 export default function (pi) {
   const provider = process.env.PRIVYX_PI_PROVIDER;
   const baseUrl = process.env.PRIVYX_PI_BASE_URL;
-  const token = process.env.PRIVYX_PI_TOKEN;
+  // pi loads this file afresh for each new, resumed, or reloaded session, so
+  // what the first load learned is kept on the process.
+  const kept = (globalThis[Symbol.for("privyx.pi")] ??= {});
   // The commands pi runs inherit its environment; they need no token.
+  const token = (kept.token ??= process.env.PRIVYX_PI_TOKEN);
   delete process.env.PRIVYX_PI_TOKEN;
   if (!baseUrl || !(provider || token)) {
     throw new Error("PRIVYX_PI_BASE_URL and PRIVYX_PI_PROVIDER or PRIVYX_PI_TOKEN must be set");
   }
   if (provider) pi.registerProvider(provider, { baseUrl });
 
-  // provider -> schema -> its base URL; null where two differ.
+  // provider -> schema -> its base URL; null where two differ. Taken from the
+  // first session only: on a reload, pi's models already point at the proxy.
   let bases;
   const follow = (registry) => {
-    bases = {};
-    for (const model of registry.getAll()) {
-      const schema = SCHEMAS[model.api];
-      if (!schema || model.baseUrl === baseUrl) continue;
-      const own = (bases[model.provider] ??= {});
-      own[schema] = [undefined, model.baseUrl].includes(own[schema]) ? model.baseUrl : null;
+    bases = kept.bases;
+    if (!bases) {
+      bases = kept.bases = {};
+      for (const model of registry.getAll()) {
+        const schema = SCHEMAS[model.api];
+        if (!schema || model.baseUrl === baseUrl) continue;
+        const own = (bases[model.provider] ??= {});
+        own[schema] = [undefined, model.baseUrl].includes(own[schema]) ? model.baseUrl : null;
+      }
     }
     for (const [name, own] of Object.entries(bases)) {
       const upstreams = Object.fromEntries(Object.entries(own).filter(([, url]) => url));

@@ -510,3 +510,33 @@ def test_pi_extension_sends_each_provider_through_the_proxy(tmp_path: Path) -> N
     assert "x" not in out["notes"]  # the starting model is served: no shutdown
     assert [n.split(" ")[1] for n in out["notes"]] == ["dupe/one", "dupe/two", "bed/b", "cop/c"]
     assert out["exit"] == 1
+
+
+# pi's /new, /resume, and /reload load the extension again in the same process;
+# on a reload its models already point at the proxy.
+_PI_RELOAD = """
+const start = () =>
+  handlers.session_start({}, { ...ctx(model("anthropic/a")), shutdown: () => notes.push("x") });
+await start();
+ext(pi);
+await start();
+console.log(JSON.stringify({
+  decided: await input("anthropic/a"), notes, last: registered.at(-1),
+}));
+"""
+
+
+def test_pi_extension_keeps_the_proxy_when_pi_loads_it_again(tmp_path: Path) -> None:
+    import json
+
+    models = [_model("anthropic/a", "anthropic-messages", "https://api.anthropic.example.com")]
+    result = _pi_extension(tmp_path, _PI_RELOAD, models, PRIVYX_PI_TOKEN="run-secret")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["decided"] == "continue"
+    assert out["notes"] == []  # no shutdown, no refusal
+    name, config = out["last"]
+    assert name == "anthropic"
+    assert config["headers"]["x-privyx-run-token"] == "run-secret"
+    upstreams = json.loads(config["headers"]["x-privyx-upstreams"])
+    assert upstreams == {"anthropic": "https://api.anthropic.example.com"}
