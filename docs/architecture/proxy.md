@@ -63,6 +63,9 @@ the query string already split off. Exact routes win over wildcard routes;
 `*` matches characters other than `/`, and the first matching wildcard wins.
 An accidental repeated `/v1/v1/` prefix also uses the intended `/v1/` route
 so a request that the upstream will reject is still masked.
+A Gemini path without its API version (`/models/m:generateContent`), which a
+client calls when its base URL ends in the version, uses the Gemini route it
+stands for, so it is masked whatever the upstream answers.
 
 ## What gets transformed and restored
 

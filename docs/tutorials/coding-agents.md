@@ -77,9 +77,22 @@ The other tools it knows:
     ```
 
     pi reads no base-URL variable, so Privyx loads a small extension
-    (`pi -e`) that points pi's `anthropic` provider at the proxy for this
-    run. Your `models.json` is not changed. Another pi provider needs a
-    profile naming it and its upstream:
+    (`pi -e`) that points pi's providers at the proxy for this run. Your
+    `models.json` is not changed. Each request still goes to the provider of
+    the model, with pi's own key, after Privyx has masked it, and so does a
+    model you switch to with `/model`:
+
+    ```bash
+    privyx run pi -- --model deepseek/deepseek-flash
+    ```
+
+    pi refuses a model whose requests Privyx cannot mask, such as one on
+    Amazon Bedrock or signed in with GitHub Copilot: at startup, where it
+    says so once its screen has closed and exits with status 1, and when you
+    switch to it with `/model`.
+
+    To send pi's requests to one upstream, such as a router, name the pi
+    provider and the upstream in a profile:
 
     ```yaml
     agents:
@@ -93,10 +106,7 @@ The other tools it knows:
     privyx run pi:deepseek -- --model deepseek/deepseek-flash
     ```
 
-    Leave out `--model` when a deepseek model is already pi's default.
-    A model from any other pi provider would bypass Privyx, so pi refuses
-    it: at startup, where it says so once its screen has closed and exits
-    with status 1, and when you switch to it with `/model`.
+    pi then refuses the models of every other provider.
 
 === "Another tool"
 

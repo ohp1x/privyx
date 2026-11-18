@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,7 +18,7 @@ from privyx.cli.commands.run import (
     _show_running,
     _spawn,
 )
-from privyx.cli.launch import build_launch_plan, profile_target
+from privyx.cli.launch import PI_UPSTREAMS, build_launch_plan, profile_target
 from privyx.cli.main import cli
 from privyx.config.loader import load_config
 from privyx.config.schema import AgentConfig, Settings
@@ -268,39 +269,52 @@ def test_pi_adapter_passes_a_subcommand_first() -> None:
     assert plan.argv == ["list"]
 
 
-def test_pi_provider_defaults_to_anthropic() -> None:
+def test_pi_follows_each_provider_unless_one_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRIVYX_PI_PROVIDER", "openai")  # from an outer run, say
     target = profile_target("pi", Settings().agents["pi"])
     plan = build_launch_plan(target, ["--model", "x"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
-    assert plan.environment["PRIVYX_PI_PROVIDER"] == "anthropic"
+    assert plan.run_token and plan.environment["PRIVYX_PI_TOKEN"] == plan.run_token
+    assert "PRIVYX_PI_PROVIDER" not in plan.environment
+    assert plan.route == plan.upstream == PI_UPSTREAMS
+    again = build_launch_plan(target, [], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
+    assert again.run_token != plan.run_token
 
 
-def test_pi_provider_syncs_with_overridden_target_provider() -> None:
+@pytest.mark.parametrize(
+    "settings",
+    [
+        Settings(upstream_url="https://api.example.com"),
+        Settings(proxy={"mode": "gateway"}),
+        # Every pi provider would receive them: one provider, as before.
+        Settings(provider={"api_key": "sk-" + "ant-0123456789abcdef"}),
+        Settings(provider={"headers": {"x-auth": "secret"}}),
+    ],
+)
+def test_pi_serves_one_provider_with_an_upstream_or_own_credentials(settings: Settings) -> None:
     target = profile_target("pi", AgentConfig(command="pi", adapter="pi", provider="openai"))
     plan = build_launch_plan(
         target,
         ["--model", "x"],
-        Settings(),
+        settings,
         1234,
         ("PRIVYX_PI_BASE_URL",),
         sources={"provider.type": "CLI"},
     )
     assert plan.environment["PRIVYX_PI_PROVIDER"] == "openai"
     assert plan.env_sources["PRIVYX_PI_PROVIDER"] == "CLI"
+    assert plan.run_token is None and "PRIVYX_PI_TOKEN" not in plan.environment
 
 
-def test_pi_derived_profile_inherits_effective_provider() -> None:
-    target = profile_target(
-        "pi:deepseek",
-        AgentConfig(command="pi", adapter="pi", provider="openai"),
+def test_pi_provider_from_env_from_serves_that_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MY_PI_PROVIDER", "deepseek")
+    profile = AgentConfig(
+        command="pi", adapter="pi", env_from={"PRIVYX_PI_PROVIDER": "MY_PI_PROVIDER"}
     )
     plan = build_launch_plan(
-        target,
-        ["--model", "x"],
-        Settings(),
-        1234,
-        ("PRIVYX_PI_BASE_URL",),
+        profile_target("pi:x", profile), [], Settings(), 1234, ("PRIVYX_PI_BASE_URL",)
     )
-    assert plan.environment["PRIVYX_PI_PROVIDER"] == "openai"
+    assert plan.environment["PRIVYX_PI_PROVIDER"] == "deepseek"
+    assert plan.run_token is None and "PRIVYX_PI_TOKEN" not in plan.environment
 
 
 def test_pi_provider_preserves_explicit_environment_override() -> None:
@@ -321,45 +335,80 @@ def test_pi_provider_preserves_explicit_environment_override() -> None:
         ("PRIVYX_PI_BASE_URL",),
     )
     assert plan.environment["PRIVYX_PI_PROVIDER"] == "deepseek"
+    assert plan.run_token is None
 
 
-def test_cli_run_override_provider_pi_updates_environment(home: Path) -> None:
-    result = CliRunner().invoke(cli, ["run", "--dry-run", "-p", "openai", "pi"])
+def test_cli_run_pi_dry_run_names_the_routing(home: Path) -> None:
+    result = CliRunner().invoke(cli, ["run", "--dry-run", "pi"])
+    assert result.exit_code == 0, result.output
+    assert f"Upstream: {PI_UPSTREAMS} [pi]" in result.output
+    assert "PRIVYX_PI_TOKEN=*** [new each run]" in result.output
+    result = CliRunner().invoke(
+        cli, ["run", "--dry-run", "-p", "openai", "-u", "https://api.example.com", "pi"]
+    )
     assert result.exit_code == 0, result.output
     assert "Provider: openai [CLI]" in result.output
     assert "PRIVYX_PI_PROVIDER=*** [CLI]" in result.output
 
 
-# The extension's guards, run in node against a stand-in for pi's API.
-_PI_GUARDS = """
+# The extension's guards, run in node against a stand-in for pi's API: its
+# registry, where registering a provider's baseUrl moves all its models, and a
+# login of provider "cop" that names a base URL of its own.
+_PI_STAND_IN = """
 const ext = (await import(process.argv[1])).default;
-const handlers = {}, registered = [], selected = [];
+const models = JSON.parse(process.argv[2]);
+const handlers = {}, registered = [], selected = [], notes = [];
+const modelRegistry = {
+  getAll: () => models,
+  find: (provider, id) => models.find((m) => m.provider === provider && m.id === id),
+  getApiKeyAndHeaders: async (m) =>
+    m.provider === "cop" ? { ok: true, baseUrl: "https://cop.example.com/own" } : { ok: true },
+};
 const pi = {
-  registerProvider: (name, config) => registered.push([name, config.baseUrl]),
+  registerProvider: (name, config) => {
+    registered.push([name, config]);
+    for (const m of models) if (m.provider === name) m.baseUrl = config.baseUrl;
+  },
   on: (event, handler) => { handlers[event] = handler; },
   setModel: async (model) => { selected.push(model.id); return true; },
 };
 ext(pi);
-const proxy = { provider: "anthropic", id: "a", baseUrl: process.env.PRIVYX_PI_BASE_URL };
-const other = { provider: "deepseek", id: "d", baseUrl: "https://api.deepseek.com" };
-const notes = [];
-const ctx = (model) => ({ model, ui: { notify: (m) => notes.push(m) } });
+const model = (key) => models.find((m) => `${m.provider}/${m.id}` === key);
+const ctx = (m) => ({ model: m, modelRegistry, ui: { notify: (n) => notes.push(n) } });
+const input = async (key) => (await handlers.input({}, ctx(model(key)))).action;
+"""
+
+_PI_GUARDS = """
+const proxy = model("anthropic/a"), other = model("deepseek/d");
 await handlers.model_select({ model: other, previousModel: proxy }, ctx(other));
-const allowed = handlers.input({}, ctx(proxy)).action;
-const blocked = handlers.input({}, ctx(other)).action;
+const allowed = await input("anthropic/a");
+const blocked = await input("deepseek/d");
+const unsupported = await input("anthropic/z");
 const blockedExit = process.exitCode;
 process.exitCode = 0;
 let shutdown = false;
-handlers.session_start({}, { model: other, shutdown: () => { shutdown = true; } });
+await handlers.session_start({}, { ...ctx(other), shutdown: () => { shutdown = true; } });
 console.error("started");
 const payload = {
-  registered, selected, allowed, blocked, blockedExit, notes: notes.length, shutdown,
+  registered: registered.map(([name, config]) => [name, config.baseUrl]),
+  selected, allowed, blocked, unsupported, blockedExit, notes: notes.length, shutdown,
 };
 console.log(JSON.stringify(payload));
 """
 
+_PI_FOLLOW = """
+const before = Object.fromEntries(models.map((m) => [`${m.provider}/${m.id}`, m.baseUrl]));
+await handlers.session_start({}, { ...ctx(model("anthropic/a")), shutdown: () => notes.push("x") });
+const decided = {};
+for (const key of Object.keys(before)) decided[key] = await input(key);
+const sent = Object.fromEntries(registered.map(([name, config]) => [name, config]));
+console.log(JSON.stringify({
+  decided, sent, notes, token: process.env.PRIVYX_PI_TOKEN ?? null, exit: process.exitCode,
+}));
+"""
 
-def test_pi_extension_keeps_every_model_on_the_proxy(tmp_path: Path) -> None:
+
+def _pi_extension(tmp_path: Path, script: str, models: list[dict], **env: str) -> Any:
     import json
     import shutil
     import subprocess
@@ -369,21 +418,46 @@ def test_pi_extension_keeps_every_model_on_the_proxy(tmp_path: Path) -> None:
         pytest.skip("node is not installed")
     extension = profile_target("pi", AgentConfig(command="pi", adapter="pi"))
     path = build_launch_plan(extension, [], Settings(), 1, ()).argv[1]
-    result = subprocess.run(
-        [node, "--input-type=module", "-e", _PI_GUARDS, Path(path).as_uri()],
-        env={"PRIVYX_PI_PROVIDER": "anthropic", "PRIVYX_PI_BASE_URL": "http://127.0.0.1:1"},
+    return subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "-e",
+            _PI_STAND_IN + script,
+            Path(path).as_uri(),
+            json.dumps(models),
+        ],
+        env={"PRIVYX_PI_BASE_URL": "http://127.0.0.1:1", **env},
         capture_output=True,
         text=True,
         check=False,
         cwd=tmp_path,
     )
+
+
+def _model(key: str, api: str, base: str) -> dict[str, str]:
+    provider, _, model_id = key.partition("/")
+    return {"provider": provider, "id": model_id, "api": api, "baseUrl": base}
+
+
+def test_pi_extension_keeps_every_model_on_the_proxy(tmp_path: Path) -> None:
+    import json
+
+    models = [
+        _model("anthropic/a", "anthropic-messages", "https://api.anthropic.example.com"),
+        _model("deepseek/d", "openai-completions", "https://api.deepseek.example.com"),
+        # Of the provider served, but its paths are no masking route.
+        _model("anthropic/z", "azure-openai-responses", "https://acme.example.com/openai"),
+    ]
+    result = _pi_extension(tmp_path, _PI_GUARDS, models, PRIVYX_PI_PROVIDER="anthropic")
     assert json.loads(result.stdout) == {
         "registered": [["anthropic", "http://127.0.0.1:1"]],
         "selected": ["a"],  # switching away put the proxied model back
         "allowed": "continue",
         "blocked": "handled",  # a prompt never reaches a model outside the proxy
+        "unsupported": "handled",
         "blockedExit": 1,
-        "notes": 2,
+        "notes": 3,
         "shutdown": True,  # a model outside the proxy at startup ends the run
     }
     # Reported once pi has exited, past its screen, and the run fails.
@@ -391,3 +465,48 @@ def test_pi_extension_keeps_every_model_on_the_proxy(tmp_path: Path) -> None:
     assert started == "started"
     assert refusal.startswith("privyx: deepseek/d would bypass privyx")
     assert result.returncode == 1
+
+
+def test_pi_extension_sends_each_provider_through_the_proxy(tmp_path: Path) -> None:
+    import json
+
+    models = [
+        _model("anthropic/a", "anthropic-messages", "https://api.anthropic.example.com"),
+        # One provider, a base URL per API.
+        _model("mix/chat", "openai-completions", "https://mix.example.com/api/v1"),
+        _model("mix/msg", "anthropic-messages", "https://mix.example.com/api"),
+        _model("dupe/one", "openai-completions", "https://dupe.example.com/a"),
+        _model("dupe/two", "openai-completions", "https://dupe.example.com/b"),
+        _model("bed/b", "bedrock-converse-stream", "https://bedrock.example.com"),
+        _model("cop/c", "openai-completions", "https://cop.example.com"),
+        _model("mis/m", "mistral-conversations", "https://mistral.example.com"),
+    ]
+    result = _pi_extension(tmp_path, _PI_FOLLOW, models, PRIVYX_PI_TOKEN="run-secret")
+    out = json.loads(result.stdout)
+    assert out["decided"] == {
+        "anthropic/a": "continue",
+        "mix/chat": "continue",
+        "mix/msg": "continue",
+        "dupe/one": "handled",  # two base URLs for one API: which one is unknown
+        "dupe/two": "handled",
+        "bed/b": "handled",  # an API privyx cannot mask
+        "cop/c": "handled",  # the login sends elsewhere
+        "mis/m": "continue",  # OpenAI's Chat Completions
+    }
+    upstreams = {name: c["headers"]["x-privyx-upstreams"] for name, c in out["sent"].items()}
+    assert {name: json.loads(value) for name, value in upstreams.items()} == {
+        "anthropic": {"anthropic": "https://api.anthropic.example.com"},
+        "mix": {
+            "openai": "https://mix.example.com/api/v1",
+            "anthropic": "https://mix.example.com/api",
+        },
+        "dupe": {},
+        "cop": {"openai": "https://cop.example.com"},
+        "mis": {"openai": "https://mistral.example.com"},
+    }
+    assert {c["headers"]["x-privyx-run-token"] for c in out["sent"].values()} == {"run-secret"}
+    assert {c["baseUrl"] for c in out["sent"].values()} == {"http://127.0.0.1:1"}
+    assert out["token"] is None  # not passed on to the commands pi runs
+    assert "x" not in out["notes"]  # the starting model is served: no shutdown
+    assert [n.split(" ")[1] for n in out["notes"]] == ["dupe/one", "dupe/two", "bed/b", "cop/c"]
+    assert out["exit"] == 1

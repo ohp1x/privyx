@@ -113,7 +113,7 @@ Known targets, and where each gets the proxy's URL:
 | `codex` | `openai` | `-c openai_base_url=…/v1` (codex does not read `OPENAI_BASE_URL`) and, for a custom provider, `-c model_providers.<id>.base_url=…/v1`, said again after your arguments when they hold a `-c` of their own, and `OPENAI_BASE_URL` |
 | `openai` | `openai` | `OPENAI_BASE_URL`, ending in `/v1` as the OpenAI SDK expects |
 | `aider` | `openai` | `OPENAI_API_BASE`, `OPENAI_BASE_URL`, ending in `/v1` |
-| `pi` | `anthropic` | `-e` with an extension Privyx ships, which sets the `baseUrl` of the pi provider named in `PRIVYX_PI_PROVIDER` (`anthropic`) to `PRIVYX_PI_BASE_URL` |
+| `pi` | `anthropic` | `-e` with an extension Privyx ships, which sets the `baseUrl` of pi's providers to `PRIVYX_PI_BASE_URL`: of each one, or only of the one named in `PRIVYX_PI_PROVIDER` (see [pi](#pi)) |
 | `opencode` | `anthropic` | `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL`, ending in `/v1`. For a model of OpenAI, add `--provider openai`. |
 | `grok` | `openai`, upstream `https://api.x.ai/v1` | `GROK_XAI_API_BASE_URL`, ending in `/v1`, used when Grok Build signs in with an API key (`XAI_API_KEY`) |
 | `gemini` | `google` | `GOOGLE_GEMINI_BASE_URL`, used when Gemini CLI signs in with an API key (`GEMINI_API_KEY`); also `CODE_ASSIST_ENDPOINT` and `GOOGLE_VERTEX_BASE_URL`, so the other sign-ins reach Privyx and are refused |
@@ -150,8 +150,9 @@ native destinations before replacing the agent's endpoint with the proxy URL:
 | Gemini CLI | `GOOGLE_GEMINI_BASE_URL` for API-key mode |
 | Ollama | `OLLAMA_HOST` (takes precedence over the built-in profile's local default) |
 
-The child environment includes profile `env` and `env_from`. Pi and OpenCode
-still need an explicit upstream for non-default providers. The Google sign-in
+The child environment includes profile `env` and `env_from`. OpenCode still
+needs an explicit upstream for non-default providers; pi follows the provider
+of each model (see [pi](#pi)). The Google sign-in
 and Vertex AI variables of the `gemini` profile are never read as a
 destination.
 
@@ -208,20 +209,41 @@ when `CODEX_HOME` is unset) is resolved before reading the Codex config.
 
 ### pi
 
-pi has no base-URL variable or flag; the extension changes its provider for
-this run only, never `models.json`. Only that one provider goes through
-Privyx, so pi refuses a model of any other provider at startup, puts the
-previous model back when `/model` picks one, and does not send a prompt to
-it. A refusal at startup is printed once pi has closed its screen, and pi
-exits with status 1. For another provider, set `PRIVYX_PI_PROVIDER` and the
-upstream in a profile (`pi:deepseek` in
-[Coding agents](../tutorials/coding-agents.md)). pi's subcommands, such as
-`pi list` or `pi install`, run without the extension: pi reads them only as
-its first argument, and they call no model.
-A provider whose base URL has a path of its own (groq, openrouter) needs
+pi has no base-URL variable or flag; the extension changes its providers for
+this run only, never `models.json`. Each pi provider goes through Privyx to its
+own base URL: with every request, pi sends the provider's base URL for each of
+its APIs and a secret made for the run, and the proxy forwards the request to
+the base URL for its route, with pi's own key. Switching to a model of another
+provider with `/model` goes through Privyx too.
+
+Privyx masks pi's `anthropic-messages`, `openai-completions`,
+`openai-responses`, `google-generative-ai`, and `mistral-conversations` APIs.
+pi refuses a model whose requests could not be masked: one of another API,
+such as Amazon Bedrock, Azure OpenAI, or Vertex AI; one whose provider serves
+its API from two base URLs; and one whose login names a base URL of its own,
+as GitHub Copilot's does. It refuses it at
+startup, puts the previous model back when `/model` picks one, and does not
+send a prompt to it. A refusal at startup is printed once pi has closed its
+screen, and pi exits with status 1. The proxy refuses, with `403`, a request
+that names no base URL for its route, so pi's classifier and image models do
+not work through `privyx run pi`.
+
+pi's requests go to one upstream instead when the profile names one pi
+provider in `PRIVYX_PI_PROVIDER` (in `env` or `env_from`), when an upstream is
+set (`--upstream`, profile `upstream`), with `proxy.mode: gateway`, or when
+Privyx has an API key or `provider.headers` of its own, which every provider
+would otherwise receive. Without `PRIVYX_PI_PROVIDER`, that pi provider is the
+one `provider.type` names (`anthropic` by default). pi refuses the models of
+every other provider, and of that provider a model of an API Privyx cannot
+mask. A profile for one provider is `pi:deepseek` in
+[Coding agents](../tutorials/coding-agents.md). With one upstream, a provider
+whose base URL has a path of its own (groq, openrouter) needs
 `proxy.path_mapping.mode: prefix`, set in the profile's `privyx:` block, and
 that base URL as the upstream. Without it the transparent proxy keeps only the
 upstream's origin, and those requests miss the provider's API.
+
+pi's subcommands, such as `pi list` or `pi install`, run without the
+extension: pi reads them only as its first argument, and they call no model.
 
 ### Gemini CLI
 

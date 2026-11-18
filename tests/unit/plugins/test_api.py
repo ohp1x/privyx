@@ -544,6 +544,8 @@ def _router(path: str) -> APIRouter:
         # /v1/v1/... is masked as the route it means.
         "/{tenant}/v1/chat/completions",
         "/v1/{x}/messages",
+        # So is a Gemini path without its API version.
+        "/{a}/{b}:streamGenerateContent",
     ],
 )
 def test_a_route_over_a_masking_route_stops_startup(path: str) -> None:

@@ -206,6 +206,11 @@ def detect_schema(path: str, routes: dict[str, str]) -> str | None:
     A ``*`` in a route matches any characters but ``/``, as the model name in
     ``/v1beta/models/*:generateContent``.  A route without one wins over a
     route with one; between those, the first listed wins.
+
+    A Gemini path without its API version (``/models/m:generateContent``, what
+    a client calls when its base URL ends in the version, as pi's does pointed
+    at Privyx) is ``gemini`` too, for the same reason; see
+    :func:`unversioned_routes`.
     """
     normalized = "/" + path.lstrip("/")
     schema = routes.get(normalized)
@@ -215,7 +220,19 @@ def detect_schema(path: str, routes: dict[str, str]) -> str | None:
         for pattern, route in _route_patterns(tuple(r for r in routes if "*" in r)):
             if pattern.fullmatch(normalized):
                 return routes[route]
+        for pattern, _ in _route_patterns(unversioned_routes(routes)):
+            if pattern.fullmatch(normalized):
+                return "gemini"
     return schema
+
+
+def unversioned_routes(routes: dict[str, str]) -> tuple[str, ...]:
+    """Each Gemini route without its first segment, the API version."""
+    return tuple(
+        "/" + rest
+        for route, schema in routes.items()
+        if schema == "gemini" and (rest := route.lstrip("/").partition("/")[2])
+    )
 
 
 @lru_cache(maxsize=16)
