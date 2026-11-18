@@ -102,7 +102,9 @@ class LiteralOperator(BaseOperator):
                 span.entity_type, original, session
             )
             session.put(fake, original)
-            transforms.append(Transformation(span.start, span.end, original, fake))
+            transforms.append(
+                Transformation(span.start, span.end, original, fake, span.entity_type)
+            )
 
         return TransformResult(
             text=apply_replacements(text, transforms), transformations=transforms

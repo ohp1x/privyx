@@ -31,7 +31,8 @@ class RedactOperator(BaseOperator):
     ) -> TransformResult:
         detection = detection.merged(text)
         transforms = [
-            Transformation(span.start, span.end, span.text, self._token) for span in detection.spans
+            Transformation(span.start, span.end, span.text, self._token, span.entity_type)
+            for span in detection.spans
         ]
         return TransformResult(
             text=apply_replacements(text, transforms), transformations=transforms

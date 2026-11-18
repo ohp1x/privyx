@@ -399,7 +399,12 @@ names the request declares, where a tool is named or called: they go out as
 declared, so `acme` in `mcp__acme__search` does not refuse the request. A value that starts or ends with a letter or digit
 must stand as a whole word to count (`Bob` is not found in `Bobby`). When
 `detector.underscore_separates_words` is on, as by default, `_` separates words
-here too (`Bob` is found in `DB_Bob`).
+here too (`Bob` is found in `DB_Bob`). A credential of 8 or more characters
+with a digit or symbol in it (a value of the built-in `SECRET`, `API_KEY`,
+`AUTH_TOKEN`, `URL_CREDENTIAL`, `JWT`, or `PRIVATE_KEY` types) counts also glued
+to other text: after `DB_PASSWORD=hunter2-x9`, the copy in `mysql -phunter2-x9`
+is masked too. A credential of letters only, such as `postgres`, stays a word
+of its own, so `postgresql` is left as it is.
 
 Echoed Anthropic thinking is an exception only when Privyx remembers its
 signature from an upstream response. After the DLP check, Privyx replaces the

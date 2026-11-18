@@ -100,6 +100,7 @@ class PseudonymOperator(BaseOperator):
                 span.end,
                 span.text,
                 self._labeled(session, pseudo, span.text) if self._labels else pseudo,
+                span.entity_type,
             )
             for span, pseudo in zip(detection.spans, pseudos, strict=True)
         ]

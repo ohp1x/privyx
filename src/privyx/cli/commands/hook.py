@@ -21,9 +21,6 @@ _HOOKS = {
     "pre-commit": "exec privyx hook pre-commit\n",
     "commit-msg": 'exec privyx hook commit-msg "$1"\n',
 }
-#: Built-in entities that are credentials, not personal data: code and tests
-#: are full of emails and phone numbers, but a key must never be committed.
-_SECRETS = ("API_KEY", "PRIVATE_KEY", "JWT", "AUTH_TOKEN", "URL_CREDENTIAL", "SECRET")
 
 
 @click.command("install-hook")
@@ -118,9 +115,11 @@ def _findings(lines: list[tuple[int, str]], codec: TokenCodec) -> list[tuple[int
 @functools.cache
 def _secret_detector() -> RegexDetector:
     """Built once: `privyx mcp serve` checks a diff per file, on every call."""
-    from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector
+    from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, SECRET_TYPES, RegexDetector
 
-    return RegexDetector({entity: DEFAULT_PATTERNS[entity] for entity in _SECRETS})
+    # Code and tests are full of emails and phone numbers, but a key must
+    # never be committed.
+    return RegexDetector({entity: DEFAULT_PATTERNS[entity] for entity in SECRET_TYPES})
 
 
 def _added_lines(diff: str) -> dict[str, list[tuple[int, str]]]:
