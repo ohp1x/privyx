@@ -973,6 +973,13 @@ def test_find_leaks_counts_whole_words_only() -> None:
     assert schemas.find_leaks("Bobby", {"Bob"}, underscore=True) == 0
 
 
+def test_find_leaks_searches_every_string_that_holds_a_value_in_full() -> None:
+    assert schemas.find_leaks(["Bobby", "x", "to Bob", "Bob."], {"Bob"}) == 1
+    assert schemas.find_leaks(["Bobby", "x", "Bobbie"], {"Bob"}) == 0
+    # A value that holds the \0 the strings are joined with is searched in all of them.
+    assert schemas.find_leaks(["x", "Bob\0Smith"], {"Bob\0Smith"}) == 1
+
+
 def test_find_leaks_skips_the_tokens_that_replaced_the_values() -> None:
     from privyx.token.codec import FormatCodec
 
