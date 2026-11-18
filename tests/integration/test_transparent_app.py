@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 from typing import Any
 
 import pytest
@@ -229,6 +230,23 @@ async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
     assert seen == []
     errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
     assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "LeakError")]
+
+
+async def test_dlp_check_forwards_a_copy_in_masked_text_masked() -> None:
+    seen: list[bytes] = []
+    engine = _engine()
+    engine.dlp_check = True
+    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
+    env = "PWD=/home/alice/apollo\nAPP_ROOT=/home/alice/apollo"  # `env` output in a turn
+    async with _client(create_transparent_app(engine, proxy)) as client:
+        response = await client.post(
+            "/v1/chat/completions", json={"messages": [{"role": "user", "content": env}]}
+        )
+
+    assert response.status_code == 200
+    sent = json.loads(seen[0])["messages"][0]["content"]
+    assert "/home/alice" not in sent
+    assert len(set(re.findall(r"<PRIVYX_SECRET_\w+>", sent))) == 1
 
 
 async def test_directive_reaches_the_upstream_in_the_system_prompt() -> None:

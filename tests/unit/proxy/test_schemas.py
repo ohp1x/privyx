@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 import pytest
@@ -959,25 +960,115 @@ async def test_dlp_check_off_forwards_what_it_does_not_mask() -> None:
     assert out["user"] == EMAIL
 
 
+@pytest.mark.parametrize("dlp_check", [False, True])
+async def test_dlp_check_masks_each_copy_of_a_value_masked_by_its_name(dlp_check: bool) -> None:
+    engine = _engine()
+    engine.dlp_check = dlp_check
+    env = "PWD=/home/alice/apollo\nAPP_ROOT=/home/alice/apollo"
+    payload = {"messages": [{"role": "user", "content": env}]}
+
+    out = await transform_request(payload, engine, await _session(engine))
+    pwd, root = (line.split("=")[1] for line in out["messages"][0]["content"].splitlines())
+    assert pwd.startswith("<PRIVYX_SECRET_")
+    assert root == (pwd if dlp_check else "/home/alice/apollo")  # off: as in 0.2.0
+
+
+async def test_dlp_check_masks_a_copy_walked_before_the_value_is_masked() -> None:
+    engine = _dlp_engine()
+    payload = {
+        "system": "Deploy with hunter2-x9 when asked.",  # walked before `messages`
+        "messages": [
+            {"role": "user", "content": "DB_PASSWORD=hunter2-x9"},
+            {"role": "assistant", "content": "Saved hunter2-x9."},  # a restored token
+        ],
+    }
+    sid = await _session(engine)
+
+    out = await transform_request(payload, engine, sid, schema="anthropic")
+    assert "hunter2-x9" not in json.dumps(out)
+    assert len(set(re.findall(r"<PRIVYX_SECRET_\w+>", json.dumps(out)))) == 1
+    with pytest.raises(LeakError):  # not walked: still refused
+        await transform_request({**payload, "user": "hunter2-x9"}, engine, sid, schema="anthropic")
+
+
+async def test_dlp_check_masks_a_copy_but_not_the_same_word_in_a_token() -> None:
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+        dlp_check=True,
+        underscore_separates_words=True,  # `PRIVYX` is a word of `<PRIVYX_SECRET_1>`
+    )
+    payload = {"messages": [{"role": "user", "content": "DB_PASSWORD=PRIVYX\nAPP=PRIVYX"}]}
+
+    out = await transform_request(payload, engine, await _session(engine))
+    assert out["messages"][0]["content"] == "DB_PASSWORD=<PRIVYX_SECRET_1>\nAPP=<PRIVYX_SECRET_1>"
+
+
+async def test_dlp_check_counts_the_fixed_text_it_writes_for_a_copy() -> None:
+    from privyx.privacy.operator.redact import RedactOperator
+
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=RedactOperator("[TED-HIDDEN]"),  # `TED` is in its text: counted, not a leak
+        vault=MemoryVault(),
+        dlp_check=True,
+    )
+    payload = {"messages": [{"role": "user", "content": "DB_PASSWORD=TED\nAPP=TED"}]}
+
+    out = await transform_request(payload, engine, await _session(engine))
+    assert out["messages"][0]["content"] == "DB_PASSWORD=[TED-HIDDEN]\nAPP=[TED-HIDDEN]"
+
+
+async def test_dlp_check_masks_a_copy_in_headers_and_params_as_they_were_masked() -> None:
+    from privyx.privacy.operator.fpe import FPEOperator
+
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=FPEOperator(),  # its email is still an email: masked again, it would change
+        vault=MemoryVault(),
+        dlp_check=True,
+    )
+    headers = {"x-codex-turn-metadata": json.dumps({"user": EMAIL})}
+    params = [("q", EMAIL)]
+    payload = {
+        "system": "hunter2-x9",
+        "messages": [{"role": "user", "content": f"DB_PASSWORD=hunter2-x9 {EMAIL}"}],
+    }
+
+    out = await transform_request(
+        payload, engine, await _session(engine), headers=headers, params=params
+    )
+    fake = out["messages"][0]["content"].split()[-1]
+    assert fake != EMAIL
+    assert json.loads(headers["x-codex-turn-metadata"]) == {"user": fake}
+    assert params == [("q", fake)]
+
+
 def test_find_leaks_counts_whole_words_only() -> None:
     sent = {"a": ["Bobby", "x Bob y"], "Bob": "z"}
-    assert schemas.find_leaks(sent, {"Bob"}) == 1
-    assert schemas.find_leaks("Bobby", {"Bob"}) == 0
-    assert schemas.find_leaks("+1-555-0142x", {"+1-555-0142"}) == 0
+    assert schemas.find_leaks(sent, {"Bob"}) == {"Bob"}
+    assert schemas.find_leaks("Bobby", {"Bob"}) == set()
+    assert schemas.find_leaks("+1-555-0142x", {"+1-555-0142"}) == set()
     # A masked tool-argument number sent elsewhere as a number.
-    assert schemas.find_leaks({"a": 4111111111111111, "b": True}, {"4111111111111111"}) == 1
-    assert schemas.find_leaks({"a": True}, {"True"}) == 0
+    assert schemas.find_leaks({"a": 4111111111111111, "b": True}, {"4111111111111111"}) == {
+        "4111111111111111"
+    }
+    assert schemas.find_leaks({"a": True}, {"True"}) == set()
     # As the detector has it: with `_` separating words, `Bob` is in `DB_BOB`.
-    assert schemas.find_leaks("DB_Bob", {"Bob"}) == 0
-    assert schemas.find_leaks("DB_Bob", {"Bob"}, underscore=True) == 1
-    assert schemas.find_leaks("Bobby", {"Bob"}, underscore=True) == 0
+    assert schemas.find_leaks("DB_Bob", {"Bob"}) == set()
+    assert schemas.find_leaks("DB_Bob", {"Bob"}, underscore=True) == {"Bob"}
+    assert schemas.find_leaks("Bobby", {"Bob"}, underscore=True) == set()
 
 
 def test_find_leaks_searches_every_string_that_holds_a_value_in_full() -> None:
-    assert schemas.find_leaks(["Bobby", "x", "to Bob", "Bob."], {"Bob"}) == 1
-    assert schemas.find_leaks(["Bobby", "x", "Bobbie"], {"Bob"}) == 0
+    assert schemas.find_leaks(["Bobby", "x", "to Bob", "Bob."], {"Bob"}) == {"Bob"}
+    assert schemas.find_leaks(["Bobby", "x", "Bobbie"], {"Bob"}) == set()
     # A value that holds the \0 the strings are joined with is searched in all of them.
-    assert schemas.find_leaks(["x", "Bob\0Smith"], {"Bob\0Smith"}) == 1
+    assert schemas.find_leaks(["x", "Bob\0Smith"], {"Bob\0Smith"}) == {"Bob\0Smith"}
 
 
 def test_find_leaks_skips_the_tokens_that_replaced_the_values() -> None:
@@ -985,10 +1076,10 @@ def test_find_leaks_skips_the_tokens_that_replaced_the_values() -> None:
 
     sent = "ask <PRIVYX_PERSON_1> or [TED-HIDDEN]"
     codec = FormatCodec.default()
-    assert schemas.find_leaks(sent, {"PERSON", "TED"}, underscore=True) == 2
-    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=codec) == 0
-    assert schemas.find_leaks(sent, {"TED"}, fixed="[TED-HIDDEN]") == 0
-    assert schemas.find_leaks(sent + " TED", {"TED"}, fixed="[TED-HIDDEN]") == 1
+    assert schemas.find_leaks(sent, {"PERSON", "TED"}, underscore=True) == {"PERSON", "TED"}
+    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=codec) == set()
+    assert schemas.find_leaks(sent, {"TED"}, fixed="[TED-HIDDEN]") == set()
+    assert schemas.find_leaks(sent + " TED", {"TED"}, fixed="[TED-HIDDEN]") == {"TED"}
 
 
 def test_find_leaks_still_searches_text_derived_from_a_value() -> None:
@@ -997,30 +1088,37 @@ def test_find_leaks_still_searches_text_derived_from_a_value() -> None:
     # A `partial` mask keeps the domain, and a label is a fake value.
     sent = "mail b****@acme.example, ask <PRIVYX_PERSON_1:James Wilson>"
     masked = {"bob@acme.example", "acme.example", "James"}
-    assert schemas.find_leaks(sent, masked, codec=FormatCodec.default()) == 2
+    assert schemas.find_leaks(sent, masked, codec=FormatCodec.default()) == {
+        "acme.example",
+        "James",
+    }
     labels = LabelCodec("<{namespace}_{type}_{id}>", "<{namespace}_{type}_{id}:{label}>")
-    assert schemas.find_leaks(sent, masked, codec=labels) == 2
-    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=labels) == 0
+    assert schemas.find_leaks(sent, masked, codec=labels) == {"acme.example", "James"}
+    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=labels) == set()
 
 
 def test_find_leaks_looks_past_fixed_text_only_where_it_stands_as_a_word() -> None:
     # A one-letter redaction marker must not cut a leaked value apart.
-    assert schemas.find_leaks("mail x, cc alex@example.com", {"alex@example.com"}, fixed="x") == 1
-    assert schemas.find_leaks("mail x", {"x"}, fixed="x") == 0
+    assert schemas.find_leaks("mail x, cc alex@example.com", {"alex@example.com"}, fixed="x") == {
+        "alex@example.com"
+    }
+    assert schemas.find_leaks("mail x", {"x"}, fixed="x") == set()
     # Nor a leaked value that holds it.
-    assert schemas.find_leaks("hdr: john x smith", {"john x smith"}, fixed="x") == 1
+    assert schemas.find_leaks("hdr: john x smith", {"john x smith"}, fixed="x") == {"john x smith"}
     # Nor more copies of it than the operator wrote: one is the raw value.
-    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=2) == 0
-    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=1) == 1
+    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=2) == set()
+    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=1) == {"Bob"}
 
 
 def test_find_leaks_skips_declared_tool_names_only() -> None:
     tools = frozenset({"mcp__acme__search"})
     sent = {"tools": [{"name": "mcp__acme__search"}], "content": [{"name": "mcp__acme__search"}]}
-    assert schemas.find_leaks(sent, {"acme"}, underscore=True) == 1
-    assert schemas.find_leaks(sent, {"acme"}, underscore=True, tools=tools) == 0
+    assert schemas.find_leaks(sent, {"acme"}, underscore=True) == {"acme"}
+    assert schemas.find_leaks(sent, {"acme"}, underscore=True, tools=tools) == set()
     # Another `name`, such as a message's, is still searched.
-    assert schemas.find_leaks({"name": "acme_bot"}, {"acme"}, underscore=True, tools=tools) == 1
+    assert schemas.find_leaks({"name": "acme_bot"}, {"acme"}, underscore=True, tools=tools) == {
+        "acme"
+    }
 
 
 @pytest.mark.parametrize(

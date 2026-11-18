@@ -89,7 +89,7 @@
 #   timeout: 300           # seconds between bytes, read or write
 #   connect_timeout: 10
 #   max_connections: null  # null: no limit
-#   dlp_check: true        # refuse a masked request that still holds a masked value
+#   dlp_check: true        # mask copies of masked values, refuse if one is left
 #                          # exact signed thinking remembered from upstream is exempt
 #   directive: false       # tell the model to keep placeholders as written
 #   cache_control: false   # mark a large Anthropic tools/system prefix for caching

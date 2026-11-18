@@ -544,7 +544,7 @@ environment.
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
 | `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
 | `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |
-| `dlp_check` | `true` | Before a masked request goes out, look for every value it masked anywhere else in it (fields that are not masked, URLs, headers other than the credential). One found answers `422` and the request is not forwarded. Only exact signed thinking remembered from an upstream response is reinstated after the check. See [Leak check](masking.md#leak-check). |
+| `dlp_check` | `true` | Mask every copy of a value a request masked wherever it stands in text Privyx masks. Then, before the request goes out, look for every value it masked anywhere else in it (fields that are not masked, URLs, headers other than the credential). One found answers `422` and the request is not forwarded. Only exact signed thinking remembered from an upstream response is reinstated after the check. See [Leak check](masking.md#leak-check). |
 | `directive` | `false` | Add a short instruction to each masked chat request, telling the model to keep placeholders exactly as written. About 80 tokens. See [Placeholder directive](masking.md#placeholder-directive). |
 | `cache_control` | `false` | Mark a large `tools` and `system` prefix of an Anthropic request for prompt caching, when the request marks nothing itself. See [Prompt caching](proxy.md#prompt-caching). |
 

@@ -290,6 +290,12 @@ async def transform_request(
     The caller's ``payload`` is never mutated (the walk rebuilds every container
     it descends into; config values are shared, not copied).
 
+    With ``engine.dlp_check``, a value masked in one text but still in another
+    as a word (``x`` of ``DB_PASSWORD=x``, masked only by its name) gets the
+    replacement it got first there too, in every text the walk masks.  A
+    masked value still in the request after that raises
+    :class:`~privyx.core.errors.LeakError` (:func:`find_leaks`).
+
     With ``engine.directive``, a chat request of ``schema`` also gets
     :func:`directive`, unmasked (see :func:`_add_directive`; ``path`` tells a
     Gemini ``countTokens`` call, which takes none of its own).  With
@@ -300,8 +306,9 @@ async def transform_request(
         return len(_PREFIX_KEYS) + 1 if key in METADATA_KEYS else _prefix_rank(key)
 
     rebuilt: dict[str, Any] = {}
-    masked: set[str] = set()  # what this request masked, for engine.dlp_check
+    masked: dict[str, str] = {}  # what this request masked, for engine.dlp_check, and with what
     written = [0]  # ... and how many values it replaced
+    texts: list[str] = []  # ... and each text as masked, in walk order
     scope: AbstractAsyncContextManager[Session] = (
         engine.session_scope(session_id) if session is None else nullcontext(session)
     )
@@ -312,57 +319,87 @@ async def transform_request(
             key = text.key if isinstance(text, _Keyed) else None
             result = await engine.transform(str(text), session=held, persist=False, key=key)
             if engine.dlp_check:
-                masked.update(t.original for t in result.transformations)
+                for t in result.transformations:
+                    masked.setdefault(t.original, t.replacement)
                 written[0] += len(result.transformations)
+                texts.append(result.text)
             return result.text
 
-        async def metadata(text: str) -> str:
-            return await transform(_unescaped(text))
+        async def walk(transform: Callable[[str], Awaitable[str]]) -> None:
+            async def metadata(text: str) -> str:
+                return await transform(_unescaped(text))
 
-        content_keys = GEMINI_CONTENT_KEYS if schema == "gemini" else CONTENT_KEYS
-        deferred: dict[str, Any] = {}  # deferred tools by name, walked where they load
-        loaded: dict[str, Any] = {}  # ... and once walked
-        for key in sorted(payload, key=rank):  # stable: the rest keep their order
-            value = payload[key]
-            if key == "tools":
-                rebuilt[key] = await _drive(_tools(value, deferred), transform)
-            elif key == "messages" and deferred and isinstance(value, list):
-                rebuilt[key] = await _drive(_loading(value, schema, deferred, loaded), transform)
-            elif key in content_keys:
-                rebuilt[key] = await _drive(_content(value, key, schema), transform)
-            elif key in METADATA_KEYS:
-                rebuilt[key] = await _drive(_walk(value, key, True), metadata)
-            else:
-                rebuilt[key] = value
-        for name, tool in deferred.items():  # not loaded yet: the provider renders it nowhere
-            if name not in loaded:
-                loaded[name] = await _drive(_descriptions(tool), transform)
-        if loaded:
-            rebuilt["tools"] = [loaded[t["name"]] if _deferred(t) else t for t in rebuilt["tools"]]
-        if headers:
-            for name in MASKED_HEADERS & headers.keys():
-                headers[name] = _header_value(await metadata(headers[name]))
-        if params is not None:
-            for idx, (name, val) in enumerate(list(params)):
-                if name.lower() not in AUTH_QUERY_PARAMS:
-                    params[idx] = (name, await metadata(val))
-        if masked:
+            content_keys = GEMINI_CONTENT_KEYS if schema == "gemini" else CONTENT_KEYS
+            deferred: dict[str, Any] = {}  # deferred tools by name, walked where they load
+            loaded: dict[str, Any] = {}  # ... and once walked
+            for key in sorted(payload, key=rank):  # stable: the rest keep their order
+                value = payload[key]
+                if key == "tools":
+                    rebuilt[key] = await _drive(_tools(value, deferred), transform)
+                elif key == "messages" and deferred and isinstance(value, list):
+                    rebuilt[key] = await _drive(
+                        _loading(value, schema, deferred, loaded), transform
+                    )
+                elif key in content_keys:
+                    rebuilt[key] = await _drive(_content(value, key, schema), transform)
+                elif key in METADATA_KEYS:
+                    rebuilt[key] = await _drive(_walk(value, key, True), metadata)
+                else:
+                    rebuilt[key] = value
+            for name, tool in deferred.items():  # not loaded yet: the provider renders it nowhere
+                if name not in loaded:
+                    loaded[name] = await _drive(_descriptions(tool), transform)
+            if loaded:
+                rebuilt["tools"] = [
+                    loaded[t["name"]] if _deferred(t) else t for t in rebuilt["tools"]
+                ]
+            if headers:
+                for name in MASKED_HEADERS & headers.keys():
+                    headers[name] = _header_value(await metadata(headers[name]))
+            if params is not None:
+                for idx, (name, val) in enumerate(list(params)):
+                    if name.lower() not in AUTH_QUERY_PARAMS:
+                        params[idx] = (name, await metadata(val))
+
+        def leaks(values: set[str]) -> set[str]:
+            if not values:
+                return set()
             sent = [
                 _searched(rebuilt, schema),
                 [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
             ]
             sent += [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS]
-            leaks = find_leaks(
+            return find_leaks(
                 sent,
-                masked,
+                values,
                 underscore=engine.underscore_separates_words,
                 codec=engine.codec,
                 fixed=getattr(engine.operator, "fixed_text", ""),
                 written=written[0],
                 tools=_declared_names(payload, schema),
             )
-            if leaks:
-                raise LeakError(f"{leaks} masked value(s) still in the request")
+
+        await walk(transform)
+        if leaked := leaks(set(masked)):
+            # The same walk again, with each text as masked: no detection, only
+            # the copies replaced.  Only these can be left, the rest was checked.
+            copies = {value: masked[value] for value in leaked}
+            masked_texts = iter(texts)
+
+            async def with_copies(_: str) -> str:
+                text, count = _mask_copies(
+                    next(masked_texts),
+                    copies,
+                    underscore=engine.underscore_separates_words,
+                    codec=engine.codec,
+                    fixed=getattr(engine.operator, "fixed_text", ""),
+                )
+                written[0] += count
+                return text
+
+            await walk(with_copies)
+            if leaked := leaks(set(copies)):
+                raise LeakError(f"{len(leaked)} masked value(s) still in the request")
         # Only text remembered from an upstream response may bypass DLP: it
         # must match its signature. All client fields have been checked above.
         _pin_thinking(rebuilt.get("messages"))
@@ -523,8 +560,8 @@ def find_leaks(
     fixed: str = "",
     written: int | None = None,
     tools: frozenset[str] = frozenset(),
-) -> int:
-    """How many of the ``masked`` values are still in ``value``'s strings.
+) -> set[str]:
+    """The ``masked`` values that are still in ``value``'s strings.
 
     The check behind ``proxy.dlp_check``: a value masked in one place of a
     request but sent as is in another (a field that is not walked, a URL, a
@@ -549,7 +586,7 @@ def find_leaks(
     # A plain substring search first: most values are not there at all.
     words = sorted((w for w in masked if w in sent), key=len, reverse=True)
     if not words:
-        return 0
+        return set()
     if not any("\0" in word for word in words):
         # Only the strings that hold one are searched further: \0 ends each.
         held: set[tuple[int, int]] = set()
@@ -563,7 +600,7 @@ def find_leaks(
         sent = "\0".join(sent[start:end] for start, end in sorted(held))
     pattern = re.compile("|".join(_whole(word, underscore) for word in words))  # longest first
     if pattern.search(sent) is None:
-        return 0  # only inside other words: no token to look past
+        return set()  # only inside other words: no token to look past
     if codec is not None:
         parts, at = [], 0
         for token in codec.finditer(sent):
@@ -585,7 +622,33 @@ def find_leaks(
             inside[span] = m.group()
     if written is not None and len(inside) > written:
         leaked.update(inside.values())  # more of that text than the operator wrote
-    return len(leaked)
+    return leaked
+
+
+def _mask_copies(
+    text: str, copies: dict[str, str], *, underscore: bool, codec: TokenCodec, fixed: str
+) -> tuple[str, int]:
+    """``text`` with each copy of a key of ``copies`` replaced by its value, and how many.
+
+    A copy is what :func:`find_leaks` would find: a whole word, not in a token
+    of ``codec`` nor inside the ``fixed`` text.
+    """
+    words = sorted((w for w in copies if w in text), key=len, reverse=True)
+    if not words:
+        return text, 0
+    tokens = [(token.start, token.end) for token in codec.finditer(text)]
+    fixed_spans = [m.span() for m in re.finditer(_whole(fixed, underscore), text)] if fixed else []
+    parts: list[str] = []
+    at = 0
+    for m in re.finditer("|".join(_whole(word, underscore) for word in words), text):
+        start, end = m.span()
+        if any(s < end and start < e for s, e in tokens) or any(
+            s <= start and end <= e for s, e in fixed_spans
+        ):
+            continue
+        parts += (text[at:start], copies[m.group()])
+        at = end
+    return "".join([*parts, text[at:]]), len(parts) // 2
 
 
 #: JSON-schema keywords in ``tools`` that hold values, not labels.
