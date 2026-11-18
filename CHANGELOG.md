@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
 ### Added
 
 - **Masking:** `PRIVYX_ANCHOR_KEY_PATH` sets where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default; it takes an absolute path, `~` included
@@ -716,7 +718,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.39...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.2.0
 [0.1.39]: https://github.com/ohp1x/privyx/compare/v0.1.38...v0.1.39
 [0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
 [0.1.37]: https://github.com/ohp1x/privyx/compare/v0.1.36...v0.1.37
