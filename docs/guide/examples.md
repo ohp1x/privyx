@@ -29,7 +29,7 @@ reply = client.chat.completions.create(
 print(reply.choices[0].message.content)
 ```
 
-The provider receives `<PRIVYX_EMAIL_1>` in place of the address; the reply
+The provider receives `<PRIVYX_EMAIL_4FF5EF825E496E1A>` in place of the address; the reply
 has the address back. Streaming (`stream=True`) is restored as it arrives.
 
 Setting `OPENAI_BASE_URL=http://localhost:8000/v1` has the same effect without

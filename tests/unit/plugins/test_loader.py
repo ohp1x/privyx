@@ -228,6 +228,64 @@ def test_anchor_plugin_built_without_secret(tmp_path: Path) -> None:
     assert anchor.name == "noop"
 
 
+CONFIGURED_ANCHOR = """
+from privyx.plugins import ComponentConfig
+from privyx.privacy.anchor.base import BaseAnchor
+
+class KeyedAnchor(BaseAnchor):
+    name = "keyed"
+
+    class Config(ComponentConfig):
+        key_id: str = "k1"
+
+    @classmethod
+    def from_config(cls, config, ctx):
+        return cls()
+
+    async def anchor(self, text, context):
+        return text
+
+    async def deanchor(self, anchored, context):
+        return anchored
+"""
+
+
+def test_default_auto_secret_is_read_only_for_an_anchor_that_receives_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import privyx.security.keys as keys
+
+    read: list[bool] = []
+    monkeypatch.setattr(keys, "read_or_create_anchor_secret", lambda: read.append(True) or "k")
+    settings = _settings(tmp_path, CONFIGURED_ANCHOR, anchor={"type": "keyed"})
+    load_plugins(settings)
+    assert build_anchor(settings) is not None
+    assert read == []  # its Config takes no secret: no key file is created for it
+    settings = _settings(tmp_path, ANCHOR, name="noop.py", anchor={"type": "noop"})
+    load_plugins(settings)
+    build_anchor(settings)
+    assert read == [True]  # without a Config it gets the whole section, secret included
+
+
+SECRET_ANCHOR = (
+    CONFIGURED_ANCHOR.replace('name = "keyed"', 'name = "secret"')
+    .replace('key_id: str = "k1"', 'secret: str = ""')
+    .replace("return cls()", "anchor = cls(); anchor.secret = config.secret; return anchor")
+)
+
+
+def test_default_auto_secret_reaches_a_config_that_declares_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import privyx.security.keys as keys
+
+    monkeypatch.setattr(keys, "read_or_create_anchor_secret", lambda: "persisted")
+    settings = _settings(tmp_path, SECRET_ANCHOR, name="secret.py", anchor={"type": "secret"})
+    load_plugins(settings)
+    assert build_anchor(settings).secret == "persisted"  # type: ignore[union-attr]
+    assert settings.anchor.secret == "auto"
+
+
 async def test_vault_plugin_connect_and_close(tmp_path: Path) -> None:
     settings = _settings(tmp_path, VAULT, vault={"type": "dict"})
     load_plugins(settings)

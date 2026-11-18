@@ -175,22 +175,20 @@ def test_auto_mode_is_refused_for_an_agent_without_one(run_harness: ModuleType) 
         run_harness.main("codex", False, "", None, auto=True)
 
 
-@pytest.mark.parametrize("next_defaults", [False, True])
-def test_seed_selects_candidate_defaults_without_changing_the_base(
-    run_harness: ModuleType, tmp_path: Path, next_defaults: bool
+def test_seed_runs_on_the_defaults_with_terms_and_a_pattern_merged(
+    run_harness: ModuleType, tmp_path: Path
 ) -> None:
     from privyx.config.loader import load_config
     from privyx.core.builder import build_detector_from
     from privyx.core.context import Context
 
-    run_harness.seed(tmp_path, {}, next_defaults)
+    run_harness.seed(tmp_path, {})
     settings = load_config(tmp_path / "privyx.yaml")
-    assert settings.detector.underscore_separates_words is next_defaults
-    assert settings.detector.term_variants is next_defaults
-    assert settings.proxy.dlp_check is next_defaults
-    assert settings.anchor.secret == ("auto" if next_defaults else "")
-    assert len(settings.detector.enable) == (9 if next_defaults else 0)
     base = yaml.safe_load(run_harness.CONFIG)
-    assert "anchor" not in base and "enable" not in base["detector"]
+    assert set(base) == {"detector"}  # every other setting is a default
+    assert set(base["detector"]) == {"type", "terms", "patterns"}
     detector = build_detector_from(settings)
     assert detector.detect_sync("ordinary prose", Context()).spans == []
+    # The pattern covers only the git user: the other term needs merge_terms.
+    found = detector.detect_sync(f"{run_harness.PERSON} and {run_harness.GIT_USER}", Context())
+    assert {s.text for s in found.spans} == {run_harness.PERSON, run_harness.GIT_USER}

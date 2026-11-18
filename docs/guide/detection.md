@@ -33,25 +33,6 @@ With no configuration, the `regex` detector finds:
 | `AUTH_TOKEN` | The credential in `Authorization: Bearer …` or `Basic …` |
 | `URL_CREDENTIAL` | The password in `scheme://user:password@host` |
 | `SECRET` | A value assigned to a secret-looking name (`DB_PASSWORD=…`, `api_key: …`, `"token": "…"`) in `.env`, YAML, JSON, shell, and code |
-
-Names and anything specific to you need more configuration.
-
-## Opt-in detectors
-
-These are off until a `regex` or `yaml` detector lists them under `enable`,
-so turning them on is your choice rather than a side effect of an upgrade.
-`HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, and `ICD10` also catch more of what
-is not sensitive:
-
-```yaml
-detector:
-  type: regex
-  enable: [CRYPTO_WALLET, ID_NIK, ID_NPWP, HIGH_ENTROPY]
-  entropy_threshold: 3.0     # HIGH_ENTROPY: bits per character
-```
-
-| Entity | Matches |
-|---|---|
 | `CRYPTO_WALLET` | Bitcoin addresses (`1…`, `3…`, `bc1…`) with a valid checksum, EVM addresses (`0x` and 40 hex digits), and Solana addresses next to a word such as `wallet` or `solana` |
 | `ID_NIK` | Indonesian NIK: 16 digits with a known province code and a real birth date |
 | `ID_NPWP` | Indonesian NPWP, written `01.234.567.8-901.000`, or 15 bare digits next to `npwp` |
@@ -60,6 +41,29 @@ detector:
 | `ES_NIF`, `ES_NIE` | Spanish DNI and NIE with a correct check letter |
 | `UK_NHS` | UK NHS numbers with a correct check digit, next to `nhs` |
 | `IN_AADHAAR` | Indian Aadhaar numbers with a correct check digit, next to `aadhaar` |
+
+The wallet and ID entities are built in from 0.2: each passes a checksum or
+structure check. A `yaml` detector, which has no built-ins, takes
+them with `enable`; `enable` lists them in a `regex` detector to no effect, so
+a config written for 0.1 still loads. To turn any of them off, list it under
+[`disable`](#turning-a-built-in-off).
+
+Names and anything specific to you need more configuration.
+
+## Opt-in detectors
+
+These are off until a `regex` or `yaml` detector lists them under `enable`,
+since each also catches more of what is not sensitive:
+
+```yaml
+detector:
+  type: regex
+  enable: [HIGH_ENTROPY, MRN]
+  entropy_threshold: 3.0     # HIGH_ENTROPY: bits per character
+```
+
+| Entity | Matches |
+|---|---|
 | `HIGH_ENTROPY` | Strings of 16 to 512 characters that mix upper case, lower case, and digits at random, such as a key without a known prefix. Hex (git hashes, UUIDs) and identifiers made of words (`OAuth2AuthorizationCode`) are left alone. Raise `entropy_threshold` to mask fewer |
 | `ASSIGNED_SECRET` | A value of 12 characters or more with letters and digits or symbols, assigned to any name in `.env`, YAML, JSON, or code (`FOO_BAR="…"`). Not words, numbers, paths, URLs, hosts, dates, versions, variables, or values of names such as `*_id`, `*_url`, `model`, or `version` |
 | `MRN` | A medical record number after its label: `MRN`, `medical record number`, `No. RM`, `nomor rekam medis` |
@@ -156,7 +160,7 @@ A plugin can add more types; see [Plugins](../development/plugins.md).
 
 `patterns`, `terms`, `enable`, and the other pattern settings apply to `regex`
 and `yaml` only. A `presidio` or `llm` detector does not use them, and Privyx
-warns when they are set for one; see
+refuses them beside its `type`; see
 [Settings per type](configuration.md#settings-per-type).
 
 ## Your own patterns
@@ -173,7 +177,7 @@ detector:
     PASSWORD: 'PASSWORD=(?P<value>\S+)'
 ```
 
-- The entity name becomes the `{type}` in the token (`<PRIVYX_EMPLOYEE_ID_1>`).
+- The entity name becomes the `{type}` in the token (`<PRIVYX_EMPLOYEE_ID_5E47FE8CF7B42F4E>`).
   It must start with a letter and contain only letters, digits, and
   underscores, up to 64 characters.
 - A pattern that replaces a built-in one is used as written, without the
@@ -191,7 +195,7 @@ detector:
 ## Turning a built-in off
 
 `disable` turns off built-in entities of the `regex` detector. Both `regex`
-and `yaml` also accept opt-in entity names, so you can opt out before an
+and `yaml` also accept opt-in entity names, so a config can opt out before an
 upgrade enables one by default:
 
 ```yaml
@@ -203,13 +207,13 @@ detector:
 - Only the built-in pattern goes: your own `patterns` and `terms` for the
   entity still apply.
 - An opt-in entity that is not enabled is a no-op, such as
-  `disable: [CRYPTO_WALLET, ID_NIK]` in a config without `enable`.
+  `disable: [HIGH_ENTROPY, MRN]` in a config without `enable`.
 - Listing the same entity in `enable` and `disable` stops the config from
   loading. Remove it from `enable` to opt out.
 - An unknown name, such as a typo, stops the config from loading.
 - Built-in patterns overlap. With `CREDIT_CARD` off, `PHONE` can find part of
   a card number written in groups and send the rest as is:
-  `4111 1111 1111 1111` becomes `<PRIVYX_PHONE_1> 1111`.
+  `4111 1111 1111 1111` becomes `<PRIVYX_PHONE_80091F7A92974293> 1111`.
 
 ## Word lists
 
@@ -229,14 +233,15 @@ Matching ignores case. Longer terms are tried first, so a compound term wins
 over a shorter term inside it. A term only matches as a whole word: `ann` does
 not match inside `annual`.
 
-With `term_variants: true`, a term of several words also matches its other
-spellings: `Acme Corp` or `AcmeCorp` matches `acmecorp`, `acme-corp`,
-`acme_corp`, `ACME_CORP`, and `acme.corp`:
+A term of several words also matches its other spellings (`term_variants`,
+on by default since 0.2): `Acme Corp` or `AcmeCorp` matches `acmecorp`,
+`acme-corp`, `acme_corp`, `ACME_CORP`, and `acme.corp`. Set
+`term_variants: false` to match only the spelling as written:
 
 ```yaml
 detector:
   type: regex
-  term_variants: true
+  term_variants: false
   terms:
     ORGANIZATION: [Acme Corp]
 ```
@@ -245,35 +250,32 @@ A word is split at a case change only when each part keeps two letters, so
 `iPhone` stays one word. A term with other characters, such as a
 URL, matches only as written.
 
-By default `_` counts as part of a word, so a term is not found in a name such
-as `ACME_API_KEY` or `DB_JOHN`. With `underscore_separates_words: true`, `_` separates
-words: `acme` matches in `ACME_API_KEY` and `acme_billing`, `john` and `smith`
-in `JOHN__SMITH`, and still not in `johnson`. The text itself is not changed:
-`ACME_API_KEY` is sent as `<PRIVYX_ORGANIZATION_1>_API_KEY`. The built-in patterns
-follow it too, so `host_10.0.0.1` and `my_sk-…` are found, while a secret
-assigned to `DB_PASSWORD` keeps its name as before:
+`_` separates words (`underscore_separates_words`, on by default since 0.2):
+`acme` matches in `ACME_API_KEY` and `acme_billing`, `john` and `smith` in
+`JOHN__SMITH`, and still not in `johnson`. The text itself is not changed:
+`ACME_API_KEY` is sent as `<PRIVYX_ORGANIZATION_1B30D33813A652F8>_API_KEY`. The built-in
+patterns follow it too, so `host_10.0.0.1` and `my_sk-…` are found, while a
+secret assigned to `DB_PASSWORD` keeps its name. Set
+`underscore_separates_words: false` to count `_` as part of a word, as 0.1
+did, so a term is not found in a name such as `ACME_API_KEY` or `DB_JOHN`:
 
 ```yaml
 detector:
   type: regex
-  underscore_separates_words: true
+  underscore_separates_words: false
   terms:
     ORGANIZATION: [acme]
 ```
 
-`terms` and `patterns` can be used together. If both name the same entity, the
-`patterns` regex wins and the terms are not matched; Privyx warns when it loads
-such a config. Give the regex an entity name of its own to keep both.
-
-With `merge_terms: true`, both match under the same entity. Terms are tried
-first, then the regex; terms keep their case-insensitive word boundaries,
-`term_variants`, and `underscore_separates_words` settings. The regex keeps its
-own flags, anchors, and `value` group. If both alternatives match at the same
-position, the term wins even when the regex could match more text.
+`terms` and `patterns` can be used together, also for the same entity
+(`merge_terms`, on by default since 0.2). Terms are tried first, then the
+regex; terms keep their case-insensitive word boundaries, `term_variants`, and
+`underscore_separates_words` settings. The regex keeps its own flags, anchors,
+and `value` group. If both alternatives match at the same position, the term
+wins even when the regex could match more text.
 
 ```yaml
 detector:
-  merge_terms: true
   terms:
     PERSON: [john smith]
   patterns:
@@ -281,8 +283,10 @@ detector:
 ```
 
 This finds both `JOHN SMITH` and `EMP-123456` as `PERSON`. The option applies
-to `regex` and `yaml`; it is off by default and does not merge custom patterns
-with built-in patterns.
+to `regex` and `yaml`, and does not merge custom patterns with built-in
+patterns. With `merge_terms: false`, as in 0.1, the `patterns` regex wins and
+the terms of that entity are not matched; Privyx warns when it loads such a
+config.
 
 To see which spellings of your terms still get through with your settings,
 and which of these options masks each, run
@@ -399,10 +403,10 @@ and without `--no-policy`:
 $ privyx detect -c strict.yaml --transform "bluebird mail a@b.io"
     14:20    EMAIL             'a@b.io'
 
-bluebird mail <PRIVYX_EMAIL_1>
+bluebird mail <PRIVYX_EMAIL_1D67ED6CD0AAE8C3>
 $ privyx detect -c strict.yaml --transform --no-policy "bluebird mail a@b.io"
      0:8     PROJECT           'bluebird'
     14:20    EMAIL             'a@b.io'
 
-<PRIVYX_PROJECT_1> mail <PRIVYX_EMAIL_2>
+<PRIVYX_PROJECT_DBBA12EA1BBFFECF> mail <PRIVYX_EMAIL_1D67ED6CD0AAE8C3>
 ```

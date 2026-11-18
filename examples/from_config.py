@@ -22,7 +22,8 @@ async def main() -> None:
         session = await engine.get_or_create_session()
 
         masked = await engine.transform("bluebird ships to dana@acme.example", session=session)
-        print(masked.text)  # <PRIVYX_PROJECT_1> ships to <PRIVYX_EMAIL_2>
+        # <PRIVYX_PROJECT_DBBA12EA1BBFFECF> ships to <PRIVYX_EMAIL_19ECE4788CA5AE6F>
+        print(masked.text)
 
         reply = f"Noted: {masked.text}"  # stands in for a model's answer
         restored = await engine.restore(reply, session.session_id)

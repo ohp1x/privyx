@@ -35,6 +35,7 @@ from privyx.plugins.registry import (
     CODEC_KEY,
     ID_LENGTH_KEY,
     PLUGINS,
+    SET_KEY,
     Registry,
     plugin_section,
 )
@@ -174,8 +175,10 @@ def build_anchor(settings: Settings) -> Anchor | None:
     guessable key".  This gate is specific to ``hmac``; a plugin anchor decides
     for itself whether it needs a secret.
 
-    ``auto`` uses the persisted per-user key, shared with ``privyx run``.
-    Settings retain the marker so inspection cannot expose that key.
+    ``auto`` uses the persisted per-user key, shared with ``privyx run``,
+    read only for an anchor that receives the secret and an operator that can
+    use an anchor (``pseudonym`` or a plugin's).  Settings retain the
+    marker so inspection cannot expose that key.
 
     Raises:
         ConfigError: If ``anchor.type`` is unknown or the automatic key cannot
@@ -183,15 +186,44 @@ def build_anchor(settings: Settings) -> Anchor | None:
     """
     atype = settings.anchor.type
     secret = settings.anchor.secret
-    if secret == "auto" and (atype == "hmac" or atype in PLUGINS.anchors):
+    if secret == "auto" and not _operator_takes_anchor(settings):
+        return None  # no key to create for an operator that never uses it
+    if secret == "auto" and _takes_secret(settings):
         from privyx.security.keys import read_or_create_anchor_secret
 
         secret = read_or_create_anchor_secret()
     if atype in ANCHORS:
         return ANCHORS.build({**settings.anchor.model_dump(), "secret": secret})
     if atype in PLUGINS.anchors:
-        return PLUGINS.anchors.build({**plugin_section(settings.anchor), "secret": secret})
+        section = {**plugin_section(settings.anchor), "secret": secret}
+        if secret != settings.anchor.secret:  # the resolved ``auto`` counts as set
+            section[SET_KEY] = section[SET_KEY] | {"secret"}
+        return PLUGINS.anchors.build(section)
     raise ConfigError(f"unknown anchor type: {atype!r}")
+
+
+def _operator_takes_anchor(settings: Settings) -> bool:
+    """Whether the operator can use an anchor: ``pseudonym``, or a plugin's."""
+    otype = settings.operator.type
+    return otype == "pseudonym" or otype not in OPERATORS
+
+
+def _takes_secret(settings: Settings) -> bool:
+    """Whether the anchor receives ``anchor.secret``.
+
+    ``hmac`` does, as does a plugin without a ``Config``, which gets the whole
+    section, or one whose ``Config`` declares ``secret``.  Any other would never
+    see the key ``auto`` creates.
+    """
+    atype = settings.anchor.type
+    if atype == "hmac":
+        return True
+    if atype not in PLUGINS.anchors:
+        return False
+    options = getattr(PLUGINS.anchors.factory(atype), "options", None)
+    if options is None:
+        return True
+    return "secret" in options.model_fields
 
 
 def _pasp(config: dict[str, Any]) -> Anchor | None:
@@ -358,6 +390,7 @@ async def build_engine(
         dlp_check=settings.proxy.dlp_check,
         directive=settings.proxy.directive,
         cache_control=settings.proxy.cache_control,
+        shared_anchor=settings.anchor.secret != "auto",
         underscore_separates_words=any(
             d.underscore_separates_words
             for d in (

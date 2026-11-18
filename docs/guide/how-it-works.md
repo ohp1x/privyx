@@ -11,7 +11,7 @@ original values into the reply.
 
 ![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The model answers with a tool call on both placeholders, and your tool runs it with the real values.](../assets/how-it-works.svg)
 
-The provider works with `<PRIVYX_EMAIL_1>`. Your client never sees that
+The provider works with `<PRIVYX_EMAIL_F04C885A31827851>`. Your client never sees that
 placeholder: it gets the address back. Nothing in the client changes except
 the base URL it talks to.
 
@@ -26,12 +26,12 @@ the base URL it talks to.
 3. **It detects and masks.** The [detector](detection.md) finds sensitive
    values in each piece of text, the [policy](detection.md#policy) decides
    which of them to mask, and the [operator](masking.md) replaces each one,
-   by default with a numbered token such as `<PRIVYX_EMAIL_1>`.
+   by default with a token such as `<PRIVYX_EMAIL_F04C885A31827851>`.
 4. **It remembers the mapping.** Each token and the value it stands for go
    into a [session](sessions.md), which Privyx keeps in its vault. The
    provider never receives it.
 5. **It forwards the request.** The provider receives the masked text and
-   answers as usual. The model can reason about `<PRIVYX_EMAIL_1>`, repeat
+   answers as usual. The model can reason about `<PRIVYX_EMAIL_F04C885A31827851>`, repeat
    it, and pass it to a tool; it cannot read what is behind it.
 6. **It restores the reply.** Every token the session issued is replaced by
    its original value: in the text, in reasoning, and in tool-call arguments.
@@ -108,7 +108,9 @@ and what the vault stores in different ways. See [Masking](masking.md#operators)
 ### Token
 
 The placeholder that replaces a value, also called a pseudonym:
-`<PRIVYX_EMAIL_1>` is the first email address a session saw. The syntax is
+`<PRIVYX_EMAIL_F04C885A31827851>` stands for one email address. Its id is
+derived from the value with a key of your own, so the address gets the same
+token in every session ([anchors](masking.md#anchors)). The syntax is
 [configurable](masking.md#token-format).
 
 ### Session

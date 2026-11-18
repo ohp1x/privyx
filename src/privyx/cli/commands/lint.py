@@ -65,9 +65,8 @@ def lint(config_path: str | None) -> None:
     john%20smith, zero-width and fullwidth characters), and a few fake built-in
     values inside identifiers (host_10.0.0.1), through the configured regex and
     yaml detectors and policy.  A detector option is suggested only when a
-    retry with it masks the value.  Settings the detector type does not use,
-    such as terms under presidio, are reported first.  Exits 1 when a spelling
-    is not fully masked.
+    retry with it masks the value.  Terms from another file that no detector
+    uses are reported first.  Exits 1 when a spelling is not fully masked.
     """
     from privyx.core.errors import PrivyxError
 

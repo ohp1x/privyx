@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -325,7 +327,12 @@ async def test_compact_tokens_from_config_round_trip() -> None:
     from privyx.core.builder import build_engine
 
     engine, close = await build_engine(
-        Settings(vault={"type": "memory"}, token={"compact": True}, audit={"enabled": False})
+        Settings(
+            vault={"type": "memory"},
+            token={"compact": True},
+            audit={"enabled": False},
+            anchor={"secret": ""},  # a counter id, which the test names
+        )
     )
     try:
         session = await engine.get_or_create_session()
@@ -390,8 +397,10 @@ async def test_dlp_check_comes_from_proxy_config() -> None:
     from privyx.config.schema import Settings
     from privyx.core.builder import build_engine
 
-    off, close_off = await build_engine(Settings(vault={"type": "memory"}))
-    on, close_on = await build_engine(Settings(vault={"type": "memory"}, proxy={"dlp_check": True}))
+    on, close_on = await build_engine(Settings(vault={"type": "memory"}))  # the default
+    off, close_off = await build_engine(
+        Settings(vault={"type": "memory"}, proxy={"dlp_check": False})
+    )
     await close_off()
     await close_on()
     assert (off.dlp_check, on.dlp_check) == (False, True)
@@ -403,8 +412,11 @@ async def test_the_dlp_check_splits_at_underscores_when_a_detector_does() -> Non
 
     flags = []
     for detector in (
-        {"type": "regex"},
-        [{"type": "regex"}, {"type": "yaml", "underscore_separates_words": True}],
+        {"type": "regex", "underscore_separates_words": False},
+        [
+            {"type": "regex", "underscore_separates_words": False},
+            {"type": "yaml", "underscore_separates_words": True},
+        ],
     ):
         engine, close = await build_engine(Settings(vault={"type": "memory"}, detector=detector))
         await close()
@@ -430,3 +442,38 @@ async def test_transform_takes_spans_already_decided() -> None:
     assert out.text == "call <PRIVYX_PERSON_1>, ana@example.com"
     with pytest.raises(ValueError, match="not both"):
         await engine.transform("x", session=session, detection=Detection(), key="password")
+
+
+class _LockingVault(MemoryVault):
+    """A memory vault with the cross-process lock a Redis vault has."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.locked: list[str] = []
+
+    @contextlib.asynccontextmanager
+    async def lock(self, session_id: str) -> AsyncIterator[str]:
+        self.locked.append(session_id)
+        yield "token"
+
+    async def save(self, session: Session, *, lock_token: str | None = None) -> None:
+        await super().save(session)
+
+
+@pytest.mark.parametrize(("shared_anchor", "locked"), [(True, False), (False, True)])
+async def test_an_anchor_skips_the_shared_lock_only_with_one_key_for_all(
+    shared_anchor: bool, locked: bool
+) -> None:
+    from privyx.privacy.anchor.hmac import HMACAnchor
+
+    vault = _LockingVault()
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(anchor=HMACAnchor("k" * 64)),
+        vault=vault,
+        shared_anchor=shared_anchor,
+    )
+    async with engine.session_scope("s1"):
+        pass
+    assert bool(vault.locked) == locked

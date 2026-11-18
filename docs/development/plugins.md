@@ -30,6 +30,10 @@ work too, but may move between releases.
 | Vault | `BaseVault` | `create`, `get`, `save`, `delete` (opt. `connect`/`close`, and `list_sessions` for `privyx session list`/`prune`) | `vault.type` |
 | Provider | `BaseProvider` | `send`, `stream`, `close` | `provider.type` |
 
+An anchor plugin without a `Config` gets `anchor.secret` in its config dict.
+Since 0.2 the default secret is `auto`, so it gets the per-user key from
+`~/.privyx/anchor.key` unless the config sets another secret or `""`.
+
 All are in `privyx.plugins`, with `ComponentConfig`, `BuildContext`,
 `Detection`, `TransformResult`, `Context`, `Session`, `LogicalToken`,
 `ConfigError`, and `restore`, the routine the built-in operators restore
@@ -50,6 +54,10 @@ tokens with.
   Without either, Privyx calls the no-argument constructor `cls()`.
 - Optionally define module-level **`on_startup()`** / **`on_shutdown()`**
   (sync or async) for lifecycle work (see below).
+- An operator that writes the same text for every value, such as a fixed
+  marker, sets **`fixed_text`** to it, so the
+  [leak check](../guide/masking.md#leak-check) does not count a masked value
+  that is part of that text.
 
 A plugin never shadows a built-in: built-in types (`regex`, `pseudonym`,
 `hmac`, `memory`, ...) always win, and a plugin is consulted only when the

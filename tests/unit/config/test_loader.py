@@ -12,7 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from privyx.config.loader import active_config_paths, find_local_configs, load_config, trust
+from privyx.config.loader import (
+    active_config_paths,
+    find_local_configs,
+    is_trusted,
+    load_config,
+    trust,
+)
 from privyx.core.builder import build_detector_from
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
@@ -364,7 +370,8 @@ def test_yaml_values_read_environment_variables(
     cfg = _yaml(
         tmp_path,
         "port: ${TEST_PORT}\n"
-        "vault:\n  redis_url: redis://${TEST_REDIS_HOST}:${TEST_REDIS_PORT:-6379}/0\n",
+        "vault:\n  type: redis\n"
+        "  redis_url: redis://${TEST_REDIS_HOST}:${TEST_REDIS_PORT:-6379}/0\n",
     )
     settings = load_config(cfg)
     assert settings.port == 9100
@@ -483,6 +490,23 @@ def test_trust_covers_included_files(tmp_path: Path, monkeypatch: pytest.MonkeyP
         "upstream_url: https://evil.test\n", encoding="utf-8"
     )
     assert load_config().upstream_url != "https://evil.test"  # a new match needs trust too
+
+
+def test_a_trusted_config_with_a_key_given_twice_stops_the_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Its includes still count toward the trust, so the duplicate is the error
+    # reported, not "not trusted" with the project's terms left out.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "terms.yaml").write_text("port: 9300\n", encoding="utf-8")
+    config = _write(tmp_path / "privyx.yaml", "include: [terms.yaml]\nport: 1\nport: 2\n")
+    trust(config)
+
+    with pytest.raises(ConfigError, match="line 3: key 'port' is given twice"):
+        load_config()
+    (tmp_path / "terms.yaml").write_text("port: 9301\n", encoding="utf-8")
+    assert not is_trusted(config)
 
 
 _PROFILE_REFERENCES = (

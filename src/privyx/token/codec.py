@@ -88,6 +88,7 @@ class TokenMatch:
     end: int
     text: str
     token: LogicalToken
+    label: tuple[int, int] | None = None  # where a labeled placeholder's label is
 
 
 class TokenIds:
@@ -709,7 +710,8 @@ class LabelCodec(FormatCodec):
                 groups.get("type") or "LABEL",
                 groups["id"],
             )
-            return match.start(), match.end(), TokenMatch(*match.span(), match.group(), token)
+            found = TokenMatch(*match.span(), match.group(), token, match.span("label"))
+            return match.start(), match.end(), found
 
         def plain(at: int) -> tuple[int, int, TokenMatch] | None:
             match = next(FormatCodec.finditer(self, text, at), None)

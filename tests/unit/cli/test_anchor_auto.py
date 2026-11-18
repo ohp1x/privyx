@@ -202,3 +202,13 @@ def test_mcp_wrap_uses_the_same_anchor(config: Path) -> None:
     assert result.returncode == 0, result.stderr
     reply = json.loads(result.stdout)
     assert reply["result"]["content"][0]["text"] == masked.stdout.strip()
+
+
+@pytest.mark.parametrize("operator", ["redact", "hash", "partial"])
+def test_an_operator_without_an_anchor_creates_no_key(home: Path, operator: str) -> None:
+    from privyx.config.schema import Settings
+
+    settings = Settings(operator={"type": operator})
+    assert settings.anchor.secret == "auto"
+    assert build_anchor(settings) is None
+    assert not (home / ".privyx" / "anchor.key").exists()

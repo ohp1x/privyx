@@ -55,8 +55,8 @@ The [Quickstart](guide/getting-started.md) walks through each of these.
 
 ![Your tool sends a request holding an email address and a password. Privyx forwards it with a placeholder in place of each and keeps the mapping in its session vault. The model answers with a tool call on both placeholders, and your tool runs it with the real values.](assets/how-it-works.svg)
 
-The model works with `<PRIVYX_EMAIL_1>`: it can reason about it, repeat it,
-and hand it to a tool. The mapping back to the real value stays with Privyx.
+The model works with `<PRIVYX_EMAIL_F04C885A31827851>`: it can reason about
+it, repeat it, and hand it to a tool. The mapping back to the real value stays with Privyx.
 
 ## Pick your path
 

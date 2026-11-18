@@ -20,7 +20,7 @@ refuses a request that still holds a value masked elsewhere in it.
 
 | `operator.type` | `alice@example.com` becomes | Restored in replies | Vault stores | Needs |
 |---|---|---|---|---|
-| `pseudonym` (default) | `<PRIVYX_EMAIL_1>` | Yes | The original | Nothing |
+| `pseudonym` (default) | `<PRIVYX_EMAIL_4FF5EF825E496E1A>` | Yes | The original | Nothing |
 | `hash` | `<PRIVYX_EMAIL_ff8d9819fc0e>` | Yes | The original | Nothing |
 | `encrypt` | `<PRIVYX_EMAIL_AAE5ECF9F12ED145>` | Yes | Ciphertext only | `privyx[crypto]` and a key |
 | `faker` | `curtisjohnson@cummings.net` | Yes | The original | `privyx[faker]` |
@@ -46,8 +46,7 @@ operator:
   length: 12
 ```
 
-Keep `length` between 6 and 64. Other values still work with a warning and
-are rejected from 0.2.0; below 1 is a configuration error. When two values in
+`length` is between 6 and 64; another value is a configuration error. When two values in
 a session would get the same id, the later one gets a longer id from the same
 digest, so a collision never restores the wrong value.
 
@@ -94,7 +93,7 @@ reversal matters more than realism.
 
 Replaces a value with one of the same format that passes validation, from a
 range no real person or system uses. Use it when a tool checks its arguments
-and rejects `<PRIVYX_EMAIL_1>` where it expects an email address:
+and rejects `<PRIVYX_EMAIL_4FF5EF825E496E1A>` where it expects an email address:
 
 | Value | Becomes |
 |---|---|
@@ -159,9 +158,9 @@ The token operators (`pseudonym`, `hash`, `encrypt`) write placeholders from
 ```yaml
 token:
   namespace: PRIVYX
-  format: "<{namespace}_{type}_{id}>"     # <PRIVYX_EMAIL_1>
-  # format: "[[{namespace}:{type}:{id}]]" # [[PRIVYX:EMAIL:1]]
-  # format: "<{namespace}:{type}:{id}>"   # <PRIVYX:EMAIL:1>
+  format: "<{namespace}_{type}_{id}>"     # <PRIVYX_EMAIL_4FF5EF825E496E1A>
+  # format: "[[{namespace}:{type}:{id}]]" # [[PRIVYX:EMAIL:4FF5EF825E496E1A]]
+  # format: "<{namespace}:{type}:{id}>"   # <PRIVYX:EMAIL:4FF5EF825E496E1A>
 ```
 
 - `format` must contain `{type}` and `{id}`. `{namespace}` is optional.
@@ -182,8 +181,8 @@ format that starts with `{namespace}` inside its outer delimiters, as the three
 above do. A token in another case (`<privyx_email_1>`) is restored when exactly
 one token of the session matches it.
 
-A model may also keep only the id, and write `247102A91C49C99E` for
-`<PRIVYX_EMAIL_247102A91C49C99E>`. The id alone is restored when it is at least
+A model may also keep only the id, and write `4FF5EF825E496E1A` for
+`<PRIVYX_EMAIL_4FF5EF825E496E1A>`. The id alone is restored when it is at least
 12 characters long, stands as a whole word, and belongs to exactly one token of
 the session. The ids of an [anchor](#anchors) and of `encrypt` at the default
 [id length](#id-length), and of `hash` at its default length, are that long. A counter (`1`) is not: it is ordinary text, so
@@ -199,7 +198,7 @@ In a long conversation the same placeholders come back on every turn. Set
 
 ```yaml
 token:
-  compact: true             # <E~1> instead of <PRIVYX_EMAIL_1>
+  compact: true             # <E~4FF5EF825E496E1A> instead of <PRIVYX_EMAIL_4FF5EF825E496E1A>
 ```
 
 The entity type is cut to the initials of its words (`EMAIL` is `E`,
@@ -215,7 +214,7 @@ is 16 hex characters. `token.id_length` sets it, from 6 to 64:
 
 ```yaml
 token:
-  id_length: 8              # <PRIVYX_EMAIL_247102A9>
+  id_length: 8              # <PRIVYX_EMAIL_4FF5EF82>
 ```
 
 Counter ids and `hash` (`operator.length`) do not change. A new length changes
@@ -231,7 +230,7 @@ longer id. A token pasted from another session is more likely to match a
 different value of this one when ids are short.
 
 To shorten tokens without shortening ids, use [compact tokens](#compact-tokens)
-instead; both can be combined (`<E~247102>`).
+instead; both can be combined (`<E~4FF5EF>`).
 
 ### Labels
 
@@ -241,12 +240,12 @@ of the same kind, for the model to read and reason with:
 
 ```yaml
 token:
-  label_format: "<{namespace}_{type}_{id}:{label}>"   # <PRIVYX_PERSON_1:Alice Johnson>
+  label_format: "<{namespace}_{type}_{id}:{label}>"   # <PRIVYX_PERSON_A81B3C9AEE08DE11:Alice Johnson>
 proxy:
   directive: true           # recommended with labels
 ```
 
-`john smith` is sent as `<PRIVYX_PERSON_1:Alice Johnson>`, and the placeholder
+`john smith` is sent as `<PRIVYX_PERSON_A81B3C9AEE08DE11:Alice Johnson>`, and the placeholder
 comes back as `john smith`. A reply that only says `Alice Johnson`, or `Alice
 in Wonderland`, is left as written: the session maps the token, never the
 label, so text that happens to hold the label is never restored. That is the
@@ -255,7 +254,7 @@ difference from the [`faker`](#faker) operator.
 - The placeholder restores by its id, with its type and namespace when the
   format holds them; the label is ignored, so one the model changed still
   restores. A placeholder whose fields point to no token of the session, or to
-  two, is left as written; in another case (`<privyx_person_1:Alice>`), it is
+  two, is left as written; in another case (`<privyx_person_a81b3c9aee08de11:Alice>`), it is
   restored when exactly one token of the session matches it. Without its
   closing delimiter, only the token part is restored, as for a
   [half edge](#token-format).
@@ -296,47 +295,44 @@ costs as many more tokens as its label.
 
 ## Anchors
 
-By default a `pseudonym` token is a counter within its session:
-`<PRIVYX_EMAIL_1>` is the first email address that session saw. In another
-session the same address can get a different number, and `<PRIVYX_EMAIL_1>`
-can stand for a different address.
+A `pseudonym` token's id is derived from the value under an anchor secret, so
+the same value gets the same token in every session and after a restart:
 
-Set an anchor secret and the id is derived from the value instead, so the same
-value gets the same token in every session and after a restart:
+```console
+$ privyx detect --transform "mail alice@example.com"
+...
+mail <PRIVYX_EMAIL_4FF5EF825E496E1A>
+```
+
+The id is an HMAC of the value under the secret. Anyone holding the secret can
+check a guessed value against a token, so keep it as private as an API key.
+
+The default secret, since 0.2, is `auto`: every command that uses HMAC
+anchoring, including `proxy`, `mask`, `pipe`, `mcp wrap`, and `run`, shares
+the per-user key in `~/.privyx/anchor.key` (`PRIVYX_ANCHOR_KEY_PATH` sets
+another path). It is created with owner-only
+permissions on first use, and concurrent processes use the same complete key.
+`config --show`, `config --sources`, and `run --dry-run` do not create it.
+Different users or machines need the same explicit secret to share tokens:
 
 ```bash
 export PRIVYX_ANCHOR_SECRET=$(openssl rand -hex 32)
 ```
 
-```console
-$ privyx detect --transform "mail alice@example.com"
-...
-mail <PRIVYX_EMAIL_247102A91C49C99E>
-```
-
-The id is an HMAC of the value under the secret. Anyone holding the secret can
-check a guessed value against a token, so keep it as private as an API key.
-With an empty secret there is no anchoring at all, rather than anchoring with a
-guessable key.
-
-To create and reuse a secret automatically, opt in with:
+An empty secret turns anchoring off, rather than anchoring with a guessable
+key. A token is then a counter within its session, as by default in 0.1:
+`<PRIVYX_EMAIL_1>` is the first email address that session saw. In another
+session the same address can get a different number, and `<PRIVYX_EMAIL_1>`
+can stand for a different address:
 
 ```yaml
 anchor:
-  secret: auto
+  secret: ""
 ```
 
-Or set `PRIVYX_ANCHOR_SECRET=auto`. All commands that use HMAC anchoring,
-including `proxy`, `mask`, `pipe`, and `mcp wrap`, then share the per-user key
-in `~/.privyx/anchor.key`. It is created with owner-only permissions on first
-use, and concurrent processes use the same complete key. Different users or
-machines need the same explicit secret to share tokens.
-
-Anchoring applies to the `pseudonym` operator. `privyx run` defaults to `auto`;
-`--no-anchor` skips that default, while an explicit config or environment
-setting still applies. An explicit empty secret in the config disables anchoring. Other
-commands keep using counters unless a secret is configured. `config --show`,
-`config --sources`, and `run --dry-run` do not create the key file.
+`PRIVYX_ANCHOR_SECRET=""` does the same. `privyx run --no-anchor` uses no
+anchor unless the config or environment sets one. Anchoring applies to the
+`pseudonym` operator.
 
 If the automatic key cannot be read or saved, the command fails instead of
 using a temporary secret that would change tokens on the next invocation.
@@ -354,7 +350,7 @@ tokens, and a token a session did not make is left as it is.
 ## Placeholder directive
 
 `proxy.directive` adds a short instruction to each masked chat request: some
-values are placeholders such as `<PRIVYX_EMAIL_1>`, to be copied exactly as
+values are placeholders such as `<PRIVYX_EMAIL_4FF5EF825E496E1A>`, to be copied exactly as
 written wherever the value is needed, and never changed, split, encoded, or
 guessed at. It helps a model that otherwise treats a placeholder as a typo to
 fix, or rebuilds one in code.
@@ -380,21 +376,24 @@ to each request. Off by default.
 
 A value is masked where it is detected. The same value can also reach the
 provider somewhere Privyx does not mask: a field outside the conversation, a
-URL, a message `name`, or a request header. With `proxy.dlp_check`
-set, the proxy looks for every value a request masked in all of that request as
-it will be sent, and refuses the request with `422` if one is still there:
+URL, a message `name`, or a request header. With `proxy.dlp_check`, on by
+default since 0.2, the proxy looks for every value a request masked in all of
+that request as it will be sent, and refuses the request with `422` if one is
+still there. Set it to `false` to forward such a request, as 0.1 did:
 
 ```yaml
 proxy:
-  dlp_check: true
+  dlp_check: false
 ```
 
 The check covers values that were detected somewhere in the request, not
-values no detector found. The credential headers (`Authorization`,
-`x-api-key`, `api-key`, `x-goog-api-key`) are not checked. A value that starts or ends with a letter or digit
-must stand as a whole word to count (`Bob` is not found in `Bobby`). With
-`detector.underscore_separates_words`, `_` separates words here too (`Bob` is found in
-`DB_Bob`).
+values no detector found, and not the placeholders that replaced them. The credential headers (`Authorization`,
+`x-api-key`, `api-key`, `x-goog-api-key`) are not checked, nor are the tool
+names the request declares, where a tool is named or called: they go out as
+declared, so `acme` in `mcp__acme__search` does not refuse the request. A value that starts or ends with a letter or digit
+must stand as a whole word to count (`Bob` is not found in `Bobby`). When
+`detector.underscore_separates_words` is on, as by default, `_` separates words
+here too (`Bob` is found in `DB_Bob`).
 
 Echoed Anthropic thinking is an exception only when Privyx remembers its
 signature from an upstream response. After the DLP check, Privyx replaces the

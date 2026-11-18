@@ -136,7 +136,9 @@ def config(tmp_path: Path) -> Path:
         "  type: sqlite\n"
         f"  dsn: sqlite+aiosqlite:///{tmp_path / 'privyx.db'}\n"
         "detector:\n"
-        "  type: regex\n",
+        "  type: regex\n"
+        "anchor:\n"  # counter tokens, which the tests name
+        "  secret: ''\n",
         encoding="utf-8",
     )
     return path
@@ -277,7 +279,9 @@ def test_keeps_the_protocol_version_and_context_in_the_key(tmp_path: Path) -> No
         "    DATE: '\\d{4}-\\d{2}-\\d{2}'\n"
         "    EMPLOYEE_ID: '^EMP\\d{4}$'\n"
         "  context:\n"
-        "    EMAIL: [owner]\n",
+        "    EMAIL: [owner]\n"
+        "anchor:\n"  # counter tokens, which the test names
+        "  secret: ''\n",
         encoding="utf-8",
     )
     proc = _wrap(config, tmp_path / "server.log")
@@ -590,7 +594,8 @@ async def test_keys_made_one_are_an_error(operator: str, message: dict[str, Any]
     from privyx.core.errors import OperatorError
 
     settings = Settings.model_validate(
-        {"detector": {"type": "regex"}, "operator": {"type": operator}}
+        # Counter tokens, which the pseudonym case names.
+        {"detector": {"type": "regex"}, "operator": {"type": operator}, "anchor": {"secret": ""}}
     )
     engine, close = await build_engine(settings)
     try:

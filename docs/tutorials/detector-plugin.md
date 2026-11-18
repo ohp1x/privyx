@@ -78,7 +78,7 @@ $ privyx detect -c privyx.yaml --transform "Refund DE89 3704 0044 0532 0130 00 a
      7:34    IBAN              'DE89 3704 0044 0532 0130 00'
     50:65    EMAIL             'ann@example.com'
 
-Refund <PRIVYX_IBAN_1> and confirm to <PRIVYX_EMAIL_2>
+Refund <PRIVYX_IBAN_0D973D52B3AE0D85> and confirm to <PRIVYX_EMAIL_F04C885A31827851>
 ```
 
 Change the last digit and the checksum no longer holds, so the number is left
@@ -111,7 +111,7 @@ detector:
 $ privyx detect -c privyx.yaml --transform "GB82WEST12345698765432 or NL91ABNA0417164300"
     26:44    IBAN              'NL91ABNA0417164300'
 
-GB82WEST12345698765432 or <PRIVYX_IBAN_1>
+GB82WEST12345698765432 or <PRIVYX_IBAN_5E604519423B0E90>
 ```
 
 Without a `from_config`, Privyx builds the class with no arguments. To have
@@ -128,6 +128,7 @@ $ privyx doctor -c privyx.yaml
 Privyx Doctor
 =============
   ✓ plugins: 1 plugin(s) — detector: iban
+  ✓ anchor key: /home/alice/.privyx/anchor.key is created on first use
   ✓ detector: regex+iban: 1 span(s) ['EMAIL']
   ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok
@@ -135,7 +136,7 @@ Privyx Doctor
   ✓ proxy: request transformed, 1 mapping(s) vaulted
   ✓ streaming: pseudonym restored across a split chunk
   ✓ routes: transparent: 27 masking route(s): ...
-  ✓ configuration: valid: detector=regex+iban policy=default operator=pseudonym vault=memory anchor=off
+  ✓ configuration: valid: detector=regex+iban policy=default operator=pseudonym vault=memory anchor=hmac
 ```
 
 A path that does not exist, a file that fails to import, or two plugins with

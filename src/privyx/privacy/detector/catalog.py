@@ -324,10 +324,11 @@ ICD10_PATTERN = r"\b[A-Z]\d[0-9AB](?:\.[0-9A-Z]{1,4})?\b"
 
 # --- Registry ---------------------------------------------------------------
 
-#: Off unless a detector lists them under ``enable``.  Each ID pattern starts
-#: with a digit or letter, its left boundary checked after it: a pattern starting
-#: with a lookbehind is tried at every position, which made it 3-5 times slower.
-OPTIONAL_PATTERNS: dict[str, str] = {
+#: Checked by checksum or structure, and built into the ``regex`` detector; a
+#: ``yaml`` detector takes them with ``enable``.  Each ID pattern starts with a
+#: digit or letter, its left boundary checked after it: a pattern starting with
+#: a lookbehind is tried at every position, which made it 3-5 times slower.
+CHECKED_PATTERNS: dict[str, str] = {
     "CRYPTO_WALLET": WALLET_PATTERN,
     "ID_NIK": r"\d(?<![\d.-]\d)\d{15}(?![\d.-])",
     "ID_NPWP": r"\d(?<![\d.]\d)(?:\d\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3}|\d{14})(?![\d.-])",
@@ -337,6 +338,11 @@ OPTIONAL_PATTERNS: dict[str, str] = {
     "ES_NIE": r"[XYZ](?<!\w[XYZ])-?\d{7}-?[A-Z]\b",
     "UK_NHS": r"\d(?<!\d\d)(?<!\d[ -]\d)\d{2}([ -]?)\d{3}\1\d{4}(?![\d-])",
     "IN_AADHAAR": r"[2-9](?<!\d[2-9])(?<!\d[ -][2-9])\d{3}([ -]?)\d{4}\1\d{4}(?![\d-])",
+}
+
+#: Off unless a detector lists them under ``enable``: each finds more that is
+#: not sensitive than the checked ones.
+OPTIONAL_PATTERNS: dict[str, str] = {
     "HIGH_ENTROPY": HIGH_ENTROPY_PATTERN,
     "ASSIGNED_SECRET": ASSIGNMENT_PATTERN,
     "MRN": MRN_PATTERN,

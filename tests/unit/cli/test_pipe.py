@@ -27,7 +27,9 @@ def config(tmp_path: Path) -> Path:
         "  type: sqlite\n"
         f"  dsn: sqlite+aiosqlite:///{tmp_path / 'privyx.db'}\n"
         "detector:\n"
-        "  type: regex\n",
+        "  type: regex\n"
+        "anchor:\n"  # counter tokens, which the tests name
+        "  secret: ''\n",
         encoding="utf-8",
     )
     return path

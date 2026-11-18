@@ -22,7 +22,7 @@ llm = ChatOpenAI(model="gpt-4o-mini", base_url="http://localhost:8000/v1")
 print(llm.invoke("Write a short greeting to alice@example.com").content)
 ```
 
-The model receives `<PRIVYX_EMAIL_1>`; `content` has the address back.
+The model receives `<PRIVYX_EMAIL_4FF5EF825E496E1A>`; `content` has the address back.
 Streaming works the same way:
 
 ```python

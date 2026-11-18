@@ -36,7 +36,6 @@ from click.core import ParameterSource
 
 from privyx.cli.config import config_options
 from privyx.cli.launch import (
-    AUTO_ANCHOR,
     FALLBACK_ENV,
     LaunchPlan,
     Target,
@@ -80,9 +79,9 @@ def _run_settings(
         extra["session"] = {"strategy": session_strategy}
     if harvest is not None:
         extra["harvest"] = harvest
-    if not no_anchor:
-        # Resolved only when running, so inspection never creates anchor.key.
-        base_extra["anchor"] = {"secret": AUTO_ANCHOR}
+    if no_anchor:
+        # Below the config: an anchor set there still applies.
+        base_extra["anchor"] = {"secret": ""}
     return load_config(
         config_path, extra=extra, base_extra=base_extra, agent=agent, sources=sources
     )
@@ -118,7 +117,7 @@ def _run_settings(
     "--no-anchor",
     is_flag=True,
     default=False,
-    help="Don't auto-provision an anchor secret; leave pseudonym anchoring to config.",
+    help="No anchor secret unless the config sets one (default: auto).",
 )
 @click.option(
     "--harvest/--no-harvest",

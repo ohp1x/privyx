@@ -33,9 +33,9 @@ $ privyx detect --transform --stdin < sample.txt
     23:48    EMAIL             'bob.marsh@initech.example'
    169:184   PHONE             '+1 415 555 0142'
 
-Ticket from Bob Marsh (<PRIVYX_EMAIL_1>), Initech:
+Ticket from Bob Marsh (<PRIVYX_EMAIL_1878DC4343B3B6E9>), Initech:
 "Ann promised the Bluebird beta by Friday. Our order ORD-2026-000123
-still shows the old address. Call me on <PRIVYX_PHONE_2>."
+still shows the old address. Call me on <PRIVYX_PHONE_8EE4C21714B6405B>."
 Handled by EMP-004217.
 ```
 
@@ -63,7 +63,7 @@ $ privyx detect -c my.yaml --transform "Bob at Initech wants Bluebird specs befo
     21:29    PROJECT           'Bluebird'
     43:47    ORGANIZATION      'Acme'
 
-<PRIVYX_PERSON_1> at <PRIVYX_ORGANIZATION_2> wants <PRIVYX_PROJECT_3> specs before <PRIVYX_ORGANIZATION_4> does
+<PRIVYX_PERSON_577CA5C49F3163DE> at <PRIVYX_ORGANIZATION_A8B0FEFE153B94AB> wants <PRIVYX_PROJECT_6CB9556C8FD0ABCF> specs before <PRIVYX_ORGANIZATION_6E50B7666AC37FAC> does
 ```
 
 ![A terminal: a word list in my.yaml, and privyx detect replacing the listed person, organizations, and project in a sentence with tokens.](../assets/terms.gif)
@@ -71,7 +71,7 @@ $ privyx detect -c my.yaml --transform "Bob at Initech wants Bluebird specs befo
 A few rules:
 
 - The entity name is yours to choose. It becomes part of the token, so the
-  model still knows that `<PRIVYX_PROJECT_3>` is a project.
+  model still knows that `<PRIVYX_PROJECT_6CB9556C8FD0ABCF>` is a project.
 - Matching ignores case and only hits whole words: `ann` does not match
   inside `annual`.
 - A term can hold spaces or punctuation: `bob marsh`, `git.internal.example`.
@@ -103,7 +103,7 @@ $ privyx detect -c my.yaml --transform "Ann (EMP-004217) refunded ORD-2026-00012
     26:41    ORDER_ID          'ORD-2026-000123'
     56:70    LICENSE_KEY       'QX7T-22LM-90PZ'
 
-<PRIVYX_PERSON_1> (<PRIVYX_EMPLOYEE_ID_2>) refunded <PRIVYX_ORDER_ID_3>. License-Key: <PRIVYX_LICENSE_KEY_4>
+<PRIVYX_PERSON_EE7A8D8E24365041> (<PRIVYX_EMPLOYEE_ID_8E207C361F50D148>) refunded <PRIVYX_ORDER_ID_2AF50E95048DEEF0>. License-Key: <PRIVYX_LICENSE_KEY_974CC75E73481177>
 ```
 
 - Write patterns in single quotes, so YAML leaves the backslashes alone.
@@ -129,19 +129,20 @@ $ privyx detect -c my.yaml --transform --stdin < sample.txt
    169:184   PHONE             '+1 415 555 0142'
    198:208   EMPLOYEE_ID       'EMP-004217'
 
-Ticket from <PRIVYX_PERSON_1> Marsh (<PRIVYX_EMAIL_2>), <PRIVYX_ORGANIZATION_3>:
-"<PRIVYX_PERSON_4> promised the <PRIVYX_PROJECT_5> beta by Friday. Our order <PRIVYX_ORDER_ID_6>
-still shows the old address. Call me on <PRIVYX_PHONE_7>."
-Handled by <PRIVYX_EMPLOYEE_ID_8>.
+Ticket from <PRIVYX_PERSON_577CA5C49F3163DE> Marsh (<PRIVYX_EMAIL_1878DC4343B3B6E9>), <PRIVYX_ORGANIZATION_A8B0FEFE153B94AB>:
+"<PRIVYX_PERSON_EE7A8D8E24365041> promised the <PRIVYX_PROJECT_6CB9556C8FD0ABCF> beta by Friday. Our order <PRIVYX_ORDER_ID_2AF50E95048DEEF0>
+still shows the old address. Call me on <PRIVYX_PHONE_8EE4C21714B6405B>."
+Handled by <PRIVYX_EMPLOYEE_ID_8E207C361F50D148>.
 ```
 
 Much better, and it shows the limit of a list: `Marsh` is still there, because
 only `bob` was listed. You can add `bob marsh`, and you will keep adding names
 for as long as new people appear in your text.
 
-A listed word can also hide inside an identifier: `DB_BOB` and `bob_dev` are
-not masked by default. [`privyx lint -c my.yaml`](../guide/cli.md#privyx-lint)
-lists such spellings of your terms, and the detector option that masks each.
+A listed word is also found inside an identifier, since `_` separates words:
+`DB_BOB` and `bob_dev` are masked too. [`privyx lint -c my.yaml`](../guide/cli.md#privyx-lint)
+lists the spellings of your terms that are still sent as is, such as `ｂｏｂ`
+in fullwidth letters, and the detector option that masks each.
 
 ## 5. Find names you cannot list
 
@@ -184,10 +185,10 @@ For names nobody listed in advance, add a detector that reads language. A
        169:184   PHONE             '+1 415 555 0142'
        198:208   EMPLOYEE_ID       'EMP-004217'
 
-    Ticket from <PRIVYX_PERSON_1> (<PRIVYX_EMAIL_2>), <PRIVYX_ORGANIZATION_3>:
-    "<PRIVYX_PERSON_4> promised the <PRIVYX_PROJECT_5> beta by Friday. Our order <PRIVYX_ORDER_ID_6>
-    still shows the old address. Call me on <PRIVYX_PHONE_7>."
-    Handled by <PRIVYX_EMPLOYEE_ID_8>.
+    Ticket from <PRIVYX_PERSON_D43C04F7D1650828> (<PRIVYX_EMAIL_1878DC4343B3B6E9>), <PRIVYX_ORGANIZATION_A8B0FEFE153B94AB>:
+    "<PRIVYX_PERSON_EE7A8D8E24365041> promised the <PRIVYX_PROJECT_6CB9556C8FD0ABCF> beta by Friday. Our order <PRIVYX_ORDER_ID_2AF50E95048DEEF0>
+    still shows the old address. Call me on <PRIVYX_PHONE_8EE4C21714B6405B>."
+    Handled by <PRIVYX_EMPLOYEE_ID_8E207C361F50D148>.
     ```
 
     `Bob Marsh` is now one `PERSON`, and neither name was listed.
@@ -290,12 +291,12 @@ the policy filtered out:
 $ privyx detect -c strict.yaml --transform "bluebird mail a@b.io"
     14:20    EMAIL             'a@b.io'
 
-bluebird mail <PRIVYX_EMAIL_1>
+bluebird mail <PRIVYX_EMAIL_1D67ED6CD0AAE8C3>
 $ privyx detect -c strict.yaml --transform --no-policy "bluebird mail a@b.io"
      0:8     PROJECT           'bluebird'
     14:20    EMAIL             'a@b.io'
 
-<PRIVYX_PROJECT_1> mail <PRIVYX_EMAIL_2>
+<PRIVYX_PROJECT_DBBA12EA1BBFFECF> mail <PRIVYX_EMAIL_1D67ED6CD0AAE8C3>
 ```
 
 ## What to keep in mind

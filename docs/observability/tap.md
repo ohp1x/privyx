@@ -50,9 +50,9 @@ as `{+...+}` (green):
 
 ```text
 2026-11-09T14:02:11  request   req_8a7f9b0c1d2e  ses_01a116a0c5ca  /v1/messages
-  mail [-alice@example.com-]{+<PRIVYX_EMAIL_1>+} about the invoice
+  mail [-alice@example.com-]{+<PRIVYX_EMAIL_4FF5EF825E496E1A>+} about the invoice
 2026-11-09T14:02:13  response  req_8a7f9b0c1d2e  ses_01a116a0c5ca  status 200 stream
-  Sent to [-<PRIVYX_EMAIL_1>-]{+alice@example.com+}.
+  Sent to [-<PRIVYX_EMAIL_4FF5EF825E496E1A>-]{+alice@example.com+}.
 ```
 
 A streamed reply is shown as the text its events carry. `--no-follow` stops

@@ -27,8 +27,8 @@ there. What you trust is the file's content: after a change to it, run
 `privyx trust` again.
 
 Besides your config file, `~/.privyx/` holds by default the SQLite vault
-(`privyx.db`), the audit trail (`audit.log`), and the anchor secret of
-`privyx run` (`anchor.key`).
+(`privyx.db`), the audit trail (`audit.log`), and the anchor secret
+(`anchor.key`).
 
 Sections merge key by key, so a file that sets only `vault.type` keeps the
 defaults for the rest of `vault`. A list replaces the default rather than
@@ -78,14 +78,12 @@ unresolved and an unset variable there fails only the launch that needs it.
 The other profile fields are read for every command, so every profile's shape
 is still checked. `privyx config --path` reads no variables at all.
 
-`privyx run` adds its own defaults (a `conversation` session strategy and an
-anchor secret) just above the built-in ones, so your files and environment
-still override them.
+`privyx run` adds its own default (a `conversation` session strategy) just
+above the built-in ones, so your files and environment still override it.
 
 A config with a misspelled setting, an unknown type, an invalid regex, or a
-value of the wrong kind fails at startup, before any request is served. A key
-given twice in one mapping gets a warning naming the key and its line; the last
-one is used, and a later release will refuse such a file. A
+value of the wrong kind fails at startup, before any request is served, and so
+does a key given twice in one mapping (the error names the key and its line). A
 section whose `type` names a plugin is the exception to the first: keys Privyx
 does not define there are the plugin's own options, and are passed to it.
 
@@ -198,16 +196,16 @@ settings:
 `detector.cache` and `detector.underscore_separates_words` apply to every
 detector type.
 
-Privyx warns at startup, and [`privyx lint`](cli.md#privyx-lint) reports,
-when a type does not use a setting. A warning names the key, the type, and
-the file or layer, never a value:
+Privyx reports a setting that a type does not use, naming the key, the type,
+and the file or layer, never a value:
 
 - A setting written in the same file as the `type`, or with no `type` chosen
-  at all, such as `redis_url` without `type: redis`. 0.2 is planned to refuse
-  it; see [Upgrading](upgrading.md#preparing-for-02).
+  at all, such as `redis_url` without `type: redis`, is a configuration error.
+  Remove it or set the type that uses it.
 - `terms`, `patterns`, or `enable` from another file, for each entity that no
-  detector using them receives: a file above picks another type, or sets
-  `detector` as a list, which replaces the mapping below. This stays a
+  detector using them receives, is a warning at startup and in
+  [`privyx lint`](cli.md#privyx-lint): a file above picks another type, or
+  sets `detector` as a list, which replaces the mapping below. This stays a
   warning, since the file that picks the type may not be yours to change.
   Listing the same entity again under the same key in the file above
   silences it; a pattern or an opt-in built-in of that name does not.
@@ -546,7 +544,7 @@ environment.
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
 | `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
 | `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |
-| `dlp_check` | `false` | Before a masked request goes out, look for every value it masked anywhere else in it (fields that are not masked, URLs, headers other than the credential). One found answers `422` and the request is not forwarded. Only exact signed thinking remembered from an upstream response is reinstated after the check. See [Leak check](masking.md#leak-check). |
+| `dlp_check` | `true` | Before a masked request goes out, look for every value it masked anywhere else in it (fields that are not masked, URLs, headers other than the credential). One found answers `422` and the request is not forwarded. Only exact signed thinking remembered from an upstream response is reinstated after the check. See [Leak check](masking.md#leak-check). |
 | `directive` | `false` | Add a short instruction to each masked chat request, telling the model to keep placeholders exactly as written. About 80 tokens. See [Placeholder directive](masking.md#placeholder-directive). |
 | `cache_control` | `false` | Mark a large `tools` and `system` prefix of an Anthropic request for prompt caching, when the request marks nothing itself. See [Prompt caching](proxy.md#prompt-caching). |
 
@@ -637,12 +635,12 @@ findings are pooled. [Detection](detection.md) covers each type with examples.
 |---|---|---|
 | `type` | `regex` | `regex`, `yaml`, `presidio`, `llm`, or a plugin detector. |
 | `patterns` | `{}` | Entity → regular expression. |
-| `merge_terms` | `false` | `regex`, `yaml`: match both `terms` and `patterns` for the same entity, trying terms first. Otherwise the regex replaces the terms with a warning. |
+| `merge_terms` | `true` | `regex`, `yaml`: match both `terms` and `patterns` for the same entity, trying terms first. With `false`, the regex replaces the terms with a warning. |
 | `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
-| `term_variants` | `false` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
-| `underscore_separates_words` | `false` | `regex`, `yaml`, `llm`: `_` separates words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, or `host_10.0.0.1`. The [leak check](masking.md#leak-check) follows it. |
+| `term_variants` | `true` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
+| `underscore_separates_words` | `true` | `regex`, `yaml`, `llm`: `_` separates words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, or `host_10.0.0.1`. The [leak check](masking.md#leak-check) follows it. |
 | `context` | `{}` | `regex`, `yaml`: entity → words, one of which must be within five words of a match for it to count. |
-| `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`, `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`. |
+| `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`. A `yaml` detector also takes the wallet and ID built-ins here (`CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`), which a `regex` detector has already. |
 | `disable` | `[]` | `regex`, `yaml`: built-in entities to turn off, including inactive opt-in entities (a no-op). A name in both `enable` and `disable`, or an unknown name, is an error. Your own `patterns` and `terms` still apply. See [Turning a built-in off](detection.md#turning-a-built-in-off). |
 | `entropy_threshold` | `3.0` | `HIGH_ENTROPY`: bits per character a string needs. |
 | `decode` | `false` | `regex`, `yaml`: also find values split into string literals (`'s' + 'k' + …`) or encoded as Base64, hex, or URL escapes. |
@@ -677,7 +675,7 @@ What a detected value becomes. See [Masking](masking.md).
 |---|---|---|
 | `type` | `pseudonym` | `pseudonym`, `hash`, `encrypt`, `faker`, `fpe`, `partial`, `redact`, or a plugin operator. |
 | `token` | `[REDACTED]` | `redact`: replacement text. |
-| `length` | `12` | `hash`: hex characters of the digest kept in the token, 6 to 64. Other values warn and are rejected from 0.2.0; below 1 is an error. |
+| `length` | `12` | `hash`: hex characters of the digest kept in the token, 6 to 64; another value is an error. |
 | `locale` | empty | `faker`, and `pseudonym` [labels](masking.md#labels): Faker locale such as `en_US`. Empty uses Faker's default. |
 | `seed` | unset | `faker`, `fpe`: makes the same value fake the same way across runs. Another seed gives `pseudonym` [labels](masking.md#labels) other values. |
 | `key` | empty | `encrypt`: 64 hex characters (`openssl rand -hex 32`). |
@@ -687,7 +685,7 @@ What a detected value becomes. See [Masking](masking.md).
 | Key | Default | Description |
 |---|---|---|
 | `type` | `hmac` | `hmac`, or a plugin anchor. |
-| `secret` | empty | HMAC key. `auto` creates or reuses the per-user key in `~/.privyx/anchor.key`, shared with `privyx run`. An explicit key derives stable tokens across sessions; empty uses a per-session counter. See [Anchors](masking.md#anchors). |
+| `secret` | `auto` | HMAC key. `auto` creates or reuses the per-user key in `~/.privyx/anchor.key`, shared by every command. An explicit key derives the same stable tokens on other machines; empty uses a per-session counter. See [Anchors](masking.md#anchors). |
 
 ### `token`
 
@@ -752,6 +750,7 @@ audit:
 | `PRIVYX_DETECTOR_CACHE` | `detector.cache` |
 | `PRIVYX_ENCRYPT_KEY` | `operator.key` |
 | `PRIVYX_ANCHOR_SECRET` | `anchor.secret` (an explicit empty value disables HMAC anchoring) |
+| `PRIVYX_ANCHOR_KEY_PATH` | Where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default; an absolute path, `~` is expanded |
 | `PRIVYX_TOKEN_FORMAT`, `PRIVYX_TOKEN_NAMESPACE` | `token.format`, `token.namespace` |
 | `PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH` | `audit.enabled`, `audit.path` |
 | `PRIVYX_PLUGIN_PATHS` | `plugins.paths`, comma-separated |

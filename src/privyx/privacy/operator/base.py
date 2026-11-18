@@ -134,6 +134,10 @@ class BaseOperator(ABC):
     #: streaming recognizer; operators that are not reversible can leave it as-is
     #: (no substitution will match).
     stream_restore: str = "token"
+    #: Text written in place of every value, whatever the value (``redact``'s
+    #: ``[REDACTED]``).  ``proxy.dlp_check`` does not look for a masked value
+    #: inside it; empty when the output depends on the value.
+    fixed_text: str = ""
 
     def build_resolver(self, mapping: dict[str, str]) -> Callable[[str], str | None]:
         """Map a token's text to its original value, for restore (batch + stream).

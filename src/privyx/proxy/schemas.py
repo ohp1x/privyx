@@ -284,6 +284,7 @@ async def transform_request(
 
     rebuilt: dict[str, Any] = {}
     masked: set[str] = set()  # what this request masked, for engine.dlp_check
+    written = [0]  # ... and how many values it replaced
     scope: AbstractAsyncContextManager[Session] = (
         engine.session_scope(session_id) if session is None else nullcontext(session)
     )
@@ -295,6 +296,7 @@ async def transform_request(
             result = await engine.transform(str(text), session=held, persist=False, key=key)
             if engine.dlp_check:
                 masked.update(t.original for t in result.transformations)
+                written[0] += len(result.transformations)
             return result.text
 
         async def metadata(text: str) -> str:
@@ -329,11 +331,19 @@ async def transform_request(
                     params[idx] = (name, await metadata(val))
         if masked:
             sent = [
-                rebuilt,
+                _searched(rebuilt, schema),
                 [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
             ]
             sent += [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS]
-            leaks = find_leaks(sent, masked, underscore=engine.underscore_separates_words)
+            leaks = find_leaks(
+                sent,
+                masked,
+                underscore=engine.underscore_separates_words,
+                codec=engine.codec,
+                fixed=getattr(engine.operator, "fixed_text", ""),
+                written=written[0],
+                tools=_declared_names(payload, schema),
+            )
             if leaks:
                 raise LeakError(f"{leaks} masked value(s) still in the request")
         # Only text remembered from an upstream response may bypass DLP: it
@@ -487,7 +497,16 @@ def _role(message: Any) -> Any:
     return message.get("role") if isinstance(message, dict) else None
 
 
-def find_leaks(value: Any, masked: set[str], *, underscore: bool = False) -> int:
+def find_leaks(
+    value: Any,
+    masked: set[str],
+    *,
+    underscore: bool = False,
+    codec: TokenCodec | None = None,
+    fixed: str = "",
+    written: int | None = None,
+    tools: frozenset[str] = frozenset(),
+) -> int:
     """How many of the ``masked`` values are still in ``value``'s strings.
 
     The check behind ``proxy.dlp_check``: a value masked in one place of a
@@ -497,14 +516,84 @@ def find_leaks(value: Any, masked: set[str], *, underscore: bool = False) -> int
     and a value that starts or ends with a letter or digit must stand as a
     whole word there (``Bob`` is not found in ``Bobby``).  With ``underscore``,
     as the detector has it, ``_`` separates words (``Bob`` is in ``DB_BOB``).
+    The tokens of ``codec`` are not searched, nor does a match count that lies
+    inside the ``fixed`` text an operator writes for every value, where that
+    text stands as a word: a value may be part of the token that replaced it
+    (``PERSON`` in ``<PRIVYX_PERSON_1>``, ``TED`` in ``[TED-HIDDEN]``).  When
+    more copies of that text hold a masked value than the ``written`` times
+    the operator wrote it, they all count: a raw ``Bob`` cannot be told from
+    the ``Bob`` of ``redact.token: Bob``.  Text an operator derives from a
+    value, such as a ``partial`` mask or a placeholder's label, still is.
+    Neither are the ``tools`` names where a ``name`` or ``tool_name`` holds
+    one: they are sent as declared, so a term in ``mcp__acme__search`` would
+    refuse every request.
     """
-    sent = "\0".join(_strings(value))
+    sent = "\0".join(_strings(value, tools))
     # A plain substring search first: most values are not there at all.
     words = sorted((w for w in masked if w in sent), key=len, reverse=True)
     if not words:
         return 0
     pattern = re.compile("|".join(_whole(word, underscore) for word in words))  # longest first
-    return len(set(pattern.findall(sent)))
+    if pattern.search(sent) is None:
+        return 0  # only inside other words: no token to look past
+    if codec is not None:
+        parts, at = [], 0
+        for token in codec.finditer(sent):
+            parts.append(sent[at : token.start])
+            if token.label is not None:  # the label is text like any other
+                parts.append(sent[slice(*token.label)])
+            at = token.end
+        sent = "\0".join([*parts, sent[at:]])
+    # A match is the operator's own text only where it lies inside that text:
+    # cut out, the text would split a value around it (`john x smith`).
+    spans = [m.span() for m in re.finditer(_whole(fixed, underscore), sent)] if fixed else []
+    leaked: set[str] = set()
+    inside: dict[tuple[int, int], str] = {}  # the operator's text a match lies in
+    for m in pattern.finditer(sent):
+        span = next((s for s in spans if s[0] <= m.start() and m.end() <= s[1]), None)
+        if span is None:
+            leaked.add(m.group())
+        else:
+            inside[span] = m.group()
+    if written is not None and len(inside) > written:
+        leaked.update(inside.values())  # more of that text than the operator wrote
+    return len(leaked)
+
+
+#: JSON-schema keywords in ``tools`` that hold values, not labels.
+_SCHEMA_VALUES = frozenset({"default", "const", "enum", "examples", "example"})
+
+
+def _searched(request: dict[str, Any], schema: str | None) -> dict[str, Any]:
+    """``request`` as the leak check sees it: of its ``tools``, the descriptions and values.
+
+    The rest of ``tools`` is sent as declared (see :func:`_descriptions`): a
+    term in a property key or ``title`` would refuse every request.  A value
+    such as a ``default`` is data, so it is still searched.
+    """
+    out = dict(request)
+    if "tools" in out:
+        out["tools"] = list(_tool_texts(out["tools"]))
+    if schema == "gemini":
+        for key in _GEMINI_WRAPPED & out.keys():
+            if isinstance(out[key], dict):
+                out[key] = _searched(out[key], schema)
+    return out
+
+
+def _tool_texts(value: Any, key: str | None = None) -> Iterator[str]:
+    """The masked descriptions of a ``tools`` value, and the values its schemas hold."""
+    if key in _SCHEMA_VALUES:
+        yield from _strings(value)
+    elif isinstance(value, str):
+        if key == "description":
+            yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from _tool_texts(item, key)
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _tool_texts(v, k)
 
 
 def _whole(word: str, underscore: bool = False) -> str:
@@ -514,7 +603,7 @@ def _whole(word: str, underscore: bool = False) -> str:
     return f"{left}{re.escape(word)}{right}"
 
 
-def _strings(value: Any) -> Iterator[str]:
+def _strings(value: Any, tools: frozenset[str] = frozenset()) -> Iterator[str]:
     if isinstance(value, str):
         yield value
     elif isinstance(value, int | float) and not isinstance(value, bool):
@@ -522,10 +611,35 @@ def _strings(value: Any) -> Iterator[str]:
     elif isinstance(value, dict):
         for key, item in value.items():
             yield from _strings(key)
-            yield from _strings(item)
+            if key in ("name", "tool_name") and isinstance(item, str) and item in tools:
+                continue
+            yield from _strings(item, tools)
     elif isinstance(value, list):
         for item in value:
-            yield from _strings(item)
+            yield from _strings(item, tools)
+
+
+def _declared_names(payload: Mapping[str, Any], schema: str | None) -> frozenset[str]:
+    """The tool names a request declares, a wrapped Gemini request's included."""
+    names = _tool_names(payload.get("tools"))
+    if schema == "gemini":
+        for key in _GEMINI_WRAPPED & payload.keys():
+            if isinstance(payload[key], dict):
+                names |= _tool_names(payload[key].get("tools"))
+    return names
+
+
+def _tool_names(tools: Any) -> frozenset[str]:
+    """The tool names ``tools`` declares: ``name``, ``function.name``, or Gemini's declarations."""
+    names: set[str] = set()
+    for tool in tools if isinstance(tools, list) else []:
+        if not isinstance(tool, dict):
+            continue
+        declared = tool.get("functionDeclarations") or tool.get("function_declarations") or []
+        for item in [tool, tool.get("function"), *declared]:
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                names.add(item["name"])
+    return frozenset(names)
 
 
 def _unescaped(text: str) -> str:

@@ -58,8 +58,9 @@ package or without a key, Privyx stops at startup.
 - Generate either with `openssl rand -hex 32`, once, and keep it: a new anchor
   secret changes every anchored token, and a lost encryption key makes the
   stored sessions unrecoverable.
-- `anchor.secret: auto` creates a per-user key in `~/.privyx/anchor.key`, readable by
-  its owner only; see [Anchors](../guide/masking.md#anchors).
+- `anchor.secret: auto`, the default, creates a per-user key in
+  `~/.privyx/anchor.key`, readable by its owner only; see
+  [Anchors](../guide/masking.md#anchors).
 - In a config file, read a key from the environment with `${NAME}` or from a
   [password manager](../guide/configuration.md#secrets-from-a-password-manager)
   rather than writing it into the file.

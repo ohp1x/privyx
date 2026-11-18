@@ -136,14 +136,17 @@ in a long session.
 ## End-to-end: a real agent (`make e2e`)
 
 `scripts/test-e2e/run.py` runs the real `claude` CLI through `privyx run` (or, with
-`--transparent`, through `privyx proxy` on its defaults: ephemeral sessions, no
-anchor) against a local fake Anthropic API. `--agent codex` runs `codex exec` against a
+`--transparent`, through `privyx proxy` on its defaults: ephemeral sessions)
+against a local fake Anthropic API. `--agent codex` runs `codex exec` against a
 fake Responses API: MCP lookup and a shell read of `notes.txt`, both from
 JavaScript in Codex's `exec` tool, then an answer echoing the masked values. SSE deltas split tokens and arguments across frames.
 Neither scripted run needs a provider key or account. `make e2e` runs both agents
 in both modes, and Claude Code also in its auto permission mode (`--auto`). HOME,
 `CLAUDE_CONFIG_DIR`, and `XDG_CONFIG_HOME` all point into a fresh temp dir, so your
-own `~/.claude` and `~/.privyx` are left alone.
+own `~/.claude` and `~/.privyx` are left alone, and the anchor key is created
+there; `XDG_STATE_HOME` is cleared. The config lists the canary names as
+`terms`, and a `patterns` regex covers one of the two PERSON terms, so the other
+is masked only when terms and patterns merge. Every other setting is a default.
 
 The script plants canary values everywhere Claude Code gathers context: the
 prompt, `CLAUDE.md`, the workspace path, the git branch and log, an MCP server's
@@ -172,27 +175,11 @@ The temp dir is kept after the run: `upstream.jsonl` shows exactly what reached
 the provider. Install the latest `claude` and `codex` on PATH (`claude update`,
 `codex update`) before running `make e2e`: the harness follows the request
 format of their current releases. The separate `Agent CLI compatibility`
-workflow installs the latest release of each and runs all six combinations
-with both current and candidate defaults, only on manual dispatch. Dispatch inputs can pin an older version to find the
+workflow installs the latest release of each and runs all six combinations,
+only on manual dispatch. Dispatch inputs can pin an older version to find the
 release that changed something. It reports CLI versions and retains synthetic
 request, audit, and CLI logs for seven days, including failed runs. Ordinary CI continues to run the synthetic protocol tests
 without installing either CLI. A nonzero CLI exit always fails the harness.
-
-### Candidate defaults for 0.2
-
-```bash
-make e2e-next-defaults
-# Or one combination:
-uv run python scripts/test-e2e/run.py --agent codex --transparent --next-defaults
-```
-
-This repeats the six combinations with `underscore_separates_words`,
-`term_variants`, `merge_terms`, the nine checksum/structure-based opt-in
-detectors, `proxy.dlp_check`, and `anchor.secret: auto` enabled. A `patterns`
-regex covers one of the two PERSON terms, so the other is masked only when
-terms and patterns merge. The automatic anchor key is created under the
-harness's temporary HOME; `XDG_STATE_HOME` is cleared. `fpe` is excluded: it
-does not produce the tokens the restore checks look for.
 
 ### Labeled placeholders
 
@@ -202,13 +189,10 @@ make e2e-labels
 
 This repeats the six combinations with `token.label_format` and
 `proxy.directive`: the agents' requests carry labeled placeholders, and the
-checks require each to be restored by its id. It cannot be combined with
-`--next-defaults`.
+checks require each to be restored by its id.
 
-The checks and exit codes are the same as for current defaults. A failed
-candidate run blocks adopting those defaults; it is not an expected success
-or an ignored CI failure. The Claude loop includes signed thinking containing
-an original email. With DLP enabled, the loop must still complete: Privyx checks
+The Claude loop includes signed thinking containing an original email. With
+the leak check on, as by default, the loop must still complete: Privyx checks
 the masked request before reinstating the exact thinking remembered from the
 upstream response, preserving its signature.
 

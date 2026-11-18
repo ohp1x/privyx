@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
+import secrets
 import sys
 from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any
@@ -41,11 +43,17 @@ def doctor(config_path: str | None) -> None:
     except Exception as exc:
         click.echo(f"  ✗ configuration: {type(exc).__name__}: {exc}")
         sys.exit(1)
+    auto = settings.anchor.secret == "auto"
+    if auto:
+        # A diagnosis must not create ~/.privyx/anchor.key: check with a key of its own.
+        anchor = settings.anchor.model_copy(update={"secret": secrets.token_hex(32)})
+        settings = settings.model_copy(update={"anchor": anchor})
 
     checks: list[tuple[str, Check]] = [
         # First: loads plugins into the registry so the component checks below
         # can see plugin-provided types.
         ("plugins", _check_plugins),
+        *([("anchor key", _check_anchor_key)] if auto else []),
         ("detector", _check_detector),
         ("permissions", _check_permissions),
         ("vault", _check_vault),
@@ -402,6 +410,36 @@ def _check_routes(settings: Settings) -> tuple[bool, str]:
         f"{proxy.mode}: {len(routes)} masking route(s): {coverage}; {disposition}; "
         f"default paths outside coverage: {', '.join(missing) or 'none'}"
     )
+
+
+def _check_anchor_key(settings: Settings) -> tuple[bool, str]:
+    """The automatic anchor key can be read, or created on first use.
+
+    Checked without creating it: a key file that exists must be readable and
+    not empty, and a missing one needs a writable directory to be made in.
+    """
+    from privyx.core.builder import _operator_takes_anchor, _takes_secret
+    from privyx.security.keys import default_anchor_secret_path
+
+    if not _operator_takes_anchor(settings):
+        return (True, f"not used by operator={settings.operator.type}")
+    if not _takes_secret(settings):
+        return (True, f"not used by anchor={settings.anchor.type}")
+    path = default_anchor_secret_path()
+    try:
+        if path.read_text(encoding="utf-8").strip():
+            return (True, f"{path}")
+        return (False, f"{path} is empty; remove it to create a new key")
+    except FileNotFoundError:
+        pass
+    except (OSError, UnicodeError) as exc:
+        return (False, f"cannot read {path}: {type(exc).__name__}")
+    parent = path.parent
+    while not parent.exists():
+        parent = parent.parent
+    if os.access(parent, os.W_OK | os.X_OK):
+        return (True, f"{path} is created on first use")
+    return (False, f"cannot create {path}: {parent} is not writable")
 
 
 def _check_configuration(settings: Settings) -> tuple[bool, str]:

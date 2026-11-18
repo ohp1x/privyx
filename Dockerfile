@@ -40,9 +40,11 @@ FROM python:3.12-slim-bookworm AS runtime
 RUN groupadd -r -g 1000 privyx && \
     useradd -r -u 1000 -g privyx -m -d /home/privyx -s /bin/bash privyx
 
+# The anchor key goes on the /data volume, so tokens outlive the container.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PRIVYX_ANCHOR_KEY_PATH=/data/anchor.key \
     PRIVYX_HOST=0.0.0.0 \
     PRIVYX_PORT=8000 \
     PRIVYX_AUDIT_PATH=/data/privyx-audit.log \

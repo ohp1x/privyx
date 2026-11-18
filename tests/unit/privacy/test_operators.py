@@ -8,7 +8,6 @@ reaches the operator through the builder, and without a test that goes through
 from __future__ import annotations
 
 import hashlib
-import logging
 import re
 import time
 from pathlib import Path
@@ -137,7 +136,7 @@ async def test_distinct_values_get_distinct_anchors() -> None:
 
 def test_anchor_is_off_without_a_secret() -> None:
     """An empty secret means no anchoring, not anchoring with a guessable key."""
-    assert build_anchor(Settings()) is None
+    assert build_anchor(Settings.from_dict({"anchor": {"secret": ""}})) is None
 
 
 def test_anchor_is_built_when_a_secret_is_set() -> None:
@@ -166,12 +165,16 @@ async def test_configured_secret_reaches_the_operator() -> None:
     assert result.text != "<PRIVYX_EMAIL_1>"
 
 
-async def test_default_config_still_uses_counters() -> None:
+async def test_default_config_anchors_tokens_with_the_per_user_key() -> None:
     settings = Settings()
-    operator = build_operator(settings.operator.model_dump(), anchor=build_anchor(settings))
-    detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
-    result = await operator.pseudonymize("a@b.com", detection, Session(), Context())
-    assert result.text == "<PRIVYX_EMAIL_1>"
+    tokens = []
+    for _ in range(2):
+        operator = build_operator(settings.operator.model_dump(), anchor=build_anchor(settings))
+        detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
+        result = await operator.pseudonymize("a@b.com", detection, Session(), Context())
+        tokens.append(result.text)
+    assert re.fullmatch(r"<PRIVYX_EMAIL_[0-9A-F]{16}>", tokens[0])
+    assert tokens[0] == tokens[1]  # another session, the same key
 
 
 def test_operators_that_cannot_anchor_ignore_it() -> None:
@@ -219,23 +222,27 @@ async def test_hash_operator_honours_its_configured_length() -> None:
     assert restored.text == "a@b.com"
 
 
-@pytest.mark.parametrize("length", [0, -4])
-def test_hash_length_below_one_is_a_config_error(tmp_path: Path, length: int) -> None:
+@pytest.mark.parametrize("length", [-4, 0, 5, 65])
+def test_hash_length_outside_six_to_sixty_four_is_an_error(tmp_path: Path, length: int) -> None:
     config = tmp_path / "privyx.yaml"
     config.write_text(f"operator:\n  type: hash\n  length: {length}\n")
     with pytest.raises(ConfigError, match="length"):
         load_config(config)
-
-
-@pytest.mark.parametrize(
-    ("length", "warns"), [(1, True), (5, True), (6, False), (64, False), (65, True)]
-)
-def test_hash_length_outside_six_to_sixty_four_warns(
-    caplog: pytest.LogCaptureFixture, length: int, warns: bool
-) -> None:
-    with caplog.at_level(logging.WARNING, logger="privyx"):
+    with pytest.raises(ConfigError, match="between 6 and 64"):
         HashOperator(length=length)
-    assert ("operator.length" in caplog.text) is warns
+
+
+def test_a_plugin_operator_keeps_a_length_of_its_own(tmp_path: Path) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text("operator:\n  type: short\n  length: 4\n")
+    assert load_config(config).operator.length == 4
+
+
+@pytest.mark.parametrize("length", [6, 64])
+def test_hash_length_from_six_to_sixty_four_is_accepted(tmp_path: Path, length: int) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text(f"operator:\n  type: hash\n  length: {length}\n")
+    assert load_config(config).operator.length == length
 
 
 # --- id collisions ----------------------------------------------------------
@@ -265,9 +272,16 @@ class _PrefixAnchor:
         return None
 
 
+def _one_character_hash() -> HashOperator:
+    """A ``hash`` operator with one-character ids, below what config allows."""
+    operator = HashOperator()
+    operator._length = 1
+    return operator
+
+
 @pytest.mark.parametrize(
     "operator",
-    [HashOperator(length=1), PseudonymOperator(anchor=_PrefixAnchor())],
+    [_one_character_hash(), PseudonymOperator(anchor=_PrefixAnchor())],
     ids=["hash", "anchor"],
 )
 async def test_colliding_ids_grow_instead_of_overwriting(operator: BaseOperator) -> None:

@@ -108,6 +108,7 @@ async def _explain(text: str, settings: Settings, apply_policy: bool, context: C
     """
     from privyx.core.builder import build_policy_from
     from privyx.core.result import Detection
+    from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, OPTIONAL_PATTERNS
     from privyx.privacy.detector.yaml import build_detector
 
     sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
@@ -127,9 +128,26 @@ async def _explain(text: str, settings: Settings, apply_policy: bool, context: C
         hidden = (
             {(s.start, s.end, s.entity_type) for s in decoded.spans} if section.decode else set()
         )
+        # Merged with terms, a pattern's entity is credited to the terms they find alone.
+        both = section.terms.keys() & section.patterns.keys() if section.merge_terms else set()
+        by_terms: set[tuple[int, int, str]] = set()
+        if both and section.type in ("regex", "yaml"):
+            # The terms alone: no pattern of theirs, nor the built-in it replaced.
+            patterns = {k: v for k, v in section.patterns.items() if k not in both}
+            builtin = both & (DEFAULT_PATTERNS.keys() | OPTIONAL_PATTERNS.keys())
+            alone = await build_detector(
+                {
+                    **config,
+                    "patterns": patterns,
+                    "enable": [e for e in section.enable if e not in both],
+                    "disable": sorted({*section.disable, *builtin}),
+                }
+            ).detect(text, context)
+            by_terms = {(s.start, s.end, s.entity_type) for s in alone.spans}
         for s in detection.spans:
-            reason = f"{label}: {_origin(section, s.entity_type)}"
             where = (s.start, s.end, s.entity_type)
+            merged = where in by_terms and s.entity_type in both
+            reason = f"{label}: {_origin(section, s.entity_type, merged)}"
             if where not in direct:
                 reason += ", once joined or decoded" if where in hidden else ", once folded"
             found.append((s, reason))
@@ -160,13 +178,17 @@ async def _explain(text: str, settings: Settings, apply_policy: bool, context: C
             click.echo(f"        partly masked: only {only}; the rest is sent as is")
 
 
-def _origin(section: DetectorConfig, entity: str) -> str:
-    """Which rule of a detector names ``entity``: a pattern, a term list, or a built-in."""
+def _origin(section: DetectorConfig, entity: str, by_terms: bool) -> str:
+    """Which rule of a detector found a span: a pattern, a term list, or a built-in.
+
+    ``by_terms``: the terms find the span alone, which decides for an entity
+    whose terms and pattern are merged.
+    """
     from privyx.privacy.detector.builtin import DEFAULT_PATTERNS
 
     if section.type not in ("regex", "yaml"):
         return entity
-    if entity in section.patterns:
+    if entity in section.patterns and not by_terms:
         return f"pattern {entity}"
     if entity in section.terms:
         return f"terms {entity}"

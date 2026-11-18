@@ -1,6 +1,6 @@
 # Example: labeled placeholders, so the model reads a name, not just a number
 #
-# `john smith` is sent as <PRIVYX_PERSON_1:Alice Johnson>, a fake name of the
+# `john smith` is sent as <PRIVYX_PERSON_A81B3C9AEE08DE11:Alice Johnson>, a fake name of the
 # same kind, and the placeholder is restored by its id.  A reply that only says
 # "Alice Johnson" is left as written.  Needs `pip install 'privyx[faker]'`.
 #

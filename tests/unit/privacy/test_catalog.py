@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 
+from privyx.config.loader import load_config
+from privyx.core.builder import build_detector_from
 from privyx.core.context import Context
 from privyx.core.errors import ConfigError
 from privyx.privacy.detector.catalog import _BASE58, shannon
@@ -83,9 +86,24 @@ def test_solana_address_that_looks_like_bitcoin_gets_the_solana_check() -> None:
     assert _found(f"my solana wallet: {address}") == [("CRYPTO_WALLET", address)]
 
 
-def test_wallets_and_national_ids_are_off_by_default() -> None:
-    text = f"send {P2PKH}, DNI 12345678Z, NIK 3201014501900001"
-    assert _found(text, enable=[]) == []
+WALLET_AND_IDS = f"send {P2PKH}, DNI 12345678Z, NIK 3201014501900001"
+FOUND = [("CRYPTO_WALLET", P2PKH), ("ES_NIF", "12345678Z"), ("ID_NIK", "3201014501900001")]
+
+
+def test_wallets_and_national_ids_are_on_by_default_in_regex() -> None:
+    assert _found(WALLET_AND_IDS, enable=[]) == FOUND
+
+
+def test_a_yaml_detector_takes_wallets_and_national_ids_with_enable() -> None:
+    assert _found(WALLET_AND_IDS, type="yaml", enable=[]) == []
+    assert _found(WALLET_AND_IDS, type="yaml") == FOUND
+
+
+def test_disable_turns_wallets_and_national_ids_off(tmp_path: Path) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text(f"detector:\n  disable: {CATALOG}\n")
+    detector = build_detector_from(load_config(config))
+    assert detector.detect_sync(WALLET_AND_IDS, Context()).spans == []
 
 
 @pytest.mark.parametrize(

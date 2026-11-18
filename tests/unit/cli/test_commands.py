@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -35,10 +36,18 @@ def sqlite_config(tmp_path: Path) -> Path:
         "  type: sqlite\n"
         f"  dsn: sqlite+aiosqlite:///{tmp_path / 'privyx.db'}\n"
         "detector:\n"
-        "  type: regex\n",
+        "  type: regex\n"
+        "anchor:\n"  # counter tokens, which the tests name
+        "  secret: ''\n",
         encoding="utf-8",
     )
     return path
+
+
+@pytest.fixture
+def counters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No anchor, so tokens are the counters the tests name."""
+    monkeypatch.setenv("PRIVYX_ANCHOR_SECRET", "")
 
 
 # --------------------------------------------------------------------------
@@ -52,10 +61,13 @@ def test_detect_reports_spans(runner: CliRunner) -> None:
     assert EMAIL in result.output
 
 
-def test_detect_transform_shows_pseudonymized_text(runner: CliRunner) -> None:
-    result = runner.invoke(cli, ["detect", "--transform", f"mail {EMAIL}"])
-    assert result.exit_code == 0
-    assert "<PRIVYX_EMAIL_1>" in result.output
+def test_detect_transform_shows_an_anchored_token_by_default(runner: CliRunner) -> None:
+    first = runner.invoke(cli, ["detect", "--transform", f"mail {EMAIL}"])
+    again = runner.invoke(cli, ["detect", "--transform", f"mail {EMAIL}"])
+    assert first.exit_code == 0
+    token = re.search(r"<PRIVYX_EMAIL_[0-9A-F]{16}>", first.output)
+    assert token and token[0] in again.output  # the same key, the same token
+    assert (Path.home() / ".privyx" / "anchor.key").exists()
 
 
 def test_detect_honours_config_patterns(runner: CliRunner, tmp_path: Path) -> None:
@@ -153,6 +165,60 @@ def test_detect_explain_names_an_opt_in_entity(runner: CliRunner, tmp_path: Path
     assert "found by  regex: built-in pattern CRYPTO_WALLET" in result.output
 
 
+def test_detect_explain_credits_merged_terms_and_patterns(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "detector:\n  terms: {PERSON: [john smith]}\n  patterns: {PERSON: 'EMP-\\d+'}\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        cli, ["detect", "--explain", "-c", str(config), "ask john smith or EMP-12"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "found by  regex: terms PERSON" in result.output
+    assert "found by  regex: pattern PERSON" in result.output
+
+
+def test_detect_explain_credits_only_merged_entities_to_their_terms(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "detector:\n  terms: {PERSON: [john smith], EMAIL: [ops desk]}\n"
+        "  patterns: {PERSON: 'EMP-\\d+', EMPLOYEE_ID: 'E\\d{6}', EMAIL: 'alice@example\\.com'}\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        cli,
+        ["detect", "--explain", "-c", str(config), "ask john smith, E123456, alice@example.com"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "found by  regex: pattern EMPLOYEE_ID" in result.output
+    assert "found by  regex: pattern EMAIL" in result.output
+    assert "found by  regex: terms EMAIL" not in result.output
+
+
+def test_detect_explain_credits_merged_terms_found_once_folded(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        "detector:\n  normalize: true\n  terms: {PERSON: [john smith]}\n"
+        "  patterns: {PERSON: 'EMP-\\d+'}\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        cli, ["detect", "--explain", "-c", str(config), "ask ｊｏｈｎ ｓｍｉｔｈ"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "found by  regex: terms PERSON, once folded" in result.output
+
+
 def test_detect_explain_names_a_decoded_finding(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
     config.write_text("detector:\n  type: regex\n  decode: true\n", encoding="utf-8")
@@ -208,7 +274,10 @@ def _lint(runner: CliRunner, tmp_path: Path, config: str) -> tuple[int, dict[str
 
 def test_lint_suggests_the_option_that_masks_a_spelling(runner: CliRunner, tmp_path: Path) -> None:
     code, groups = _lint(
-        runner, tmp_path, "detector:\n  type: regex\n  terms:\n    PERSON: [john smith]\n"
+        runner,
+        tmp_path,
+        "detector:\n  type: regex\n  terms:\n    PERSON: [john smith]\n"
+        "  underscore_separates_words: false\n  term_variants: false\n",
     )
 
     assert code == 1
@@ -237,7 +306,8 @@ def test_lint_suggests_options_that_only_mask_together(runner: CliRunner, tmp_pa
         runner,
         tmp_path,
         "detector:\n  type: yaml\n  terms:\n    PROJECT: [apollo]\n"
-        "  patterns:\n    PROJECT: 'apollo-\\d+'\n",
+        "  patterns:\n    PROJECT: 'apollo-\\d+'\n"
+        "  merge_terms: false\n  underscore_separates_words: false\n",
     )
 
     assert code == 1
@@ -279,7 +349,8 @@ def test_lint_skips_detectors_it_cannot_run_offline(runner: CliRunner, tmp_path:
     code, groups = _lint(
         runner,
         tmp_path,
-        "detector:\n  - type: yaml\n    terms:\n      PERSON: [john]\n  - type: llm\n",
+        "detector:\n  - type: yaml\n    terms:\n      PERSON: [john]\n"
+        "    underscore_separates_words: false\n  - type: llm\n",
     )
 
     assert code == 1
@@ -725,7 +796,7 @@ def test_doctor_resolves_secrets_once_per_invocation(
             assert "configuration: ConfigError: password manager unavailable" in result.output
             assert result.output.count("✗") == 1
         else:
-            assert result.output.count("✓") == 9
+            assert result.output.count("✓") == 10
         assert "example-credential" not in result.output
         assert calls.count(reference) == 1
     assert len(calls) == 2
@@ -769,7 +840,7 @@ def test_doctor_shares_settings_between_checks(
 def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
     """All component checks plus effective route coverage are visible."""
     result = runner.invoke(cli, ["doctor"])
-    assert result.output.count("✓") + result.output.count("✗") == 9
+    assert result.output.count("✓") + result.output.count("✗") == 10
 
 
 def test_doctor_fails_on_broken_config(runner: CliRunner, tmp_path: Path) -> None:
@@ -2159,7 +2230,9 @@ def test_config_path_names_the_files_in_use_or_defaults(
     assert result.output.splitlines() == [str(home_config), str(included), str(project)]
 
 
-@pytest.mark.parametrize("reference", ["op://example/item/credential", "keychain://example/account"])
+@pytest.mark.parametrize(
+    "reference", ["op://example/item/credential", "keychain://example/account"]
+)
 def test_config_path_does_not_resolve_secrets(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
 ) -> None:
@@ -2232,6 +2305,7 @@ def test_config_show_masks_secrets(
     config = tmp_path / "c.yaml"
     config.write_text(
         "vault:\n"
+        "  type: redis\n"
         "  redis_url: redis://:hunter2@cache:6379/0\n"
         "anchor:\n  secret: anchor-secret\n"
         "provider:\n  headers:\n    Authorization: Bearer hdr-token\n"
@@ -2322,6 +2396,7 @@ def test_detect_json_safe_output_has_no_raw_pii_when_masked() -> None:
 # mask / unmask
 
 
+@pytest.mark.usefixtures("counters")
 def test_mask_unmask_round_trips_through_a_map_file(runner: CliRunner, tmp_path: Path) -> None:
     map_path = tmp_path / "m.json"
 
@@ -2376,6 +2451,7 @@ def test_mask_unmask_round_trips_through_the_vault(runner: CliRunner, sqlite_con
     assert back.stdout.strip() == f"mail {EMAIL}"
 
 
+@pytest.mark.usefixtures("counters")
 def test_mask_json_keeps_structure_and_non_string_values(runner: CliRunner, tmp_path: Path) -> None:
     """Also covers format auto-detection: the .json extension picks the JSON walk."""
     source = tmp_path / "in.json"
@@ -2391,6 +2467,7 @@ def test_mask_json_keeps_structure_and_non_string_values(runner: CliRunner, tmp_
     }
 
 
+@pytest.mark.usefixtures("counters")
 def test_mask_json_path_limits_the_walk(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(
         cli,
@@ -2404,6 +2481,7 @@ def test_mask_json_path_limits_the_walk(runner: CliRunner, tmp_path: Path) -> No
     assert payload["other"] == "bob@example.com"
 
 
+@pytest.mark.usefixtures("counters")
 def test_mask_json_sees_a_value_with_its_key(runner: CliRunner, tmp_path: Path) -> None:
     """``{"password": "hunter2"}`` is a secret by its key, also in a list under it
     and in JSON Lines; a number is checked alone, and masked becomes its token."""
@@ -2429,6 +2507,7 @@ def test_mask_json_sees_a_value_with_its_key(runner: CliRunner, tmp_path: Path) 
         }
 
 
+@pytest.mark.usefixtures("counters")
 def test_mask_jsonl_keeps_one_record_per_line(runner: CliRunner, tmp_path: Path) -> None:
     source = tmp_path / "in.jsonl"
     source.write_text(f'{{"e": "{EMAIL}"}}\n{{"e": "bob@example.com"}}\n', encoding="utf-8")

@@ -17,8 +17,10 @@ Set TypingSpeed 30ms
 # reuses an old map.json. PS1 is reset because bash inherits whatever prompt
 # the calling shell exported. The key is written in two parts so that this
 # file holds no key-shaped string.
+# Its own HOME and a fixed anchor secret: the recording never uses your
+# anchor key, and shows the same tokens as the docs.
 Hide
-Type `unset PROMPT_COMMAND; PS1='$ '; cd "$(mktemp -d)"`
+Type `unset PROMPT_COMMAND; PS1='$ '; cd "$(mktemp -d)"; export HOME=$PWD PRIVYX_ANCHOR_SECRET=docs-example`
 Enter
 Type `printf 'Deploy with OPENAI_API_KEY=%s%s, then mail ann@example.com\n' sk-proj- Ab3dEf5gHi7jKl9mNo1pQr3sTu5vWx7y > prompt.txt; clear`
 Enter
@@ -41,7 +43,7 @@ Sleep 2.5s
 
 Type "# What you get back from the model's reply"
 Enter
-Type 'privyx unmask --map map.json "Deployed. Sent the summary to <PRIVYX_EMAIL_2>."'
+Type 'privyx unmask --map map.json "Deployed. Sent the summary to <PRIVYX_EMAIL_F04C885A31827851>."'
 Sleep 500ms
 Enter
 Sleep 4s

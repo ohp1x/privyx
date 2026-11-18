@@ -45,7 +45,7 @@ $ privyx detect --transform "DB_PASSWORD=hunter2 deploy to 10.0.4.17, cc dana@ac
     30:39    IP_ADDRESS        '10.0.4.17'
     44:61    EMAIL             'dana@acme.example'
 
-DB_PASSWORD=<PRIVYX_SECRET_1> deploy to <PRIVYX_IP_ADDRESS_2>, cc <PRIVYX_EMAIL_3>
+DB_PASSWORD=<PRIVYX_SECRET_A2907293658B4995> deploy to <PRIVYX_IP_ADDRESS_C8E127AF2D5584C3>, cc <PRIVYX_EMAIL_19ECE4788CA5AE6F>
 ```
 
 The last line is what a provider would receive. Pipe a file in to try it on
@@ -119,7 +119,7 @@ Pick the tab that matches what you use.
            "messages": [{"role": "user", "content": "Write a short greeting to alice@example.com"}]}'
     ```
 
-    The provider sees `<PRIVYX_EMAIL_1>`; the reply you get has
+    The provider sees `<PRIVYX_EMAIL_4FF5EF825E496E1A>`; the reply you get has
     `alice@example.com` in it again.
 
     For an Anthropic client, start the proxy with

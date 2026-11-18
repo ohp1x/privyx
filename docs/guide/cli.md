@@ -393,34 +393,28 @@ term:
 
 ```console
 $ privyx lint -c my.yaml
-Set detector.underscore_separates_words: true
-  missed  PERSON         'DB_JOHN SMITH'
-  missed  PERSON         'john smith_dev'
-  missed  IP_ADDRESS     'id_10.0.0.1'
-  missed  IP_ADDRESS     '10.0.0.1_old'
-  missed  SSN            'id_123-45-6789'
-  missed  SSN            '123-45-6789_old'
-  missed  CREDIT_CARD    'id_4111111111111111'
-  missed  CREDIT_CARD    '4111111111111111_old'
-  missed  API_KEY        'id_sk-proj-abcdefghijklmnopqrstuvwx'
 Set detector.normalize: true
   missed  PERSON         'ｊｏｈｎ ｓｍｉｔｈ'
   missed  PERSON         'j\u200bohn smith'
-Set detector.term_variants: true
-  missed  PERSON         'john_smith'
 No option masks these; add them to the terms
   missed  PERSON         'john__smith'
 Set detector.decode: true
   missed  PERSON         'john%20smith'
-Checked 16 spellings of 1 term and 4 built-in values: 14 not fully masked.
+Checked 16 spellings of 1 term and 4 built-in values: 4 not fully masked.
 ```
+
+With `underscore_separates_words: false` or `term_variants: false`, lint also
+lists the spellings inside identifiers (`DB_JOHN SMITH`, `id_10.0.0.1`) or
+joined by `_` (`john_smith`) under the option that masks them.
 
 `missed` means no part of the value is masked, `partly` that some of it is
 sent as is. A spelling the detector finds but the policy drops is listed under
 `Found, but` and the policy's reason. A term of one or two characters gets a
 warning, since it masks that word wherever it stands alone. Before the
-spellings, lint prints the warnings Privyx gives on load for a setting the
-detector type does not use, such as `terms` under `type: presidio`; see
+spellings, lint prints the warnings Privyx gives on load for `terms`,
+`patterns`, or `enable` from another file that no detector uses. A setting
+the detector type does not use, such as `terms` under `type: presidio` in the
+same file, stops lint with an error instead; see
 [Settings per type](configuration.md#settings-per-type).
 
 The exit code is 1 when a spelling is not fully masked, so lint can run in CI.
@@ -631,7 +625,7 @@ Look into what Privyx does with a request, a pattern, or a token.
 privyx inspect routes                     # which paths are masked, and with which schema
 privyx inspect regex EMPLOYEE_ID          # a configured entity's pattern
 privyx inspect regex '\bEMP-\d{6}\b'      # or a pattern you are writing
-privyx inspect token '<PRIVYX_EMAIL_1>'   # the session a token belongs to
+privyx inspect token '<PRIVYX_EMAIL_4FF5EF825E496E1A>'   # the session a token belongs to
 ```
 
 | Command | Option | Description |
@@ -758,7 +752,7 @@ the list.
 ## `privyx install-hook`
 
 Install git hooks that stop a commit holding a credential or a Privyx
-placeholder such as `<PRIVYX_EMAIL_1>`.
+placeholder such as `<PRIVYX_EMAIL_4FF5EF825E496E1A>`.
 
 ```bash
 privyx install-hook
@@ -777,7 +771,7 @@ never a secret itself:
 $ git commit -m "Add the client"
 privyx: this commit holds values that must not leave this machine:
   src/client.py:12  API_KEY
-  commit message:1  placeholder <PRIVYX_EMAIL_1>
+  commit message:1  placeholder <PRIVYX_EMAIL_4FF5EF825E496E1A>
 Remove the secrets, restore placeholders with `privyx unmask`, or commit with --no-verify to skip this check.
 ```
 
@@ -814,7 +808,8 @@ Build every configured component and push a request through it: plugins,
 detector, vault (a real write and read), provider, proxy, and streaming
 restore. The `permissions` check fails when the SQLite vault, the audit log,
 or the anchor key file allows any access beyond its owner, and names the
-`chmod 600` that fixes it. The `routes` check lists masking paths, gaps in the default route map,
+`chmod 600` that fixes it. With `anchor.secret: auto`, the `anchor key` check
+reads that file, or checks that it can be created, without creating it. The `routes` check lists masking paths, gaps in the default route map,
 and the disposition of unlisted paths. Passthrough prints a warning; invalid
 routes fail. Exits with a non-zero status if any check fails.
 
@@ -843,6 +838,7 @@ $ privyx doctor
 Privyx Doctor
 =============
   ✓ plugins: no plugin paths configured
+  ✓ anchor key: /home/alice/.privyx/anchor.key is created on first use
   ✓ detector: regex: 1 span(s) ['EMAIL']
   ✓ permissions: sensitive files owner-only (0600)
   ✓ vault: memory: round-trip ok
@@ -850,5 +846,5 @@ Privyx Doctor
   ✓ proxy: request transformed, 1 mapping(s) vaulted
   ✓ streaming: pseudonym restored across a split chunk
   ✓ routes: transparent: 27 masking route(s): ...; WARNING: unlisted paths pass through WITHOUT body masking; set proxy.passthrough_unknown: false to return 403; default paths outside coverage: none
-  ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=off
+  ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=hmac
 ```

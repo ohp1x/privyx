@@ -47,7 +47,8 @@ async def main() -> None:
         masked = await engine.transform(
             "project Bluebird ships to dana@acme.example", session=session
         )
-        print(masked.text)  # <PRIVYX_PROJECT_1> ships to <PRIVYX_EMAIL_2>
+        # <PRIVYX_PROJECT_A845F4A8ED736A3F> ships to <PRIVYX_EMAIL_19ECE4788CA5AE6F>
+        print(masked.text)
 
         restored = await engine.restore(f"Noted: {masked.text}", session.session_id)
         print(restored.text)  # Noted: project Bluebird ships to dana@acme.example

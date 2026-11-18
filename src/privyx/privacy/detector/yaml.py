@@ -12,6 +12,7 @@ from privyx.plugins.registry import PLUGINS, Registry
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.builtin import (
     DEFAULT_PATTERNS,
+    ENABLEABLE_PATTERNS,
     OPTIONAL_PATTERNS,
     CompositeDetector,
     RegexDetector,
@@ -126,16 +127,16 @@ DETECTORS.register("llm", _llm)
 
 
 def _enabled(config: dict[str, Any]) -> dict[str, str]:
-    """The opt-in built-in patterns ``enable`` lists."""
+    """The built-in patterns ``enable`` lists."""
     _disabled(config)
     enable = config.get("enable") or []
-    unknown = sorted(set(enable) - OPTIONAL_PATTERNS.keys())
+    unknown = sorted(set(enable) - ENABLEABLE_PATTERNS.keys())
     if unknown:
         raise ConfigError(
             f"detector 'enable' lists unknown entities {unknown}; "
-            f"the opt-in built-ins are {sorted(OPTIONAL_PATTERNS)}"
+            f"it accepts {sorted(ENABLEABLE_PATTERNS)}"
         )
-    return {entity: OPTIONAL_PATTERNS[entity] for entity in enable}
+    return {entity: ENABLEABLE_PATTERNS[entity] for entity in enable}
 
 
 def _disabled(config: dict[str, Any]) -> set[str]:
@@ -278,8 +279,8 @@ _OVERRIDES_WARNED: set[tuple[str, int]] = set()
 def _patterns_from(config: dict[str, Any]) -> dict[str, str]:
     """Collect ``terms`` and ``patterns`` into a single entity -> regex map.
 
-    A hand-written ``patterns`` entry wins over a ``terms`` entry for the same
-    entity unless ``merge_terms`` opts into trying terms before that regex.
+    With ``merge_terms`` (the default), terms are tried before a hand-written
+    ``patterns`` regex for the same entity; without it, the regex wins.
     Entities that appear in only one of the two are all kept. The terms a regex replaces are
     named in a warning, by count: one regex added to complete them, such as
     from an ``include:``, would otherwise drop them without a word.

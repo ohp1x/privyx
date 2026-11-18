@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Masking:** `PRIVYX_ANCHOR_KEY_PATH` sets where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default; it takes an absolute path, `~` included
+- **Plugins:** an operator that writes the same text for every value can declare it as `fixed_text`, so the leak check does not refuse a request whose masked value is part of that text
+
+### Changed
+
+- **Detection:** `_` separates words by default (`detector.underscore_separates_words: true`), so terms and built-ins are found inside names such as `ACME_API_KEY` or `host_10.0.0.1`; set it to `false` to keep the 0.1 behavior
+- **Detection:** terms of several words match their other spellings by default (`detector.term_variants: true`), such as `acme-corp` for `Acme Corp`; set it to `false` to keep the 0.1 behavior
+- **Detection:** `terms` and `patterns` for the same entity are matched together by default (`detector.merge_terms: true`) instead of the regex replacing the terms; set it to `false` to keep the 0.1 behavior
+- **Detection:** the `regex` detector finds crypto wallets and national IDs by default (`CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`), each validated by a checksum or structure check; list them under `detector.disable` to keep the 0.1 behavior. `enable` still accepts them
+- **Proxy:** the leak check is on by default (`proxy.dlp_check: true`): a masked request that still holds a value it masked elsewhere, such as in a URL or a header, is refused with `422` instead of forwarded; set it to `false` to keep the 0.1 behavior
+- **Masking:** every command anchors `pseudonym` tokens by default (`anchor.secret: auto`) with the per-user key in `~/.privyx/anchor.key`, as `privyx run` already did, so the same value gets the same token in every session, such as `<PRIVYX_EMAIL_4FF5EF825E496E1A>` instead of `<PRIVYX_EMAIL_1>`; set `anchor.secret: ""` to keep the 0.1 counters
+- **Plugins:** an anchor plugin without a `Config` gets the per-user anchor key as its `secret` unless the config sets one
+- **Docker:** the image keeps the per-user anchor key in `/data/anchor.key`, so tokens stay the same across container restarts while the volume is kept
+- **Config:** a key given twice in one mapping of a config file is an error instead of a warning; keep one of them
+- **Masking:** `operator.length` of the `hash` operator outside 6 to 64 is a configuration error instead of a warning
+- **Config:** a setting that its section's `type` does not use, written beside that `type` or with no `type` chosen (such as `vault.redis_url` without `type: redis`), is an error instead of a warning; `terms`, `patterns`, or `enable` from another file that no detector uses still only warn
+
+### Fixed
+
+- **Docker:** Compose passes `PRIVYX_ANCHOR_SECRET` only when it is set, so an `anchor.secret` in a mounted config is no longer replaced by an empty value
+- **Proxy:** the leak check no longer refuses a request when a masked term is part of a tool name the request declares, such as `acme` in `mcp__acme__search`, or in a label of a tool definition it sends unchanged, such as a parameter name or title
+- **Proxy:** the leak check no longer refuses a request when a masked value is part of its own placeholder or redaction token, such as a term `PERSON` in `<PRIVYX_PERSON_1>` with `_` separating words
+
 ## [0.1.39] - 2026-11-17
 
 ### Fixed

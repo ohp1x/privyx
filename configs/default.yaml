@@ -89,7 +89,7 @@
 #   timeout: 300           # seconds between bytes, read or write
 #   connect_timeout: 10
 #   max_connections: null  # null: no limit
-#   dlp_check: false       # refuse a masked request that still holds a masked value
+#   dlp_check: true        # refuse a masked request that still holds a masked value
 #                          # exact signed thinking remembered from upstream is exempt
 #   directive: false       # tell the model to keep placeholders as written
 #   cache_control: false   # mark a large Anthropic tools/system prefix for caching
@@ -121,9 +121,10 @@
 # --- Detector ---
 # What counts as sensitive.  One mapping, or a list of them whose findings are
 # pooled.  The regex built-ins cover EMAIL, PHONE, CREDIT_CARD, IP_ADDRESS, SSN,
-# API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, and SECRET.  Each type
+# API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, SECRET, crypto wallets,
+# and national IDs.  Each type
 # uses only its own settings below, plus cache and underscore_separates_words;
-# Privyx warns about the others.
+# Privyx refuses the others.
 # detector:
 #   type: regex            # regex | yaml | presidio (privyx[presidio]) | llm
 #   # regex, yaml
@@ -131,15 +132,16 @@
 #   # only that part.  Example, EMPLOYEE_ID: '\bEMP-\d{6}\b'
 #   patterns: {}
 #   # Entity -> literal strings, matched case-insensitively with word
-#   # boundaries.  Example, PERSON: [ann, bob].  The same entity in patterns wins.
+#   # boundaries.  Example, PERSON: [ann, bob].
 #   terms: {}
-#   merge_terms: false     # match terms and patterns for the same entity, terms first
-#   term_variants: false   # "Acme Corp" also matches acme-corp, acme_corp, ...
-#   underscore_separates_words: false  # acme is found in ACME_API_KEY
+#   merge_terms: true      # match terms and patterns for the same entity, terms first
+#   term_variants: true    # "Acme Corp" also matches acme-corp, acme_corp, ...
+#   underscore_separates_words: true  # acme is found in ACME_API_KEY
 #   # Entity -> words; a match counts only with one within five words.
 #   context: {}
-#   # Opt-in built-ins: CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC,
-#   # ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR, HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10.
+#   # Opt-in built-ins: HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10.  A yaml
+#   # detector also takes CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC,
+#   # ES_NIF, ES_NIE, UK_NHS, and IN_AADHAAR, which regex has built in.
 #   enable: []
 #   disable: []            # built-ins to turn off; inactive opt-in names are accepted too
 #   entropy_threshold: 3.0 # HIGH_ENTROPY: bits per character
@@ -180,12 +182,11 @@
 
 # --- Anchor ---
 # With a secret, the same value gets the same pseudonym in every session.
-# Empty: a per-session counter.  `auto` creates or reuses ~/.privyx/anchor.key,
-# which `privyx run` uses unless this is set.
-# An explicitly empty PRIVYX_ANCHOR_SECRET also disables HMAC anchoring.
+# `auto` creates or reuses ~/.privyx/anchor.key, shared by every command.
+# Empty: a per-session counter; an explicitly empty PRIVYX_ANCHOR_SECRET too.
 # anchor:
 #   type: hmac
-#   secret: ""             # or PRIVYX_ANCHOR_SECRET; `openssl rand -hex 32`
+#   secret: auto           # or PRIVYX_ANCHOR_SECRET; `openssl rand -hex 32`
 
 # --- Token syntax ---
 # The format must contain {type} and {id}; {namespace} is optional.  Two
@@ -196,7 +197,7 @@
 #   compact: false         # short tokens such as <E~1>; format tokens still restore
 #   id_length: 16          # anchored pseudonym and encrypt ids, 6 to 64 hex characters
 #   # pseudonym only, privyx[faker]: also a fake value for the model, such as
-#   # <PRIVYX_PERSON_1:Alice Johnson>; restored by the id, never by the label.
+#   # <PRIVYX_PERSON_A81B3C9AEE08DE11:Alice Johnson>; restored by the id, never by the label.
 #   label_format: ""       # needs {id} and {label}; empty is off
 
 # --- Audit ---

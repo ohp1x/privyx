@@ -54,11 +54,11 @@ request, only the fields covered by its wire schema are scanned.
 
 Masking hides a value, not everything about it:
 
-- **That it exists, and what kind it is.** `<PRIVYX_EMAIL_1>` says that an
+- **That it exists, and what kind it is.** `<PRIVYX_EMAIL_4FF5EF825E496E1A>` says that an
   email address was there.
-- **When two values are equal.** The same value gets the same token within a
-  session; with an [anchor](../guide/masking.md#anchors) or the `hash` or
-  `encrypt` operator, in every session.
+- **When two values are equal.** The same value gets the same token in every
+  session, from the default [anchor](../guide/masking.md#anchors) or the
+  `hash` or `encrypt` operator; with `anchor.secret: ""`, within a session.
 - **Everything that was not detected**, and the shape of the conversation
   around it.
 

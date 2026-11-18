@@ -134,19 +134,18 @@ SMTP_USER=dana@acme.example
 the file reached the provider as:
 
 ```text
-DB_PASSWORD=<PRIVYX_SECRET_26EA7D0A8B8DC4C2>
-SMTP_USER=<PRIVYX_EMAIL_4CE2AF0BB2282EF4>
+DB_PASSWORD=<PRIVYX_SECRET_A2907293658B4995>
+SMTP_USER=<PRIVYX_EMAIL_19ECE4788CA5AE6F>
 ```
 
 The same happens to tool arguments in the other direction. When the model
-decides to write `<PRIVYX_EMAIL_4CE2AF0BB2282EF4>` into a file, the tool call
+decides to write `<PRIVYX_EMAIL_19ECE4788CA5AE6F>` into a file, the tool call
 your machine receives holds `dana@acme.example`.
 
-!!! note "Why these tokens are longer"
+!!! note "Where the token ids come from"
 
-    `privyx run` creates an anchor secret in `~/.privyx/anchor.key`
-    the first time it runs, so a token's id is derived from the value instead
-    of counted. The same value gets the same token in every turn and after a
+    Privyx creates an anchor key in `~/.privyx/anchor.key` the first time it
+    runs, and derives a token's id from the value with it instead of counting. The same value gets the same token in every turn and after a
     restart, which keeps a long conversation, and the provider's prompt
     cache, consistent. See [Anchors](../guide/masking.md#anchors).
 
@@ -226,7 +225,7 @@ $ privyx detect --transform "/home/dwhitfield/acme/bluebird on branch feature/da
     22:30    PROJECT           'bluebird'
     49:53    PERSON            'dana'
 
-/home/<PRIVYX_PERSON_1>/<PRIVYX_ORGANIZATION_2>/<PRIVYX_PROJECT_3> on branch feature/<PRIVYX_PERSON_4>-login
+/home/<PRIVYX_PERSON_ECC822471C9C891F>/<PRIVYX_ORGANIZATION_FDF5485CE41A6AAA>/<PRIVYX_PROJECT_DBBA12EA1BBFFECF> on branch feature/<PRIVYX_PERSON_CC59DAE7AAAA2ED5>-login
 ```
 
 Every run uses it from now on:
@@ -282,7 +281,7 @@ these rules where your agent reads its instructions:
 ## Privyx placeholders
 
 Requests may go through Privyx, which replaces personal data and secrets with
-placeholders such as `<PRIVYX_EMAIL_1>` before they reach you, and puts the
+placeholders such as `<PRIVYX_EMAIL_4FF5EF825E496E1A>` before they reach you, and puts the
 real values back into your replies and tool calls.
 
 - Treat a placeholder as the value itself. Copy it exactly as written,

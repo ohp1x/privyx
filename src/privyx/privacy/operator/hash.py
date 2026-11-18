@@ -7,18 +7,17 @@ what the session vault does).  If used without a vault, this is one-way.
 from __future__ import annotations
 
 import hashlib
-import logging
 from functools import partial
 
+from privyx.config.schema import HASH_LENGTH
 from privyx.core.context import Context
+from privyx.core.errors import ConfigError
 from privyx.core.result import Detection, Transformation, TransformResult
 from privyx.core.session import Session
 from privyx.privacy.operator.base import BaseOperator, free_token, restore
 from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
-
-_log = logging.getLogger("privyx")
 
 
 class HashOperator(BaseOperator):
@@ -41,12 +40,9 @@ class HashOperator(BaseOperator):
     name = "hash"
 
     def __init__(self, length: int = 12, codec: TokenCodec | None = None) -> None:
-        if not 6 <= length <= 64:
-            _log.warning(
-                "operator.length %d is outside 6-64; it still works, but will be "
-                "rejected from 0.2.0",
-                length,
-            )
+        low, high = HASH_LENGTH
+        if not low <= length <= high:
+            raise ConfigError(f"operator.length must be between {low} and {high}, not {length}")
         self._length = length
         self._codec = codec or FormatCodec.default()
 

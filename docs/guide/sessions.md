@@ -107,7 +107,7 @@ Session: demo
   Updated:    2026-09-27T15:29:37
   Mappings:   1
 
-  <PRIVYX_EMAIL_1>                 → al*************om
+  <PRIVYX_EMAIL_4FF5EF825E496E1A>  → al*************om
 
   (values masked; pass --reveal to show them)
 
@@ -123,8 +123,8 @@ $ privyx session prune -c privyx.yaml --older-than 7d --dry-run
 or JSONL. The mapping goes either to a map file or to a vault session:
 
 ```bash
-privyx mask --map map.json "mail alice@example.com"    # mail <PRIVYX_EMAIL_1>
-privyx unmask --map map.json "hi <PRIVYX_EMAIL_1>"     # hi alice@example.com
+privyx mask --map map.json "mail alice@example.com"   # mail <PRIVYX_EMAIL_4FF5EF825E496E1A>
+privyx unmask --map map.json "hi <PRIVYX_EMAIL_4FF5EF825E496E1A>"   # hi alice@example.com
 
 privyx mask -c privyx.yaml --session demo -i request.json --path '$.messages'
 ```

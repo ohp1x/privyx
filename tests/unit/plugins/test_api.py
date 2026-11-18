@@ -639,7 +639,7 @@ async def test_engine_uses_the_components_added_in_code(tmp_path: Path) -> None:
     from privyx.plugins import BaseDetector, Detection
 
     config = _config(tmp_path, {"detector": [{"type": "regex"}, {"type": "codeword"}]})
-    px = Privyx(config, audit={"enabled": False})
+    px = Privyx(config, audit={"enabled": False}, anchor={"secret": ""})  # counter tokens
 
     @px.add
     class CodewordDetector(BaseDetector):

@@ -158,7 +158,7 @@ text is refused the same way, since Privyx cannot scan ids. LangChain's
 
 ## A token shows up in an answer
 
-The client sees `<PRIVYX_EMAIL_1>` where a value should be.
+The client sees `<PRIVYX_EMAIL_4FF5EF825E496E1A>` where a value should be.
 
 | Cause | Fix |
 |---|---|

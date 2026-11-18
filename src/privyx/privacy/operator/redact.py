@@ -20,6 +20,7 @@ class RedactOperator(BaseOperator):
 
     def __init__(self, token: str = "[REDACTED]") -> None:
         self._token = token
+        self.fixed_text = token
 
     async def pseudonymize(
         self,
