@@ -52,8 +52,18 @@ def test_default_routes_match_gemini_paths_with_any_model() -> None:
         "/v1alpha/models/gemini-2.5-flash:generateContent",
         "/v1beta/tunedModels/my-model-123:streamGenerateContent",
         "/v1beta/cachedContents",
+        # Without the API version, which the client's base URL ends in.
+        "/models/gemini-2.5-flash:streamGenerateContent",
+        "models/gemini-2.5-flash:countTokens",
+        "/tunedModels/my-model-123:generateContent",
+        "/cachedContents",
     ):
         assert detect_schema(path, ROUTES) == "gemini"
+    custom = {"/v1beta/models/*:generateContent": "gemini", "/v1/models/*:embed": "embeddings"}
+    assert detect_schema("/models/m:generateContent", custom) == "gemini"
+    assert detect_schema("/models/m:embed", custom) is None  # only Gemini routes
+    for path in ("/models", "/models/gemini-2.5-flash"):
+        assert detect_schema(path, ROUTES) is None
     for path in (
         "/v1beta/models/:generateContent",  # no model
         "/v1beta/models/a/b:generateContent",  # `*` stays within a segment

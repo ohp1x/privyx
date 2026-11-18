@@ -94,7 +94,7 @@ the body; machine metadata headers can still be masked on allowed requests.
 | field | type | notes |
 |---|---|---|
 | `method` | string | Standard HTTP method, or `OTHER` for an unrecognized method. |
-| `reason` | string | `unknown_route`, or `outside_prefix` for a path outside `proxy.path_mapping.strip_prefix`. |
+| `reason` | string | `unknown_route`; `outside_prefix` for a path outside `proxy.path_mapping.strip_prefix`; `no_upstream` for a `privyx run pi` request that names no base URL for its route. |
 | `body_masked` | bool | Always `false`. |
 
 No path, query, body, headers, credentials, or original values are recorded.

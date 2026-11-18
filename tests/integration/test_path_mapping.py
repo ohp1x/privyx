@@ -26,6 +26,7 @@ from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
 from privyx.privacy.operator.pseudonym import PseudonymOperator  # noqa: E402
 from privyx.privacy.policy.default import DefaultPolicy  # noqa: E402
 from privyx.providers.registry import resolve_transparent_upstream  # noqa: E402
+from privyx.proxy.headers import RUN_TOKEN_HEADER, UPSTREAMS_HEADER  # noqa: E402
 from privyx.proxy.transparent import TransparentProxy  # noqa: E402
 from privyx.vault.memory import MemoryVault  # noqa: E402
 
@@ -138,6 +139,102 @@ async def test_prefix_refuses_encoded_separator() -> None:
     assert not seen
 
 
+TOKEN = "run-secret"
+BASES = {
+    "openai": "https://router.example.com/api/v1",
+    "anthropic": "https://router.example.com/api",
+    "gemini": "https://gateway.example.com/v1/acct/google/v1beta",
+}
+
+
+def _named(token: str = TOKEN, **bases: str) -> dict[str, str]:
+    return {RUN_TOKEN_HEADER: token, UPSTREAMS_HEADER: json.dumps(bases or BASES)}
+
+
+def _pi_proxy(seen: list[httpx.Request]) -> TransparentProxy:
+    return _proxy(seen, origin="https://default.example.com", strip_prefix=None, run_token=TOKEN)
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "url"),
+    [
+        ("/chat/completions", _chat(), f"{BASES['openai']}/chat/completions"),
+        (
+            "/v1/messages?beta=true",
+            {"model": "m", "max_tokens": 1, "messages": [{"role": "user", "content": EMAIL}]},
+            f"{BASES['anthropic']}/v1/messages?beta=true",
+        ),
+        # Without its API version, which ends the base URL.
+        (
+            "/models/g:streamGenerateContent?alt=sse",
+            {"contents": [{"role": "user", "parts": [{"text": EMAIL}]}]},
+            f"{BASES['gemini']}/models/g:streamGenerateContent?alt=sse",
+        ),
+    ],
+)
+async def test_run_token_sends_each_route_to_the_base_url_it_names(
+    path: str, body: dict, url: str
+) -> None:
+    seen: list[httpx.Request] = []
+    async with _client(_pi_proxy(seen)) as client:
+        response = await client.post(path, json=body, headers={**_named(), "x-api-key": "k"})
+    assert response.status_code == 200
+    (request,) = seen
+    assert str(request.url) == url
+    assert EMAIL.encode() not in request.content
+    assert request.headers["x-api-key"] == "k"  # the client's own key, as sent
+    assert RUN_TOKEN_HEADER not in request.headers
+    assert UPSTREAMS_HEADER not in request.headers
+
+
+async def test_pi_routing_needs_no_fixed_upstream_with_prefix_mapping() -> None:
+    from privyx.cli.commands.proxy import build_transparent_proxy
+
+    settings = Settings(proxy={"path_mapping": {"mode": "prefix"}})
+    pi = TARGETS["pi"]
+    plan = build_launch_plan(pi, [], settings, 0, pi.env_vars)
+    engine = _proxy([])._engine
+    with pytest.raises(ConfigError, match="prefix needs an upstream"):
+        build_transparent_proxy(settings, engine, None)
+    proxy = build_transparent_proxy(settings, engine, None, plan.run_token)
+    await proxy.close()
+
+
+async def test_gemini_path_without_its_version_is_masked() -> None:
+    """pi's path when its base URL, ending in the version, is the proxy's."""
+    seen: list[httpx.Request] = []
+    gemini = "https://gemini.example.com/v1beta"
+    body = {"contents": [{"role": "user", "parts": [{"text": EMAIL}]}]}
+    async with _client(_proxy(seen, origin=gemini, strip_prefix="")) as client:
+        response = await client.post("/models/g:generateContent", json=body)
+    assert response.status_code == 200
+    (request,) = seen
+    assert str(request.url) == f"{gemini}/models/g:generateContent"
+    assert EMAIL.encode() not in request.content
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        _named(token="wrong"),
+        {RUN_TOKEN_HEADER: TOKEN, UPSTREAMS_HEADER: "not json"},
+        _named(anthropic=BASES["anthropic"]),  # none for this route
+        _named(openai="https://user:pw@router.example.com/api/v1"),
+        _named(openai="file:///api/v1"),
+    ],
+)
+async def test_run_token_refuses_a_request_without_a_usable_upstream(
+    headers: dict[str, str],
+) -> None:
+    seen: list[httpx.Request] = []
+    async with _client(_pi_proxy(seen)) as client:
+        response = await client.post("/chat/completions", json=_chat(), headers=headers)
+        unrouted = await client.get("/models", headers=_named())
+    assert response.status_code == unrouted.status_code == 403
+    assert not seen
+
+
 async def test_origin_mode_is_unchanged() -> None:
     seen: list[httpx.Request] = []
     proxy = _proxy(seen, origin="https://api.x.ai", strip_prefix=None)
@@ -171,7 +268,9 @@ def test_prefix_needs_explicit_upstream_without_query_or_credentials() -> None:
         assert "pw" not in str(error.value)
     settings = Settings(proxy=prefix, provider={"base_url": ROUTER + "/"})
     assert resolve_transparent_upstream(settings) == ROUTER
-    assert resolve_transparent_upstream(Settings(upstream_url=ROUTER)) == "https://router.example.com"
+    assert (
+        resolve_transparent_upstream(Settings(upstream_url=ROUTER)) == "https://router.example.com"
+    )
 
 
 def test_run_strips_base_path_and_follows_endpoint_with_path(

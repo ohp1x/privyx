@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **CLI:** `privyx run pi` sends a model of any pi provider through Privyx to that provider, with pi's own key, and a model picked with `/model` too, without a profile. A model whose requests cannot be masked, such as one on Amazon Bedrock, is refused. A profile that names a pi provider in `PRIVYX_PI_PROVIDER`, an upstream, `proxy.mode: gateway`, or an API key or `provider.headers` of Privyx's own keeps sending to one upstream
+
 ### Changed
 
 - **CLI:** `privyx run` warns, after the tool exits, only when a request was passed through unmasked with a body, or was blocked or failed. A run with no request, or only requests without a body, such as `--help`, a tool closed before its first prompt, or a model pi refused, is recorded as `run.unproxied` in the audit trail without a line after the shell's prompt
@@ -14,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **CLI:** `privyx run pi` prints why it refused the model pi starts with after pi has closed its screen, and pi exits with status 1; before, the reason vanished with the screen and pi exited with 0
 - **CLI:** pi's subcommands, such as `pi list` or `pi install`, work through `privyx run pi` instead of reaching pi as a prompt
+- **CLI:** a profile's `budget` counts the Gemini requests that pi sends, whose path has no API version
+
+### Security
+
+- **Proxy:** a Gemini request whose path has no API version, as pi sends it to a base URL that ends in one, is masked as a Gemini request; before, it matched no route and was passed through unmasked
+- **CLI:** `privyx run pi` with `PRIVYX_PI_PROVIDER` refuses a model of that provider whose API Privyx cannot mask, such as Azure OpenAI; before, its requests were passed through unmasked, or, with Azure's endpoint variables set, went to Azure without reaching Privyx
+- **CLI:** `privyx run pi` refuses a model whose login names a base URL of its own, as GitHub Copilot's does; before, with `PRIVYX_PI_PROVIDER` naming that provider, pi sent its requests there unmasked
 
 ## [0.2.0] - 2026-11-18
 

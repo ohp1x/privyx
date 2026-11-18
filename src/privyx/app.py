@@ -158,11 +158,16 @@ def include_router(app: Any, router: APIRouter | None, routes: dict[str, str]) -
         return
     from starlette.routing import Match
 
-    from privyx.proxy.schemas import detect_schema
+    from privyx.proxy.schemas import detect_schema, unversioned_routes
 
     taken = list(router.routes)
-    # Every path the proxy masks, as detect_schema reads it: /v1/v1/... too.
-    masking = [*routes, *(f"/v1{route}" for route in routes if route.startswith("/v1/"))]
+    # Every path the proxy masks, as detect_schema reads it: /v1/v1/... and
+    # Gemini paths without their version too.
+    masking = [
+        *routes,
+        *(f"/v1{route}" for route in routes if route.startswith("/v1/")),
+        *unversioned_routes(routes),
+    ]
     for route in taken:
         # Both ways: each masking path against the route, with the matcher that
         # serves it, and a path the route serves, its parameters filled in,

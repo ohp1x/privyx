@@ -37,8 +37,15 @@ _RESPONSE_DROP: frozenset[str] = HOP_BY_HOP | {"content-encoding"}
 #: The client's credential headers.
 _CLIENT_AUTH: frozenset[str] = frozenset({"authorization", "x-api-key", "x-goog-api-key"})
 
+#: Sent by ``privyx run pi`` with every request: the run's secret, and a JSON
+#: object mapping each wire schema of the model's provider to its base URL.
+RUN_TOKEN_HEADER = "x-privyx-run-token"
+UPSTREAMS_HEADER = "x-privyx-upstreams"
+
 #: Internal request headers that must not leak upstream.
-_REQUEST_DROP_EXTRA: frozenset[str] = frozenset({"accept-encoding", "x-privyx-session"})
+_REQUEST_DROP_EXTRA: frozenset[str] = frozenset(
+    {"accept-encoding", "x-privyx-session", RUN_TOKEN_HEADER, UPSTREAMS_HEADER}
+)
 
 
 def filter_request_headers(

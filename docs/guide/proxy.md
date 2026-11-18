@@ -122,7 +122,10 @@ is masked only when its path is in this map. The default:
 | `/api/embed`, `/api/embeddings` | `embeddings` | Ollama embeddings |
 
 The path is matched without its query string, so `/v1/messages?beta=true`
-matches too. A `*` matches any characters except `/`, such as the model name
+matches too. A Gemini path without its API version, such as
+`/models/m:generateContent`, matches the Gemini route it stands for: a client
+calls it when its base URL ends in the version, as pi does under
+`privyx run pi`. A `*` matches any characters except `/`, such as the model name
 in a Gemini path. A route is matched whatever the upstream behind it, so on a
 server where `/api/chat` is not Ollama's API, leave `/api/chat` out of
 `proxy.routes`. A route without a `*` wins over one with it; among those,

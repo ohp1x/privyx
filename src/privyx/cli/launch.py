@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from functools import partial
@@ -38,6 +39,10 @@ def codex_args(base_url: str, argv: list[str], provider: str | None = None) -> l
 PI_COMMANDS = frozenset(
     {"auth", "config", "install", "list", "mcp", "remove", "uninstall", "update"}
 )
+
+
+#: Where ``privyx run pi`` sends a request unless one provider is named.
+PI_UPSTREAMS = "the provider of each pi model"
 
 
 def pi_args(base_url: str, argv: list[str]) -> list[str]:
@@ -150,6 +155,8 @@ class LaunchPlan:
     session: str
     anchor: str
     native_endpoint: tuple[str, str] | None = field(default=None, repr=False)
+    #: Set when each request names its upstream (pi); see TransparentProxy.
+    run_token: str | None = field(default=None, repr=False)
 
     def bind_port(self, port: int) -> LaunchPlan:
         return replace(self, port=port)
@@ -212,6 +219,30 @@ def _route_codex_provider(
     )
 
 
+def _can_follow(settings: Settings, sources: dict[str, str]) -> bool:
+    """Whether the upstream may follow the agent: transparent, none set explicitly."""
+    explicit = any(
+        value and sources.get(key, "explicit") != "defaults"
+        for key, value in (
+            ("upstream_url", settings.upstream_url),
+            ("provider.base_url", settings.provider.base_url),
+        )
+    )
+    return not explicit and settings.proxy.mode == "transparent"
+
+
+def _own_credentials(settings: Settings) -> str | None:
+    """Which credentials of Privyx's own every upstream would receive, if any."""
+    from privyx.providers.registry import resolve_api_key
+
+    if resolve_api_key(settings):
+        return "Privyx's own API key"
+    # Custom header names can carry credentials too; do not infer their safety.
+    if any(settings.provider.headers.values()):
+        return "Privyx's configured provider headers"
+    return None
+
+
 def _follow_endpoint(
     spec: Target,
     settings: Settings,
@@ -222,28 +253,12 @@ def _follow_endpoint(
 ) -> None:
     from urllib.parse import urlsplit
 
-    from privyx.providers.registry import resolve_api_key
-
-    explicit = any(
-        value and sources.get(key, "explicit") != "defaults"
-        for key, value in (
-            ("upstream_url", settings.upstream_url),
-            ("provider.base_url", settings.provider.base_url),
-        )
-    )
-    if explicit or settings.proxy.mode != "transparent":
+    if not _can_follow(settings, sources):
         return
     base_url, origin = endpoint
-    if resolve_api_key(settings):
-        raise ConfigError(
-            f"{label} would receive Privyx's own API key; pass its URL as --upstream to confirm"
-        )
-    # Custom header names can carry credentials too; do not infer their safety.
-    if any(settings.provider.headers.values()):
-        raise ConfigError(
-            f"{label} would receive Privyx's configured provider headers; "
-            "pass its URL as --upstream to confirm"
-        )
+    own = _own_credentials(settings)
+    if own:
+        raise ConfigError(f"{label} would receive {own}; pass its URL as --upstream to confirm")
     try:
         parsed = urlsplit(base_url)
         valid = parsed.scheme in ("http", "https") and bool(parsed.hostname)
@@ -284,9 +299,6 @@ def build_launch_plan(
     provenance = dict(sources or {})
     prefix = f"agents.{name}."
     env_sources = {key: provenance.get(prefix + "env." + key, "profile") for key in custom}
-    if spec.adapter == "pi" and "PRIVYX_PI_PROVIDER" not in custom:
-        custom["PRIVYX_PI_PROVIDER"] = spec.provider
-        env_sources["PRIVYX_PI_PROVIDER"] = provenance.get("provider.type", "defaults")
     for destination, reference in spec.env_from.items():
         if reference not in inherited:
             raise ConfigError(
@@ -296,6 +308,19 @@ def build_launch_plan(
         custom[destination] = inherited[reference]
         origin = provenance.get(prefix + "env_from." + destination, "profile")
         env_sources[destination] = f"{origin}; env_from {reference}"
+    run_token = None
+    # After env_from, which can name the pi provider too.
+    if spec.adapter == "pi" and "PRIVYX_PI_PROVIDER" not in custom:
+        # Each pi provider goes to its own base URL, which pi names per request;
+        # with credentials of Privyx's own for them all, one provider, as before.
+        if _can_follow(settings, provenance) and not _own_credentials(settings):
+            inherited.pop("PRIVYX_PI_PROVIDER", None)
+            run_token = secrets.token_urlsafe(32)
+            custom["PRIVYX_PI_TOKEN"] = run_token
+            env_sources["PRIVYX_PI_TOKEN"] = "new each run"
+        else:
+            custom["PRIVYX_PI_PROVIDER"] = spec.provider
+            env_sources["PRIVYX_PI_PROVIDER"] = provenance.get("provider.type", "defaults")
     environment = {**inherited, **custom}
     mapping = settings.proxy.path_mapping
     if mapping.mode == "prefix":
@@ -351,7 +376,9 @@ def build_launch_plan(
         )
     upstream_key = "upstream_url" if settings.upstream_url else "provider.base_url"
     provenance["run.upstream"] = (
-        provenance.get(upstream_key, "defaults")
+        "pi"
+        if run_token
+        else provenance.get(upstream_key, "defaults")
         if settings.upstream_url or settings.provider.base_url
         else f"provider default ({provenance.get('provider.type', 'defaults')})"
     )
@@ -373,8 +400,10 @@ def build_launch_plan(
         env_sources=MappingProxyType(env_sources),
         sources=MappingProxyType(provenance),
         profile=name or spec.command,
-        upstream=resolve_base_url(settings),
-        route=resolve_base_url(settings)
+        upstream=PI_UPSTREAMS if run_token else resolve_base_url(settings),
+        route=PI_UPSTREAMS
+        if run_token
+        else resolve_base_url(settings)
         if settings.proxy.mode == "gateway"
         else resolve_transparent_upstream(settings),
         provider=settings.provider.type,
@@ -382,4 +411,5 @@ def build_launch_plan(
         session=settings.session.strategy,
         anchor=anchor,
         native_endpoint=native_endpoint,
+        run_token=run_token,
     )

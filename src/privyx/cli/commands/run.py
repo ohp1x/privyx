@@ -495,7 +495,7 @@ async def _run_target(
         provider = build_provider(settings)
         close_upstream = provider.close
     else:
-        proxy = build_transparent_proxy(settings, engine, audit)
+        proxy = build_transparent_proxy(settings, engine, audit, plan.run_token)
         close_upstream = proxy.close
     try:
         if settings.proxy.mode == "gateway":

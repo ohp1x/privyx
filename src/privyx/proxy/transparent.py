@@ -28,6 +28,7 @@ web server.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import time
@@ -48,7 +49,12 @@ from privyx.observability.metrics import AuditStats
 from privyx.observability.tap import Tap
 from privyx.observability.usage import UsageMeter
 from privyx.providers.generic import upstream_client
-from privyx.proxy.headers import filter_request_headers, filter_response_headers
+from privyx.proxy.headers import (
+    RUN_TOKEN_HEADER,
+    UPSTREAMS_HEADER,
+    filter_request_headers,
+    filter_response_headers,
+)
 from privyx.proxy.schemas import (
     AUTH_QUERY_PARAMS,
     MASKED_HEADERS,
@@ -179,6 +185,12 @@ class TransparentProxy:
             ``conversation``.  See :func:`privyx.proxy.session.resolve_session_id`.
         tap: Optional developer tap that records each masked exchange before
             and after masking (``audit.tap``; see :mod:`privyx.observability.tap`).
+        run_token: Set by ``privyx run pi``, whose requests each name their
+            upstreams in :data:`~privyx.proxy.headers.UPSTREAMS_HEADER`, with
+            this secret in :data:`~privyx.proxy.headers.RUN_TOKEN_HEADER`.  The
+            request's route picks the base URL, and the path is appended to it;
+            ``origin`` and ``strip_prefix`` are not used.  A request without a
+            matching token, or with no base URL for its route, is refused.
     """
 
     def __init__(
@@ -199,9 +211,11 @@ class TransparentProxy:
         session_strategy: str = "ephemeral",
         tap: Tap | None = None,
         strip_prefix: str | None = None,
+        run_token: str | None = None,
     ) -> None:
         self._engine = engine
         self._strip_prefix = strip_prefix
+        self._run_token = run_token
         self._tap = tap
         self._origin = origin.rstrip("/")
         self._audit = audit or AuditLogger(None)
@@ -299,12 +313,24 @@ class TransparentProxy:
                     media_type=_JSON,
                     body=json.dumps({"error": {"message": message}}).encode(),
                 )
-            upstream_path = _upstream_path(path, raw_path, self._strip_prefix)
+            origin, prefix = self._origin, self._strip_prefix
+            if self._run_token is not None:
+                named = _named_upstream(headers, path, self._routes, self._run_token)
+                if named is None:
+                    self._audit.route_decision(allowed=False, method=method, reason="no_upstream")
+                    message = "privyx: the request names no upstream for its route"
+                    return ProxyResponse(
+                        status_code=403,
+                        media_type=_JSON,
+                        body=json.dumps({"error": {"message": message}}).encode(),
+                    )
+                origin, prefix = named, ""
+            upstream_path = _upstream_path(path, raw_path, prefix)
             if upstream_path is None:
                 self._audit.route_decision(allowed=False, method=method, reason="outside_prefix")
                 message = (
                     f"privyx: the path is outside proxy.path_mapping.strip_prefix "
-                    f"{self._strip_prefix or '/'!r} or could leave it"
+                    f"{prefix or '/'!r} or could leave it"
                 )
                 return ProxyResponse(
                     status_code=404,
@@ -443,7 +469,7 @@ class TransparentProxy:
                         )
             self._audit.flush_transform()
 
-            url = self._origin + upstream_path
+            url = origin + upstream_path
             length = _ci_get(headers, "content-length")
             if not isinstance(out_body, bytes) and length:
                 # Streamed unchanged, so its length still holds; without it
@@ -499,7 +525,7 @@ class TransparentProxy:
                 session_id=sid,
                 stream=is_stream,
                 duration_ms=_elapsed_ms(start),
-                upstream=self._upstream_host,
+                upstream=urlsplit(origin).netloc if self._run_token else self._upstream_host,
                 request_id=req_id,
                 transform_ms=transform_ms,
             )
@@ -956,6 +982,33 @@ def _upstream_path(path: str, raw_path: str | None, prefix: str | None) -> str |
     if path != prefix and not path.startswith(prefix + "/"):
         return None
     return path[len(prefix) :]
+
+
+def _named_upstream(
+    headers: Mapping[str, str], path: str, routes: dict[str, str], token: str
+) -> str | None:
+    """The base URL a ``privyx run pi`` request names for its route.
+
+    Each base URL is listed under a wire schema; the one for the schema of the
+    request path's route is used.  Only an http(s) base URL without
+    credentials is.  ``None`` when the token does not match or no base URL fits.
+    """
+    sent = _ci_get(headers, RUN_TOKEN_HEADER)
+    if not hmac.compare_digest(sent.encode(), token.encode()):
+        return None
+    bases = _loads(_ci_get(headers, UPSTREAMS_HEADER))
+    schema = detect_schema(path, routes)
+    if not (schema and isinstance(bases, dict) and isinstance(bases.get(schema), str)):
+        return None
+    try:
+        url = urlsplit(bases[schema])
+        _ = url.port
+    except ValueError:
+        return None
+    if url.scheme not in ("http", "https") or not url.hostname or "@" in url.netloc:
+        return None
+    # Rebuilt from its parts: a stray `?` or `#` would swallow the path.
+    return f"{url.scheme}://{url.netloc}{url.path.rstrip('/')}"
 
 
 def _ci_get(headers: Mapping[str, str], name: str) -> str:

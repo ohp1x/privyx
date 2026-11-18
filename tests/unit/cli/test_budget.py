@@ -132,9 +132,11 @@ OLLAMA_LINES = (
             GEMINI_ARRAY,
             b"application/json",
         ),
+        # pi's path, its base URL ending in the API version.
+        ("/models/gemini-2.5-flash:streamGenerateContent", GEMINI_SSE, b"text/event-stream"),
         ("/api/chat", OLLAMA_LINES, b"application/x-ndjson"),
     ],
-    ids=["gemini-sse", "gemini-array", "ollama"],
+    ids=["gemini-sse", "gemini-array", "gemini-unversioned", "ollama"],
 )
 async def test_gemini_and_ollama_turns_are_counted(
     path: str, body: bytes, content_type: bytes
