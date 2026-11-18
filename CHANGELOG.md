@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-18
+
 ### Added
 
 - **CLI:** `privyx run pi` sends a model of any pi provider through Privyx to that provider, with pi's own key, and a model picked with `/model` too, without a profile. A model whose requests cannot be masked, such as one on Amazon Bedrock, is refused. A profile that names a pi provider in `PRIVYX_PI_PROVIDER`, an upstream, `proxy.mode: gateway`, or an API key or `provider.headers` of Privyx's own keeps sending to one upstream
@@ -741,7 +743,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ohp1x/privyx/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.2.0
 [0.1.39]: https://github.com/ohp1x/privyx/compare/v0.1.38...v0.1.39
 [0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
