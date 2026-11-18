@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - **CLI:** `privyx run` warns, after the tool exits, only when a request was passed through unmasked with a body, or was blocked or failed. A run with no request, or only requests without a body, such as `--help`, a tool closed before its first prompt, or a model pi refused, is recorded as `run.unproxied` in the audit trail without a line after the shell's prompt
+- **Proxy:** `proxy.dlp_check` takes less time on a large request where a masked value also stands inside a longer word, about 10 ms less on a 500 KB coding-agent request with warm caches; what it finds is unchanged
 
 ### Fixed
 

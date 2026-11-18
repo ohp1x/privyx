@@ -550,6 +550,17 @@ def find_leaks(
     words = sorted((w for w in masked if w in sent), key=len, reverse=True)
     if not words:
         return 0
+    if not any("\0" in word for word in words):
+        # Only the strings that hold one are searched further: \0 ends each.
+        held: set[tuple[int, int]] = set()
+        for word in words:
+            at = sent.find(word)
+            while at >= 0:
+                end = sent.find("\0", at)
+                end = len(sent) if end < 0 else end
+                held.add((sent.rfind("\0", 0, at) + 1, end))
+                at = sent.find(word, end)
+        sent = "\0".join(sent[start:end] for start, end in sorted(held))
     pattern = re.compile("|".join(_whole(word, underscore) for word in words))  # longest first
     if pattern.search(sent) is None:
         return 0  # only inside other words: no token to look past
