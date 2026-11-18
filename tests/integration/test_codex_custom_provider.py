@@ -208,7 +208,7 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
         assert "alice@example.com" not in json.dumps([body for _, body, _ in seen])
         assert all(auth == "Bearer dummy-router-credential" for _, _, auth in seen)
         assert "Echo: alice@example.com" in result.stdout
-        assert "no request from codex" not in result.stderr
+        assert "Warning:" not in result.stderr
         assert (root / "config.toml").read_text() == original
     finally:
         server.shutdown()

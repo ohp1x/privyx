@@ -85,6 +85,20 @@ class Shell:
                 self.buffer += data
         pytest.fail(f"did not see {pattern!r} in terminal output: {self.buffer!r}")
 
+    def settle(self, seconds: float = 0.5) -> bytes:
+        """Return what the terminal shows past the last match, after ``seconds`` more."""
+        deadline = time.monotonic() + seconds
+        while (left := deadline - time.monotonic()) > 0:
+            if select.select([self.fd], [], [], left)[0]:
+                try:
+                    data = os.read(self.fd, 65536)
+                except OSError:
+                    break
+                if not data:
+                    break
+                self.buffer += data
+        return self.buffer[self.offset :]
+
     def launch(
         self, config: Path, agent: str, tmp_path: Path, *, port: int = 0, via_uv: bool = False
     ) -> None:
@@ -268,28 +282,68 @@ def test_sigkill_of_agent_stops_proxy(shell: Shell, tmp_path: Path) -> None:
     _assert_proxy_closed(info["base"])
 
 
-def test_agent_that_bypasses_proxy_is_reported_after_exit(shell: Shell, tmp_path: Path) -> None:
+def _unproxied(audit: Path) -> dict[str, Any]:
+    """Wait for the proxy to record the run; a warning would follow at once."""
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        lines = audit.read_text().splitlines() if audit.exists() else []
+        found = [e for e in map(json.loads, lines) if e["event"] == "run.unproxied"]
+        if found:
+            [event] = found
+            return event  # type: ignore[no-any-return]
+        time.sleep(0.05)
+    pytest.fail("no run.unproxied event after the agent exited")
+
+
+def test_agent_that_sends_no_request_is_recorded_without_a_warning(
+    shell: Shell, tmp_path: Path
+) -> None:
+    """No request is also what help, or a tool closed before its first prompt, looks like."""
     config = _config(tmp_path, "work")
     (tmp_path / "agent.py").write_text("import sys; sys.exit(3)\n")  # never calls the proxy
     shell.launch(config, "work", tmp_path)
     assert shell.exit_code() == 3
-    # The shell owns the terminal by then: the warning starts its own line.
-    shell.expect(rb"privyx-test\$ \r?\nWarning: no request from \S+ reached Privyx")
-    events = [json.loads(line) for line in (tmp_path / "audit.log").read_text().splitlines()]
-    assert [e["profile"] for e in events if e["event"] == "run.unproxied"] == ["work"]
+    assert _unproxied(tmp_path / "audit.log")["profile"] == "work"
+    # Nothing is written past the shell's prompt.
+    assert b"Warning" not in shell.settle()
 
 
-def test_agent_that_only_checks_health_is_reported(shell: Shell, tmp_path: Path) -> None:
-    """Reaching the proxy is not enough: no request went out on a masking route."""
+def test_agent_that_only_checks_health_is_recorded_without_a_warning(
+    shell: Shell, tmp_path: Path
+) -> None:
+    """Reaching the proxy is not enough, but a request without a body shows no leak."""
     shell.launch(_config(tmp_path, "work"), "work", tmp_path)
     info = shell.ready()  # its health check reached the proxy
     shell.send("quit\n")
     assert shell.exit_code() == 7
     _assert_proxy_closed(info["base"])
-    shell.expect(rb"Warning: 1 request\(s\) from \S+ reached Privyx, but none carried a body")
-    events = [json.loads(line) for line in (tmp_path / "audit.log").read_text().splitlines()]
-    [event] = [e for e in events if e["event"] == "run.unproxied"]
+    event = _unproxied(tmp_path / "audit.log")
     assert (event["requests"], event["passthrough"], event["failed"]) == (1, 0, 0)
+    assert b"Warning" not in shell.settle()
+
+
+def test_agent_whose_content_missed_the_masking_routes_is_warned_after_exit(
+    shell: Shell, tmp_path: Path
+) -> None:
+    """Content that went out unmasked is worth a line after the shell's prompt."""
+    config = _config(tmp_path, "work", upstream="http://127.0.0.1:9")
+    (tmp_path / "agent.py").write_text(
+        "import os, urllib.request\n"
+        "request = urllib.request.Request(os.environ['ANTHROPIC_BASE_URL'] + '/v1/unrouted',\n"
+        "    data=b'{}', headers={'content-type': 'application/json'})\n"
+        "try:\n"
+        "    urllib.request.urlopen(request, timeout=5)\n"
+        "except OSError:\n"
+        "    pass\n"
+    )
+    shell.launch(config, "work", tmp_path)
+    assert shell.exit_code() == 0
+    # The shell owns the terminal by then: the warning starts its own line.
+    shell.expect(
+        rb"privyx-test\$ \r?\nWarning: 1 request\(s\) from \S+ reached Privyx, "
+        rb"but none was sent upstream on a masking route"
+    )
+    assert _unproxied(tmp_path / "audit.log")["requests"] == 1
 
 
 def test_failed_exec_cleans_up_started_proxy(shell: Shell, tmp_path: Path) -> None:

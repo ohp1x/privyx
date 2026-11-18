@@ -261,6 +261,13 @@ def test_pi_adapter_loads_the_shipped_extension_before_user_args() -> None:
     assert plan.environment["PRIVYX_PI_BASE_URL"] == "http://127.0.0.1:1234"
 
 
+def test_pi_adapter_passes_a_subcommand_first() -> None:
+    """pi reads a subcommand only as its first argument; behind -e it is a prompt."""
+    target = profile_target("pi", AgentConfig(command="pi", adapter="pi"))
+    plan = build_launch_plan(target, ["list"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
+    assert plan.argv == ["list"]
+
+
 def test_pi_provider_defaults_to_anthropic() -> None:
     target = profile_target("pi", Settings().agents["pi"])
     plan = build_launch_plan(target, ["--model", "x"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
@@ -342,7 +349,12 @@ const allowed = handlers.input({}, ctx(proxy)).action;
 const blocked = handlers.input({}, ctx(other)).action;
 const blockedExit = process.exitCode;
 process.exitCode = 0;
-const payload = { registered, selected, allowed, blocked, blockedExit, notes: notes.length };
+let shutdown = false;
+handlers.session_start({}, { model: other, shutdown: () => { shutdown = true; } });
+console.error("started");
+const payload = {
+  registered, selected, allowed, blocked, blockedExit, notes: notes.length, shutdown,
+};
 console.log(JSON.stringify(payload));
 """
 
@@ -362,7 +374,7 @@ def test_pi_extension_keeps_every_model_on_the_proxy(tmp_path: Path) -> None:
         env={"PRIVYX_PI_PROVIDER": "anthropic", "PRIVYX_PI_BASE_URL": "http://127.0.0.1:1"},
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
         cwd=tmp_path,
     )
     assert json.loads(result.stdout) == {
@@ -372,4 +384,10 @@ def test_pi_extension_keeps_every_model_on_the_proxy(tmp_path: Path) -> None:
         "blocked": "handled",  # a prompt never reaches a model outside the proxy
         "blockedExit": 1,
         "notes": 2,
+        "shutdown": True,  # a model outside the proxy at startup ends the run
     }
+    # Reported once pi has exited, past its screen, and the run fails.
+    started, refusal = result.stderr.splitlines()
+    assert started == "started"
+    assert refusal.startswith("privyx: deepseek/d would bypass privyx")
+    assert result.returncode == 1

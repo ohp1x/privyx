@@ -131,6 +131,9 @@ An exchange failed.
 A tool launched with `privyx run` exited without a single request sent
 upstream on a masking route (a path in `proxy.routes`), answered or not. If it
 called its provider, it did so directly, or on a path Privyx does not mask.
+The terminal shows a warning only when a request with a body was passed through
+unmasked, or one was blocked or failed
+([When no request is masked](../guide/cli.md#when-no-request-is-masked)).
 
 | field | type | notes |
 |---|---|---|

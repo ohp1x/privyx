@@ -19,11 +19,15 @@ export default function (pi) {
     `or use a privyx profile for ${model.provider}`;
 
   pi.on("session_start", (_event, ctx) => {
-    if (ctx.model && !proxied(ctx.model)) {
+    if (!ctx.model || proxied(ctx.model)) return;
+    const message = reason(ctx.model);
+    // pi's screen hides what is written while it runs, and pi exits 0 once
+    // shut down: report the refusal after it has exited, as a failure.
+    process.once("exit", () => {
+      console.error(message);
       process.exitCode = 1;
-      console.error(reason(ctx.model));
-      ctx.shutdown();
-    }
+    });
+    ctx.shutdown();
   });
 
   pi.on("model_select", async (event, ctx) => {
