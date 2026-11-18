@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI:** `privyx run pi` prints why it refused the model pi starts with after pi has closed its screen, and pi exits with status 1; before, the reason vanished with the screen and pi exited with 0
 - **CLI:** pi's subcommands, such as `pi list` or `pi install`, work through `privyx run pi` instead of reaching pi as a prompt
 - **CLI:** a profile's `budget` counts the Gemini requests that pi sends, whose path has no API version
+- **Proxy:** with `proxy.dlp_check`, a value masked by what stands next to it, such as `x` in `DB_PASSWORD=x`, is masked too where it appears again in masked text, as in another line of `env` output or a turn where the model repeats it; before, the request was refused with `422`, and every later request of the conversation with it. A copy where Privyx does not mask is still refused
 
 ### Security
 

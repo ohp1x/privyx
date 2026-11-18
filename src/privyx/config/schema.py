@@ -422,7 +422,8 @@ class ProxyConfig(BaseModel):
     timeout: float = Field(default=300.0, gt=0)  # seconds between bytes, read or write
     connect_timeout: float = Field(default=10.0, gt=0)
     max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
-    #: Refuse a masked request that still holds, anywhere, a value it masked.
+    #: Mask each copy of a value a request masked, and refuse the request if
+    #: one is still where Privyx does not mask.
     dlp_check: bool = True
     #: Tell the model, in each masked chat request, to keep placeholders as written.
     directive: bool = False

@@ -374,12 +374,18 @@ to each request. Off by default.
 
 ## Leak check
 
-A value is masked where it is detected. The same value can also reach the
-provider somewhere Privyx does not mask: a field outside the conversation, a
-URL, a message `name`, or a request header. With `proxy.dlp_check`, on by
-default since 0.2, the proxy looks for every value a request masked in all of
-that request as it will be sent, and refuses the request with `422` if one is
-still there. Set it to `false` to forward such a request, as 0.1 did:
+A value is masked where it is detected. Some values are detected only by what
+stands next to them: `x` in `DB_PASSWORD=x` by its name, a value by its JSON key
+or a context word. The same value can appear again without that context, in
+text Privyx masks (another line of `env` output, a later turn where the model
+repeats it), or somewhere Privyx does not mask: a field outside the
+conversation, a URL, a message `name`, or a request header. With
+`proxy.dlp_check`, on by default since 0.2, the proxy also masks every copy of
+a value the request masked wherever the copy stands in text Privyx masks, with
+the same placeholder. It then looks for every masked value in all of that
+request as it will be sent, and refuses the request with `422` if one is still
+there. Set it to `false` to forward such a request with its copies as they are,
+as 0.1 did:
 
 ```yaml
 proxy:
