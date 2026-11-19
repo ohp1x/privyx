@@ -512,17 +512,31 @@ def test_pi_extension_sends_each_provider_through_the_proxy(tmp_path: Path) -> N
     assert out["exit"] == 1
 
 
-# pi's /new, /resume, and /reload load the extension again in the same process;
-# on a reload its models already point at the proxy.
+# pi's /new, /resume, /fork, and /reload load the extension again in the same
+# process. On a reload its models already point at the proxy; a new session
+# reads them from models.json again.
 _PI_RELOAD = """
 const start = () =>
   handlers.session_start({}, { ...ctx(model("anthropic/a")), shutdown: () => notes.push("x") });
+const load = async () => {
+  registered.length = 0;
+  ext(pi);
+  await start();
+  const sent = Object.fromEntries(registered);
+  const decided = {};
+  for (const m of models) decided[`${m.provider}/${m.id}`] = await input(`${m.provider}/${m.id}`);
+  return { decided, sent };
+};
 await start();
-ext(pi);
-await start();
-console.log(JSON.stringify({
-  decided: await input("anthropic/a"), notes, last: registered.at(-1),
-}));
+const reload = await load();
+models.splice(
+  0,
+  models.length,
+  { provider: "anthropic", id: "a", api: "anthropic-messages", baseUrl: "https://new.example.com" },
+  { provider: "acme", id: "m", api: "openai-completions", baseUrl: "https://acme.example.com/v1" },
+);
+const renew = await load();
+console.log(JSON.stringify({ reload, renew, notes, token: process.env.PRIVYX_PI_TOKEN ?? null }));
 """
 
 
@@ -533,10 +547,20 @@ def test_pi_extension_keeps_the_proxy_when_pi_loads_it_again(tmp_path: Path) -> 
     result = _pi_extension(tmp_path, _PI_RELOAD, models, PRIVYX_PI_TOKEN="run-secret")
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
-    assert out["decided"] == "continue"
     assert out["notes"] == []  # no shutdown, no refusal
-    name, config = out["last"]
-    assert name == "anthropic"
-    assert config["headers"]["x-privyx-run-token"] == "run-secret"
-    upstreams = json.loads(config["headers"]["x-privyx-upstreams"])
-    assert upstreams == {"anthropic": "https://api.anthropic.example.com"}
+    assert out["token"] is None  # still not passed on to the commands pi runs
+
+    def upstreams(load: dict) -> dict:
+        sent = load["sent"]
+        assert {c["headers"]["x-privyx-run-token"] for c in sent.values()} == {"run-secret"}
+        return {name: json.loads(c["headers"]["x-privyx-upstreams"]) for name, c in sent.items()}
+
+    # A reload: the models already point at the proxy, the earlier upstream stays.
+    assert out["reload"]["decided"] == {"anthropic/a": "continue"}
+    assert upstreams(out["reload"]) == {"anthropic": {"anthropic": "https://api.anthropic.example.com"}}
+    # A new session: a changed base URL and a new provider are followed.
+    assert out["renew"]["decided"] == {"anthropic/a": "continue", "acme/m": "continue"}
+    assert upstreams(out["renew"]) == {
+        "anthropic": {"anthropic": "https://new.example.com"},
+        "acme": {"openai": "https://acme.example.com/v1"},
+    }

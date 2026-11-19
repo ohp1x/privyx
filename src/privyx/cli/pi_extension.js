@@ -21,8 +21,8 @@ const SCHEMAS = {
 export default function (pi) {
   const provider = process.env.PRIVYX_PI_PROVIDER;
   const baseUrl = process.env.PRIVYX_PI_BASE_URL;
-  // pi loads this file afresh for each new, resumed, or reloaded session, so
-  // what the first load learned is kept on the process.
+  // pi loads this file afresh for each new, resumed, forked, or reloaded
+  // session, so what an earlier load learned is kept on the process.
   const kept = (globalThis[Symbol.for("privyx.pi")] ??= {});
   // The commands pi runs inherit its environment; they need no token.
   const token = (kept.token ??= process.env.PRIVYX_PI_TOKEN);
@@ -32,20 +32,27 @@ export default function (pi) {
   }
   if (provider) pi.registerProvider(provider, { baseUrl });
 
-  // provider -> schema -> its base URL; null where two differ. Taken from the
-  // first session only: on a reload, pi's models already point at the proxy.
+  // provider -> schema -> its base URL; null where two differ. A provider whose
+  // models already point at the proxy, as after a reload, keeps what an earlier
+  // load found.
   let bases;
   const follow = (registry) => {
-    bases = kept.bases;
-    if (!bases) {
-      bases = kept.bases = {};
-      for (const model of registry.getAll()) {
-        const schema = SCHEMAS[model.api];
-        if (!schema || model.baseUrl === baseUrl) continue;
-        const own = (bases[model.provider] ??= {});
-        own[schema] = [undefined, model.baseUrl].includes(own[schema]) ? model.baseUrl : null;
+    bases = {};
+    const served = new Set();
+    for (const model of registry.getAll()) {
+      const schema = SCHEMAS[model.api];
+      if (!schema) continue;
+      if (model.baseUrl === baseUrl) {
+        served.add(model.provider);
+        continue;
       }
+      const own = (bases[model.provider] ??= {});
+      own[schema] = [undefined, model.baseUrl].includes(own[schema]) ? model.baseUrl : null;
     }
+    for (const name of served) {
+      if (!bases[name] && kept.bases?.[name]) bases[name] = kept.bases[name];
+    }
+    kept.bases = bases;
     for (const [name, own] of Object.entries(bases)) {
       const upstreams = Object.fromEntries(Object.entries(own).filter(([, url]) => url));
       pi.registerProvider(name, {

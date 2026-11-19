@@ -214,7 +214,10 @@ this run only, never `models.json`. Each pi provider goes through Privyx to its
 own base URL: with every request, pi sends the provider's base URL for each of
 its APIs and a secret made for the run, and the proxy forwards the request to
 the base URL for its route, with pi's own key. Switching to a model of another
-provider with `/model` goes through Privyx too.
+provider with `/model` goes through Privyx too, and so does every session pi
+starts during the run with `/new`, `/resume`, `/fork`, or `/reload`. A new
+session follows the base URLs in `models.json` as they are then; after
+`/reload`, a provider keeps the base URLs it had.
 
 Privyx masks pi's `anthropic-messages`, `openai-completions`,
 `openai-responses`, `google-generative-ai`, and `mistral-conversations` APIs.
