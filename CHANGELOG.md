@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **CLI:** `privyx run pi` keeps pi's models on Privyx after `/new`, `/resume`, `/fork`, or `/reload`; before, pi showed "Failed to load extension" and sent the rest of the run straight to the provider, unmasked, unless a profile named a pi provider
+
 ## [0.2.1] - 2026-11-18
 
 ### Added
