@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.40] - 2026-11-20
+
 ### Security
 
 - **CLI:** `privyx run grok` sends xAI Grok Build's own key instead of one of Privyx's own (`PRIVYX_API_KEY`, `PRIVYX_OPENAI_API_KEY`, or the key of the provider type in effect), and `privyx run ollama` sends the Ollama server no such key, also when `PRIVYX_PROVIDER` names a provider type; a key set in the profile's own `privyx` settings is still sent
@@ -696,7 +698,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.39...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.40...HEAD
+[0.1.40]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.1.40
 [0.1.39]: https://github.com/ohp1x/privyx/compare/v0.1.38...v0.1.39
 [0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
 [0.1.37]: https://github.com/ohp1x/privyx/compare/v0.1.36...v0.1.37
