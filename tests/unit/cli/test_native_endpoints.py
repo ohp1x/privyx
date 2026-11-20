@@ -174,6 +174,63 @@ def test_environment_endpoints_override_preset_defaults(
     assert "Upstream: https://router.example.com" + path in result.output
 
 
+@pytest.mark.parametrize(
+    ("agent", "variable", "path"),
+    [
+        ("openai", "OPENAI_BASE_URL", "/v1"),
+        ("aider", "OPENAI_API_BASE", "/v1"),
+        ("grok", "GROK_XAI_API_BASE_URL", "/v1"),
+        ("gemini", "GOOGLE_GEMINI_BASE_URL", ""),
+        ("ollama", "OLLAMA_HOST", ""),
+    ],
+)
+def test_a_wrapper_follows_the_endpoint_of_the_tool_it_extends(
+    agent: str, variable: str, path: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(variable, "https://router.example.com" + path)
+    config = tmp_path / "wrapper.yaml"
+    config.write_text(f"agents:\n  wrapped:\n    extends: {agent}\n    command: /opt/wrap\n")
+    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "wrapped"])
+    assert result.exit_code == 0, result.output
+    assert "Upstream: https://router.example.com" + path in result.output
+
+
+def test_a_wrapper_refuses_to_send_privyx_key_to_the_endpoint_it_follows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_BASE", "https://router.example.com/v1")
+    monkeypatch.setenv("PRIVYX_API_KEY", "dummy-privyx-key")
+    config = tmp_path / "wrapper.yaml"
+    config.write_text("agents:\n  wrapped:\n    extends: aider\n    command: aider-wrap\n")
+    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "wrapped"])
+    assert result.exit_code == 1
+    assert "would receive Privyx's own API key" in result.output
+
+
+@pytest.mark.parametrize(
+    ("fields", "upstream"),
+    [
+        ("command: acme\n    endpoint_env: [ACME_BASE_URL]", "https://router.example.com/v1"),
+        ("command: acme", "https://api.openai.com"),
+        ("command: /opt/bin/aider", "https://router.example.com/v1"),
+    ],
+)
+def test_endpoint_env_names_what_a_profile_follows(
+    fields: str, upstream: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A plain `command: aider` keeps following what Aider reads, with no extends.
+    for name in ("ACME_BASE_URL", "OPENAI_API_BASE"):
+        monkeypatch.setenv(name, "https://router.example.com/v1")
+    config = tmp_path / "own.yaml"
+    config.write_text(
+        f"agents:\n  own:\n    {fields}\n    provider: openai\n    base_path: /v1\n"
+        "    env_vars: [ACME_BASE_URL, OPENAI_API_BASE]\n"
+    )
+    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "own"])
+    assert result.exit_code == 0, result.output
+    assert "Upstream: " + upstream in result.output
+
+
 @pytest.mark.parametrize("override", [["--upstream", "https://explicit.example.com"], []])
 def test_native_url_is_redacted_and_explicit_upstream_wins(
     override: list[str], monkeypatch: pytest.MonkeyPatch

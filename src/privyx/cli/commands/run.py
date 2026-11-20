@@ -41,6 +41,7 @@ from privyx.cli.launch import (
     LaunchPlan,
     Target,
     build_launch_plan,
+    endpoint_env,
     profile_target,
 )
 from privyx.cli.native import can_exec_agent, exec_agent, wait_for_agent_exit
@@ -198,7 +199,12 @@ def run(
     spec = (
         profile_target(target, profile)
         if profile
-        else Target(command=target, provider=settings.provider.type, env_vars=())
+        else Target(
+            command=target,
+            provider=settings.provider.type,
+            env_vars=(),
+            endpoint_env=endpoint_env(target),
+        )
     )
     spec = replace(spec, provider=settings.provider.type)
     if not profile and not env_vars and spec.provider in FALLBACK_ENV:
@@ -256,7 +262,7 @@ def run(
     if shutil.which(plan.command, path=plan.environment.get("PATH")) is None:
         click.echo(f"Error: {spec.command!r} not found on PATH", err=True)
         sys.exit(127)
-    if Path(plan.command).name == "ollama":
+    if "OLLAMA_HOST" in plan.target.endpoint_env:
         _check_ollama(plan.upstream)
 
     target_run = partial(

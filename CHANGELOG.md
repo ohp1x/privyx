@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Security
 
 - **CLI:** `privyx run grok` sends xAI Grok Build's own key instead of one of Privyx's own (`PRIVYX_API_KEY`, `PRIVYX_OPENAI_API_KEY`, or the key of the provider type in effect), and `privyx run ollama` sends the Ollama server no such key, also when `PRIVYX_PROVIDER` names a provider type; a key set in the profile's own `privyx` settings is still sent
+- **CLI:** a profile that extends a built-in one with a `command` of its own, such as a wrapper script, follows the endpoint the tool reads from its environment, as the built-in profile does; before, its masked requests and the tool's own credentials went to the provider's default host. The new profile field `endpoint_env` names those variables for any other profile
 
 ## [0.1.39] - 2026-11-17
 

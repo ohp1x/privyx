@@ -504,6 +504,9 @@ class AgentConfig(BaseModel):
     provider: str = Field(default="generic", min_length=1)
     upstream: str = ""
     env_vars: list[str] = Field(default_factory=list)
+    #: Variables that may hold the tool's own endpoint, in order; empty means
+    #: those of the built-in profile named like the command's file.
+    endpoint_env: list[str] = Field(default_factory=list)
     base_path: str = ""
     extends: str | None = None
     adapter: Literal["auto", "env", "claude", "codex", "pi"] = "auto"
@@ -555,7 +558,7 @@ class AgentConfig(BaseModel):
             raise ValueError("must be non-blank and contain no NUL")
         return value
 
-    @field_validator("env_vars")
+    @field_validator("env_vars", "endpoint_env")
     @classmethod
     def _env_names(cls, values: list[str]) -> list[str]:
         if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in values):

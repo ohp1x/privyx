@@ -25,12 +25,14 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "command": "openai",
         "provider": "openai",
         "env_vars": ["OPENAI_BASE_URL"],
+        "endpoint_env": ["OPENAI_BASE_URL"],
         "base_path": "/v1",
     },
     "aider": {
         "command": "aider",
         "provider": "openai",
         "env_vars": ["OPENAI_API_BASE", "OPENAI_BASE_URL"],
+        "endpoint_env": ["OPENAI_API_BASE", "OPENAI_BASE_URL"],
         "base_path": "/v1",
     },
     "pi": {
@@ -49,11 +51,12 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     },
     # API-key mode only.  Its Google-login (Code Assist) and Vertex endpoints
     # point at Privyx too, which refuses their paths (403), so those modes fail
-    # rather than reach Google unmasked.
+    # rather than reach Google unmasked; they are never read as its endpoint.
     "gemini": {
         "command": "gemini",
         "provider": "google",
         "env_vars": ["GOOGLE_GEMINI_BASE_URL", "CODE_ASSIST_ENDPOINT", "GOOGLE_VERTEX_BASE_URL"],
+        "endpoint_env": ["GOOGLE_GEMINI_BASE_URL"],
         "privyx": {"proxy": {"passthrough_unknown": False}},
     },
     # `ollama:<model>` runs `ollama run <model>`; the upstream is the local
@@ -63,6 +66,7 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "command": "ollama",
         "upstream": "http://127.0.0.1:11434",
         "env_vars": ["OLLAMA_HOST"],
+        "endpoint_env": ["OLLAMA_HOST"],
         "privyx": {"provider": dict(_NO_KEYS)},
     },
     # xAI's API is OpenAI-compatible, but not OpenAI's: Grok Build sends its
@@ -72,6 +76,7 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
         "provider": "openai",
         "upstream": "https://api.x.ai/v1",
         "env_vars": ["GROK_XAI_API_BASE_URL"],
+        "endpoint_env": ["GROK_XAI_API_BASE_URL"],
         "base_path": "/v1",
         "privyx": {"provider": dict(_NO_KEYS)},
     },
