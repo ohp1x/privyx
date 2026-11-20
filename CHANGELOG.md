@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-20
+
 ### Added
 
 - **Config:** the published JSON schema checks a profile's `privyx` settings and each preset as it checks a config file, so an editor completes their keys and flags a misspelled one; before, any key fitted there
@@ -758,7 +760,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/ohp1x/privyx/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/ohp1x/privyx/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ohp1x/privyx/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.2.0
