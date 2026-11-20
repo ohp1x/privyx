@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- **CLI:** `privyx run grok` sends xAI Grok Build's own key instead of one of Privyx's own (`PRIVYX_API_KEY`, `PRIVYX_OPENAI_API_KEY`, or the key of the provider type in effect), and `privyx run ollama` sends the Ollama server no such key, also when `PRIVYX_PROVIDER` names a provider type; a key set in the profile's own `privyx` settings is still sent
+
 ## [0.1.39] - 2026-11-17
 
 ### Fixed

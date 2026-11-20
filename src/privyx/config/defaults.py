@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+#: Every key of Privyx's own, each meant for its provider type's host.  A
+#: profile whose upstream is another host clears them all: whichever type is
+#: in effect, the tool's own credentials reach that host instead.
+_NO_KEYS = {"api_key": "", "openai_api_key": "", "anthropic_api_key": "", "google_api_key": ""}
+
 DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     "claude": {
         "command": "claude",
@@ -53,19 +58,22 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     },
     # `ollama:<model>` runs `ollama run <model>`; the upstream is the local
     # server, or the one OLLAMA_HOST names (see privyx.cli.launch.ollama_url).
-    # Ollama takes no key, so Privyx's own is not sent to that server.
+    # Ollama takes no key, so none of Privyx's own is sent to that server.
     "ollama": {
         "command": "ollama",
         "upstream": "http://127.0.0.1:11434",
         "env_vars": ["OLLAMA_HOST"],
-        "privyx": {"provider": {"api_key": ""}},
+        "privyx": {"provider": dict(_NO_KEYS)},
     },
+    # xAI's API is OpenAI-compatible, but not OpenAI's: Grok Build sends its
+    # own xAI key.
     "grok": {
         "command": "grok",
         "provider": "openai",
         "upstream": "https://api.x.ai/v1",
         "env_vars": ["GROK_XAI_API_BASE_URL"],
         "base_path": "/v1",
+        "privyx": {"provider": dict(_NO_KEYS)},
     },
 }
 
