@@ -12,6 +12,7 @@ from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 
+from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.config.schema import AgentConfig, BudgetConfig, Settings
 from privyx.core.errors import ConfigError
 from privyx.providers.registry import resolve_base_url, resolve_transparent_upstream
@@ -94,6 +95,19 @@ def ollama_url(host: str) -> str:
     return f"{scheme}://{name}:{port}{parts.path.rstrip('/')}"
 
 
+def endpoint_env(command: str, configured: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """The variables that may hold the tool's own endpoint, for the ``env`` adapter.
+
+    A profile's ``endpoint_env``, inherited with ``extends`` so a wrapper of a
+    built-in tool keeps it; otherwise that of the built-in profile named like
+    the command's file, which a plain ``command: aider`` relies on.
+    """
+    if configured:
+        return configured
+    builtin = DEFAULT_AGENTS.get(Path(command).name, {}).get("endpoint_env", ())
+    return tuple(builtin) if isinstance(builtin, list) else ()
+
+
 @dataclass(frozen=True)
 class Target:
     """A tool's launch specification; argv is always passed without a shell."""
@@ -102,6 +116,7 @@ class Target:
     provider: str
     env_vars: tuple[str, ...]
     base_path: str = ""
+    endpoint_env: tuple[str, ...] = ()
     args: Callable[[str, list[str]], list[str]] | None = None
     extra_env: dict[str, str] = field(default_factory=dict, repr=False)
     env_from: dict[str, str] = field(default_factory=dict)
@@ -120,6 +135,7 @@ def profile_target(name: str, profile: AgentConfig) -> Target:
         provider=profile.provider,
         env_vars=tuple(profile.env_vars),
         base_path=profile.base_path,
+        endpoint_env=endpoint_env(profile.command, tuple(profile.endpoint_env)),
         args=ADAPTERS.get(adapter),
         adapter=adapter,
         extra_env=dict(profile.env),
@@ -348,15 +364,9 @@ def build_launch_plan(
             native_endpoint = (environment["ANTHROPIC_BASE_URL"], "environment ANTHROPIC_BASE_URL")
     elif spec.adapter == "env":
         # Multi-provider endpoints and the Gemini login traps cannot identify
-        # the model's destination without reading their native configuration.
-        candidates = {
-            "openai": ("OPENAI_BASE_URL",),
-            "aider": ("OPENAI_API_BASE", "OPENAI_BASE_URL"),
-            "grok": ("GROK_XAI_API_BASE_URL",),
-            "gemini": ("GOOGLE_GEMINI_BASE_URL",),
-            "ollama": ("OLLAMA_HOST",),
-        }.get(Path(spec.command).name, ())
-        for key in candidates:
+        # the model's destination without reading their native configuration,
+        # so their profiles name none.
+        for key in spec.endpoint_env:
             if environment.get(key):
                 value = environment[key]
                 native_endpoint = (

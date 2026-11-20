@@ -56,7 +56,10 @@ agents:
 Set `WORK_ANTHROPIC_TOKEN` in your shell first. Privyx reads its value only
 when launching or inspecting this profile, and masks it in the preview.
 Arguments after `--` follow the profile's defaults. A wrapper can override
-`command` while keeping the inherited Claude adapter.
+`command` while keeping the inherited Claude adapter. A wrapper of a tool that
+takes its endpoint from the environment, such as `extends: aider` with
+`command: my-aider`, keeps following that endpoint too; a profile of your own
+names the variables with `endpoint_env`.
 
 ## Reuse settings with presets
 

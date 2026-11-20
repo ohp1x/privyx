@@ -28,6 +28,13 @@
           "title": "Env Vars",
           "type": "array"
         },
+        "endpoint_env": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Endpoint Env",
+          "type": "array"
+        },
         "base_path": {
           "default": "",
           "title": "Base Path",
