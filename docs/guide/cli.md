@@ -150,6 +150,9 @@ native destinations before replacing the agent's endpoint with the proxy URL:
 | Gemini CLI | `GOOGLE_GEMINI_BASE_URL` for API-key mode |
 | Ollama | `OLLAMA_HOST` (takes precedence over the built-in profile's local default) |
 
+A profile that extends one of these follows the same variables, also with a
+`command` of its own such as a wrapper script; any other profile can name its
+own with [`endpoint_env`](configuration.md#agents).
 The child environment includes profile `env` and `env_from`. OpenCode still
 needs an explicit upstream for non-default providers; pi follows the provider
 of each model (see [pi](#pi)). The Google sign-in

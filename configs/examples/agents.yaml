@@ -36,6 +36,17 @@ agents:
     budget:
       max_turns: 200
 
+  # A wrapper script around Aider keeps following OPENAI_API_BASE, as aider
+  # does.  A tool of your own names the variable that holds its endpoint.
+  aider:work:
+    command: my-aider
+  acme:
+    command: acme
+    provider: openai
+    env_vars: [ACME_BASE_URL]
+    endpoint_env: [ACME_BASE_URL]
+    base_path: /v1
+
 # Privyx settings written once, for any profile (presets: [strict]) or one
 # command (privyx run claude:work --preset debug, privyx proxy --preset
 # strict).  A preset does nothing until one of those names it.
