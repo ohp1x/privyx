@@ -775,7 +775,7 @@ def test_doctor_all_checks_pass_with_defaults(runner: CliRunner) -> None:
 def test_doctor_resolves_secrets_once_per_invocation(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unavailable: bool
 ) -> None:
-    from privyx.core.errors import ConfigError
+    from privyx.core import ConfigError
 
     calls: list[str] = []
 
@@ -2260,7 +2260,7 @@ def test_config_path_names_the_files_in_use_or_defaults(
 def test_config_path_does_not_resolve_secrets(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
 ) -> None:
-    from privyx.core.errors import ConfigError
+    from privyx.core import ConfigError
 
     def unavailable(reference: str, path: str) -> str:
         raise ConfigError("password manager unavailable")

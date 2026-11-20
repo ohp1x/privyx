@@ -11,8 +11,8 @@ from typing import Any
 import httpx
 import pytest
 
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
+from privyx.engine import PrivacyEngine
 from privyx.observability import tracing
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
@@ -119,7 +119,7 @@ async def test_a_reply_closed_before_it_is_read_still_ends_its_span(spans: Any, 
 
 
 async def test_a_failed_restore_ends_its_span_and_records_the_503(spans: Any) -> None:
-    from privyx.core.errors import VaultError
+    from privyx.core import VaultError
 
     class FailingVault(MemoryVault):
         broken = False

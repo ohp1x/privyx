@@ -19,7 +19,7 @@ import re
 from collections.abc import Callable
 from itertools import chain
 
-from privyx.core.result import Detection
+from privyx.core import Detection
 
 MAX_DEPTH = 2
 MAX_DECODED = 1_000_000

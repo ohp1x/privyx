@@ -15,7 +15,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from privyx.core.session import Session
+from privyx.core import Session
 from privyx.privacy.operator.base import restore
 from privyx.streaming.deanonymizer import TokenStreamProcessor
 from privyx.token.codec import CompactCodec, FormatCodec

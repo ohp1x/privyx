@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from privyx.config.schema import Settings
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
+from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.plugins.registry import (
     ANCHOR_KEY,

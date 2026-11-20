@@ -73,7 +73,8 @@ PLACES: dict[str, str] = {
     "privyx.config.redact": "security",
     "privyx.core": "core",
     "privyx.core.builder": "app",
-    "privyx.core.engine": "engine",
+    "privyx.engine": "engine",
+    "privyx.events": "events",
     "privyx.gateway": "proxy",
     # The package only re-exports; its modules go their own ways.
     "privyx.observability": "app",
@@ -84,8 +85,6 @@ PLACES: dict[str, str] = {
     "privyx.observability.tracing": "features",
     "privyx.observability.usage": "dialects",
     "privyx.plugins": "app",
-    "privyx.plugins.hooks": "core",
-    "privyx.plugins.loader": "app",
     "privyx.plugins.registry": "core",
     "privyx.privacy": "core",
     "privyx.privacy.anchor": "anchors",
@@ -93,7 +92,6 @@ PLACES: dict[str, str] = {
     "privyx.privacy.operator": "operators",
     "privyx.privacy.policy": "policies",
     "privyx.privacy.policy.loader": "app",
-    "privyx.privacy.transform": "core",
     "privyx.providers": "providers",
     "privyx.proxy": "proxy",
     "privyx.proxy.object_stream": "dialects",
@@ -105,7 +103,6 @@ PLACES: dict[str, str] = {
     "privyx.streaming.adapters.gemini": "dialects",
     "privyx.streaming.adapters.openai": "dialects",
     "privyx.token": "token",
-    "privyx.utils": "core",
     "privyx.vault": "vaults",
     # A leaf, importable from every layer.
     "privyx.version": "core",
@@ -115,7 +112,7 @@ PLACES: dict[str, str] = {
 ALLOWED: frozenset[tuple[str, str]] = frozenset(
     {
         # Privyx.run serves with the CLI's server loop: serving moves into app.
-        ("privyx.app", "privyx.cli.commands.proxy"),
+        ("privyx.app._privyx", "privyx.cli.commands.proxy"),
         # The budget parses usage from response bytes; it moves onto events.
         ("privyx.cli.budget", "privyx.observability.usage"),
         ("privyx.cli.budget", "privyx.proxy.schemas"),
@@ -123,9 +120,6 @@ ALLOWED: frozenset[tuple[str, str]] = frozenset(
         ("privyx.cli.launch", "privyx.providers.registry"),
         # Loading config resolves secret references: resolving moves into app.
         ("privyx.config.loader", "privyx.security.secrets"),
-        # Plugin routes are mounted with app's helper: it moves into proxy.
-        ("privyx.gateway.server", "privyx.app"),
-        ("privyx.gateway.transparent", "privyx.app"),
         # Telling a model name from PII goes with the cost report into app.
         ("privyx.observability.usage", "privyx.privacy.detector.builtin"),
         # The pseudonym operator takes an anchor: imported for typing only.

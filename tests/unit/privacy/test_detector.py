@@ -7,8 +7,7 @@ import time
 
 import pytest
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError, Context
 from privyx.privacy.detector.builtin import (
     DEFAULT_PATTERNS,
     OPTIONAL_PATTERNS,

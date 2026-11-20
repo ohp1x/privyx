@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 # Codex keeps its own definition of these even when the config redefines them.
 _BUILTIN = frozenset({"openai", "ollama", "lmstudio"})

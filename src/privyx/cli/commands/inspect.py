@@ -155,7 +155,7 @@ async def _token(token: str, reveal: bool, config_path: str | None) -> None:
 
 def _load(config_path: str | None) -> Settings:
     from privyx.config.loader import load_config
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     try:
         return load_config(config_path)
@@ -166,7 +166,7 @@ def _load(config_path: str | None) -> Settings:
 
 def _configured_patterns(config_path: str | None) -> dict[str, str]:
     """Entity → regex of every regex/yaml detector configured, built-ins included."""
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
     from privyx.privacy.detector.yaml import _builtins, _enabled, _patterns_from
 
     settings = _load(config_path)

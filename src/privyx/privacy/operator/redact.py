@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from privyx.core.context import Context
-from privyx.core.result import Detection, Transformation, TransformResult
-from privyx.core.session import Session
+from privyx.core import (
+    Context,
+    Detection,
+    Session,
+    Transformation,
+    TransformResult,
+    apply_replacements,
+)
 from privyx.privacy.operator.base import BaseOperator
-from privyx.privacy.transform.text import apply_replacements
 
 
 class RedactOperator(BaseOperator):

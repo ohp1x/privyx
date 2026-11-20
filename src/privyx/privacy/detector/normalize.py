@@ -19,7 +19,7 @@ import unicodedata
 from collections.abc import Callable
 from functools import lru_cache
 
-from privyx.core.result import Detection
+from privyx.core import Detection
 
 _NON_ASCII = re.compile(r"[^\x00-\x7f]+")
 

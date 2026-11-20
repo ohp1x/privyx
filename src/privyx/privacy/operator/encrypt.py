@@ -21,7 +21,7 @@ batch`` holds by construction.
 
 ``encrypt`` is an optional extra; selecting it without the ``cryptography``
 package installed (or without a key) fails at startup with a
-:class:`~privyx.core.errors.ConfigError`, never mid-request.
+:class:`~privyx.core.ConfigError`, never mid-request.
 """
 
 from __future__ import annotations
@@ -29,12 +29,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from functools import partial
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
-from privyx.core.result import Detection, Transformation, TransformResult
-from privyx.core.session import Session
+from privyx.core import (
+    ConfigError,
+    Context,
+    Detection,
+    Session,
+    Transformation,
+    TransformResult,
+    apply_replacements,
+)
 from privyx.privacy.operator.base import BaseOperator, free_token, restore
-from privyx.privacy.transform.text import apply_replacements
 from privyx.security.keys import derive
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken

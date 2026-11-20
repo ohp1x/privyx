@@ -12,8 +12,7 @@ from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
     from privyx.config.schema import DetectorConfig, Settings
-    from privyx.core.context import Context
-    from privyx.core.result import Span
+    from privyx.core import Context, Span
 
 
 @click.command()
@@ -38,7 +37,7 @@ def detect(
     Uses the *configured* detector and policy, so what you see here is what the
     proxy would do with the same config.
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     if use_stdin:
         text = (sys.stdin.read(),)
@@ -56,7 +55,9 @@ def detect(
 async def _detect_async(
     text: str, config_path: str | None, apply_policy: bool, transform: bool, explain: bool = False
 ) -> None:
+    from privyx.app._plugins import load_plugins
     from privyx.config.loader import load_config
+    from privyx.core import Context, Session
     from privyx.core.builder import (
         build_anchor,
         build_codec,
@@ -64,13 +65,10 @@ async def _detect_async(
         build_operator,
         build_policy_from,
     )
-    from privyx.core.context import Context
-    from privyx.core.session import Session
-    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
     # Register plugin component types so a configured plugin detector/operator
-    # resolves.  No lifecycle hooks fire: this is a one-shot query, not a server.
+    # resolves.  No app.starting or app.stopping: this is a one-shot query, not a server.
     load_plugins(settings)
     context = Context()
     if explain:
@@ -106,8 +104,8 @@ async def _explain(text: str, settings: Settings, apply_policy: bool, context: C
     Each configured detector runs on its own, so a span can be traced to the
     one that found it; together they find what the configured detector does.
     """
+    from privyx.core import Detection
     from privyx.core.builder import build_policy_from
-    from privyx.core.result import Detection
     from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, OPTIONAL_PATTERNS
     from privyx.privacy.detector.yaml import build_detector
 

@@ -18,8 +18,8 @@ from typing import Any
 import httpx
 import pytest
 
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import DetectorError
+from privyx.core import DetectorError
+from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.builtin import RegexDetector

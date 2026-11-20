@@ -20,7 +20,7 @@ from privyx.version import __version__
 
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
-    from privyx.core.engine import PrivacyEngine
+    from privyx.engine import PrivacyEngine
 
 _TOOLS = [
     {
@@ -119,7 +119,7 @@ def serve(config_path: str | None, root: Path) -> None:
     import asyncio
 
     from privyx.cli.commands.pipe import _drop_stdout, _interrupt
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     # Ctrl-C stops at once, as in `privyx pipe`: the read from stdin blocks,
     # and asyncio.run's own handler waits for it to return.
@@ -139,9 +139,9 @@ def serve(config_path: str | None, root: Path) -> None:
 
 
 async def _serve(config_path: str | None, root: Path) -> None:
+    from privyx.app._plugins import load_plugins
     from privyx.config.loader import load_config
     from privyx.core.builder import build_engine
-    from privyx.plugins.loader import load_plugins
 
     write, restore = _protocol_output()
     try:
@@ -342,8 +342,7 @@ async def _call(
     name: str, args: dict[str, Any], engine: PrivacyEngine, settings: Settings, root: Path
 ) -> dict[str, Any]:
     if name == "privyx_scan":
-        from privyx.core.context import Context
-        from privyx.core.result import Detection
+        from privyx.core import Context, Detection
 
         text = args.get("text")
         if not isinstance(text, str):
@@ -377,7 +376,7 @@ async def _call(
         import asyncio
 
         from privyx.cli.commands.mask import _apply, _resolve_format
-        from privyx.core.errors import PrivyxError
+        from privyx.core import PrivyxError
 
         path, output = args.get("path"), args.get("output_path")
         fmt = args.get("format", "auto")

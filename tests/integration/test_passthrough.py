@@ -21,7 +21,7 @@ import uvicorn
 
 from privyx.config.loader import load_config
 from privyx.core.builder import build_engine
-from privyx.core.engine import PrivacyEngine
+from privyx.engine import PrivacyEngine
 from privyx.gateway.transparent import create_transparent_app
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.builtin import RegexDetector

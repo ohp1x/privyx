@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from privyx.config.loader import load_config
+from privyx.core import Context
 from privyx.core.builder import build_detector_from, build_policy_from
-from privyx.core.context import Context
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.policy.base import Policy
 from privyx.privacy.policy.strict import StrictPolicy

@@ -12,7 +12,7 @@ import yaml
 from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.config.loader import load_config, trust
 from privyx.config.schema import ProviderKeysConfig
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.providers.registry import resolve_api_key
 
 

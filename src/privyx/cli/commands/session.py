@@ -114,7 +114,7 @@ inspect.add_command(show, name="session")
 
 
 def _run(coro: Coroutine[Any, Any, None]) -> None:
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     try:
         asyncio.run(coro)
@@ -125,9 +125,9 @@ def _run(coro: Coroutine[Any, Any, None]) -> None:
 
 @asynccontextmanager
 async def _open_vault(config_path: str | None) -> AsyncIterator[tuple[Settings, Vault]]:
+    from privyx.app._plugins import load_plugins
     from privyx.config.loader import load_config
     from privyx.core.builder import build_vault
-    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
     # Register plugin component types so a configured plugin vault resolves.

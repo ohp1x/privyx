@@ -10,8 +10,7 @@ import asyncio
 import hashlib
 from collections import OrderedDict
 
-from privyx.core.context import Context
-from privyx.core.result import Detection
+from privyx.core import Context, Detection
 from privyx.privacy.detector.base import BaseDetector, Detector
 
 
@@ -30,7 +29,7 @@ def _key(text: str) -> bytes:
 class CachedDetector(BaseDetector):
     """LRU cache wrapper for entity detectors.
 
-    Caches the :class:`~privyx.core.result.Detection` of previously scanned texts,
+    Caches the :class:`~privyx.core.Detection` of previously scanned texts,
     avoiding redundant regex or NLP detection runs across multi-turn conversations
     (where prior turns are re-sent in every request).
 

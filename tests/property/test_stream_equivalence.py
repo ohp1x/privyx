@@ -30,9 +30,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from privyx.core.context import Context
-from privyx.core.result import Detection, Span
-from privyx.core.session import Session
+from privyx.core import Context, Detection, Session, Span
 from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator

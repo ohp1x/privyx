@@ -10,11 +10,14 @@ import pytest
 
 pytest.importorskip("cryptography")
 
+from privyx.core import (  # noqa: E402
+    ConfigError,  # noqa: E402
+    Context,  # noqa: E402
+    Detection,
+    Session,  # noqa: E402
+    Span,
+)
 from privyx.core.builder import build_operator  # noqa: E402
-from privyx.core.context import Context  # noqa: E402
-from privyx.core.errors import ConfigError  # noqa: E402
-from privyx.core.result import Detection, Span  # noqa: E402
-from privyx.core.session import Session  # noqa: E402
 from privyx.privacy.operator.encrypt import EncryptOperator  # noqa: E402
 from privyx.security.keys import load_key  # noqa: E402
 

@@ -6,11 +6,15 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
-from privyx.core.context import Context
-from privyx.core.errors import OperatorError
-from privyx.core.result import Detection, Transformation, TransformResult
-from privyx.core.session import Session
-from privyx.privacy.transform.text import apply_replacements
+from privyx.core import (
+    Context,
+    Detection,
+    OperatorError,
+    Session,
+    Transformation,
+    TransformResult,
+    apply_replacements,
+)
 from privyx.token.codec import TokenCodec
 
 

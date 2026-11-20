@@ -22,15 +22,21 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError, SessionNotFoundError, VaultError
-from privyx.core.result import Detection, TransformResult
-from privyx.core.session import Session
+from privyx.core import (
+    ConfigError,
+    Context,
+    Detection,
+    Session,
+    SessionNotFoundError,
+    TransformResult,
+    VaultError,
+    value_spans,
+    with_key,
+)
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.operator.base import Operator
 from privyx.privacy.policy.base import Policy
-from privyx.privacy.transform.json import value_spans, with_key
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.vault.base import Vault
 
@@ -343,7 +349,7 @@ class PrivacyEngine:
         Raises:
             SessionNotFoundError: If the session does not exist.
         """
-        from privyx.core.errors import SessionNotFoundError
+        from privyx.core import SessionNotFoundError
 
         if session is None:
             session = await self._vault.get(session_id)

@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterator
 from typing import Any
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.plugins.registry import PLUGINS, Registry
 from privyx.privacy.detector.base import Detector
 from privyx.privacy.detector.builtin import (

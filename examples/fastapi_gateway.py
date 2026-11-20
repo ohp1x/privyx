@@ -6,8 +6,8 @@ import asyncio
 
 import uvicorn
 
+from privyx import PrivacyEngine
 from privyx.config.schema import Settings
-from privyx.core.engine import PrivacyEngine
 from privyx.gateway.server import Gateway
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator

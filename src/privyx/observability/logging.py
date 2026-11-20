@@ -24,7 +24,7 @@ from io import TextIOWrapper
 from typing import Any
 
 from privyx.config.schema import Settings
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 #: Marks the handler this module installs, so re-configuring replaces it instead
 #: of stacking a second handler that double-prints every line.

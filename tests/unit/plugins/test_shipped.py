@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from privyx.app._plugins import load_plugins
 from privyx.config.schema import Settings
 from privyx.plugins import Context
-from privyx.plugins.loader import load_plugins
 from privyx.plugins.registry import PLUGINS
 from privyx.privacy.detector.yaml import build_detector
 

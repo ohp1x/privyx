@@ -9,8 +9,8 @@ import pytest
 
 from privyx.config.env import env_config
 from privyx.config.schema import DetectorConfig, Settings
+from privyx.core import Context
 from privyx.core.builder import build_detector_from
-from privyx.core.context import Context
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.detector.cache import CachedDetector
 from privyx.privacy.detector.yaml import build_detector

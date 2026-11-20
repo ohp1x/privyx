@@ -12,8 +12,8 @@ from pydantic import BaseModel
 
 from privyx.config.loader import load_config
 from privyx.config.schema import Settings
+from privyx.core import Context
 from privyx.core.builder import build_detector_from, build_policy_from
-from privyx.core.context import Context
 
 CONFIGS = Path(__file__).parents[3] / "configs"
 DEFAULT = CONFIGS / "default.yaml"

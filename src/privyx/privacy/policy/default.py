@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from privyx.core.context import Context
-from privyx.core.result import Detection
+from privyx.core import Context, Detection
 from privyx.privacy.policy.base import BasePolicy
 
 

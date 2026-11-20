@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from typing import NoReturn
 
 from privyx.cli.launch import LaunchPlan
-from privyx.core.errors import PrivyxError
+from privyx.core import PrivyxError
 
 # In the worker: the launcher's stderr, silenced while the agent owns the terminal.
 _stderr: int | None = None

@@ -11,7 +11,7 @@ from privyx.cli.codex import custom_provider, openai_endpoint
 from privyx.cli.launch import build_launch_plan, profile_target
 from privyx.cli.main import cli
 from privyx.config.schema import AgentConfig, Settings
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 ROUTER = """
 model_provider = "router"

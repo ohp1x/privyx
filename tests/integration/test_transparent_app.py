@@ -20,8 +20,8 @@ pytest.importorskip("fastapi")
 
 import httpx  # noqa: E402
 
-from privyx.core.engine import PrivacyEngine  # noqa: E402
-from privyx.core.errors import DetectorError, VaultError  # noqa: E402
+from privyx.core import DetectorError, VaultError  # noqa: E402
+from privyx.engine import PrivacyEngine  # noqa: E402
 from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402

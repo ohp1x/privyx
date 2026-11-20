@@ -12,7 +12,7 @@ import pytest
 from click.testing import CliRunner
 
 from privyx.cli.main import cli
-from privyx.core.engine import PrivacyEngine
+from privyx.engine import PrivacyEngine
 from privyx.observability.tap import Tap, tap_file
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator

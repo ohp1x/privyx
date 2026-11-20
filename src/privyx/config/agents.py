@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 
 def resolve_profiles(

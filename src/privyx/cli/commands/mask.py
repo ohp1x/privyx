@@ -1,7 +1,7 @@
 """`privyx mask` / `privyx unmask` — pseudonymize and restore text off-proxy.
 
 Orchestration only: both commands are thin wrappers over
-:meth:`~privyx.core.engine.PrivacyEngine.transform` and the configured
+:meth:`~privyx.engine.PrivacyEngine.transform` and the configured
 operator's ``deanonymize``, so what the proxy does to a chat message is exactly
 what these do to a file, a JSON document, or a pipe.
 
@@ -23,7 +23,7 @@ from typing import Any
 import click
 
 from privyx.cli.config import config_options
-from privyx.core.session import Session
+from privyx.core import Session
 
 #: Input formats.  ``auto`` looks at the input file's extension.
 _FORMATS = ("auto", "text", "json", "jsonl")
@@ -93,7 +93,7 @@ def mask(
     An existing --map file is continued, not overwritten: masking a second
     document against it keeps the tokens the first one was given.
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     try:
         source = _read_input(text, use_stdin, input_path)
@@ -141,7 +141,7 @@ def unmask(
 
     Tokens the mapping does not know are left untouched.
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     if not map_path and not session_id:
         click.echo("Error: unmask needs --map FILE or --session ID", err=True)
@@ -222,7 +222,7 @@ async def _apply(
     """Apply ``fn`` to every string the chosen format exposes.
 
     ``under(key, text)``, when given, stands in for ``fn`` on a JSON string or
-    number under a key (see :func:`~privyx.privacy.transform.json.map_values`).
+    number under a key (see :func:`~privyx.core.map_values`).
     """
     if fmt == "text":
         return await fn(source)
@@ -244,7 +244,7 @@ async def _apply_json(
     under: Callable[[str, str], Awaitable[str]] | None,
 ) -> Any:
     """Apply ``fn`` to every string leaf of a JSON document."""
-    from privyx.privacy.transform.json import map_values
+    from privyx.core import map_values
 
     return await map_values(payload, fn, under, paths=list(paths) or None)
 
@@ -263,9 +263,9 @@ async def _mask_async(
     *,
     warn_unpersisted: bool,
 ) -> tuple[str, Session]:
+    from privyx.app._plugins import load_plugins
     from privyx.config.loader import load_config
     from privyx.core.builder import build_engine
-    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
     load_plugins(settings)
@@ -300,11 +300,10 @@ async def _unmask_async(
     session_id: str | None,
     config_path: str | None,
 ) -> str:
+    from privyx.app._plugins import load_plugins
     from privyx.config.loader import load_config
+    from privyx.core import Context, SessionNotFoundError
     from privyx.core.builder import build_engine
-    from privyx.core.context import Context
-    from privyx.core.errors import SessionNotFoundError
-    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
     load_plugins(settings)

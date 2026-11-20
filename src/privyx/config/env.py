@@ -9,7 +9,7 @@ import json
 import os
 from typing import Any
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 
 def _env(key: str, default: str = "") -> str:

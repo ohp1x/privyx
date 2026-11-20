@@ -12,7 +12,7 @@ from click.testing import CliRunner
 from privyx.cli import workspace
 from privyx.cli.main import cli
 from privyx.config.loader import is_trusted, load_config
-from privyx.core.context import Context
+from privyx.core import Context
 from privyx.privacy.detector.yaml import build_detector
 
 DSN = "https://abc123@o1.ingest.example.test/42"

@@ -12,7 +12,7 @@ import subprocess
 from typing import Any
 
 from privyx.config.redact import _MASK_VALUES, _sensitive
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 _SCHEMES = ("op://", "keychain://")
 

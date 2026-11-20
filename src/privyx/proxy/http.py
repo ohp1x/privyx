@@ -20,8 +20,8 @@ import inspect
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from privyx.core.engine import PrivacyEngine
-from privyx.core.session import Session
+from privyx.core import Session
+from privyx.engine import PrivacyEngine
 from privyx.providers.base import Provider
 from privyx.proxy.schemas import restore_response, transform_request
 from privyx.proxy.stream_router import (
@@ -71,7 +71,7 @@ class HTTPProxy:
 
         ``source`` records how ``session_id`` was chosen for the audit trail; see
         :func:`privyx.proxy.session.resolve_session_id`.  ``session``, an
-        :meth:`~privyx.core.engine.PrivacyEngine.ephemeral_session`, is masked
+        :meth:`~privyx.engine.PrivacyEngine.ephemeral_session`, is masked
         in memory instead of through the vault.  ``path`` is the one the client
         called (see :func:`~privyx.proxy.schemas.transform_request`).
         """

@@ -19,9 +19,8 @@ from privyx.config.loader import (
     load_config,
     trust,
 )
+from privyx.core import ConfigError, Context
 from privyx.core.builder import build_detector_from
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
 
 _CONVO = {"session": {"strategy": "conversation"}}
 

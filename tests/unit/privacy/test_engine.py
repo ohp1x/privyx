@@ -9,9 +9,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from privyx.core.engine import KEY_PROBE_LIMIT, PrivacyEngine
-from privyx.core.errors import SessionNotFoundError, VaultError
-from privyx.core.session import Session
+from privyx.core import Session, SessionNotFoundError, VaultError
+from privyx.engine import PrivacyEngine
+from privyx.engine._engine import KEY_PROBE_LIMIT
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
@@ -426,7 +426,7 @@ async def test_the_dlp_check_splits_at_underscores_when_a_detector_does() -> Non
 
 async def test_transform_takes_spans_already_decided() -> None:
     """``detection=`` (since 0.1.31) still replaces the detection step."""
-    from privyx.core.result import Detection, Span
+    from privyx.core import Detection, Span
 
     engine = PrivacyEngine(
         detector=RegexDetector(),

@@ -15,12 +15,16 @@ import re
 from collections.abc import Callable
 from functools import lru_cache, partial
 
-from privyx.core.context import Context
-from privyx.core.result import Detection, Transformation, TransformResult
-from privyx.core.session import Session
+from privyx.core import (
+    Context,
+    Detection,
+    Session,
+    Transformation,
+    TransformResult,
+    apply_replacements,
+)
 from privyx.privacy.anchor.base import Anchor
 from privyx.privacy.operator.base import BaseOperator, free_token, restore
-from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, LabelCodec, TokenCodec
 from privyx.token.model import LogicalToken
 

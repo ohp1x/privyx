@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from privyx.core.context import Context
-from privyx.core.engine import PrivacyEngine
+from privyx.core import Context
+from privyx.engine import PrivacyEngine
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.operator.pseudonym import PseudonymOperator

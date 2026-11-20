@@ -9,12 +9,9 @@ import httpx
 import pytest
 
 from privyx.config.schema import Settings
+from privyx.core import ConfigError, Context, Detection, Session
 from privyx.core.builder import build_engine
-from privyx.core.context import Context
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import ConfigError
-from privyx.core.result import Detection
-from privyx.core.session import Session
+from privyx.engine import PrivacyEngine
 from privyx.gateway.server import Gateway
 from privyx.gateway.transparent import create_transparent_app
 from privyx.privacy.anchor.hmac import HMACAnchor

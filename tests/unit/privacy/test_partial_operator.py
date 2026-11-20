@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from privyx.core import Context, Detection, Session, Span
 from privyx.core.builder import build_operator
-from privyx.core.context import Context
-from privyx.core.result import Detection, Span
-from privyx.core.session import Session
 from privyx.privacy.operator.partial import PartialOperator, mask
 
 

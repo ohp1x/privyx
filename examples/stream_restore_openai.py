@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from privyx.core.engine import PrivacyEngine
+from privyx import PrivacyEngine
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy

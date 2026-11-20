@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 BASE_URL = "ANTHROPIC_BASE_URL"
 

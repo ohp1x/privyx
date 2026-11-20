@@ -12,8 +12,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError, Context
 from privyx.privacy.detector.presidio import PresidioDetector
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.policy.strict import StrictPolicy

@@ -23,7 +23,7 @@ from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
-    from privyx.core.result import Detection
+    from privyx.core import Detection
     from privyx.privacy.detector.base import Detector
     from privyx.privacy.policy.base import Policy
 
@@ -81,7 +81,7 @@ def _check_plugins(settings: Settings) -> tuple[bool, str]:
 
     Runs first so the detector/vault/provider checks below resolve plugin types.
     """
-    from privyx.plugins.loader import load_plugins
+    from privyx.app._plugins import load_plugins
     from privyx.plugins.registry import PLUGINS
 
     plugins = settings.plugins
@@ -136,8 +136,7 @@ async def _probe_sample(
     of matching samples explicitly rather than claiming coverage. Sample values
     are never included in diagnostic output.
     """
-    from privyx.core.context import Context
-    from privyx.core.result import Detection
+    from privyx.core import Context, Detection
 
     samples = ["mail alice@example.com"]
     sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
@@ -221,8 +220,8 @@ def _check_vault(settings: Settings) -> tuple[bool, str]:
     This is where a bad DSN, a missing driver or an unreachable Redis shows up
     — all of which otherwise surface only at the first request.
     """
+    from privyx.core import Session
     from privyx.core.builder import build_vault
-    from privyx.core.session import Session
 
     async def _probe() -> tuple[bool, str]:
         vault, close = await build_vault(settings)
@@ -266,8 +265,8 @@ def _check_provider(settings: Settings) -> tuple[bool, str]:
 
 def _check_proxy(settings: Settings) -> tuple[bool, str]:
     """A request payload survives the proxy with no PII left in it."""
+    from privyx.core import Session
     from privyx.core.builder import build_engine
-    from privyx.core.session import Session
     from privyx.proxy.http import HTTPProxy
     from privyx.streaming.adapters.registry import build_stream_adapter
 
@@ -317,8 +316,8 @@ def _check_streaming(settings: Settings) -> tuple[bool, str]:
     """
     import json
 
+    from privyx.core import Session
     from privyx.core.builder import build_engine
-    from privyx.core.session import Session
     from privyx.proxy.http import HTTPProxy
     from privyx.proxy.stream_router import resolver_for
     from privyx.streaming.adapters.openai import OpenAIStreamAdapter

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from privyx.config.schema import Settings
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.observability.logging import JsonFormatter, configure_logging
 
 

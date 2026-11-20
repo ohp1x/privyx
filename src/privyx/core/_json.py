@@ -8,7 +8,7 @@ A value may only say what it is with its key: ``hunter2`` is a secret in
 ``{"password": "hunter2"}``, and a context word may be the key.
 :func:`with_key` writes a value as text with its key in front, and
 :func:`value_spans` brings what is found there back onto the value (see
-:meth:`~privyx.core.engine.PrivacyEngine.transform`).
+:meth:`~privyx.engine.PrivacyEngine.transform`).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from privyx.core.result import Span
+from privyx.core._results import Span
 
 #: What ``json.dumps`` escapes in a string (``ensure_ascii=False``).
 _ESCAPED = re.compile(r'["\\\x00-\x1f]')

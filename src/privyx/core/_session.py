@@ -4,7 +4,7 @@ A Session isolates all pseudonym mapping state for one logical conversation,
 client, or vault key. State that outlives a request goes through a
 :class:`Vault` backend, never process memory; an ephemeral session, which lives
 for one request in one process, stays in memory
-(:meth:`~privyx.core.engine.PrivacyEngine.ephemeral_session`).
+(:meth:`~privyx.engine.PrivacyEngine.ephemeral_session`).
 """
 
 from __future__ import annotations

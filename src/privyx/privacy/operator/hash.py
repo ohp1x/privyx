@@ -10,12 +10,16 @@ import hashlib
 from functools import partial
 
 from privyx.config.schema import HASH_LENGTH
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
-from privyx.core.result import Detection, Transformation, TransformResult
-from privyx.core.session import Session
+from privyx.core import (
+    ConfigError,
+    Context,
+    Detection,
+    Session,
+    Transformation,
+    TransformResult,
+    apply_replacements,
+)
 from privyx.privacy.operator.base import BaseOperator, free_token, restore
-from privyx.privacy.transform.text import apply_replacements
 from privyx.token.codec import FormatCodec, TokenCodec
 from privyx.token.model import LogicalToken
 

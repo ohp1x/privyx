@@ -30,7 +30,7 @@ def scan(path: Path, yes: bool, dry_run: bool) -> None:
     """
     from privyx.cli import workspace
     from privyx.config.loader import is_trusted, trust
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     root = path.resolve()
     terms_file = root / TERMS_FILE
@@ -104,7 +104,7 @@ def scan(path: Path, yes: bool, dry_run: bool) -> None:
 def _env_keys(root: Path) -> list[Found]:
     """A pattern per ``.env`` key, unless the built-in detector already masks its value."""
     from privyx.cli import workspace
-    from privyx.core.context import Context
+    from privyx.core import Context
     from privyx.privacy.detector.builtin import RegexDetector
 
     builtin = RegexDetector()
@@ -146,7 +146,7 @@ def _numbers(text: str, count: int) -> set[int]:
 
 def _read(path: Path) -> dict[str, Any]:
     from privyx.config.loader import _read_yaml
-    from privyx.core.errors import ConfigError
+    from privyx.core import ConfigError
 
     if not path.exists():
         return {}
@@ -177,7 +177,7 @@ def _dump(data: dict[str, Any]) -> str:
 def _check_included(config_file: Path, terms_file: Path) -> None:
     """Say what to change when ``config_file`` does not bring in ``terms_file``'s terms."""
     from privyx.config.loader import _included, _read_yaml
-    from privyx.core.errors import ConfigError
+    from privyx.core import ConfigError
 
     try:
         data = _read_yaml(config_file)

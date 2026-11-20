@@ -144,7 +144,7 @@ def watch(session_id: str | None, config_path: str | None, lines: int, follow: b
     text as {+...+}.  The tap holds original values, and so does this output.
     """
     from privyx.config.loader import load_config
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
     from privyx.observability.tap import tap_file
 
     try:
@@ -339,7 +339,7 @@ def _sse_text(text: str) -> str:
 
 def _open_log(file: Path | None, config_path: str | None) -> tuple[Path, TextIO]:
     from privyx.config.loader import load_config
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     try:
         path = file or Path(os.path.expanduser(load_config(config_path).audit.path))

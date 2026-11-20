@@ -76,7 +76,7 @@ async def test_scan_does_not_return_values():
 
 @pytest.mark.asyncio
 async def test_scan_filters_categories_before_merging():
-    from privyx.core.result import Detection, Span
+    from privyx.core import Detection, Span
 
     class Detector:
         async def detect(self, text, context):
@@ -663,7 +663,7 @@ def test_lone_surrogate_and_internal_error_do_not_stop_the_server(monkeypatch):
 def test_output_below_python_goes_to_stderr():
     # A plugin that prints as it loads, through Python and straight to fd 1.
     script = (
-        "import os, privyx.plugins.loader as loader\n"
+        "import os, privyx.app._plugins as loader\n"
         "real = loader.load_plugins\n"
         "def noisy(settings):\n"
         "    print('noise from python', flush=True)\n"
@@ -755,8 +755,8 @@ def test_nan_ids_get_valid_json():
 @pytest.mark.asyncio
 async def test_failed_cleanup_keeps_the_reason(tmp_path):
     from privyx.config.loader import load_config
+    from privyx.core import VaultError
     from privyx.core.builder import build_engine
-    from privyx.core.errors import VaultError
 
     (tmp_path / "bad.json").write_text("{")
     settings = load_config(None)

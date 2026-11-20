@@ -17,7 +17,7 @@ def trust() -> None:
     """
     from privyx.config.loader import find_local_configs
     from privyx.config.loader import trust as trust_config
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     paths = find_local_configs()
     if not paths:

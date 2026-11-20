@@ -48,11 +48,9 @@ from contextlib import AbstractAsyncContextManager, nullcontext
 from functools import lru_cache
 from typing import Any
 
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import LeakError
-from privyx.core.session import Session
+from privyx.core import LeakError, Session, leaf_text, put_back
+from privyx.engine import PrivacyEngine
 from privyx.privacy.detector.builtin import SECRET_TYPES
-from privyx.privacy.transform.json import leaf_text, put_back
 from privyx.token.codec import LabelCodec, TokenCodec
 from privyx.token.model import LogicalToken
 
@@ -284,9 +282,9 @@ async def transform_request(
     :data:`MASKED_HEADERS` are pseudonymized **in place**, after the body and in
     the same session, so a path gets one token in both.
 
-    ``session``, an :meth:`~privyx.core.engine.PrivacyEngine.ephemeral_session`,
+    ``session``, an :meth:`~privyx.engine.PrivacyEngine.ephemeral_session`,
     is used as is: no lock, no vault read or write.  Otherwise ``session_id`` is
-    held through :meth:`~privyx.core.engine.PrivacyEngine.session_scope`.
+    held through :meth:`~privyx.engine.PrivacyEngine.session_scope`.
 
     The caller's ``payload`` is never mutated (the walk rebuilds every container
     it descends into; config values are shared, not copied).
@@ -295,7 +293,7 @@ async def transform_request(
     as a word (``x`` of ``DB_PASSWORD=x``, masked only by its name) gets the
     replacement it got first there too, in every text the walk masks.  A
     masked value still in the request after that raises
-    :class:`~privyx.core.errors.LeakError` (:func:`find_leaks`).
+    :class:`~privyx.core.LeakError` (:func:`find_leaks`).
 
     With ``engine.directive``, a chat request of ``schema`` also gets
     :func:`directive`, unmasked (see :func:`_add_directive`; ``path`` tells a

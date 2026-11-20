@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.plugins.registry import PLUGINS, Registry
 from privyx.privacy.policy.base import Policy
 from privyx.privacy.policy.default import DefaultPolicy
