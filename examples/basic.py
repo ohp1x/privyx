@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 
 from privyx import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.vault.memory import MemoryVault
+from privyx.detectors import RegexDetector
+from privyx.operators import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.vaults import MemoryVault
 
 
 async def main() -> None:

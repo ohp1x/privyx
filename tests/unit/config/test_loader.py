@@ -12,15 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from privyx.config.loader import (
-    active_config_paths,
-    find_local_configs,
-    is_trusted,
-    load_config,
-    trust,
-)
+from privyx import load_config
+from privyx.app._build import build_detector_from
+from privyx.config.loader import active_config_paths, find_local_configs, is_trusted, trust
 from privyx.core import ConfigError, Context
-from privyx.core.builder import build_detector_from
 
 _CONVO = {"session": {"strategy": "conversation"}}
 

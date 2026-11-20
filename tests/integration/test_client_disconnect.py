@@ -23,16 +23,17 @@ import uvicorn
 pytest.importorskip("aiosqlite")
 
 from privyx.config.schema import Settings  # noqa: E402
+from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
 from privyx.gateway.server import Gateway  # noqa: E402
 from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
-from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
-from privyx.privacy.operator.pseudonym import PseudonymOperator  # noqa: E402
-from privyx.privacy.policy.default import DefaultPolicy  # noqa: E402
-from privyx.providers.generic import GenericProvider  # noqa: E402
+from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
+from privyx.policies import DefaultPolicy  # noqa: E402
+from privyx.providers import GenericProvider  # noqa: E402
 from privyx.proxy.transparent import TransparentProxy  # noqa: E402
-from privyx.vault.sqlite import SQLiteVault  # noqa: E402
+from privyx.testing import services
+from privyx.vaults._sqlite import SQLiteVault  # noqa: E402
 
 STREAMS = 80
 BODY = {"stream": True, "messages": [{"role": "user", "content": "mail alice@example.com"}]}
@@ -67,9 +68,9 @@ def _app(mode: str, engine: PrivacyEngine, audit: AuditLogger, upstream: httpx.A
         proxy = TransparentProxy(engine, origin="http://up.test", client=upstream, audit=audit)
         return create_transparent_app(engine, proxy)
     url = "http://up.test/v1/messages"
-    provider = GenericProvider(base_url=url, client=upstream)
+    provider = GenericProvider(base_url=url)
     settings = Settings(provider={"type": "anthropic", "base_url": url})
-    return Gateway(engine, provider, settings, audit=audit).app
+    return Gateway(engine, provider, settings, audit=audit, client=upstream).app
 
 
 async def _drop_after_first_chunk(client: httpx.AsyncClient, url: str) -> None:
@@ -98,8 +99,8 @@ async def _drop_before_headers(client: httpx.AsyncClient, url: str) -> None:
 async def test_dropped_streams_leave_no_session(mode: str, path: str, early: bool) -> None:
     buf = io.StringIO()
     audit = AuditLogger(buf)
-    vault = SQLiteVault(":memory:")
-    await vault.connect()
+    vault = SQLiteVault(dsn=":memory:")
+    await vault.open(services())
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),

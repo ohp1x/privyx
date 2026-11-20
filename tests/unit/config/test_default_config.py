@@ -7,12 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from privyx.config.loader import load_config
+from privyx import load_config
+from privyx.app._build import build_detector_from, build_policy_from
 from privyx.core import Context
-from privyx.core.builder import build_detector_from, build_policy_from
-from privyx.privacy.detector.base import Detector
-from privyx.privacy.policy.base import Policy
-from privyx.privacy.policy.strict import StrictPolicy
+from privyx.detectors import Detector
+from privyx.policies import Policy, StrictPolicy
 
 CONFIGS = Path(__file__).parents[3] / "configs"
 NO_CONFIG = build_detector_from(load_config(None))

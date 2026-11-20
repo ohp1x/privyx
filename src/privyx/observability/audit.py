@@ -2,7 +2,7 @@
 
 Records security-relevant events — session creation, transform, restore, and
 proxy request/response/error — as one JSON object per line in a dedicated
-append-only file (see :func:`privyx.core.builder.build_audit_logger`).
+append-only file (see :func:`privyx.app._build.build_audit_logger`).
 
 Every record shares a **versioned envelope** so the format can evolve without
 breaking a downstream reader::

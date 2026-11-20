@@ -16,10 +16,10 @@ from typing import Any
 import httpx
 import pytest
 
-from privyx.config.loader import load_config
+from privyx import load_config
+from privyx.app._build import build_engine
 from privyx.core import ProviderError
-from privyx.core.builder import build_engine
-from privyx.providers.generic import GenericProvider
+from privyx.providers import GenericProvider
 from privyx.proxy.http import HTTPProxy
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.streaming.sse import SSEDecoder
@@ -90,9 +90,8 @@ class Upstream:
     def last_payload(self) -> Any:
         return json.loads(self.requests[-1].content)
 
-    def provider(self, **kwargs: Any) -> GenericProvider:
-        client = httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
-        return GenericProvider(base_url=URL, client=client, **kwargs)
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
 
 
 async def build_proxy(upstream: Upstream, **provider_kwargs: Any) -> tuple[HTTPProxy, Any]:
@@ -100,7 +99,8 @@ async def build_proxy(upstream: Upstream, **provider_kwargs: Any) -> tuple[HTTPP
     engine, close = await build_engine(settings)
     proxy = HTTPProxy(
         engine=engine,
-        provider=upstream.provider(**provider_kwargs),
+        provider=GenericProvider(base_url=URL, **provider_kwargs),
+        client=upstream.client(),
         stream_adapter=build_stream_adapter("openai"),
     )
     return proxy, close
@@ -153,7 +153,7 @@ async def test_streaming_round_trip_hides_pii_from_upstream() -> None:
         assert out.endswith("data: [DONE]\n\n")
     finally:
         await close()
-        await proxy._provider.close()  # noqa: SLF001
+        await proxy._client.aclose()  # noqa: SLF001
 
 
 @pytest.mark.parametrize("chunk_size", [1, 5, 40, 4096])
@@ -177,7 +177,7 @@ async def test_streaming_survives_upstream_chunk_size(chunk_size: int) -> None:
         assert collect_content(out) == f"to {EMAIL} done"
     finally:
         await close()
-        await proxy._provider.close()  # noqa: SLF001
+        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_batch_round_trip() -> None:
@@ -201,7 +201,7 @@ async def test_batch_round_trip() -> None:
         assert result["usage"]["total_tokens"] == 42  # untouched fields survive
     finally:
         await close()
-        await proxy._provider.close()  # noqa: SLF001
+        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_upstream_error_becomes_provider_error() -> None:
@@ -214,24 +214,28 @@ async def test_upstream_error_becomes_provider_error() -> None:
             await proxy.send_batch({"model": "gpt-4o"})
     finally:
         await close()
-        await proxy._provider.close()  # noqa: SLF001
+        await proxy._client.aclose()  # noqa: SLF001
 
 
-async def test_provider_closes_only_the_client_it_owns() -> None:
-    """A caller-supplied client outlives the provider; an owned one does not.
+async def test_the_gateway_closes_only_the_client_it_owns() -> None:
+    """A caller-supplied client outlives the gateway; an owned one does not.
 
-    The proxy calls ``close()`` on shutdown, so a provider that closed a shared
-    client would break every other user of it.
+    The gateway is closed on shutdown, so one that closed a shared client would
+    break every other user of it.
     """
-    upstream = Upstream()
+    from privyx.gateway.server import Gateway
 
-    borrowed = httpx.AsyncClient(transport=httpx.MockTransport(upstream.handler))
-    provider = GenericProvider(base_url=URL, client=borrowed)
-    await provider.close()
-    await provider.close()  # idempotent
-    assert not borrowed.is_closed
-    await borrowed.aclose()
+    engine, close = await build_engine(load_config())
+    try:
+        borrowed = Upstream().client()
+        gateway = Gateway(engine, GenericProvider(base_url=URL), client=borrowed)
+        await gateway.close()
+        await gateway.close()  # idempotent
+        assert not borrowed.is_closed
+        await borrowed.aclose()
 
-    owned = GenericProvider(base_url=URL)
-    await owned.close()
-    assert owned._client.is_closed  # noqa: SLF001
+        owned = Gateway(engine, GenericProvider(base_url=URL))
+        await owned.close()
+        assert owned._client.is_closed  # noqa: SLF001
+    finally:
+        await close()

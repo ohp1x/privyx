@@ -263,12 +263,12 @@ async def _mask_async(
     *,
     warn_unpersisted: bool,
 ) -> tuple[str, Session]:
+    from privyx.app import load_config
+    from privyx.app._build import build_engine
     from privyx.app._plugins import load_plugins
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
 
     settings = load_config(config_path)
-    load_plugins(settings)
+    app = load_plugins(settings)
     if warn_unpersisted and settings.vault.type == "memory":
         click.echo(
             "Warning: vault type is 'memory', so the mapping is gone when this process "
@@ -276,7 +276,7 @@ async def _mask_async(
             "a sqlite/redis vault.",
             err=True,
         )
-    engine, close = await build_engine(settings)
+    engine, close = await build_engine(settings, app)
     try:
         session = loaded if loaded is not None else await engine.get_or_create_session(session_id)
 
@@ -300,14 +300,14 @@ async def _unmask_async(
     session_id: str | None,
     config_path: str | None,
 ) -> str:
+    from privyx.app import load_config
+    from privyx.app._build import build_engine
     from privyx.app._plugins import load_plugins
-    from privyx.config.loader import load_config
     from privyx.core import Context, SessionNotFoundError
-    from privyx.core.builder import build_engine
 
     settings = load_config(config_path)
-    load_plugins(settings)
-    engine, close = await build_engine(settings)
+    app = load_plugins(settings)
+    engine, close = await build_engine(settings, app)
     try:
         # Resolve the session once, not once per leaf: a JSON document can hold
         # thousands of strings and every one of them would hit the vault.

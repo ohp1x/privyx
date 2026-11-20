@@ -15,12 +15,12 @@ import httpx
 import pytest
 
 from privyx.config.schema import Settings
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 
@@ -133,8 +133,8 @@ async def test_embed_input_is_masked() -> None:
 
 def test_the_gateway_does_not_serve_ollama_paths() -> None:
     pytest.importorskip("fastapi")
+    from privyx.app._build import build_provider
     from privyx.gateway.server import Gateway
-    from privyx.providers.registry import build_provider
 
     for provider in ("generic", "google"):
         settings = Settings(provider={"type": provider})

@@ -7,7 +7,7 @@ import time
 import pytest
 
 from privyx.core import ConfigError, Session
-from privyx.privacy.operator.base import restore
+from privyx.operators._restore import restore
 from privyx.token.codec import LabelCodec
 from privyx.token.errors import TokenFormatError
 from privyx.token.model import LogicalToken

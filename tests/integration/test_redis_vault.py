@@ -14,11 +14,12 @@ from collections.abc import AsyncIterator, Callable
 import pytest
 
 from privyx.core import Session, VaultError
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.vault.redis import RedisVault, redis_client
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.vaults import RedisVault
+from privyx.vaults._redis import redis_client
 
 URL = os.environ.get("PRIVYX_TEST_REDIS_URL", "")
 
@@ -28,7 +29,7 @@ pytestmark = pytest.mark.skipif(not URL, reason="PRIVYX_TEST_REDIS_URL not set")
 @pytest.fixture
 async def vault() -> AsyncIterator[RedisVault]:
     client = redis_client(URL)
-    yield RedisVault(client, ttl=60)
+    yield RedisVault(client=client, ttl=60)
     await client.aclose()
 
 
@@ -141,7 +142,7 @@ async def test_a_save_after_the_lock_expired_is_refused(
 
     session.put("<PRIVYX_EMAIL_1>", "bob@example.com")
     with pytest.raises(VaultError, match="lock expired"):
-        await vault.save(session, lock_token="mine")
+        await vault.save(session, lock="mine")
 
     stored = await vault.get(session.session_id)
     assert stored is not None and stored.get("<PRIVYX_EMAIL_1>") == "ana@example.com"

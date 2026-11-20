@@ -3,76 +3,36 @@
 from __future__ import annotations
 
 import re
-from typing import Any, ClassVar, Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-#: A model of settings (``type`` is shadowed by a field inside the sections).
-_Model = type[BaseModel]
-
 
 class PluggableConfig(BaseModel):
-    """A section whose ``type`` may name a plugin.
+    """A section whose ``type`` names a component: a built-in or a plugin's.
 
-    Keys the schema does not define are kept: they are a plugin's own options,
-    handed to its ``from_config``.  Under a built-in type they can only be typos,
-    so :func:`~privyx.config.loader.load_config` rejects them there.
-
-    A section's fields are the union of its built-in types' settings, each a
-    mixin listed before this class, so a field is defined once.  This class
-    comes last among the bases so that ``type`` is the first field.
+    The section's own fields are the ones Privyx applies whatever the type,
+    each defined once in a mixin listed before this class, which comes last so
+    that ``type`` is the first field.  Every other key is an option of the
+    type, kept as written: the component's ``Options`` check it.
+    :func:`~privyx.config.loader.load_config` checks a built-in type's options
+    and fills in their defaults.
     """
 
     model_config = ConfigDict(extra="allow")
-    #: The ``type`` values Privyx implements itself, each to the settings it
-    #: takes beside :attr:`shared_fields`.  A plugin never shadows one.
-    builtin_types: ClassVar[dict[str, _Model]] = {}
-    #: Fields Privyx applies itself, whatever the type, so a plugin's section
-    #: takes them beside its own options.
-    shared_fields: ClassVar[frozenset[str]] = frozenset()
     type: str = ""
 
     @classmethod
-    def type_fields(cls, kind: str) -> frozenset[str]:
-        """The fields built-in type ``kind`` uses: its own, ``type``, and the shared ones."""
-        return frozenset({"type", *cls.shared_fields, *cls.builtin_types[kind].model_fields})
+    def shared_fields(cls) -> list[str]:
+        """The fields every type takes, beside its own options, in order."""
+        return [name for name in cls.model_fields if name != "type"]
 
 
-class NoSettings(BaseModel):
-    """The settings of a built-in type that takes none of its own."""
-
-
-class MemoryVaultConfig(BaseModel):
-    """The settings of a ``memory`` vault."""
-
-    # Idle expiry in seconds, measured from a session's last transform.  Unset
-    # keeps sessions until deleted; 0 is rejected (it would expire every
-    # session on creation, and Redis refuses it).
-    ttl: int | None = Field(default=None, gt=0)
-
-
-class SQLiteVaultConfig(MemoryVaultConfig):
-    """The settings of a ``sqlite`` vault."""
-
-    dsn: str = "sqlite+aiosqlite:///~/.privyx/privyx.db"
-
-
-class RedisVaultConfig(MemoryVaultConfig):
-    """The settings of a ``redis`` vault."""
-
-    redis_url: str = "redis://localhost:6379/0"
-
-
-class VaultConfig(RedisVaultConfig, SQLiteVaultConfig, PluggableConfig):
-    builtin_types = {
-        "memory": MemoryVaultConfig,
-        "sqlite": SQLiteVaultConfig,
-        "redis": RedisVaultConfig,
-    }
+class VaultConfig(PluggableConfig):
     # Open string rather than a closed Literal so a plugin vault type validates;
-    # build_vault still raises ConfigError for a type that is neither built-in
-    # nor registered by a plugin.
+    # building the vault still fails for a type that is neither built in nor
+    # added by a plugin.
     type: str = "memory"
 
 
@@ -87,68 +47,9 @@ class DetectorCacheConfig(BaseModel):
     max_size: int = 10000
 
 
-class PatternDetectorConfig(BaseModel):
-    """The settings of a ``regex`` or ``yaml`` detector.
+class SharedDetectorOptions(BaseModel):
+    """The settings every detector takes, whatever its type."""
 
-    ``patterns`` and ``terms`` are complementary and may both be set: the first
-    is entity -> regex, the second entity -> a list of literal strings that
-    Privyx escapes and compiles for you (case-insensitively).  They are merged
-    into one pattern map; with ``merge_terms`` off, a hand-written ``patterns``
-    entry wins over a ``terms`` entry for the same entity.
-    """
-
-    patterns: dict[str, str] = Field(default_factory=dict)
-    terms: dict[str, list[str]] = Field(default_factory=dict)
-    merge_terms: bool = True  # match terms before patterns for the same entity
-    term_variants: bool = True  # terms also match acme-corp, acme_corp, … for "Acme Corp"
-    # entity -> words, one of which must be near a match
-    context: dict[str, list[str]] = Field(default_factory=dict)
-    enable: list[str] = Field(default_factory=list)  # opt-in built-in entities
-    disable: list[str] = Field(default_factory=list)  # built-in entities to turn off
-    entropy_threshold: float = Field(default=3.0, gt=0)  # HIGH_ENTROPY: bits per character
-    decode: bool = False  # also scan split strings and Base64/hex/URL-encoded text
-    normalize: bool = False  # also scan with fullwidth and zero-width characters folded
-
-
-class PresidioDetectorConfig(BaseModel):
-    """The settings of a ``presidio`` detector."""
-
-    language: str = "en"
-    model: str = ""  # spaCy model (empty → {language}_core_web_sm)
-    entities: list[str] = Field(default_factory=list)  # empty → all recognizers
-    score_threshold: float = 0.35  # minimum confidence
-
-
-class LLMDetectorConfig(BaseModel):
-    """The settings of an ``llm`` detector.
-
-    Prefixed (unlike presidio's) because their unprefixed names would be
-    ambiguous in the flat section: "provider" could read as the proxy's
-    upstream ProviderConfig, and "model" already means a spaCy model name.
-    """
-
-    llm_provider: str = "openai"  # built-in SDK ("openai" or "anthropic")
-    llm_model: str = ""  # model name (empty → a small default per provider)
-    llm_api_key: str = ""  # empty defers to the SDK's own env lookup
-    llm_instructions: str = ""  # prompt instructions (empty → built-in default)
-    llm_timeout: float = Field(default=30.0, gt=0)  # seconds before a scan fails
-    llm_max_chars: int = Field(default=4000, gt=0)  # longer text is chunked
-    llm_fallback_on_error: bool = False  # regex-only scan instead of failing
-
-
-class DetectorConfig(
-    LLMDetectorConfig, PresidioDetectorConfig, PatternDetectorConfig, PluggableConfig
-):
-    """Detector selection and its rules."""
-
-    builtin_types = {
-        "regex": PatternDetectorConfig,
-        "yaml": PatternDetectorConfig,
-        "presidio": PresidioDetectorConfig,
-        "llm": LLMDetectorConfig,
-    }
-    shared_fields = frozenset({"cache", "underscore_separates_words"})
-    type: str = "regex"
     # `_` separates words, so acme is found in ACME_API_KEY (and the leak
     # check follows it, whatever the type)
     underscore_separates_words: bool = True
@@ -162,88 +63,21 @@ class DetectorConfig(
         return v
 
 
-class StrictPolicyConfig(BaseModel):
-    """The settings of a ``strict`` policy."""
+class DetectorConfig(SharedDetectorOptions, PluggableConfig):
+    """Detector selection and its rules."""
 
-    allowed: list[str] = Field(default_factory=list)
+    type: str = "regex"
 
 
-class PolicyConfig(StrictPolicyConfig, PluggableConfig):
-    builtin_types = {"default": NoSettings, "strict": StrictPolicyConfig}
+class PolicyConfig(PluggableConfig):
     type: str = "default"
 
 
-class RedactOperatorConfig(BaseModel):
-    """The settings of a ``redact`` operator."""
-
-    token: str = "[REDACTED]"
-
-
-#: The digest lengths a ``hash`` operator takes.
-HASH_LENGTH = (6, 64)
-
-
-class HashOperatorConfig(BaseModel):
-    """The settings of a ``hash`` operator."""
-
-    length: int = Field(default=12, ge=HASH_LENGTH[0], le=HASH_LENGTH[1])  # digest length
-
-
-class FPEOperatorConfig(BaseModel):
-    """The settings of an ``fpe`` operator."""
-
-    seed: int | None = None  # determinism salt
-
-
-class FakerOperatorConfig(FPEOperatorConfig):
-    """The settings of a ``faker`` operator, and of ``pseudonym`` labels."""
-
-    locale: str = ""  # Faker locale (empty → Faker's default)
-
-
-class EncryptOperatorConfig(BaseModel):
-    """The settings of an ``encrypt`` operator."""
-
-    key: str = ""  # 64 hex chars (`openssl rand -hex 32`)
-
-
-class OperatorConfig(
-    EncryptOperatorConfig,
-    FakerOperatorConfig,
-    HashOperatorConfig,
-    RedactOperatorConfig,
-    PluggableConfig,
-):
-    builtin_types = {
-        "pseudonym": FakerOperatorConfig,
-        "redact": RedactOperatorConfig,
-        "hash": HashOperatorConfig,
-        "faker": FakerOperatorConfig,
-        "encrypt": EncryptOperatorConfig,
-        "partial": NoSettings,
-        "fpe": FPEOperatorConfig,
-    }
+class OperatorConfig(PluggableConfig):
     type: str = "pseudonym"
-    # Unbounded here: a plugin type may have a `length` of its own.  `hash`'s
-    # bounds are checked below, and the JSON schema takes them from its model.
-    length: int = Field(default=12, ge=1)
-
-    @model_validator(mode="after")
-    def _hash_length(self) -> OperatorConfig:
-        low, high = HASH_LENGTH
-        if self.type == "hash" and not low <= self.length <= high:
-            raise ValueError(f"operator.length must be between {low} and {high}, not {self.length}")
-        return self
 
 
-class HMACAnchorConfig(BaseModel):
-    """The settings of an ``hmac`` anchor."""
-
-    secret: str = "auto"  # the per-user key in ~/.privyx/anchor.key; "" for none
-
-
-class AnchorConfig(HMACAnchorConfig, PluggableConfig):
-    builtin_types = {"hmac": HMACAnchorConfig, "pasp": HMACAnchorConfig}
+class AnchorConfig(PluggableConfig):
     type: str = "hmac"
 
 
@@ -293,19 +127,15 @@ class TokenConfig(BaseModel):
     label_format: str = ""
 
 
-class ProviderKeysConfig(BaseModel):
-    """The key of each built-in provider type, which every built-in type takes.
+class SharedProviderOptions(BaseModel):
+    """The settings every provider takes, whatever its type."""
 
-    One environment can hold a key per type (``PRIVYX_OPENAI_API_KEY``, ...);
-    the one for the selected type wins over ``api_key``.
-    """
-
-    openai_api_key: str = ""
-    anthropic_api_key: str = ""
-    google_api_key: str = ""
+    base_url: str = ""
+    api_key: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
-class ProviderConfig(ProviderKeysConfig, PluggableConfig):
+class ProviderConfig(SharedProviderOptions, PluggableConfig):
     """Provider transport settings.
 
     ``base_url`` defaults to empty rather than to a URL: an empty value lets
@@ -314,13 +144,7 @@ class ProviderConfig(ProviderKeysConfig, PluggableConfig):
     non-empty default here would silently override every such fallback.
     """
 
-    builtin_types = dict.fromkeys(("generic", "openai", "anthropic", "google"), ProviderKeysConfig)
-    # The transparent proxy uses them whatever the type.
-    shared_fields = frozenset({"base_url", "api_key", "headers"})
     type: str = "generic"
-    base_url: str = ""
-    api_key: str = ""
-    headers: dict[str, str] = Field(default_factory=dict)
 
 
 def _default_routes() -> dict[str, str]:
@@ -418,7 +242,7 @@ class ProxyConfig(BaseModel):
     path_mapping: PathMappingConfig = Field(default_factory=PathMappingConfig)
     forward_client_auth: bool = True
     passthrough_unknown: bool = True
-    # The upstream client, in both modes; see privyx.providers.generic.upstream_client.
+    # The upstream client, in both modes; see privyx.proxy.http.upstream_client.
     timeout: float = Field(default=300.0, gt=0)  # seconds between bytes, read or write
     connect_timeout: float = Field(default=10.0, gt=0)
     max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
@@ -623,7 +447,7 @@ class Settings(BaseModel):
     log_file: str = ""
     #: Explicit upstream override (``--upstream`` / ``PRIVYX_UPSTREAM_URL``).
     #: Empty means "use whatever the configured provider resolves to"; see
-    #: :func:`privyx.providers.registry.build_provider` for the precedence.
+    #: :func:`privyx.providers.resolve_base_url` for the precedence.
     upstream_url: str = ""
     vault: VaultConfig = Field(default_factory=VaultConfig)
     #: One detector, or a list of them run together (their spans are pooled).
@@ -665,7 +489,7 @@ class Settings(BaseModel):
         return cls(**merged)
 
 
-#: Each section whose ``type`` may name a plugin, by key.
+#: Each section whose ``type`` names a component, by key: the kind of the component.
 PLUGGABLE: dict[str, type[PluggableConfig]] = {
     "vault": VaultConfig,
     "detector": DetectorConfig,
@@ -674,130 +498,3 @@ PLUGGABLE: dict[str, type[PluggableConfig]] = {
     "anchor": AnchorConfig,
     "provider": ProviderConfig,
 }
-
-#: Where the published copy of :func:`json_schema` is served (``docs/schema.json``).
-SCHEMA_URL = "https://ohp1x.github.io/privyx/schema.json"
-
-
-def json_schema(
-    plugins: dict[str, dict[str, type[BaseModel] | None]] | None = None,
-) -> dict[str, Any]:
-    """The JSON Schema of a config file, for editors that complete and check YAML.
-
-    A section that is not pluggable takes no other keys, as in
-    :func:`~privyx.config.loader.load_config`.  A pluggable one takes, under a
-    built-in type, only the settings of that type and the shared ones, and any
-    key under another, since a plugin type has options of its own.
-
-    ``plugins`` maps a section to the plugin types loaded for it, each to its
-    ``Config`` or ``None``.  With it, ``type`` takes only the built-in and
-    loaded names, and a plugin with a ``Config`` only its options.
-    """
-    schema = Settings.model_json_schema()
-    schema["properties"]["include"] = {
-        "description": "Config files or globs to merge below this one, relative to it.",
-        "anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
-    }
-    for section in [schema, *schema["$defs"].values()]:
-        section.setdefault("additionalProperties", False)
-    # A profile may take its command from the profile it extends.
-    schema["$defs"]["AgentConfig"].pop("required", None)
-    _allow_references(schema)
-    for name, model in PLUGGABLE.items():
-        loaded = None if plugins is None else plugins.get(name, {})
-        _by_type(schema["$defs"], name, model, loaded)
-    # A profile's settings and a preset are partial config files, less the
-    # keys the loader refuses there; `include` is a file's own.
-    from privyx.config.loader import _NOT_IN_PRESET
-
-    for name, refused in (
-        ("ProfileSettings", ("agents", "presets", "include")),
-        ("PresetSettings", _NOT_IN_PRESET),
-    ):
-        kept = {k: v for k, v in schema["properties"].items() if k not in refused}
-        schema["$defs"][name] = {"type": "object", "properties": kept}
-        schema["$defs"][name]["additionalProperties"] = False
-    profile = schema["$defs"]["AgentConfig"]["properties"]
-    profile["privyx"] = {"title": "Privyx", "$ref": "#/$defs/ProfileSettings"}
-    schema["properties"]["presets"]["additionalProperties"] = {"$ref": "#/$defs/PresetSettings"}
-    return {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": SCHEMA_URL, **schema}
-
-
-def _by_type(
-    defs: dict[str, Any],
-    section: str,
-    model: type[PluggableConfig],
-    loaded: dict[str, type[BaseModel] | None] | None,
-) -> None:
-    """Make ``model``'s definition check each ``type`` with that type's settings.
-
-    The checks are ``if``/``then`` pairs, so a ``${NAME}`` type, which matches
-    no name, is checked as an unknown plugin's: with any key.
-    """
-    node = defs[model.__name__]
-    builtin = sorted(model.builtin_types)
-    # A plugin never shadows a built-in type, so one named like it gets no check.
-    plugins = {name: options for name, options in (loaded or {}).items() if name not in builtin}
-    names = builtin if loaded is None else builtin + sorted(plugins)
-    kind = {k: v for k, v in node["properties"]["type"].items() if k in ("default", "title")}
-    if loaded is None:  # suggest the built-in names, take any other
-        kind["anyOf"] = [{"enum": names}, {"type": "string"}]
-    else:
-        kind["anyOf"] = [{"enum": names}, {"type": "string", "pattern": r"\$\{"}]
-    props = node["properties"]
-    # Only `type` and the shared fields apply whatever the type; each built-in
-    # type adds its own below, so an editor offers only those.
-    node["properties"] = {"type": kind, **{k: props[k] for k in props if k in model.shared_fields}}
-    node["additionalProperties"] = True
-    taken = {"type": True, **dict.fromkeys(model.shared_fields, True)}
-    default = model.model_fields["type"].default
-    groups: dict[type[BaseModel], list[str]] = {}
-    for name, settings in model.builtin_types.items():
-        groups.setdefault(settings, []).append(name)
-    checks: list[dict[str, Any]] = []
-    for settings, types in groups.items():
-        check: dict[str, Any] = {"properties": {"type": {"enum": types}}}
-        if default not in types:  # the default's check also applies with no `type`
-            check["required"] = ["type"]
-        # A field the section redeclares, looser for plugins, is the type's own here.
-        mine = settings.model_json_schema()["properties"]
-        _allow_references(mine)
-        own = {
-            k: mine[k] if k in model.__annotations__ else props[k] for k in settings.model_fields
-        }
-        checks.append(
-            {"if": check, "then": {"properties": {**taken, **own}, "additionalProperties": False}}
-        )
-    for name, options in sorted(plugins.items()):
-        if options is None:
-            continue  # no Config: any key is the plugin's to read
-        prefix = f"{section}.{name}."
-        own = options.model_json_schema(ref_template=f"#/$defs/{prefix}{{model}}")
-        for key, value in own.pop("$defs", {}).items():
-            defs[prefix + key] = value
-        _allow_references(own)
-        checks.append(
-            {
-                "if": {"properties": {"type": {"const": name}}, "required": ["type"]},
-                "then": {
-                    "properties": {**taken, **own.get("properties", {})},
-                    "additionalProperties": False,
-                },
-            }
-        )
-    node["allOf"] = checks
-
-
-def _allow_references(node: Any) -> None:
-    """Let a number, boolean, or enum be a ``${NAME}`` reference, which the loader resolves."""
-    if isinstance(node, list):
-        for item in node:
-            _allow_references(item)
-    elif isinstance(node, dict):
-        restricted = "enum" in node or "const" in node
-        if restricted or node.get("type") in ("integer", "number", "boolean"):
-            value = {k: node.pop(k) for k in list(node) if k not in ("title", "description")}
-            node["anyOf"] = [value, {"type": "string", "pattern": r"\$\{"}]
-        else:
-            for item in node.values():
-                _allow_references(item)

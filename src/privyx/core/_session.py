@@ -32,7 +32,7 @@ class Session:
         metadata: Free-form session metadata (provider, model, ...).
         token_ids: ``mapping`` indexed by token id, with the size it had then
             (memory cache only; kept by
-            :func:`~privyx.privacy.operator.base.restore`).
+            :func:`~privyx.operators.restore`).
         issued: The ids and values of ``mapping``, indexed for labels, with
             the size it had then (memory cache only; kept by the ``pseudonym``
             operator with ``token.label_format``).

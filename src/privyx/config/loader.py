@@ -22,10 +22,10 @@ import json
 import logging
 import os
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, get_args, get_origin
+from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel
@@ -33,9 +33,12 @@ from pydantic import BaseModel
 from privyx.config.agents import resolve_profiles
 from privyx.config.defaults import DEFAULTS
 from privyx.config.env import discovery_disabled, env_config
-from privyx.config.schema import PLUGGABLE, DetectorConfig, PluggableConfig, Settings
+from privyx.config.schema import PLUGGABLE, PluggableConfig, Settings
 from privyx.core import ConfigError
 from privyx.security.secrets import resolve_secrets
+
+if TYPE_CHECKING:
+    from privyx.core import Registry
 
 _log = logging.getLogger("privyx")
 
@@ -150,21 +153,75 @@ def active_config_paths(path: str | Path | None = None) -> list[Path]:
     return [file for config in _config_paths(path)[0] for file, _ in _config_layers(config)]
 
 
+class _Types:
+    """The built-in types of each section, read from the app's registries.
+
+    A built-in type's options are checked when the config is read; a plugin's
+    when it is built, since the plugins a config loads are not loaded yet.
+    Only the chosen types are imported, and the others of a section only when
+    a key is not one of the chosen type's.
+    """
+
+    def __init__(self, registries: Mapping[str, Registry[Any]]) -> None:
+        self._registries = registries
+        self._unions: dict[str, frozenset[str]] = {}
+
+    def builtin(self, section: str, kind: object) -> bool:
+        """Whether ``kind`` is a built-in type of ``section``."""
+        registry = self._registries.get(section)
+        return isinstance(kind, str) and registry is not None and registry.is_builtin(kind)
+
+    def fields(self, section: str, kind: str) -> frozenset[str]:
+        """The keys built-in type ``kind`` takes: ``type``, the shared ones, and its options."""
+        options = self._registries[section].get(kind).Options
+        return frozenset({*PLUGGABLE[section].model_fields, *options.model_fields})
+
+    def union(self, section: str) -> frozenset[str]:
+        """The keys some built-in type of ``section`` takes."""
+        if section not in self._unions:
+            builtins = self._registries[section].builtin_names()
+            self._unions[section] = frozenset(PLUGGABLE[section].model_fields).union(
+                *(self.fields(section, kind) for kind in builtins)
+            )
+        return self._unions[section]
+
+    def checked(self, section: str, data: Any, setting: str) -> Any:
+        """``data`` with a built-in type's options checked and their defaults filled in.
+
+        The keys another built-in type takes, which :func:`_unused` let
+        through from another layer, are dropped.
+
+        Raises:
+            ConfigError: If an option has an invalid value.
+        """
+        if not isinstance(data, dict):
+            return data  # the wrong shape is pydantic's to report
+        kind = data.get("type", PLUGGABLE[section].model_fields["type"].default)
+        if not self.builtin(section, kind):
+            return data
+        own = self.fields(section, kind)
+        options = {key: value for key, value in data.items() if key != "type" and key in own}
+        checked = self._registries[section].validate(kind, options, setting=setting)
+        return {"type": kind, **checked.model_dump()}
+
+
 def _deep_merge(
-    base: dict[str, Any], override: dict[str, Any], *, top: bool = True
+    base: dict[str, Any], override: dict[str, Any], types: _Types, *, top: bool = True
 ) -> dict[str, Any]:
     result = dict(base)
     for key, value in override.items():
         current = result.get(key)
-        section = PLUGGABLE.get(key) if top else None
+        section = key if top and key in PLUGGABLE else None
         if isinstance(current, dict) and isinstance(value, dict):
-            result[key] = _deep_merge(_retyped(section, current, value), value, top=False)
+            result[key] = _deep_merge(
+                _retyped(section, current, value, types), value, types, top=False
+            )
         elif key == "detector" and isinstance(current, list) and isinstance(value, dict):
             # A section given as a list (`detector: [...]`) takes a mapping
             # override such as PRIVYX_DETECTOR_CACHE into each item.  Replacing
             # the list would silently drop the detectors it names.
             result[key] = [
-                _deep_merge(_retyped(section, item, value), value, top=False)
+                _deep_merge(_retyped(section, item, value, types), value, types, top=False)
                 if isinstance(item, dict)
                 else item
                 for item in current
@@ -175,22 +232,23 @@ def _deep_merge(
 
 
 def _retyped(
-    section: type[PluggableConfig] | None, current: dict[str, Any], override: dict[str, Any]
+    section: str | None, current: dict[str, Any], override: dict[str, Any], types: _Types
 ) -> dict[str, Any]:
     """``current`` without a plugin's options when ``override`` picks another ``type``.
 
     They are options of the type below, and would be unknown settings, or wrong
-    ones, for the new type.  The section's own fields are merged as before.
-    Below the built-in default type, every key is kept: it was written for the
-    type a later layer picks, as with ``vault: {bucket: b}`` in a file and
-    ``PRIVYX_VAULT`` naming the plugin.
+    ones, for the new type.  The keys some built-in type takes are merged as
+    before.  Below the built-in default type, every key is kept: it was written
+    for the type a later layer picks, as with ``vault: {bucket: b}`` in a file
+    and ``PRIVYX_VAULT`` naming the plugin.
     """
     if section is None or "type" not in override:
         return current
-    fields = section.model_fields
-    below = current.get("type", fields["type"].default)
-    if below in (override["type"], fields["type"].default):
+    default = PLUGGABLE[section].model_fields["type"].default
+    below = current.get("type", default)
+    if below in (override["type"], default):
         return current
+    fields = types.union(section)
     return {key: value for key, value in current.items() if key in fields}
 
 
@@ -204,6 +262,7 @@ def load_config(
     sources: dict[str, str] | None = None,
     secrets: bool = True,
     warnings: list[str] | None = None,
+    types: Mapping[str, Registry[Any]],
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
 
@@ -229,9 +288,14 @@ def load_config(
     written beside the type; masking keys from another layer that no detector
     uses are logged, once per process, or appended to ``warnings`` when it is
     given.
+    ``types`` holds the registry of each section's components, by section
+    name: a built-in type's options are checked against its ``Options``, and
+    a section of one gets their defaults.  ``privyx.load_config`` passes the
+    built-in ones.
     """
     if presets is None:
         presets = CHOSEN_PRESETS.get()
+    known = _Types(types)
     merged: dict[str, Any] = {}
     origins: dict[str, str] = {}
     layers: list[tuple[str, dict[str, Any]]] = []
@@ -240,7 +304,7 @@ def load_config(
         nonlocal merged
         layers.append((source, data))
         _record_sources(data, source, origins, base=merged)
-        merged = _deep_merge(merged, data)
+        merged = _deep_merge(merged, data, known)
 
     apply(DEFAULTS, "defaults")
     apply(base_extra or {}, "run defaults")
@@ -262,14 +326,14 @@ def load_config(
 
     # A misspelled key would otherwise be dropped without a word, and the
     # setting it meant to change (a detector's terms, say) silently not apply.
-    _raise_unknown(_unknown_keys(Settings, merged))
-    _check_presets(merged, presets)
+    _raise_unknown(_unknown_keys(Settings, merged, known))
+    _check_presets(merged, presets, known)
 
     profiles = merged.get("agents")
     if isinstance(profiles, dict):
         _apply_colon_inheritance(profiles)
-        profiles, inherited_sources = resolve_profiles(profiles, origins)
-        _check_overrides(profiles)
+        profiles, inherited_sources = resolve_profiles(profiles, origins, known)
+        _check_overrides(profiles, known)
         if agent in profiles:
             profiles[agent] = _settle(profiles[agent], expand=True)
         selected = profiles.get(agent) if agent else None
@@ -291,9 +355,9 @@ def load_config(
                 for field in ("provider", "upstream"):
                     if inherited_sources.get(f"agents.{agent}.{field}") == source:
                         projection[field] = selected[field]
-            layer = _agent_layer(data, agent, projection)
+            layer = _agent_layer(data, agent, projection, known)
             _record_sources(layer, source, effective_sources, base=effective)
-            effective = _deep_merge(effective, layer)
+            effective = _deep_merge(effective, layer, known)
         effective["agents"] = profiles
         effective_sources.update(inherited_sources)
         merged, origins = effective, effective_sources
@@ -301,7 +365,7 @@ def load_config(
     if sources is not None:
         sources.clear()
         sources.update(origins)
-    refused, unused = _unused(layers, merged, origins)
+    refused, unused = _unused(layers, merged, origins, known)
     if refused:
         raise ConfigError("; ".join(refused))
 
@@ -322,6 +386,14 @@ def load_config(
         merged["agents"][name].update(values)
     if definitions is not None:
         merged["presets"] = definitions
+    for name in PLUGGABLE:
+        value = merged.get(name)
+        if isinstance(value, list):
+            merged[name] = [
+                known.checked(name, item, f"{name}[{i}]") for i, item in enumerate(value)
+            ]
+        elif name in merged:
+            merged[name] = known.checked(name, value, name)
     try:
         settings = Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
@@ -343,7 +415,10 @@ _MASKING = ("terms", "patterns", "enable")
 
 
 def _unused(
-    layers: list[tuple[str, dict[str, Any]]], merged: dict[str, Any], origins: dict[str, str]
+    layers: list[tuple[str, dict[str, Any]]],
+    merged: dict[str, Any],
+    origins: dict[str, str],
+    types: _Types,
 ) -> tuple[list[str], list[str]]:
     """Errors and warnings for the settings of a section its built-in ``type`` does not use.
 
@@ -366,14 +441,14 @@ def _unused(
             if not isinstance(item, dict):
                 continue
             kind = item.get("type", model.model_fields["type"].default)
-            if not isinstance(kind, str) or kind not in model.builtin_types:
+            if not isinstance(kind, str) or not types.builtin(name, kind):
                 continue  # a plugin's options are its own
             prefix = f"{name}." if index is None else f"{name}.{index}."
             shown = name if index is None else f"{name}[{index}]"
             owner = origins.get(prefix + "type", "defaults")
-            used = model.type_fields(kind)
+            used = types.fields(name, kind)
             for key in item:
-                if key in used or key not in model.model_fields:
+                if key in used or key not in types.union(name):
                     continue  # an unknown key is an error already
                 written = {
                     source
@@ -394,9 +469,9 @@ def _unused(
     for item in final:
         if not isinstance(item, dict) or not isinstance(kind := item.get("type", "regex"), str):
             continue  # a malformed type is pydantic's to report
-        plugin = kind not in DetectorConfig.builtin_types
+        plugin = not types.builtin("detector", kind)
         for key in _MASKING:
-            if plugin or key in DetectorConfig.type_fields(kind):
+            if plugin or key in types.fields("detector", kind):
                 reached |= {(key, e) for e in _entities(item.get(key), empty=True)}
     if isinstance(detector, list):
         why = f"the detector list from {origins.get('detector')} replaces it"
@@ -432,7 +507,7 @@ def _entities(value: Any, *, empty: bool = False) -> set[str]:
     return set()
 
 
-def _check_overrides(profiles: dict[str, Any]) -> None:
+def _check_overrides(profiles: dict[str, Any], types: _Types) -> None:
     """Reject a key a profile's ``privyx`` settings do not take, as for a config file."""
     unknown: list[str] = []
     for name, profile in profiles.items():
@@ -443,6 +518,7 @@ def _check_overrides(profiles: dict[str, Any]) -> None:
                 f"agents.{name}.privyx.",
                 ("agents", "presets"),
                 "profiles and presets cannot be set per profile",
+                types,
             )
     _raise_unknown(unknown)
 
@@ -452,7 +528,7 @@ def _check_overrides(profiles: dict[str, Any]) -> None:
 _NOT_IN_PRESET = ("agents", "presets", "include", "upstream_url", "provider")
 
 
-def _check_presets(merged: dict[str, Any], chosen: Sequence[str]) -> None:
+def _check_presets(merged: dict[str, Any], chosen: Sequence[str], types: _Types) -> None:
     """Check every preset as a config file is checked, and every name that picks one.
 
     Done whichever profile runs, so a typo shows before the preset is needed.
@@ -469,6 +545,7 @@ def _check_presets(merged: dict[str, Any], chosen: Sequence[str]) -> None:
                 f"presets.{name}.",
                 _NOT_IN_PRESET,
                 "a preset cannot set the destination, profiles, or other presets",
+                types,
             )
     _raise_unknown(unknown)
     profiles = merged.get("agents")
@@ -496,12 +573,12 @@ def _preset_layers(merged: dict[str, Any], names: Sequence[str]) -> list[tuple[s
 
 
 def _check_patch(
-    patch: dict[str, Any], prefix: str, forbidden: tuple[str, ...], why: str
+    patch: dict[str, Any], prefix: str, forbidden: tuple[str, ...], why: str, types: _Types
 ) -> list[str]:
     """The keys of ``patch``, a partial config, that it cannot take or that are unknown."""
     found = [f"{prefix + key!r} ({why})" for key in forbidden if key in patch]
     allowed = {key: value for key, value in patch.items() if key not in forbidden}
-    return found + _unknown_keys(Settings, allowed, prefix)
+    return found + _unknown_keys(Settings, allowed, types, prefix)
 
 
 def _raise_unknown(unknown: list[str]) -> None:
@@ -527,7 +604,7 @@ def _apply_colon_inheritance(profiles: dict[str, Any]) -> None:
 
 
 def _agent_layer(
-    data: dict[str, Any], agent: str | None, profile: dict[str, Any]
+    data: dict[str, Any], agent: str | None, profile: dict[str, Any], types: _Types
 ) -> dict[str, Any]:
     if agent is None:
         return data
@@ -542,7 +619,7 @@ def _agent_layer(
     if "upstream" in profile:
         overrides["upstream_url"] = profile["upstream"]
         overrides.setdefault("provider", {})["base_url"] = profile["upstream"]
-    return _deep_merge(data, overrides)
+    return _deep_merge(data, overrides, types)
 
 
 def _record_sources(
@@ -589,41 +666,51 @@ def _record_sources(
                         _record_sources(item, source, sources, f"{path}.{index}.")
 
 
-def _unknown_keys(model: type[BaseModel], data: Any, path: str = "") -> list[str]:
+def _unknown_keys(
+    model: type[BaseModel], data: Any, types: _Types, path: str = ""
+) -> list[str]:
     """Name each key in ``data`` that ``model`` does not define, with a suggestion.
 
-    Nested sections and ``detector`` lists are walked too.  A pluggable section
-    whose ``type`` is not built in is skipped: its extra keys are the plugin's
-    options.  Only key paths are reported, never values — a typo'd key may hold
-    a secret.
+    Nested sections and ``detector`` lists are walked too.  A section whose
+    ``type`` is built in takes the keys some built-in type of it takes; the
+    ones its type does not are :func:`_unused`'s.  One whose ``type`` is not
+    built in is skipped: its other keys are the plugin's options.  Only key
+    paths are reported, never values — a typo'd key may hold a secret.
     """
     if not isinstance(data, dict):
         return []  # the wrong shape is pydantic's to report
     fields = model.model_fields
+    known: Collection[str] = fields
     if issubclass(model, PluggableConfig):
+        section = _SECTIONS[model]
         kind = data.get("type", fields["type"].default)
-        if not (isinstance(kind, str) and kind in model.builtin_types):
+        if not (isinstance(kind, str) and types.builtin(section, kind)):
             return []
+        known = types.union(section)
     unknown = []
     for key, value in data.items():
         name = str(key)
-        if name not in fields:
-            match = difflib.get_close_matches(name, list(fields), n=1)
+        if name not in known:
+            match = difflib.get_close_matches(name, list(known), n=1)
             hint = f" (did you mean {match[0]!r}?)" if match else ""
             unknown.append(f"{path + name!r}{hint}")
             continue
-        section = _section(fields[name].annotation)
-        if section is None:
-            continue
+        section_model = _section(fields[name].annotation) if name in fields else None
+        if section_model is None:
+            continue  # a value, or a type's option, which its Options check
         if get_origin(fields[name].annotation) is dict and isinstance(value, dict):
             for entry, item in value.items():
-                unknown += _unknown_keys(section, item, f"{path}{name}.{entry}.")
+                unknown += _unknown_keys(section_model, item, types, f"{path}{name}.{entry}.")
         elif isinstance(value, list):
             for i, item in enumerate(value):
-                unknown += _unknown_keys(section, item, f"{path}{name}[{i}].")
+                unknown += _unknown_keys(section_model, item, types, f"{path}{name}[{i}].")
         else:
-            unknown += _unknown_keys(section, value, f"{path}{name}.")
+            unknown += _unknown_keys(section_model, value, types, f"{path}{name}.")
     return unknown
+
+
+#: The section of each model in :data:`PLUGGABLE`.
+_SECTIONS: dict[type[BaseModel], str] = {model: name for name, model in PLUGGABLE.items()}
 
 
 def _section(annotation: Any) -> type[BaseModel] | None:

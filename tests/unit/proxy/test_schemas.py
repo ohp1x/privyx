@@ -10,13 +10,13 @@ from typing import Any
 import pytest
 
 from privyx.core import LeakError, Session
+from privyx.detectors import RegexDetector, YamlDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy import schemas
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 PHONE = "+1-555-0142"
@@ -624,7 +624,7 @@ async def test_transform_masks_codex_turn_metadata_in_body_and_header() -> None:
 async def test_metadata_json_escapes_are_decoded_before_masking() -> None:
     # Codex writes /home/josé as /home/josé, which no detector would match.
     engine = PrivacyEngine(
-        detector=RegexDetector({"PERSON": "josé"}),
+        detector=YamlDetector(patterns={"PERSON": "josé"}, underscore_separates_words=False),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
@@ -1006,12 +1006,12 @@ async def test_dlp_check_masks_a_copy_but_not_the_same_word_in_a_token() -> None
 
 
 async def test_dlp_check_counts_the_fixed_text_it_writes_for_a_copy() -> None:
-    from privyx.privacy.operator.redact import RedactOperator
+    from privyx.operators._redact import RedactOperator
 
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
-        operator=RedactOperator("[TED-HIDDEN]"),  # `TED` is in its text: counted, not a leak
+        operator=RedactOperator(token="[TED-HIDDEN]"),  # `TED` is in its text: counted, not a leak
         vault=MemoryVault(),
         dlp_check=True,
     )
@@ -1029,8 +1029,8 @@ async def test_dlp_check_counts_the_fixed_text_it_writes_for_a_copy() -> None:
 async def test_dlp_check_masks_a_copy_of_a_credential_glued_to_other_text(
     operator: dict[str, str],
 ) -> None:
+    from privyx.app._build import build_engine
     from privyx.config.schema import Settings
-    from privyx.core.builder import build_engine
 
     pytest.importorskip({"faker": "faker", "encrypt": "cryptography"}.get(operator["type"], "re"))
     engine, close = await build_engine(
@@ -1069,7 +1069,7 @@ def test_only_a_long_credential_with_a_digit_or_symbol_counts_glued() -> None:
 
 
 async def test_dlp_check_masks_a_copy_in_headers_and_params_as_they_were_masked() -> None:
-    from privyx.privacy.operator.fpe import FPEOperator
+    from privyx.operators._fpe import FPEOperator
 
     engine = PrivacyEngine(
         detector=RegexDetector(),
@@ -1183,7 +1183,9 @@ def test_find_leaks_skips_declared_tool_names_only() -> None:
 )
 async def test_dlp_check_does_not_refuse_a_term_in_a_tool_name(tools: list[Any]) -> None:
     engine = PrivacyEngine(
-        detector=RegexDetector({"ORGANIZATION": r"\bacme\b"}),
+        detector=YamlDetector(
+            patterns={"ORGANIZATION": r"\bacme\b"}, underscore_separates_words=False
+        ),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
@@ -1205,7 +1207,9 @@ async def test_dlp_check_does_not_refuse_a_term_in_a_tool_name(tools: list[Any])
 
 async def test_dlp_check_does_not_refuse_a_tool_name_of_a_wrapped_gemini_request() -> None:
     engine = PrivacyEngine(
-        detector=RegexDetector({"ORGANIZATION": r"\bacme\b"}),
+        detector=YamlDetector(
+            patterns={"ORGANIZATION": r"\bacme\b"}, underscore_separates_words=False
+        ),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
@@ -1228,7 +1232,9 @@ async def test_dlp_check_does_not_refuse_a_tool_name_of_a_wrapped_gemini_request
 
 async def test_dlp_check_searches_the_descriptions_and_values_of_tools() -> None:
     engine = PrivacyEngine(
-        detector=RegexDetector({"ORGANIZATION": r"\bAcme\b"}),
+        detector=YamlDetector(
+            patterns={"ORGANIZATION": r"\bAcme\b"}, underscore_separates_words=False
+        ),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
@@ -1249,12 +1255,12 @@ async def test_dlp_check_searches_the_descriptions_and_values_of_tools() -> None
 
 
 async def test_dlp_check_does_not_refuse_a_value_inside_the_redaction_text() -> None:
-    from privyx.privacy.operator.redact import RedactOperator
+    from privyx.operators._redact import RedactOperator
 
     engine = PrivacyEngine(
-        detector=RegexDetector({"PERSON": r"\bTED\b"}),
+        detector=YamlDetector(patterns={"PERSON": r"\bTED\b"}, underscore_separates_words=False),
         policy=DefaultPolicy(),
-        operator=RedactOperator("[TED-HIDDEN]"),
+        operator=RedactOperator(token="[TED-HIDDEN]"),
         vault=MemoryVault(),
     )
     engine.dlp_check = True

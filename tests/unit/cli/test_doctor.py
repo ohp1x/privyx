@@ -51,7 +51,7 @@ def test_doctor_cleans_only_its_sessions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None
 ) -> None:
     from privyx.proxy.http import HTTPProxy
-    from privyx.vault.sqlite import SQLiteVault
+    from privyx.vaults._sqlite import SQLiteVault
 
     config = tmp_path / "config.yaml"
     db = tmp_path / "vault.db"
@@ -85,7 +85,7 @@ def test_doctor_cleans_only_its_sessions(
             raise RuntimeError("probe stream failed")
             yield  # pragma: no cover
 
-        monkeypatch.setattr(doctor_module._ReplayProvider, "stream", fail_stream)
+        monkeypatch.setattr(HTTPProxy, "process_stream", fail_stream)
 
     for _ in range(2):
         result = runner.invoke(cli, ["doctor", "-c", str(config)])
@@ -160,7 +160,7 @@ def test_doctor_still_detects_a_broken_stream(monkeypatch: pytest.MonkeyPatch) -
 
 def test_doctor_still_detects_a_broken_builtin_detector(monkeypatch: pytest.MonkeyPatch) -> None:
     from privyx.core import Detection
-    from privyx.privacy.detector.builtin import RegexDetector
+    from privyx.detectors import RegexDetector
 
     monkeypatch.setattr(RegexDetector, "detect_sync", lambda *args: Detection())
 
@@ -203,7 +203,7 @@ def test_doctor_handles_configured_operators(tmp_path: Path, operator: str) -> N
 def test_doctor_closes_vaults_when_cleanup_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from privyx.vault.sqlite import SQLiteVault
+    from privyx.vaults._sqlite import SQLiteVault
 
     config = tmp_path / "config.yaml"
     config.write_text(f"vault:\n  type: sqlite\n  dsn: {tmp_path / 'vault.db'}\n")
@@ -249,7 +249,7 @@ def test_doctor_never_sends_configured_terms_to_llm(
                 return json.dumps([[start, start + len(email), "EMAIL", email]])
             return "[]"
 
-    monkeypatch.setattr("privyx.privacy.detector.llm._load_client", lambda *args: Client())
+    monkeypatch.setattr("privyx.detectors._llm._load_client", lambda *args: Client())
     local = {"type": "yaml", "terms": {"PERSON": [term]}}
     # Unmixed, the terms come from a file below the one that picks `llm`.
     (tmp_path / "base.yaml").write_text(yaml.safe_dump({"detector": local}))
@@ -278,35 +278,47 @@ def test_doctor_never_sends_configured_terms_to_llm(
         assert "streaming: skipped:" in result.output
 
 
+REMOTE_DETECTOR = """
+from privyx.core import Detection
+from privyx.detectors import Detector
+
+SCANNED = []
+
+
+class RemoteDetector(Detector):
+    name = "remote-example"
+
+    async def detect(self, text, context):
+        SCANNED.append(text)
+        return Detection()
+
+
+def setup(app):
+    app.add(RemoteDetector)
+"""
+
+
 def test_doctor_never_sends_configured_terms_to_plugin_detector(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import importlib
+    import sys
+
     import yaml
 
-    from privyx.core import Detection
-    from privyx.plugins.registry import PLUGINS, Registry
-
     term = "apollo-private"
-    scanned = []
-
-    class RemoteDetector:
-        name = "remote-example"
-
-        async def detect(self, text, context):
-            scanned.append(text)
-            return Detection()
-
-    registry = Registry("detector")
-    registry.register("remote-example", lambda config: RemoteDetector())
-    monkeypatch.setattr(PLUGINS, "detectors", registry)
+    (tmp_path / "remote_example_plugin.py").write_text(REMOTE_DETECTOR)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "remote_example_plugin", raising=False)
     config = tmp_path / "config.yaml"
     config.write_text(
         yaml.safe_dump(
             {
+                "plugins": {"modules": ["remote_example_plugin"]},
                 "detector": [
                     {"type": "yaml", "terms": {"PERSON": [term]}},
                     {"type": "remote-example"},
-                ]
+                ],
             }
         )
     )
@@ -314,6 +326,7 @@ def test_doctor_never_sends_configured_terms_to_plugin_detector(
     result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
 
     assert result.exit_code == 0, result.output
+    scanned = importlib.import_module("remote_example_plugin").SCANNED
     assert scanned
     assert all(term not in text for text in scanned)
     assert "proxy: skipped:" in result.output

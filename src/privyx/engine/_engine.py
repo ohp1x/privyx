@@ -20,7 +20,7 @@ import weakref
 from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from privyx.core import (
     ConfigError,
@@ -34,11 +34,13 @@ from privyx.core import (
     with_key,
 )
 from privyx.observability.audit import AuditLogger
-from privyx.privacy.detector.base import Detector
-from privyx.privacy.operator.base import Operator
-from privyx.privacy.policy.base import Policy
-from privyx.token.codec import FormatCodec, TokenCodec
-from privyx.vault.base import Vault
+from privyx.token import FormatCodec
+
+if TYPE_CHECKING:
+    from privyx.detectors import Detector
+    from privyx.operators import Operator
+    from privyx.policies import Policy
+    from privyx.vaults import Vault
 
 #: Longest value :meth:`PrivacyEngine.transform` also detects with its key.  A
 #: secret a key names is short; a file's content in a tool argument is not,
@@ -75,9 +77,6 @@ class PrivacyEngine:
             to each chat request they mask.
         cache_control: Ask transports to mark a large Anthropic prefix for
             prompt caching (:func:`privyx.proxy.schemas.add_cache_control`).
-        shared_anchor: Whether every process sharing the vault anchors with
-            the same key.  Only then may an anchored engine skip a shared
-            vault's session lock; an ``auto`` key is each host's own.
     """
 
     def __init__(
@@ -86,13 +85,12 @@ class PrivacyEngine:
         policy: Policy | None = None,
         operator: Operator | None = None,
         vault: Vault | None = None,
-        codec: TokenCodec | None = None,
+        codec: FormatCodec | None = None,
         audit: AuditLogger | None = None,
         dlp_check: bool = False,
         directive: bool = False,
         cache_control: bool = False,
         underscore_separates_words: bool = False,
-        shared_anchor: bool = True,
     ) -> None:
         if detector is None:
             raise ConfigError("PrivacyEngine requires a detector")
@@ -112,7 +110,6 @@ class PrivacyEngine:
         self.underscore_separates_words = underscore_separates_words
         self.directive = directive
         self.cache_control = cache_control
-        self.shared_anchor = shared_anchor
         # One lock per live session id; an entry disappears once nobody holds it.
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
@@ -133,7 +130,7 @@ class PrivacyEngine:
         return self._vault
 
     @property
-    def codec(self) -> TokenCodec:
+    def codec(self) -> FormatCodec:
         return self._codec
 
     async def get_or_create_session(
@@ -222,16 +219,15 @@ class PrivacyEngine:
         lock = self._locks.get(session_id)
         if lock is None:
             lock = self._locks[session_id] = asyncio.Lock()
-        vault: Any = self._vault
-        anchored = self.shared_anchor and getattr(self._operator, "_anchor", None) is not None
-        shared = hasattr(vault, "lock") and not anchored
+        vault = self._vault
+        shared = None if self._operator.value_derived else vault.lock(session_id)
         async with lock:
-            if shared:
-                async with vault.lock(session_id) as token:
+            if shared is not None:
+                async with shared as token:
                     session = await load()
                     yield session
                     session.touch()
-                    await vault.save(session, lock_token=token)
+                    await vault.save(session, lock=token)
             else:
                 session = await load()
                 yield session

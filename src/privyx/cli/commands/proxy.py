@@ -54,7 +54,8 @@ def proxy(
     ssl_ca_certs: str | None = None,
 ) -> None:
     """Start the privacy proxy server."""
-    from privyx.config.loader import active_config_paths, load_config
+    from privyx.app import load_config
+    from privyx.config.loader import active_config_paths
     from privyx.core import PrivyxError
 
     extra: dict[str, Any] = {}
@@ -190,8 +191,8 @@ async def _run_server(
     Returns ``True`` when the server stopped because a config file changed.
     """
     from privyx.app import Privyx
+    from privyx.app._build import build_audit_logger, build_engine
     from privyx.app._plugins import load_plugins
-    from privyx.core.builder import build_audit_logger, build_engine
     from privyx.events import AppStarting, AppStopping
     from privyx.observability import tracing
     from privyx.observability.logging import configure_logging
@@ -200,10 +201,10 @@ async def _run_server(
     px = app if app is not None else Privyx()
     # Load plugins before building the engine so a plugin detector/operator/etc.
     # is registered by the time build_engine resolves the configured types.
-    load_plugins(settings, app=px)
+    load_plugins(settings, px)
     tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
-    engine, close_vault = await build_engine(settings, audit=audit)
+    engine, close_engine = await build_engine(settings, px, audit=audit)
     await px._events.emit(AppStarting())
     reload_event = asyncio.Event() if watch_paths else None
     watcher = (
@@ -215,12 +216,12 @@ async def _run_server(
         if settings.proxy.mode == "transparent":
             await _serve_transparent(settings, engine, audit, reload_event, px._router)
         else:
-            await _serve_gateway(settings, engine, audit, reload_event, px._router)
+            await _serve_gateway(settings, engine, audit, reload_event, px)
     finally:
         if watcher is not None:
             watcher.cancel()
         await px._events.emit(AppStopping())
-        await close_vault()
+        await close_engine()
         audit.close()
     return reload_event is not None and reload_event.is_set()
 
@@ -230,7 +231,7 @@ def build_transparent_proxy(
 ) -> Any:
     """The transparent proxy ``settings`` describe; ``privyx run`` serves it too."""
     from privyx.observability.tap import Tap
-    from privyx.providers.registry import resolve_api_key, resolve_transparent_upstream
+    from privyx.providers import resolve_api_key, resolve_transparent_upstream
     from privyx.proxy.transparent import TransparentProxy
 
     mapping = settings.proxy.path_mapping
@@ -266,7 +267,7 @@ async def _serve_transparent(
 
     from privyx.config.redact import redact
     from privyx.gateway.transparent import create_transparent_app
-    from privyx.providers.registry import resolve_transparent_upstream
+    from privyx.providers import resolve_transparent_upstream
 
     origin = resolve_transparent_upstream(settings)
     proxy_instance = build_transparent_proxy(settings, engine, audit)
@@ -319,19 +320,26 @@ async def _serve_gateway(
     engine: Any,
     audit: Any,
     reload_event: asyncio.Event | None = None,
-    router: Any = None,
+    app: Any = None,
 ) -> None:
-    """Serve the gateway: our own endpoints, one fixed upstream endpoint."""
+    """Serve the gateway: our own endpoints, one fixed upstream endpoint.
+
+    ``app``, a :class:`~privyx.app.Privyx`, gives the provider types and the
+    routes; without one, the built-ins and none.
+    """
     import uvicorn
 
+    from privyx.app import Privyx
+    from privyx.app._build import open_provider
     from privyx.config.redact import redact
     from privyx.gateway.server import Gateway
-    from privyx.providers.registry import build_provider, resolve_base_url
+    from privyx.providers import resolve_base_url
 
-    provider = build_provider(settings)
+    app = app if app is not None else Privyx()
+    provider = await open_provider(settings, app)
     try:
         gateway = Gateway(
-            engine=engine, provider=provider, settings=settings, audit=audit, router=router
+            engine=engine, provider=provider, settings=settings, audit=audit, router=app._router
         )
     except BaseException:
         await provider.close()
@@ -365,4 +373,5 @@ async def _serve_gateway(
     try:
         await _serve_until_reload(server, reload_event)
     finally:
+        await gateway.close()
         await provider.close()

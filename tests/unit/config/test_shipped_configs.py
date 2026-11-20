@@ -10,10 +10,11 @@ import pytest
 import yaml
 from pydantic import BaseModel
 
-from privyx.config.loader import load_config
-from privyx.config.schema import Settings
+from privyx import load_config
+from privyx.app import Privyx
+from privyx.app._build import build_detector_from, build_policy_from
+from privyx.config.schema import PLUGGABLE, Settings
 from privyx.core import Context
-from privyx.core.builder import build_detector_from, build_policy_from
 
 CONFIGS = Path(__file__).parents[3] / "configs"
 DEFAULT = CONFIGS / "default.yaml"
@@ -32,6 +33,19 @@ def _defaults(model: BaseModel, prefix: tuple[str, ...] = ()) -> dict[tuple[str,
             out |= _defaults(value, (*prefix, name))
         else:
             out[(*prefix, name)] = value
+    return out
+
+
+def _type_options() -> dict[tuple[str, ...], Any]:
+    """The options each built-in type takes beside the shared ones, with their defaults."""
+    app, out = Privyx(), {}
+    for section, model in PLUGGABLE.items():
+        registry = app._registries[section]
+        for name in registry.builtin_names():
+            options = registry.get(name).Options.model_construct()
+            for field in type(options).model_fields:
+                if field not in model.shared_fields():
+                    out.setdefault((section, field), getattr(options, field))
     return out
 
 
@@ -55,7 +69,7 @@ def test_default_yaml_sets_nothing() -> None:
 
 
 def test_default_yaml_lists_every_setting_with_its_default() -> None:
-    defaults = _defaults(Settings())
+    defaults = _defaults(Settings()) | _type_options()
     documented = _documented()
     sections = {path[:i] for path in defaults for i in range(1, len(path))}
 

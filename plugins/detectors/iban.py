@@ -17,9 +17,15 @@ See ../../docs/tutorials/detector-plugin.md for a walkthrough.
 from __future__ import annotations
 
 import re
-from typing import Any, Self
+from typing import TYPE_CHECKING
 
-from privyx.plugins import BaseDetector, Context, Detection
+from pydantic import Field
+
+from privyx.core import Context, Detection
+from privyx.detectors import Detector
+
+if TYPE_CHECKING:
+    from privyx import Privyx
 
 #: A country code, two check digits, then the account part: 11 to 30 letters
 #: or digits, written solid or in groups of four.
@@ -50,30 +56,32 @@ def _iban_in(candidate: str) -> str | None:
     return None
 
 
-class IbanDetector(BaseDetector):
+class IbanDetector(Detector):
     """Detects IBANs with a correct checksum and labels them ``IBAN``.
 
-    Args:
-        countries: Country codes to accept; empty accepts every country.
+    ``countries`` are the country codes to accept; empty accepts every country.
     """
 
     name = "iban"
 
-    def __init__(self, countries: list[str] | None = None) -> None:
-        super().__init__()
-        self._countries = {country.upper() for country in countries or []}
+    class Options(Detector.Options):
+        countries: list[str] = Field(default_factory=list)
 
-    @classmethod
-    def from_config(cls, config: dict[str, Any]) -> Self:
-        return cls(countries=config.get("countries"))
+    options: Options
 
     def detect_sync(self, text: str, context: Context) -> Detection:
+        countries = {country.upper() for country in self.options.countries}
         detection = Detection()
         for match in _CANDIDATE.finditer(text):
             iban = _iban_in(match.group())
             if iban is None:
                 continue
-            if self._countries and iban[:2] not in self._countries:
+            if countries and iban[:2] not in countries:
                 continue
             detection.add(match.start(), match.start() + len(iban), "IBAN", iban)
         return detection
+
+
+def setup(app: Privyx) -> None:
+    """Add the detector to ``app``: what ``plugins.paths`` calls."""
+    app.add(IbanDetector)

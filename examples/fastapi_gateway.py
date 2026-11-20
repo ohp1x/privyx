@@ -8,12 +8,12 @@ import uvicorn
 
 from privyx import PrivacyEngine
 from privyx.config.schema import Settings
+from privyx.detectors import RegexDetector
 from privyx.gateway.server import Gateway
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.providers.registry import build_provider
-from privyx.vault.memory import MemoryVault
+from privyx.operators import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.providers import GenericProvider
+from privyx.vaults import MemoryVault
 
 
 async def main() -> None:
@@ -25,7 +25,7 @@ async def main() -> None:
     )
 
     settings = Settings()
-    provider = build_provider(settings)
+    provider = GenericProvider(base_url="http://localhost:20128")
     gateway = Gateway(engine=engine, provider=provider, settings=settings)
 
     config = uvicorn.Config(gateway.app, host="127.0.0.1", port=8000, log_level="info")
@@ -34,6 +34,7 @@ async def main() -> None:
     try:
         await server.serve()
     finally:
+        await gateway.close()
         await provider.close()
 
 

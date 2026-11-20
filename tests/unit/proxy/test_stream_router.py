@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from privyx.operators import FPEOperator, PseudonymOperator
 from privyx.proxy import schemas
 from privyx.proxy.stream_router import StreamRouter, select_processor_factory
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
@@ -475,7 +476,9 @@ def test_anthropic_restores_a_token_id_written_on_its_own() -> None:
         codec,
         mapping.get,
         adapter,
-        make_processor=select_processor_factory(object(), codec, mapping.get, mapping),
+        make_processor=select_processor_factory(
+            PseudonymOperator(), codec, mapping.get, mapping
+        ),
     )
 
     def delta(index: int, payload: dict[str, Any]) -> str:
@@ -694,17 +697,11 @@ def test_literal_factory_restores_substituted_values_across_chunks() -> None:
 
 
 def test_select_processor_factory_picks_recognizer_by_operator() -> None:
-    class _Literal:
-        stream_restore = "literal"
-
-    class _Token:
-        pass  # no attribute → defaults to the codec recognizer
-
     mapping = {"fake": "real"}
     codec = FormatCodec.default()
 
-    literal = select_processor_factory(_Literal(), codec, mapping.get, mapping)
-    token = select_processor_factory(_Token(), codec, mapping.get, mapping)
+    literal = select_processor_factory(FPEOperator(), codec, mapping.get, mapping)
+    token = select_processor_factory(PseudonymOperator(), codec, mapping.get, mapping)
 
     assert isinstance(literal(), StreamingDeanonymizer)
     assert isinstance(token(), TokenStreamProcessor)

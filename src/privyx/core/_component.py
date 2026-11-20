@@ -17,15 +17,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:  # types only: core imports no other Privyx package at run time
+    from privyx.anchors import Anchor
     from privyx.core._events import EventBus
-    from privyx.privacy.anchor.base import Anchor
-    from privyx.token.codec import FormatCodec
-
-
-class Options(BaseModel):
-    """A component's options: unknown keys are refused, values never shown in errors."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+    from privyx.token import FormatCodec
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +32,9 @@ class Services:
     anchor: Anchor | None
     #: The app's event bus, to emit notifications, which never carry values.
     events: EventBus
+    #: ``token.id_length``: hex characters in the id of an anchored or
+    #: encrypted token, until operators take it as an option of their own.
+    id_length: int = 16
 
 
 #: A type name: lowercase words joined by ``-`` or ``_``.
@@ -56,7 +53,11 @@ class Component(ABC):
     kind: ClassVar[str]
     #: The type a config selects; a component sets its own, never inherits one.
     name: ClassVar[str]
-    Options: ClassVar[type[Options]] = Options
+
+    class Options(BaseModel):
+        """A component's options: unknown keys are refused, values never shown in errors."""
+
+        model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     def __init_subclass__(cls, *, kind: str | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -98,3 +99,7 @@ class Component(ABC):
 
     async def close(self) -> None:  # noqa: B027
         """Release what :meth:`open` opened; the app closes components in reverse order."""
+
+
+#: The base of every component's options (:attr:`Component.Options`).
+Options = Component.Options

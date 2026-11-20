@@ -12,11 +12,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from privyx.anchors import HMACAnchor
+from privyx.app._build import build_anchor
 from privyx.cli.commands.run import _run_settings
 from privyx.cli.main import cli
 from privyx.core import Context
-from privyx.core.builder import build_anchor
-from privyx.privacy.anchor.hmac import HMACAnchor
+from privyx.testing import services
 
 
 @pytest.fixture
@@ -27,41 +28,47 @@ def config(tmp_path: Path) -> Path:
 
 
 async def test_run_and_other_commands_share_the_persisted_anchor(config: Path, home: Path) -> None:
-    from privyx.config.loader import load_config
+    from privyx import load_config
 
     settings = load_config(config)
     anchor = build_anchor(settings)
     assert anchor is not None
     key = home / ".privyx" / "anchor.key"
+    assert not key.exists()  # read when the anchor opens, not when it is built
+    await anchor.open(services())
     assert key.exists()
-    expected = await HMACAnchor(key.read_text()).anchor("alice@example.com", Context())
+    expected = await HMACAnchor(secret=key.read_text()).anchor("alice@example.com", Context())
     assert await anchor.anchor("alice@example.com", Context()) == expected
     run_settings = _run_settings(None, None, None, None, False)
     run_anchor = build_anchor(run_settings)
     assert run_anchor is not None
+    await run_anchor.open(services())
     assert await run_anchor.anchor("alice@example.com", Context()) == expected
-    assert settings.anchor.secret == "auto"  # inspection never exposes the provisioned key
+    # Inspection never exposes the provisioned key.
+    assert settings.anchor.model_dump()["secret"] == "auto"
 
 
-async def test_run_still_provisions_the_secret_for_a_plugin_anchor(
-    home: Path, monkeypatch: pytest.MonkeyPatch
+async def test_run_still_provisions_the_secret_for_a_plugin_anchor_extending_hmac(
+    home: Path,
 ) -> None:
-    from privyx.plugins.registry import PLUGINS, Registry
-    from privyx.privacy.anchor.base import Anchor
+    from privyx.app import Privyx
 
-    registry: Registry[Anchor] = Registry("anchor")
-    registry.register("custom", lambda config: HMACAnchor(config["secret"]))
-    monkeypatch.setattr(PLUGINS, "anchors", registry)
+    class CustomAnchor(HMACAnchor):
+        name = "custom"
+
+    app = Privyx()
+    app.add(CustomAnchor)
     settings = _run_settings(None, None, None, None, False)
     settings.anchor.type = "custom"
-    anchor = build_anchor(settings)
+    anchor = build_anchor(settings, app)
     assert anchor is not None
+    await anchor.open(services())
     key = home / ".privyx" / "anchor.key"
     assert key.exists()
     assert await anchor.anchor("alice@example.com", Context()) == await HMACAnchor(
-        key.read_text()
+        secret=key.read_text()
     ).anchor("alice@example.com", Context())
-    assert settings.anchor.secret == "auto"
+    assert settings.anchor.model_dump()["secret"] == "auto"
 
 
 @pytest.mark.parametrize("secret", ["", "explicit-secret"])
@@ -74,7 +81,7 @@ async def test_configured_secret_overrides_run_default(
     if secret:
         assert anchor is not None
         assert await anchor.anchor("alice@example.com", Context()) == await HMACAnchor(
-            secret
+            secret=secret
         ).anchor("alice@example.com", Context())
     else:
         assert anchor is None
@@ -132,8 +139,8 @@ def test_storage_failure_is_a_cli_error(config: Path, home: Path, command: list[
 
 
 async def test_foreign_token_is_not_restored_as_another_sessions_value(config: Path) -> None:
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     engine, close = await build_engine(load_config(config))
     try:
@@ -208,7 +215,6 @@ def test_mcp_wrap_uses_the_same_anchor(config: Path) -> None:
 def test_an_operator_without_an_anchor_creates_no_key(home: Path, operator: str) -> None:
     from privyx.config.schema import Settings
 
-    settings = Settings(operator={"type": operator})
-    assert settings.anchor.secret == "auto"
+    settings = Settings(operator={"type": operator})  # the default anchor.secret: auto
     assert build_anchor(settings) is None
     assert not (home / ".privyx" / "anchor.key").exists()

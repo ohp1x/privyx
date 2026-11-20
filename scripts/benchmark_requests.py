@@ -28,23 +28,23 @@ from typing import Any
 import httpx
 from benchmark import _claude_code_body
 
+from privyx.app._build import build_engine
 from privyx.config.defaults import DEFAULTS
 from privyx.config.schema import Settings
 from privyx.core import Context, Detection, Session
-from privyx.core.builder import build_engine
+from privyx.detectors import Detector, YamlDetector
+from privyx.detectors._cache import CachedDetector
+from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
-from privyx.privacy.detector.base import BaseDetector
-from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector
-from privyx.privacy.detector.cache import CachedDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.schemas import transform_request
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 ROOT = Path(__file__).resolve().parents[1]
-CORPUS = ROOT / "tests/unit/privacy/corpus"
+CORPUS = ROOT / "tests/unit/detectors/corpus"
 LABEL = re.compile(r"⟦[A-Z_]+:(.*?)⟧", re.DOTALL)
 
 
@@ -208,7 +208,7 @@ async def pattern_costs(body: bytes, iterations: int) -> dict[str, Any]:
     """
     texts: dict[str, None] = {}
 
-    class Recorder(BaseDetector):
+    class Recorder(Detector):
         def detect_sync(self, text: str, context: Context) -> Detection:
             texts[text] = None
             return Detection()
@@ -223,7 +223,7 @@ async def pattern_costs(body: bytes, iterations: int) -> dict[str, Any]:
     await transform_request(json.loads(body), engine, session.session_id, session=session)
     result = {}
     for entity, pattern in DEFAULT_PATTERNS.items():
-        detector = RegexDetector({entity: pattern})
+        detector = YamlDetector(patterns={entity: pattern}, underscore_separates_words=False)
         context = Context()
         samples = []
         count = 0

@@ -19,10 +19,9 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from privyx.core import Context, Session
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.encrypt import EncryptOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.security.keys import load_key
+from privyx.detectors import RegexDetector
+from privyx.operators._encrypt import EncryptOperator
+from privyx.policies import DefaultPolicy
 from privyx.streaming.deanonymizer import TokenStreamProcessor
 from privyx.token.codec import FormatCodec
 
@@ -71,7 +70,7 @@ def encrypt_pseudonymize(text: str) -> tuple[str, Session, EncryptOperator]:
         context = Context(session_id=session.session_id)
         detection = await RegexDetector().detect(text, context)
         detection = await DefaultPolicy().decide(detection, context)
-        operator = EncryptOperator(key=load_key(KEY))
+        operator = EncryptOperator(key=KEY)
         result = await operator.pseudonymize(text, detection, session, context)
         return result.text, session, operator
 

@@ -325,8 +325,8 @@ def test_masks_values_in_a_list_by_the_key_it_is_under(config: Path, tmp_path: P
 @pytest.mark.parametrize("direction", ["mask", "restore"])
 def test_stops_when_the_session_vanishes(config: Path, tmp_path: Path, direction: str) -> None:
     """A session made again would give the client's old tokens to new values."""
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     async def delete() -> None:
         engine, close = await build_engine(load_config(config))
@@ -588,10 +588,10 @@ def test_a_reply_that_fails_to_mask_is_not_sent(config: Path, tmp_path: Path) ->
     ],
 )
 async def test_keys_made_one_are_an_error(operator: str, message: dict[str, Any]) -> None:
+    from privyx.app._build import build_engine
     from privyx.cli.commands.mcp import _rewrite
     from privyx.config.schema import Settings
     from privyx.core import OperatorError
-    from privyx.core.builder import build_engine
 
     settings = Settings.model_validate(
         # Counter tokens, which the pseudonym case names.

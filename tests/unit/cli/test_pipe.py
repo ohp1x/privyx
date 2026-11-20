@@ -140,8 +140,8 @@ def test_masking_keeps_what_another_writer_added(config: Path) -> None:
 @pytest.mark.parametrize("expired", [False, True])
 def test_pipe_stops_when_the_session_vanishes(config: Path, restore: bool, expired: bool) -> None:
     """A pruned or expired session is not restored from what was read before."""
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     async def delete() -> None:
         engine, close = await build_engine(load_config(config))

@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 import yaml  # type: ignore[import-untyped]
 
-from privyx.config.schema import json_schema
+from privyx.app._schema import json_schema
 
 jsonschema = pytest.importorskip("jsonschema")
 

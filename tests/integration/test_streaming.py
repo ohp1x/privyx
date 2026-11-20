@@ -6,14 +6,14 @@ import json
 
 import pytest
 
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.streaming.adapters.openai import OpenAIStreamAdapter
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 from privyx.streaming.sse import SSEEvent
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 
 def _make_engine() -> PrivacyEngine:

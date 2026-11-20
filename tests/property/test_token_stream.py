@@ -2,7 +2,7 @@
 
 ``stream_process([c1, ..., cN]) == batch_process(c1 + ... + cN)`` for all chunk
 boundaries.  The reference is the
-production batch path — :func:`privyx.privacy.operator.base.restore` — so a bug
+production batch path — :func:`privyx.operators.restore` — so a bug
 shared by both would still surface as a wrong *value*, while these tests pin the
 *equivalence*.
 """
@@ -16,7 +16,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from privyx.core import Session
-from privyx.privacy.operator.base import restore
+from privyx.operators._restore import restore
 from privyx.streaming.deanonymizer import TokenStreamProcessor
 from privyx.token.codec import CompactCodec, FormatCodec
 

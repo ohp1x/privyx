@@ -8,17 +8,15 @@ from __future__ import annotations
 
 import asyncio
 
-from privyx.config.loader import load_config
-from privyx.core.builder import build_engine
+from privyx import Privyx
 
 
 async def main() -> None:
     # The same layers as the CLI: built-in defaults, the config files (or one
     # alone: pass its path as the first argument), PRIVYX_* environment
-    # variables, then `extra`.
-    settings = load_config(extra={"detector": {"terms": {"PROJECT": ["bluebird"]}}})
-    engine, close = await build_engine(settings)
-    try:
+    # variables, then these settings.
+    app = Privyx(detector={"terms": {"PROJECT": ["bluebird"]}})
+    async with app.engine() as engine:  # closes the vault on exit
         session = await engine.get_or_create_session()
 
         masked = await engine.transform("bluebird ships to dana@acme.example", session=session)
@@ -28,8 +26,6 @@ async def main() -> None:
         reply = f"Noted: {masked.text}"  # stands in for a model's answer
         restored = await engine.restore(reply, session.session_id)
         print(restored.text)  # Noted: bluebird ships to dana@acme.example
-    finally:
-        await close()  # releases the vault
 
 
 if __name__ == "__main__":

@@ -82,6 +82,8 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+# A kind's base class is abstract, and it names the kind: `app.registry(Vault)`.
+disable_error_code = ["type-abstract"]
 
 # Faker is an optional extra and ships no type information for our usage; keep it
 # out of strict import checking so selecting the operator does not require stubs.

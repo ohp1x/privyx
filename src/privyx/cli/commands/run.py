@@ -67,7 +67,7 @@ def _run_settings(
     agent: str | None = None,
     sources: dict[str, str] | None = None,
 ) -> Settings:
-    from privyx.config.loader import load_config
+    from privyx.app import load_config
 
     extra: dict[str, Any] = {}
     if provider is not None:
@@ -357,7 +357,9 @@ def _harvest(settings: Settings) -> str:
     patterns = {e: "|".join(sorted(v, key=lambda p: (-len(p), p))) for e, v in values.items()}
     if terms or patterns:
         current = settings.detector if isinstance(settings.detector, list) else [settings.detector]
-        added = DetectorConfig(type="yaml", terms=terms, patterns=patterns)
+        added = DetectorConfig.model_validate(
+            {"type": "yaml", "terms": terms, "patterns": patterns}
+        )
         settings.detector = [*current, added]
     counts = [f"{len(v)} {entity}" for entity, v in sorted(terms.items())]
     counts.append(f"{sum(map(len, values.values()))} .env value(s)")
@@ -471,17 +473,16 @@ async def _run_target(
         The tool's exit code.
     """
     from privyx.app import Privyx
+    from privyx.app._build import build_audit_logger, build_engine, open_provider
     from privyx.app._plugins import load_plugins
     from privyx.cli.budget import Budget
     from privyx.cli.commands.proxy import build_transparent_proxy
-    from privyx.core.builder import build_audit_logger, build_engine
     from privyx.events import AppStarting, AppStopping
     from privyx.gateway.server import Gateway
     from privyx.gateway.transparent import create_transparent_app
     from privyx.observability import tracing
     from privyx.observability.audit import AuditEventType
     from privyx.observability.logging import configure_logging
-    from privyx.providers.registry import build_provider
 
     if settings is None:
         settings = _run_settings(config_path, spec.provider, upstream, session_strategy, no_anchor)
@@ -494,23 +495,29 @@ async def _run_target(
     sock, bound_port = _listen(settings.host, port)
 
     px = Privyx()
-    load_plugins(settings, app=px)
+    load_plugins(settings, px)
     tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
-    engine, close_vault = await build_engine(settings, audit=audit)
+    engine, close_vault = await build_engine(settings, px, audit=audit)
+    gateway: Gateway | None = None
     if settings.proxy.mode == "gateway":
-        provider = build_provider(settings)
-        close_upstream = provider.close
+        outbound: Any = await open_provider(settings, px)
     else:
-        proxy = build_transparent_proxy(settings, engine, audit, plan.run_token)
-        close_upstream = proxy.close
+        outbound = build_transparent_proxy(settings, engine, audit, plan.run_token)
+
+    async def close_upstream() -> None:
+        if gateway is not None:
+            await gateway.close()
+        await outbound.close()
+
     try:
         if settings.proxy.mode == "gateway":
-            app = Gateway(
-                engine=engine, provider=provider, settings=settings, audit=audit, router=px._router
-            ).app
+            gateway = Gateway(
+                engine=engine, provider=outbound, settings=settings, audit=audit, router=px._router
+            )
+            app = gateway.app
         else:
-            app = create_transparent_app(engine, proxy, settings, px._router)
+            app = create_transparent_app(engine, outbound, settings, px._router)
     except BaseException:
         # A plugin route over a masking route: nothing is served.
         await close_upstream()

@@ -1,8 +1,8 @@
 """Each module imports only its own layer and those below, as the 0.3.0 layout has it.
 
 A module is placed in the package it belongs to in that layout, wherever it
-lives today: ``privyx.cli.launch`` is agent code, ``privyx.core.builder``
-assembles the app.  The layers, lowest first:
+lives today: ``privyx.cli.launch`` is agent code, ``privyx.gateway`` is the
+proxy's.  The layers, lowest first:
 
 0. ``core``
 1. ``events``, ``token``, ``security``, ``streaming``
@@ -59,6 +59,7 @@ LAYERS: dict[str, int] = {
 #: The package each module belongs to, by its longest dotted prefix here.
 #: ``privyx`` itself, the public API, is placed with ``app``.
 PLACES: dict[str, str] = {
+    "privyx.anchors": "anchors",
     "privyx.app": "app",
     "privyx.cli": "cli",
     "privyx.cli.budget": "features",
@@ -72,7 +73,7 @@ PLACES: dict[str, str] = {
     "privyx.config": "config",
     "privyx.config.redact": "security",
     "privyx.core": "core",
-    "privyx.core.builder": "app",
+    "privyx.detectors": "detectors",
     "privyx.engine": "engine",
     "privyx.events": "events",
     "privyx.gateway": "proxy",
@@ -84,14 +85,8 @@ PLACES: dict[str, str] = {
     "privyx.observability.tap": "proxy",
     "privyx.observability.tracing": "features",
     "privyx.observability.usage": "dialects",
-    "privyx.plugins": "app",
-    "privyx.plugins.registry": "core",
-    "privyx.privacy": "core",
-    "privyx.privacy.anchor": "anchors",
-    "privyx.privacy.detector": "detectors",
-    "privyx.privacy.operator": "operators",
-    "privyx.privacy.policy": "policies",
-    "privyx.privacy.policy.loader": "app",
+    "privyx.operators": "operators",
+    "privyx.policies": "policies",
     "privyx.providers": "providers",
     "privyx.proxy": "proxy",
     "privyx.proxy.object_stream": "dialects",
@@ -102,8 +97,9 @@ PLACES: dict[str, str] = {
     "privyx.streaming.adapters.anthropic": "dialects",
     "privyx.streaming.adapters.gemini": "dialects",
     "privyx.streaming.adapters.openai": "dialects",
+    "privyx.testing": "testing",
     "privyx.token": "token",
-    "privyx.vault": "vaults",
+    "privyx.vaults": "vaults",
     # A leaf, importable from every layer.
     "privyx.version": "core",
 }
@@ -117,15 +113,11 @@ ALLOWED: frozenset[tuple[str, str]] = frozenset(
         ("privyx.cli.budget", "privyx.observability.usage"),
         ("privyx.cli.budget", "privyx.proxy.schemas"),
         # Planning a launch resolves upstream URLs with the providers' helpers.
-        ("privyx.cli.launch", "privyx.providers.registry"),
+        ("privyx.cli.launch", "privyx.providers"),
         # Loading config resolves secret references: resolving moves into app.
         ("privyx.config.loader", "privyx.security.secrets"),
         # Telling a model name from PII goes with the cost report into app.
-        ("privyx.observability.usage", "privyx.privacy.detector.builtin"),
-        # The pseudonym operator takes an anchor: imported for typing only.
-        ("privyx.privacy.operator.pseudonym", "privyx.privacy.anchor.base"),
-        # The strict policy reads the built-in entity names: they move into core.
-        ("privyx.privacy.policy.strict", "privyx.privacy.detector.builtin"),
+        ("privyx.observability.usage", "privyx.detectors"),
         # The JSON walk moves into core, and each format's stream into its dialect.
         ("privyx.proxy.object_stream", "privyx.proxy.schemas"),
         ("privyx.proxy.stream_router", "privyx.proxy.object_stream"),

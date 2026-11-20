@@ -15,7 +15,7 @@ from types import MappingProxyType
 from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.config.schema import AgentConfig, BudgetConfig, Settings
 from privyx.core import ConfigError
-from privyx.providers.registry import resolve_base_url, resolve_transparent_upstream
+from privyx.providers import resolve_base_url, resolve_transparent_upstream
 
 AUTO_ANCHOR = "auto"
 
@@ -249,7 +249,7 @@ def _can_follow(settings: Settings, sources: dict[str, str]) -> bool:
 
 def _own_credentials(settings: Settings) -> str | None:
     """Which credentials of Privyx's own every upstream would receive, if any."""
-    from privyx.providers.registry import resolve_api_key
+    from privyx.providers import resolve_api_key
 
     if resolve_api_key(settings):
         return "Privyx's own API key"
@@ -392,11 +392,12 @@ def build_launch_plan(
         if settings.upstream_url or settings.provider.base_url
         else f"provider default ({provenance.get('provider.type', 'defaults')})"
     )
+    secret = settings.anchor.model_dump().get("secret", AUTO_ANCHOR)
     anchor = (
         "auto-provision on launch"
-        if settings.anchor.secret == AUTO_ANCHOR
+        if secret == AUTO_ANCHOR
         else "configured (masked)"
-        if settings.anchor.secret
+        if secret
         else "disabled"
     )
     return LaunchPlan(

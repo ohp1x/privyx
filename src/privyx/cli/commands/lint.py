@@ -13,8 +13,8 @@ import click
 from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
-    from privyx.privacy.detector.base import Detector
-    from privyx.privacy.policy.base import Policy
+    from privyx.detectors import Detector
+    from privyx.policies import Policy
 
 #: Detector options a missed spelling is retried with.  One is suggested only
 #: when the retry masks the whole value, so a suggestion is never a guess.
@@ -79,17 +79,17 @@ def lint(config_path: str | None) -> None:
 
 
 async def _lint(config_path: str | None) -> int:
+    from privyx.app import load_config
+    from privyx.app._build import build_detector, build_policy_from
     from privyx.app._plugins import load_plugins
     from privyx.cli.commands.detect import _policy_reason
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_policy_from
-    from privyx.privacy.detector.yaml import build_detector
+    from privyx.config.schema import DetectorConfig
 
     unused: list[str] = []
     settings = load_config(config_path, warnings=unused)
     for warning in unused:
         click.echo(f"warning: {warning}")
-    load_plugins(settings)
+    app = load_plugins(settings)
     sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
     checked = [s.model_dump() for s in sections if s.type in ("regex", "yaml")]
     for i, section in enumerate(sections, 1):
@@ -99,7 +99,7 @@ async def _lint(config_path: str | None) -> int:
         click.echo("No regex or yaml detector to check.")
         return 0
 
-    policy = build_policy_from(settings)
+    policy = build_policy_from(settings, app)
     off = frozenset(o for o in _OPTIONS if not all(c.get(o) for c in checked))
     built: dict[frozenset[str], Detector] = {}
     prefix, suffix = ("detector.", "")
@@ -109,7 +109,9 @@ async def _lint(config_path: str | None) -> int:
     def detector_with(options: frozenset[str]) -> Detector:
         if options not in built:
             on = dict.fromkeys(options, True)
-            built[options] = build_detector([{**c, **on} for c in checked])
+            built[options] = build_detector(
+                [DetectorConfig.model_validate({**c, **on}) for c in checked], app
+            )
         return built[options]
 
     async def masks(probe: _Probe, options: frozenset[str], policy: Policy | None) -> bool:

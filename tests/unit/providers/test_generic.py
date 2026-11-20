@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from privyx.providers.generic import GenericProvider
+from privyx.providers import GenericProvider
 
 BASE = "https://api.example.com"
 
@@ -31,11 +31,16 @@ BASE = "https://api.example.com"
         ),
     ],
 )
-def test_resolve_url(base_url: str, path: str, expected: str) -> None:
-    assert GenericProvider(base_url)._resolve_url(path) == expected
+def test_url(base_url: str, path: str, expected: str) -> None:
+    for stream in (False, True):
+        assert GenericProvider(base_url=base_url).url(path, stream=stream) == expected
 
 
 def test_no_path_posts_to_the_base_url() -> None:
-    assert GenericProvider(f"{BASE}/v1/chat/completions")._resolve_url(None) == (
+    assert GenericProvider(base_url=f"{BASE}/v1/chat/completions").url("", stream=False) == (
         f"{BASE}/v1/chat/completions"
     )
+
+
+def test_an_empty_base_url_is_the_type_default() -> None:
+    assert GenericProvider().url("/v1/chat/completions", stream=False) == "http://localhost:20128"

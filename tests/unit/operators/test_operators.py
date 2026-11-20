@@ -1,0 +1,410 @@
+"""Tests for the operators and the anchor that feeds them.
+
+The anchor path is the reason these exist: ``anchor.secret`` is config that
+reaches the operator through the builder, and without a test that goes through
+``build_operator`` the wiring can be removed without anything failing.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+from pydantic import ValidationError
+
+from privyx import load_config
+from privyx.anchors import Anchor, HMACAnchor
+from privyx.app._build import build_anchor, build_operator, open_operator
+from privyx.config.schema import Settings
+from privyx.core import ConfigError, Context, Detection, OperatorError, Session, Span
+from privyx.operators import Operator
+from privyx.operators._base import ID_LENGTH as ANCHOR_TOKEN_LENGTH
+from privyx.operators._hash import HashOperator
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.operators._redact import RedactOperator
+from privyx.operators._restore import restore
+from privyx.testing import services
+from privyx.token.codec import FormatCodec
+
+TEXT = "Email alice@example.com or bob@example.com, card 4111 1111 1111 1111"
+
+
+async def _anchored(anchor: Any, operator: Operator | None = None) -> Operator:
+    """``operator``, a ``pseudonym`` one by default, opened with ``anchor``."""
+    operator = operator or PseudonymOperator()
+    await operator.open(services(anchor=anchor))
+    return operator
+
+
+def _detection() -> Detection:
+    """Spans for ``TEXT``, hand-written so these tests do not depend on the detector."""
+    return Detection(
+        spans=[
+            Span(
+                TEXT.index("alice@example.com"),
+                TEXT.index("alice@example.com") + 17,
+                "EMAIL",
+                "alice@example.com",
+            ),
+            Span(
+                TEXT.index("bob@example.com"),
+                TEXT.index("bob@example.com") + 15,
+                "EMAIL",
+                "bob@example.com",
+            ),
+            Span(TEXT.index("4111"), len(TEXT), "CREDIT_CARD", "4111 1111 1111 1111"),
+        ]
+    )
+
+
+# --- counters ---------------------------------------------------------------
+
+
+async def test_counters_read_left_to_right() -> None:
+    result = await PseudonymOperator().pseudonymize(TEXT, _detection(), Session(), Context())
+    assert result.text == (
+        "Email <PRIVYX_EMAIL_1> or <PRIVYX_EMAIL_2>, card <PRIVYX_CREDIT_CARD_3>"
+    )
+
+
+async def test_same_value_reuses_its_pseudonym() -> None:
+    text = "a@b.com and a@b.com"
+    detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com"), Span(12, 19, "EMAIL", "a@b.com")])
+    result = await PseudonymOperator().pseudonymize(text, detection, Session(), Context())
+    assert result.text == "<PRIVYX_EMAIL_1> and <PRIVYX_EMAIL_1>"
+
+
+async def test_counter_skips_ids_already_taken() -> None:
+    """A deleted mapping entry makes ``len()`` go backwards; the probe must not collide."""
+    session = Session()
+    session.put("<PRIVYX_EMAIL_1>", "taken@example.com")
+    session.put("<PRIVYX_EMAIL_2>", "also@example.com")
+    del session.mapping["<PRIVYX_EMAIL_1>"]
+
+    detection = Detection(spans=[Span(0, 7, "EMAIL", "new@x.c")])
+    result = await PseudonymOperator().pseudonymize("new@x.c", detection, session, Context())
+    assert result.text != "<PRIVYX_EMAIL_2>"
+    assert session.mapping["<PRIVYX_EMAIL_2>"] == "also@example.com"
+
+
+# --- anchors ----------------------------------------------------------------
+
+
+async def test_anchored_pseudonyms_are_stable_across_sessions() -> None:
+    operator = await _anchored(HMACAnchor(secret="s3cret"))
+    first = await operator.pseudonymize(TEXT, _detection(), Session(), Context())
+    second = await operator.pseudonymize(TEXT, _detection(), Session(), Context())
+    assert first.text == second.text
+    assert "<PRIVYX_EMAIL_1>" not in first.text
+
+
+async def test_anchored_pseudonyms_depend_on_the_secret() -> None:
+    detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
+    one = await (await _anchored(HMACAnchor(secret="key-one"))).pseudonymize(
+        "a@b.com", detection, Session(), Context()
+    )
+    two = await (await _anchored(HMACAnchor(secret="key-two"))).pseudonymize(
+        "a@b.com", detection, Session(), Context()
+    )
+    assert one.text != two.text
+
+
+async def test_anchored_pseudonyms_round_trip() -> None:
+    """An anchor changes how pseudonyms are named, not whether they reverse."""
+    operator = await _anchored(HMACAnchor(secret="s3cret"))
+    session = Session()
+    result = await operator.pseudonymize(TEXT, _detection(), session, Context())
+    restored = await operator.deanonymize(result.text, session, Context())
+    assert restored.text == TEXT
+
+
+async def test_anchor_token_shape() -> None:
+    operator = await _anchored(HMACAnchor(secret="s3cret"))
+    detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
+    result = await operator.pseudonymize("a@b.com", detection, Session(), Context())
+    token = result.text.removeprefix("<PRIVYX_EMAIL_").removesuffix(">")
+    assert len(token) == ANCHOR_TOKEN_LENGTH
+    assert token == token.upper()
+    assert all(c in "0123456789ABCDEF" for c in token)
+
+
+async def test_distinct_values_get_distinct_anchors() -> None:
+    result = await (await _anchored(HMACAnchor(secret="s3cret"))).pseudonymize(
+        TEXT, _detection(), Session(), Context()
+    )
+    pseudonyms = [w for w in result.text.split() if w.startswith("<PRIVYX_")]
+    assert len(set(pseudonyms)) == len(pseudonyms)
+
+
+# --- builder wiring ---------------------------------------------------------
+
+
+def test_anchor_is_off_without_a_secret() -> None:
+    """An empty secret means no anchoring, not anchoring with a guessable key."""
+    assert build_anchor(Settings.from_dict({"anchor": {"secret": ""}})) is None
+
+
+def test_anchor_is_built_when_a_secret_is_set() -> None:
+    settings = Settings.from_dict({"anchor": {"type": "hmac", "secret": "s3cret"}})
+    assert isinstance(build_anchor(settings), HMACAnchor)
+
+
+def test_unimplemented_anchor_type_fails_at_startup() -> None:
+    settings = Settings.from_dict({"anchor": {"type": "pasp", "secret": "s3cret"}})
+    with pytest.raises(ConfigError, match="pasp"):
+        build_anchor(settings)
+
+
+def test_unknown_anchor_type_fails_at_startup() -> None:
+    settings = Settings.from_dict({"anchor": {"type": "nope", "secret": "s3cret"}})
+    with pytest.raises(ConfigError, match="nope"):
+        build_anchor(settings)
+
+
+async def test_configured_secret_reaches_the_operator() -> None:
+    """The end-to-end claim: setting ``anchor.secret`` changes the output."""
+    settings = load_config(extra={"anchor": {"type": "hmac", "secret": "s3cret"}})
+    operator = await open_operator(settings)
+    detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
+    result = await operator.pseudonymize("a@b.com", detection, Session(), Context())
+    assert result.text != "<PRIVYX_EMAIL_1>"
+
+
+async def test_default_config_anchors_tokens_with_the_per_user_key() -> None:
+    settings = Settings()
+    tokens = []
+    for _ in range(2):
+        operator = await open_operator(settings)
+        detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
+        result = await operator.pseudonymize("a@b.com", detection, Session(), Context())
+        tokens.append(result.text)
+    assert re.fullmatch(r"<PRIVYX_EMAIL_[0-9A-F]{16}>", tokens[0])
+    assert tokens[0] == tokens[1]  # another session, the same key
+
+
+async def test_operators_that_cannot_anchor_ignore_it() -> None:
+    """An anchor must not break operators that do not use one."""
+    operator = await _anchored(HMACAnchor(secret="s3cret"), RedactOperator())
+    assert isinstance(operator, RedactOperator)
+
+
+def test_anchor_is_not_reachable_from_yaml() -> None:
+    """The anchor is given as an object; a config key of the same name is refused."""
+    with pytest.raises(ConfigError, match="unknown setting 'operator.anchor'"):
+        load_config(extra={"operator": {"type": "pseudonym", "anchor": "not-an-anchor"}})
+
+
+# --- hash operator ----------------------------------------------------------
+
+
+async def test_hash_operator_round_trips() -> None:
+    """Regression: deanonymize used the ``<PRIVYX_...>`` pattern and never matched."""
+    operator = HashOperator()
+    session = Session()
+    result = await operator.pseudonymize(TEXT, _detection(), session, Context())
+    assert "alice@example.com" not in result.text
+    restored = await operator.deanonymize(result.text, session, Context())
+    assert restored.text == TEXT
+
+
+async def test_hash_operator_leaves_unknown_tokens_alone() -> None:
+    """A syntactically valid token the session never issued is passed through."""
+    unknown = "<PRIVYX_EMAIL_deadbeef>"
+    result = await HashOperator().deanonymize(unknown, Session(), Context())
+    assert result.text == unknown
+    assert result.transformations == []
+
+
+async def test_hash_operator_honours_its_configured_length() -> None:
+    operator = build_operator(load_config(extra={"operator": {"type": "hash", "length": 8}}))
+    session = Session()
+    detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
+    result = await operator.pseudonymize("a@b.com", detection, session, Context())
+    token = FormatCodec.default().parse(result.text)
+    assert token is not None
+    assert len(token.identifier) == 8  # the digest was truncated to `length`
+    restored = await operator.deanonymize(result.text, session, Context())
+    assert restored.text == "a@b.com"
+
+
+@pytest.mark.parametrize("length", [-4, 0, 5, 65])
+def test_hash_length_outside_six_to_sixty_four_is_an_error(tmp_path: Path, length: int) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text(f"operator:\n  type: hash\n  length: {length}\n")
+    with pytest.raises(ConfigError, match="invalid setting 'operator.length'"):
+        load_config(config)
+    with pytest.raises(ValidationError):
+        HashOperator(length=length)
+
+
+def test_a_plugin_operator_keeps_a_length_of_its_own(tmp_path: Path) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text("operator:\n  type: short\n  length: 4\n")
+    assert load_config(config).operator.model_dump()["length"] == 4
+
+
+@pytest.mark.parametrize("length", [6, 64])
+def test_hash_length_from_six_to_sixty_four_is_accepted(tmp_path: Path, length: int) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text(f"operator:\n  type: hash\n  length: {length}\n")
+    assert load_config(config).operator.model_dump()["length"] == length
+
+
+# --- id collisions ----------------------------------------------------------
+
+
+def _emails(count: int) -> tuple[str, Detection]:
+    values = [f"user{i}@example.com" for i in range(count)]
+    text = " ".join(values)
+    spans, start = [], 0
+    for value in values:
+        spans.append(Span(start, start + len(value), "EMAIL", value))
+        start += len(value) + 1
+    return text, Detection(spans=spans)
+
+
+class _PrefixAnchor(Anchor):
+    """An anchor whose digests all share their first 16 characters."""
+
+    def __init__(self, digest: bool = True) -> None:
+        super().__init__()
+        self._digest = digest
+
+    async def anchor(self, text: str, context: Context) -> str:
+        tail = hashlib.sha256(text.encode()).hexdigest() if self._digest else ""
+        return "PRIVYX_" + "A" * ANCHOR_TOKEN_LENGTH + tail
+
+
+async def _one_character_hash() -> Operator:
+    """A ``hash`` operator with one-character ids, below what config allows."""
+    operator = HashOperator()
+    operator._length = 1
+    return operator
+
+
+async def _prefix_anchored() -> Operator:
+    return await _anchored(_PrefixAnchor())
+
+
+@pytest.mark.parametrize("make", [_one_character_hash, _prefix_anchored], ids=["hash", "anchor"])
+async def test_colliding_ids_grow_instead_of_overwriting(make: Any) -> None:
+    """17 values cannot fit in 16 one-character ids: colliders must get longer ids."""
+    operator = await make()
+    text, detection = _emails(17)
+    session = Session()
+    masked = await operator.pseudonymize(text, detection, session, Context())
+    assert len(set(masked.text.split())) == 17
+    assert (await operator.deanonymize(masked.text, session, Context())).text == text
+    again = await operator.pseudonymize(text, detection, session, Context())
+    assert again.text == masked.text
+
+
+async def test_no_free_id_fails_instead_of_overwriting() -> None:
+    operator = await _anchored(_PrefixAnchor(digest=False))
+    text, detection = _emails(2)
+    session = Session()
+    with pytest.raises(OperatorError):
+        await operator.pseudonymize(text, detection, session, Context())
+
+
+# --- redaction --------------------------------------------------------------
+
+
+async def test_redaction_is_irreversible() -> None:
+    session = Session()
+    operator = RedactOperator()
+    result = await operator.pseudonymize(TEXT, _detection(), session, Context())
+    assert "alice@example.com" not in result.text
+    restored = await operator.deanonymize(result.text, session, Context())
+    assert restored.text == result.text
+
+
+# --- cost -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("operator_class", [PseudonymOperator, HashOperator, RedactOperator])
+async def test_many_spans_take_linear_time(operator_class: type[Operator]) -> None:
+    # 4,000 spans in 8 MB.  Rebuilding the whole text once per span took ~2.4 s
+    # per call here; joining the pieces once takes ~50 ms to mask.  Restoring
+    # also searches the whole text for every form a token may take (bare, an
+    # id alone), which takes ~0.5 s, so its bound is wider.
+    text = "".join(f"{'x' * 2000} user{i}@example.com" for i in range(4000))
+    matches = re.finditer(r"user\d+@example\.com", text)
+    detection = Detection(spans=[Span(m.start(), m.end(), "EMAIL", m[0]) for m in matches])
+    operator, session = operator_class(), Session()
+
+    start = time.perf_counter()
+    masked = await operator.pseudonymize(text, detection, session, Context())
+    middle = time.perf_counter()
+    await operator.deanonymize(masked.text, session, Context())
+    end = time.perf_counter()
+
+    assert len(masked.transformations) == 4000
+    assert middle - start < 0.5
+    assert end - middle < 1.0
+
+
+def test_restore_brings_back_an_issued_token_written_without_its_brackets() -> None:
+    """A model sometimes drops the ``< >``; only a token this session issued counts."""
+    session = Session()
+    session.put("<PRIVYX_EMAIL_1>", "alice@example.com")
+    text = '{"query": "PRIVYX_EMAIL_1"} PRIVYX_EMAIL_12 PRIVYX_SSN_9 xPRIVYX_EMAIL_1'
+
+    result = restore(text, session, FormatCodec.default())
+
+    assert result.text == (
+        '{"query": "alice@example.com"} PRIVYX_EMAIL_12 PRIVYX_SSN_9 xPRIVYX_EMAIL_1'
+    )
+    assert len(result.transformations) == 1
+
+
+def test_restore_brings_back_an_issued_id_written_on_its_own() -> None:
+    """A model sometimes keeps only a token's id; a counter is never looked for."""
+    session = Session()
+    session.put("<PRIVYX_PERSON_9F3A1C2B7D4E5F60>", "Alice Example")
+    session.put("<PRIVYX_EMAIL_2>", "alice@example.com")
+    text = '{"query": "9F3A1C2B7D4E5F60"} item 2 of 0123456789ABCDEF x9F3A1C2B7D4E5F60'
+
+    result = restore(text, session, FormatCodec.default())
+
+    assert result.text == (
+        '{"query": "Alice Example"} item 2 of 0123456789ABCDEF x9F3A1C2B7D4E5F60'
+    )
+    assert len(result.transformations) == 1
+
+
+def test_restore_knows_the_id_of_a_token_issued_after_an_earlier_restore() -> None:
+    """The session's ids are indexed once, and again when it has issued more."""
+    session, codec = Session(), FormatCodec.default()
+    session.put("<PRIVYX_PERSON_9F3A1C2B7D4E5F60>", "Alice Example")
+    assert restore("9F3A1C2B7D4E5F60", session, codec).text == "Alice Example"
+
+    session.put("<PRIVYX_EMAIL_247102A91C49C99E>", "alice@example.com")
+
+    assert restore("247102A91C49C99E", session, codec).text == "alice@example.com"
+
+
+async def _hmac_anchored() -> Operator:
+    return await _anchored(HMACAnchor(secret="s3cret"))
+
+
+async def _hash() -> Operator:
+    return HashOperator()
+
+
+@pytest.mark.parametrize("make", [_hmac_anchored, _hash], ids=["anchor", "hash"])
+async def test_ids_written_on_their_own_round_trip(make: Any) -> None:
+    """An anchor's id and a hash's are long enough to stand alone."""
+    operator = await make()
+    session = Session()
+    masked = await operator.pseudonymize(TEXT, _detection(), session, Context())
+    alone = re.sub(r"<PRIVYX_[A-Z_]+_([0-9A-Fa-f]+)>", r"\1", masked.text)
+    assert "PRIVYX" not in alone
+
+    restored = await operator.deanonymize(alone, session, Context())
+
+    assert restored.text == TEXT

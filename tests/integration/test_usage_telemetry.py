@@ -7,13 +7,13 @@ import json
 
 import httpx
 
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 USAGE = {
     "input_tokens": 12,

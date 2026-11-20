@@ -16,13 +16,15 @@ transparent proxy share exactly one implementation of each.
 
 from __future__ import annotations
 
-import inspect
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from privyx.core import Session
+import httpx
+
+from privyx.core import ProviderError, Session
 from privyx.engine import PrivacyEngine
-from privyx.providers.base import Provider
+from privyx.providers import Provider
 from privyx.proxy.schemas import restore_response, transform_request
 from privyx.proxy.stream_router import (
     StreamRouter,
@@ -38,7 +40,8 @@ class HTTPProxy:
 
     Args:
         engine: Configured PrivacyEngine instance.
-        provider: Upstream HTTP provider (any Provider implementation).
+        provider: Where a request goes, and its credential.
+        client: The client requests are sent with (owned by the caller).
         stream_adapter: SSE stream adapter for extracting/rewriting deltas.
         schema: The wire schema of the requests this proxy serves.
     """
@@ -47,16 +50,15 @@ class HTTPProxy:
         self,
         engine: PrivacyEngine,
         provider: Provider,
+        client: httpx.AsyncClient,
         stream_adapter: SSEStreamAdapter | None = None,
         schema: str = "openai",
     ) -> None:
         self._engine = engine
         self._schema = schema
         self._provider = provider
+        self._client = client
         self._adapter = stream_adapter or SSEStreamAdapter()
-        # The client's path, for a provider that can aim it (the generic one does);
-        # a plugin's send(payload) keeps posting to its own endpoint.
-        self._takes_path = "path" in inspect.signature(provider.send).parameters
 
     async def process_request(
         self,
@@ -92,10 +94,26 @@ class HTTPProxy:
         return transformed, stored.session_id
 
     async def send_batch(self, payload: dict[str, Any], path: str | None = None) -> Any:
-        """Forward a batch (non-streaming) request to the upstream provider."""
-        if self._takes_path:
-            return await self._provider.send(payload, path=path)  # type: ignore[call-arg]
-        return await self._provider.send(payload)
+        """Forward a batch (non-streaming) request to the upstream provider.
+
+        Raises:
+            ProviderError: If the upstream cannot be reached or answers with an
+                error, which it keeps.
+        """
+        try:
+            response = await self._client.post(
+                self._provider.url(path or "", stream=False),
+                json=payload,
+                headers=self._provider.headers(),
+                auth=self._provider.auth() or httpx.USE_CLIENT_DEFAULT,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise _provider_error("upstream request failed", exc) from exc
+        try:
+            return response.json()
+        except ValueError:
+            return response.text
 
     async def process_response(
         self,
@@ -154,13 +172,89 @@ class HTTPProxy:
             ),
         )
 
-        stream = (
-            self._provider.stream(payload, path=path)  # type: ignore[call-arg]
-            if self._takes_path
-            else self._provider.stream(payload)
-        )
-        async for raw_chunk in stream:
+        async for raw_chunk in self._upstream_stream(payload, path or ""):
             for out in router.feed(raw_chunk):
                 yield out
         for out in router.flush():
             yield out
+
+    async def _upstream_stream(self, payload: Any, path: str) -> AsyncGenerator[str, None]:
+        """Yield raw upstream text with its SSE framing intact.
+
+        Deliberately *not* ``aiter_lines()``: that strips the newlines that
+        delimit SSE events, so a downstream parser could never tell where one
+        event ends.
+
+        Raises:
+            ProviderError: If the upstream cannot be reached or answers with an
+                error, which it keeps.
+        """
+        try:
+            async with self._client.stream(
+                "POST",
+                self._provider.url(path, stream=True),
+                json=payload,
+                headers={**self._provider.headers(), "Accept": "text/event-stream"},
+                auth=self._provider.auth() or httpx.USE_CLIENT_DEFAULT,
+            ) as response:
+                if response.is_error:
+                    await response.aread()  # keep the error body for the caller
+                response.raise_for_status()
+                async for chunk in response.aiter_text():
+                    yield chunk
+        except httpx.HTTPError as exc:
+            raise _provider_error("upstream stream failed", exc) from exc
+
+
+#: Seconds to wait before each retry of a connection that could not be opened.
+_CONNECT_RETRY_DELAYS = (0.5, 1.0)
+
+
+class _UpstreamClient(httpx.AsyncClient):
+    """Retries a request whose connection could not be opened.
+
+    Only :class:`httpx.ConnectError` (refused, DNS, TLS handshake): nothing has
+    been sent, so even a billed POST is safe to repeat.  A connect timeout is not
+    retried, since every attempt would wait ``connect_timeout`` again.  Done here
+    rather than with ``AsyncHTTPTransport(retries=...)``: a client given its own
+    transport ignores ``HTTPS_PROXY`` and ``NO_PROXY``.
+    """
+
+    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+        for delay in _CONNECT_RETRY_DELAYS:
+            try:
+                return await super().send(request, **kwargs)
+            except httpx.ConnectError:
+                await asyncio.sleep(delay)
+        return await super().send(request, **kwargs)
+
+
+def upstream_client(
+    *, timeout: float = 300.0, connect_timeout: float = 10.0, max_connections: int | None = None
+) -> httpx.AsyncClient:
+    """The httpx client both proxy modes reach the upstream with.
+
+    ``timeout`` bounds each read and write, not the whole exchange: an upstream
+    can take minutes to send its first byte, and a stream lasts as long as bytes
+    keep coming.  ``max_connections`` of ``None`` sets no limit, so the proxy is
+    never narrower than its clients; httpx's default of 100 made request 101
+    onward wait for a free connection and fail.  A connection that cannot be
+    opened is retried twice; see :class:`_UpstreamClient`.
+    """
+    return _UpstreamClient(
+        timeout=httpx.Timeout(connect=connect_timeout, read=timeout, write=timeout, pool=10.0),
+        limits=httpx.Limits(max_connections=max_connections, max_keepalive_connections=20),
+    )
+
+
+def _provider_error(prefix: str, exc: httpx.HTTPError) -> ProviderError:
+    """Wrap ``exc``, keeping the upstream's error response when there is one."""
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return ProviderError(f"{prefix}: {exc}")
+    response = exc.response
+    return ProviderError(
+        f"{prefix}: {exc}",
+        status_code=response.status_code,
+        body=response.content,
+        content_type=response.headers.get("content-type", ""),
+    )

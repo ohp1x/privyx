@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from privyx.core._component import Component
+from privyx.core._component import Component, Options
 from privyx.core._errors import ConfigError
 
 
@@ -78,8 +78,7 @@ class Registry[C: Component]:
             match = difflib.get_close_matches(name, self.names(), n=1)
             hint = f" (did you mean {match[0]!r}?)" if match else ""
             raise ConfigError(f"unknown {self.kind} type {name!r}{hint}")
-        module, _, attr = path.partition(":")
-        loaded: type[C] = getattr(importlib.import_module(module), attr)
+        loaded: type[C] = imported(path)
         self._classes[name] = loaded
         return loaded
 
@@ -95,8 +94,18 @@ class Registry[C: Component]:
                 return own
         return None
 
-    def build(self, name: str, options: Mapping[str, Any], *, setting: str | None = None) -> C:
-        """An instance of type ``name`` with ``options`` from a config.
+    def builtin_names(self) -> list[str]:
+        """The built-in type names, in the order they were registered."""
+        return list(self._builtins)
+
+    def is_builtin(self, name: object) -> bool:
+        """Whether ``name`` is a built-in type, whose name a plugin cannot take."""
+        return name in self._builtins
+
+    def validate(
+        self, name: str, options: Mapping[str, Any], *, setting: str | None = None
+    ) -> Options:
+        """``options`` checked as type ``name``'s, with its defaults filled in.
 
         Args:
             name: The type.
@@ -106,11 +115,12 @@ class Registry[C: Component]:
 
         Raises:
             ConfigError: If the type is unknown, or an option is unknown or
-                invalid.
+                invalid.  Each error names the setting and the type, never a
+                value.
         """
         cls = self.get(name)
         try:
-            cls.Options.model_validate(dict(options))
+            return cls.Options.model_validate(dict(options))
         except ValidationError as exc:
             problems = []
             for error in exc.errors():
@@ -123,10 +133,36 @@ class Registry[C: Component]:
                 else:
                     problems.append(f"invalid setting {path!r}: {error['msg']}")
             raise ConfigError(f"{', '.join(problems)} for {self.kind} type {name!r}") from None
-        return cls(**options)
+
+    def build(self, name: str, options: Mapping[str, Any], *, setting: str | None = None) -> C:
+        """An instance of type ``name`` with ``options`` from a config.
+
+        Raises:
+            ConfigError: As :meth:`validate`.
+        """
+        self.validate(name, options, setting=setting)
+        return self.get(name)(**options)
 
     def __contains__(self, name: object) -> bool:
         return name in self._builtins or name in self._classes
+
+
+def imported(path: str) -> Any:
+    """The object at ``path``, ``"module:name"``, importing its module."""
+    module, _, attr = path.partition(":")
+    return getattr(importlib.import_module(module), attr)
+
+
+def lazy_attribute(name: str, paths: Mapping[str, str], package: str) -> Any:
+    """A package's attribute ``name`` from the ``"module:name"`` paths it lists (PEP 562).
+
+    Raises:
+        AttributeError: If no path names ``name``.
+    """
+    for path in paths.values():
+        if path.rpartition(":")[2] == name:
+            return imported(path)
+    raise AttributeError(f"module {package!r} has no attribute {name!r}")
 
 
 def _where(cls: type) -> str:

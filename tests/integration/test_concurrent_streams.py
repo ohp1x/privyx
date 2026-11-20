@@ -18,13 +18,13 @@ from typing import Any
 import pytest
 import uvicorn
 
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.providers.generic import GenericProvider
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.providers import GenericProvider
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 STREAMS = 150
 BODY = {"stream": True, "messages": [{"role": "user", "content": "mail alice@example.com"}]}
@@ -76,13 +76,21 @@ def _transparent(origin: str) -> tuple[Callable[[], Awaitable[None]], Any]:
 
 
 def _gateway(origin: str) -> tuple[Callable[[], Awaitable[None]], Any]:
+    """What the gateway sends a stream with: the upstream client, aimed by the provider."""
+    from types import SimpleNamespace
+
+    from privyx.proxy.http import upstream_client
+
     provider = GenericProvider(base_url=f"{origin}/v1/messages")
+    client = upstream_client()
 
     async def stream() -> None:
-        async for _ in provider.stream(BODY):
-            pass
+        url = provider.url("/v1/messages", stream=True)
+        async with client.stream("POST", url, json=BODY, headers=provider.headers()) as response:
+            async for _ in response.aiter_text():
+                pass
 
-    return stream, provider
+    return stream, SimpleNamespace(close=client.aclose)
 
 
 @pytest.mark.parametrize("mode", [_transparent, _gateway], ids=["transparent", "gateway"])

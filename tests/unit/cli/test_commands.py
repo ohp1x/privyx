@@ -713,8 +713,8 @@ def _age_session(config: Path, session_id: str, seconds: float) -> None:
     """Push a session's last activity ``seconds`` into the past."""
     import asyncio
 
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_vault
+    from privyx import load_config
+    from privyx.app._build import build_vault
 
     async def _run() -> None:
         vault, close = await build_vault(load_config(config))
@@ -733,8 +733,8 @@ def _seed_session(config: Path) -> str:
     """Write one session through the configured vault and return its id."""
     import asyncio
 
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     async def _run() -> str:
         engine, close = await build_engine(load_config(config))
@@ -824,9 +824,9 @@ def test_doctor_shares_settings_between_checks(
     ):
         original = getattr(module, f"_check_{name}")
 
-        def record(settings: Settings, check=original) -> tuple[bool, str]:
+        def record(settings: Settings, app: object, check=original) -> tuple[bool, str]:
             snapshots.append(settings)
-            return check(settings)
+            return check(settings, app)
 
         monkeypatch.setattr(module, f"_check_{name}", record)
 
@@ -995,7 +995,7 @@ def test_run_unknown_target_gets_the_usual_variables_of_its_provider(
 def test_run_gemini_points_every_endpoint_at_privyx_and_refuses_unrouted_paths(
     runner: CliRunner,
 ) -> None:
-    from privyx.config.loader import load_config
+    from privyx import load_config
     from privyx.proxy.schemas import detect_schema
 
     result = runner.invoke(cli, ["run", "--dry-run", "gemini"])
@@ -1139,8 +1139,8 @@ def test_run_an_ollama_wrapper_checks_the_server_too(
 def test_run_ollama_sends_no_key_of_privyx_to_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from privyx.config.loader import load_config
-    from privyx.providers.registry import resolve_api_key
+    from privyx import load_config
+    from privyx.providers import resolve_api_key
 
     monkeypatch.setenv("PRIVYX_API_KEY", "router-key")
 
@@ -2694,8 +2694,8 @@ def test_proxy_ssl_requires_both_cert_and_key(runner: CliRunner) -> None:
 
 async def test_serve_transparent_wires_proxy_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("uvicorn")
+    from privyx import load_config
     from privyx.cli.commands.proxy import _serve_transparent
-    from privyx.config.loader import load_config
 
     captured: dict[str, object] = {}
 
@@ -2729,9 +2729,9 @@ async def test_proxy_gives_running_requests_a_grace_period(
     serve: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip("uvicorn")
+    from privyx import load_config
+    from privyx.app._build import build_engine
     from privyx.cli.commands import proxy as proxy_command
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
 
     captured: dict[str, object] = {}
 

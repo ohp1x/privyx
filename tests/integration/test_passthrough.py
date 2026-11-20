@@ -19,16 +19,17 @@ import httpx
 import pytest
 import uvicorn
 
-from privyx.config.loader import load_config
-from privyx.core.builder import build_engine
+from privyx import load_config
+from privyx.app._build import build_engine
+from privyx.config.schema import VaultConfig
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.gateway.transparent import create_transparent_app
 from privyx.observability.audit import AuditLogger
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 CHUNK = b"x" * 65536
 
@@ -82,7 +83,8 @@ async def test_strict_preset_blocks_unknown_body_without_reading_or_forwarding()
     from pathlib import Path
 
     settings = load_config(Path(__file__).parents[2] / "configs" / "strict.yaml")
-    settings.vault.type = "memory"  # route behavior does not need a persistent test database
+    # Route behavior does not need a persistent test database.
+    settings.vault = VaultConfig()
     engine, close = await build_engine(settings)
 
     async def unread_body() -> AsyncIterator[bytes]:

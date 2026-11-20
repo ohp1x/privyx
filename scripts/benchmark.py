@@ -20,18 +20,19 @@ from typing import Any
 
 import httpx
 
+from privyx.app._build import build_engine
 from privyx.config.defaults import DEFAULTS
 from privyx.config.schema import Settings
 from privyx.core import Context, Session
-from privyx.core.builder import build_engine
+from privyx.detectors import RegexDetector
+from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
-from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.transparent import TransparentProxy
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 SAMPLE = (
     "Contact Alice at alice@example.com or +1 (555) 123-4567. "
@@ -83,7 +84,7 @@ def bench_patterns(size: int = 80_000) -> tuple[float, str]:
 async def bench_spans(count: int = 16_000) -> tuple[float, float]:
     """pseudonymize and restore one text with ``count`` spans (~55 characters apart)."""
     text = "".join(f"row {i}: user{i}@example.com, note text here padding\n" for i in range(count))
-    detection = await RegexDetector().detect(text, Context())
+    detection = await RegexDetector(underscore_separates_words=False).detect(text, Context())
     operator = PseudonymOperator()
     masks, restores = [], []
     for _ in range(5):
@@ -166,13 +167,14 @@ async def bench_request(kb: int, new_content: bool, n: int = 10) -> tuple[float,
 async def bench_vault(n: int = 100) -> float | None:
     """Vault I/O of a sticky session's first request with SQLite on disk, in ms."""
     try:
-        from privyx.vault.sqlite import SQLiteVault
+        from privyx.testing import services
+        from privyx.vaults._sqlite import SQLiteVault
     except ImportError:
         return None
     # On disk in the working directory: a tmpfs /tmp would hide the fsync cost.
     with tempfile.TemporaryDirectory(dir=".") as tmp:
-        vault = SQLiteVault(f"{tmp}/bench.db")
-        await vault.connect()
+        vault = SQLiteVault(dsn=f"{tmp}/bench.db")
+        await vault.open(services())
         start = time.perf_counter()
         for i in range(n):
             # What the first request of a sticky session does: look it up and
@@ -191,7 +193,7 @@ async def bench_vault(n: int = 100) -> float | None:
 
 async def main() -> None:
     engine = PrivacyEngine(
-        detector=RegexDetector(),
+        detector=RegexDetector(underscore_separates_words=False),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
