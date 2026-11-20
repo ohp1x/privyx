@@ -1,24 +1,43 @@
 name: Docs
 
 on:
-  push:
-    branches: [main]
+  # The site documents the latest release, not main, which runs ahead of it:
+  # it is built from the highest stable tag after each release, or on demand.
+  # Running on main, not on the tag, is what the github-pages environment
+  # allows to deploy.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+  pull_request:
     # examples/, configs/, and plugins/ are embedded in the pages; overrides/
     # is the theme's template directory.
     paths: [docs/**, mkdocs.yml, overrides/**, examples/**, configs/**, plugins/**, .github/workflows/docs.yml]
-  pull_request:
-    # As above.
-    paths: [docs/**, mkdocs.yml, overrides/**, examples/**, configs/**, plugins/**, .github/workflows/docs.yml]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   build:
+    # A failed release or a dry run publishes no new version.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     steps:
+      # The pre-release pattern is the Release workflow's.
+      - id: release
+        if: github.event_name != 'pull_request'
+        run: |
+          PRE='(a|b|rc|alpha|beta|pre)[0-9]*$|\.?dev[0-9]*$'
+          TAG="$(git ls-remote --tags --refs "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" 'v*.*.*' \
+            | sed 's|.*refs/tags/||' | grep -vE "$PRE" | sort -V | tail -n 1)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "::notice::building the site of $TAG"
+      # A pull request builds its own head, to check it.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.tag }}
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
