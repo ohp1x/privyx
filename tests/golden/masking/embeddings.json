@@ -1,0 +1,160 @@
+{
+  "transparent": {
+    "text": {
+      "upstream": [
+        {
+          "path": "/v1/embeddings",
+          "headers": {
+            "authorization": "Bearer golden-client-key",
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "embed-golden",
+            "input": [
+              "<PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>",
+              "<PRIVYX_EMAIL_5393005290036A9E>"
+            ]
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "object": "list",
+          "data": [
+            {
+              "object": "embedding",
+              "index": 0,
+              "embedding": [
+                0.1,
+                -0.2
+              ]
+            }
+          ],
+          "model": "embed-golden"
+        }
+      }
+    },
+    "token-ids": {
+      "upstream": [],
+      "response": {
+        "status": 400,
+        "content_type": "application/json",
+        "body": {
+          "error": {
+            "type": "privyx_invalid_request",
+            "message": "the request sends token ids instead of text, so privyx could not mask it and did not forward it; send the text instead"
+          }
+        }
+      }
+    },
+    "ollama-embed": {
+      "upstream": [
+        {
+          "path": "/api/embed",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "llama-golden",
+            "input": [
+              "<PRIVYX_PERSON_172131BFCE007D8B>",
+              "<PRIVYX_EMAIL_5393005290036A9E>"
+            ]
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "embeddings": [
+            [
+              0.1,
+              -0.2
+            ]
+          ]
+        }
+      }
+    },
+    "ollama-embeddings": {
+      "upstream": [
+        {
+          "path": "/api/embeddings",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "llama-golden",
+            "prompt": "<PRIVYX_PERSON_172131BFCE007D8B> at <PRIVYX_EMAIL_5393005290036A9E>"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "embedding": [
+            0.1,
+            -0.2
+          ]
+        }
+      }
+    }
+  },
+  "gateway-openai": {
+    "text": {
+      "upstream": [
+        {
+          "path": "/v1/embeddings",
+          "headers": {
+            "authorization": "Bearer golden-privyx-key",
+            "content-type": "application/json"
+          },
+          "body": {
+            "model": "embed-golden",
+            "input": [
+              "<PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>",
+              "<PRIVYX_EMAIL_5393005290036A9E>"
+            ]
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "object": "list",
+          "data": [
+            {
+              "object": "embedding",
+              "index": 0,
+              "embedding": [
+                0.1,
+                -0.2
+              ]
+            }
+          ],
+          "model": "embed-golden"
+        }
+      }
+    },
+    "token-ids": {
+      "upstream": [],
+      "response": {
+        "status": 400,
+        "content_type": "application/json",
+        "body": {
+          "error": {
+            "type": "privyx_invalid_request",
+            "message": "the request sends token ids instead of text, so privyx could not mask it and did not forward it; send the text instead"
+          }
+        }
+      }
+    }
+  }
+}

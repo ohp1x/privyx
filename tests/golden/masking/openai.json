@@ -1,0 +1,949 @@
+{
+  "transparent": {
+    "chat": {
+      "upstream": [
+        {
+          "path": "/v1/chat/completions",
+          "headers": {
+            "authorization": "Bearer golden-client-key",
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> or call <PRIVYX_PHONE_A503931E53CA61FC>."
+              },
+              {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                  {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\", \"host\": \"<PRIVYX_IP_ADDRESS_4F36749E26AC5198>\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100> is <PRIVYX_PERSON_172131BFCE007D8B>'s."
+                  },
+                  {
+                    "type": "image_url",
+                    "image_url": {
+                      "url": "https://example.com/receipt.png"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "lookup",
+                  "description": "Find a customer of <PRIVYX_ORG_370331243235B3DE>",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "email": {
+                        "type": "string",
+                        "description": "Such as <PRIVYX_EMAIL_5393005290036A9E>"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "run": "golden"
+            },
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "chatcmpl-golden",
+          "object": "chat.completion",
+          "model": "gpt-golden",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Noted: John Smith Acme Corp ana@example.com +1 202 555 0143 10.0.0.12 hunter2x9 4111 1111 1111 1111.",
+                "tool_calls": [
+                  {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"email\": \"John Smith\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": "tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 40,
+            "completion_tokens": 9,
+            "total_tokens": 49
+          }
+        }
+      }
+    },
+    "chat-stream": {
+      "upstream": [
+        {
+          "path": "/v1/chat/completions",
+          "headers": {
+            "authorization": "Bearer golden-client-key",
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> or call <PRIVYX_PHONE_A503931E53CA61FC>."
+              },
+              {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                  {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\", \"host\": \"<PRIVYX_IP_ADDRESS_4F36749E26AC5198>\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100> is <PRIVYX_PERSON_172131BFCE007D8B>'s."
+                  },
+                  {
+                    "type": "image_url",
+                    "image_url": {
+                      "url": "https://example.com/receipt.png"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "lookup",
+                  "description": "Find a customer of <PRIVYX_ORG_370331243235B3DE>",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "email": {
+                        "type": "string",
+                        "description": "Such as <PRIVYX_EMAIL_5393005290036A9E>"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "run": "golden"
+            },
+            "stream": true
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": ""
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "Noted: "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "John Smith "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "Acme Corp "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "ana@example.com "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "+1 202 555 0143"
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": " "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "10.0.0.12 "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "hunter2x9"
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": " "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "4111 1111 1111 1111."
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "object": "chat.completion.chunk",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {
+                          "name": "lookup",
+                          "arguments": "{\"email\": \"John Smith\"}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {},
+                  "finish_reason": "tool_calls"
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [],
+              "usage": {
+                "prompt_tokens": 40,
+                "completion_tokens": 9
+              }
+            }
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      }
+    },
+    "completions": {
+      "upstream": [
+        {
+          "path": "/v1/completions",
+          "headers": {
+            "authorization": "Bearer golden-client-key",
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "gpt-golden-instruct",
+            "prompt": "Write to <PRIVYX_PERSON_172131BFCE007D8B> at <PRIVYX_EMAIL_5393005290036A9E>:",
+            "suffix": "Regards, <PRIVYX_ORG_370331243235B3DE>",
+            "max_tokens": 16
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "cmpl-golden",
+          "object": "text_completion",
+          "choices": [
+            {
+              "index": 0,
+              "text": "Noted: John Smith ana@example.com Acme Corp.",
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      }
+    },
+    "leak": {
+      "upstream": [],
+      "response": {
+        "status": 422,
+        "content_type": "application/json",
+        "body": {
+          "error": {
+            "type": "privyx_leak_blocked",
+            "message": "privyx masked a value in this request but found it again unmasked elsewhere in it, so it was not forwarded (proxy.dlp_check)"
+          }
+        }
+      }
+    }
+  },
+  "gateway-openai": {
+    "chat": {
+      "upstream": [
+        {
+          "path": "/v1/chat/completions",
+          "headers": {
+            "authorization": "Bearer golden-privyx-key",
+            "content-type": "application/json"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "role": "system",
+                "content": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+              },
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> or call <PRIVYX_PHONE_A503931E53CA61FC>."
+              },
+              {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                  {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\", \"host\": \"<PRIVYX_IP_ADDRESS_4F36749E26AC5198>\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100> is <PRIVYX_PERSON_172131BFCE007D8B>'s."
+                  },
+                  {
+                    "type": "image_url",
+                    "image_url": {
+                      "url": "https://example.com/receipt.png"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "lookup",
+                  "description": "Find a customer of <PRIVYX_ORG_370331243235B3DE>",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "email": {
+                        "type": "string",
+                        "description": "Such as <PRIVYX_EMAIL_5393005290036A9E>"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "run": "golden"
+            },
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "chatcmpl-golden",
+          "object": "chat.completion",
+          "model": "gpt-golden",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Noted: John Smith Acme Corp <PRIVYX_EMAIL_1> ana@example.com +1 202 555 0143 10.0.0.12 hunter2x9 4111 1111 1111 1111.",
+                "tool_calls": [
+                  {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"email\": \"John Smith\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": "tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 40,
+            "completion_tokens": 9,
+            "total_tokens": 49
+          }
+        }
+      }
+    },
+    "chat-stream": {
+      "upstream": [
+        {
+          "path": "/v1/chat/completions",
+          "headers": {
+            "authorization": "Bearer golden-privyx-key",
+            "content-type": "application/json"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "role": "system",
+                "content": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+              },
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> or call <PRIVYX_PHONE_A503931E53CA61FC>."
+              },
+              {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [
+                  {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "lookup",
+                      "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\", \"host\": \"<PRIVYX_IP_ADDRESS_4F36749E26AC5198>\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100> is <PRIVYX_PERSON_172131BFCE007D8B>'s."
+                  },
+                  {
+                    "type": "image_url",
+                    "image_url": {
+                      "url": "https://example.com/receipt.png"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "lookup",
+                  "description": "Find a customer of <PRIVYX_ORG_370331243235B3DE>",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "email": {
+                        "type": "string",
+                        "description": "Such as <PRIVYX_EMAIL_5393005290036A9E>"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "run": "golden"
+            },
+            "stream": true
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "role": "assistant",
+                    "content": ""
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "Noted: "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "John Smith "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "Acme Corp "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "<PRIVYX_EMAIL_1> "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "ana@example.com "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "+1 202 555 0143 "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "10.0.0.12 "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "hunter2x9 "
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "content": "4111 1111 1111 1111."
+                  },
+                  "finish_reason": null
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "object": "chat.completion.chunk",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {
+                          "name": "lookup",
+                          "arguments": "{\"email\": \"John Smith\"}"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {},
+                  "finish_reason": "tool_calls"
+                }
+              ]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-golden",
+              "object": "chat.completion.chunk",
+              "model": "gpt-golden",
+              "choices": [],
+              "usage": {
+                "prompt_tokens": 40,
+                "completion_tokens": 9
+              }
+            }
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      }
+    },
+    "completions": {
+      "upstream": [
+        {
+          "path": "/v1/completions",
+          "headers": {
+            "authorization": "Bearer golden-privyx-key",
+            "content-type": "application/json"
+          },
+          "body": {
+            "model": "gpt-golden-instruct",
+            "prompt": "Write to <PRIVYX_PERSON_172131BFCE007D8B> at <PRIVYX_EMAIL_5393005290036A9E>:",
+            "suffix": "Regards, <PRIVYX_ORG_370331243235B3DE>",
+            "max_tokens": 16
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "cmpl-golden",
+          "object": "text_completion",
+          "choices": [
+            {
+              "index": 0,
+              "text": "Noted: John Smith ana@example.com Acme Corp.",
+              "finish_reason": "stop"
+            }
+          ]
+        }
+      }
+    },
+    "leak": {
+      "upstream": [],
+      "response": {
+        "status": 422,
+        "content_type": "application/json",
+        "body": {
+          "error": {
+            "type": "privyx_leak_blocked",
+            "message": "privyx masked a value in this request but found it again unmasked elsewhere in it, so it was not forwarded (proxy.dlp_check)"
+          }
+        }
+      }
+    }
+  }
+}

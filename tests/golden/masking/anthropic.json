@@ -1,0 +1,1138 @@
+{
+  "transparent": {
+    "messages": {
+      "upstream": [
+        {
+          "path": "/v1/messages",
+          "headers": {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "x-acme-trace": "golden",
+            "x-api-key": "golden-client-key"
+          },
+          "body": {
+            "model": "claude-golden",
+            "max_tokens": 64,
+            "system": [
+              {
+                "type": "text",
+                "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              }
+            ],
+            "messages": [
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> about the outage on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "send_mail",
+                    "input": {
+                      "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                      "name": "<PRIVYX_PERSON_172131BFCE007D8B>",
+                      "retries": 3
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> was used"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "text",
+                    "text": "Then call <PRIVYX_PHONE_A503931E53CA61FC>."
+                  },
+                  {
+                    "type": "document",
+                    "source": {
+                      "type": "text",
+                      "media_type": "text/plain",
+                      "data": "Invoice of <PRIVYX_ORG_370331243235B3DE>, card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100>"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "name": "send_mail",
+                "description": "Send mail for the staff of <PRIVYX_ORG_370331243235B3DE>",
+                "input_schema": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "user_id": "user_golden"
+            },
+            "safeguards": {
+              "cwd": "/srv/acme/apollo",
+              "git_email": "<PRIVYX_EMAIL_5393005290036A9E>"
+            },
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "msg_golden",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-golden",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "bob@example.org can wait; first John Smith.",
+              "signature": "sig-golden"
+            },
+            {
+              "type": "text",
+              "text": "Noted: John Smith Acme Corp ana@example.com 10.0.0.12 hunter2x9 +1 202 555 0143 4111 1111 1111 1111."
+            },
+            {
+              "type": "tool_use",
+              "id": "toolu_2",
+              "name": "send_mail",
+              "input": {
+                "to": "John Smith"
+              }
+            }
+          ],
+          "stop_reason": "tool_use",
+          "usage": {
+            "input_tokens": 40,
+            "output_tokens": 9
+          }
+        }
+      }
+    },
+    "messages-stream": {
+      "upstream": [
+        {
+          "path": "/v1/messages",
+          "headers": {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "x-acme-trace": "golden",
+            "x-api-key": "golden-client-key"
+          },
+          "body": {
+            "model": "claude-golden",
+            "max_tokens": 64,
+            "system": [
+              {
+                "type": "text",
+                "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              }
+            ],
+            "messages": [
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> about the outage on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "send_mail",
+                    "input": {
+                      "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                      "name": "<PRIVYX_PERSON_172131BFCE007D8B>",
+                      "retries": 3
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> was used"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "text",
+                    "text": "Then call <PRIVYX_PHONE_A503931E53CA61FC>."
+                  },
+                  {
+                    "type": "document",
+                    "source": {
+                      "type": "text",
+                      "media_type": "text/plain",
+                      "data": "Invoice of <PRIVYX_ORG_370331243235B3DE>, card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100>"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "thinking",
+                    "thinking": "bob@example.org can wait; first <PRIVYX_PERSON_172131BFCE007D8B>.",
+                    "signature": "sig-golden"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Noted: <PRIVYX_PERSON_172131BFCE007D8B> <PRIVYX_ORG_370331243235B3DE> <PRIVYX_EMAIL_5393005290036A9E> <PRIVYX_IP_ADDRESS_4F36749E26AC5198> <PRIVYX_SECRET_993993BF927C6FDD> <PRIVYX_PHONE_A503931E53CA61FC> <PRIVYX_PHONE_43EC0715990008DC> 1111."
+                  },
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_2",
+                    "name": "send_mail",
+                    "input": {
+                      "to": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": "Thanks, <PRIVYX_PERSON_172131BFCE007D8B>."
+              }
+            ],
+            "tools": [
+              {
+                "name": "send_mail",
+                "description": "Send mail for the staff of <PRIVYX_ORG_370331243235B3DE>",
+                "input_schema": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "user_id": "user_golden"
+            },
+            "safeguards": {
+              "cwd": "/srv/acme/apollo",
+              "git_email": "<PRIVYX_EMAIL_5393005290036A9E>"
+            },
+            "stream": true
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "event": "message_start",
+            "data": {
+              "type": "message_start",
+              "message": {
+                "id": "msg_golden_stream",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-golden",
+                "content": [],
+                "stop_reason": null,
+                "usage": {
+                  "input_tokens": 40,
+                  "output_tokens": 1
+                }
+              }
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "thinking",
+                "thinking": "",
+                "signature": ""
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "bob@exa"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "mple.or"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "g can w"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "ait; fi"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "rst "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "John Smith."
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "signature_delta",
+                "signature": "sig-golden-stream"
+              }
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "type": "content_block_stop",
+              "index": 0
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "type": "content_block_start",
+              "index": 1,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "Noted: "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "John Smith "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "Acme Corp "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "ana@example.com "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "10.0.0.12 "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "hunter2x9 "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "+1 202 555 0143"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": " "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "4111 1111 1111 1111 "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "4111 1111 1111"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "."
+              }
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "type": "content_block_stop",
+              "index": 1
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "type": "content_block_start",
+              "index": 2,
+              "content_block": {
+                "type": "tool_use",
+                "id": "toolu_3",
+                "name": "send_mail",
+                "input": {}
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 2,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "{\"to\": \"John Smith\"}"
+              }
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "type": "content_block_stop",
+              "index": 2
+            }
+          },
+          {
+            "event": "message_delta",
+            "data": {
+              "type": "message_delta",
+              "delta": {
+                "stop_reason": "tool_use"
+              },
+              "usage": {
+                "output_tokens": 9
+              }
+            }
+          },
+          {
+            "event": "message_stop",
+            "data": {
+              "type": "message_stop"
+            }
+          }
+        ]
+      }
+    },
+    "count-tokens": {
+      "upstream": [
+        {
+          "path": "/v1/messages/count_tokens",
+          "headers": {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "x-acme-trace": "golden",
+            "x-api-key": "golden-client-key"
+          },
+          "body": {
+            "model": "claude-golden",
+            "messages": [
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E>"
+              }
+            ]
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "input_tokens": 12
+        }
+      }
+    }
+  },
+  "gateway-anthropic": {
+    "messages": {
+      "upstream": [
+        {
+          "path": "/v1/messages",
+          "headers": {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "x-api-key": "golden-privyx-key"
+          },
+          "body": {
+            "model": "claude-golden",
+            "max_tokens": 64,
+            "system": [
+              {
+                "type": "text",
+                "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "type": "text",
+                "text": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+              }
+            ],
+            "messages": [
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> about the outage on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "send_mail",
+                    "input": {
+                      "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                      "name": "<PRIVYX_PERSON_172131BFCE007D8B>",
+                      "retries": 3
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> was used"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "text",
+                    "text": "Then call <PRIVYX_PHONE_A503931E53CA61FC>."
+                  },
+                  {
+                    "type": "document",
+                    "source": {
+                      "type": "text",
+                      "media_type": "text/plain",
+                      "data": "Invoice of <PRIVYX_ORG_370331243235B3DE>, card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100>"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "name": "send_mail",
+                "description": "Send mail for the staff of <PRIVYX_ORG_370331243235B3DE>",
+                "input_schema": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "user_id": "user_golden"
+            },
+            "safeguards": {
+              "cwd": "/srv/acme/apollo",
+              "git_email": "<PRIVYX_EMAIL_5393005290036A9E>"
+            },
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "msg_golden",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-golden",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "bob@example.org can wait; first John Smith.",
+              "signature": "sig-golden"
+            },
+            {
+              "type": "text",
+              "text": "Noted: John Smith Acme Corp <PRIVYX_EMAIL_1> ana@example.com 10.0.0.12 hunter2x9 +1 202 555 0143 4111 1111 1111 1111."
+            },
+            {
+              "type": "tool_use",
+              "id": "toolu_2",
+              "name": "send_mail",
+              "input": {
+                "to": "John Smith"
+              }
+            }
+          ],
+          "stop_reason": "tool_use",
+          "usage": {
+            "input_tokens": 40,
+            "output_tokens": 9
+          }
+        }
+      }
+    },
+    "messages-stream": {
+      "upstream": [
+        {
+          "path": "/v1/messages",
+          "headers": {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "x-api-key": "golden-privyx-key"
+          },
+          "body": {
+            "model": "claude-golden",
+            "max_tokens": 64,
+            "system": [
+              {
+                "type": "text",
+                "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "type": "text",
+                "text": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+              }
+            ],
+            "messages": [
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> about the outage on <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "send_mail",
+                    "input": {
+                      "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                      "name": "<PRIVYX_PERSON_172131BFCE007D8B>",
+                      "retries": 3
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD> was used"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "text",
+                    "text": "Then call <PRIVYX_PHONE_A503931E53CA61FC>."
+                  },
+                  {
+                    "type": "document",
+                    "source": {
+                      "type": "text",
+                      "media_type": "text/plain",
+                      "data": "Invoice of <PRIVYX_ORG_370331243235B3DE>, card <PRIVYX_CREDIT_CARD_8E245B8D0AADA100>"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "thinking",
+                    "thinking": "bob@example.org can wait; first <PRIVYX_PERSON_172131BFCE007D8B>.",
+                    "signature": "sig-golden"
+                  },
+                  {
+                    "type": "text",
+                    "text": "Noted: <PRIVYX_PERSON_172131BFCE007D8B> <PRIVYX_ORG_370331243235B3DE> <PRIVYX_EMAIL_1> <PRIVYX_EMAIL_5393005290036A9E> <PRIVYX_IP_ADDRESS_4F36749E26AC5198> <PRIVYX_SECRET_993993BF927C6FDD> <PRIVYX_PHONE_A503931E53CA61FC> <PRIVYX_PHONE_43EC0715990008DC> 1111."
+                  },
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_2",
+                    "name": "send_mail",
+                    "input": {
+                      "to": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "content": "Thanks, <PRIVYX_PERSON_172131BFCE007D8B>."
+              }
+            ],
+            "tools": [
+              {
+                "name": "send_mail",
+                "description": "Send mail for the staff of <PRIVYX_ORG_370331243235B3DE>",
+                "input_schema": {
+                  "type": "object",
+                  "properties": {
+                    "to": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "user_id": "user_golden"
+            },
+            "safeguards": {
+              "cwd": "/srv/acme/apollo",
+              "git_email": "<PRIVYX_EMAIL_5393005290036A9E>"
+            },
+            "stream": true
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "event": "message_start",
+            "data": {
+              "type": "message_start",
+              "message": {
+                "id": "msg_golden_stream",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-golden",
+                "content": [],
+                "stop_reason": null,
+                "usage": {
+                  "input_tokens": 40,
+                  "output_tokens": 1
+                }
+              }
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "type": "content_block_start",
+              "index": 0,
+              "content_block": {
+                "type": "thinking",
+                "thinking": "",
+                "signature": ""
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "bob@exa"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "mple.or"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "g can w"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "ait; fi"
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "rst "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "thinking_delta",
+                "thinking": "John Smith."
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 0,
+              "delta": {
+                "type": "signature_delta",
+                "signature": "sig-golden-stream"
+              }
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "type": "content_block_stop",
+              "index": 0
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "type": "content_block_start",
+              "index": 1,
+              "content_block": {
+                "type": "text",
+                "text": ""
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "Noted: "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "John Smith "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "Acme Corp "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "<PRIVYX_EMAIL_1> "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "ana@example.com "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "10.0.0.12 "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "hunter2x9 "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "+1 202 555 0143 "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "4111 1111 1111 1111 "
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 1,
+              "delta": {
+                "type": "text_delta",
+                "text": "4111 1111 1111."
+              }
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "type": "content_block_stop",
+              "index": 1
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "type": "content_block_start",
+              "index": 2,
+              "content_block": {
+                "type": "tool_use",
+                "id": "toolu_3",
+                "name": "send_mail",
+                "input": {}
+              }
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "type": "content_block_delta",
+              "index": 2,
+              "delta": {
+                "type": "input_json_delta",
+                "partial_json": "{\"to\": \"John Smith\"}"
+              }
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "type": "content_block_stop",
+              "index": 2
+            }
+          },
+          {
+            "event": "message_delta",
+            "data": {
+              "type": "message_delta",
+              "delta": {
+                "stop_reason": "tool_use"
+              },
+              "usage": {
+                "output_tokens": 9
+              }
+            }
+          },
+          {
+            "event": "message_stop",
+            "data": {
+              "type": "message_stop"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,863 @@
+{
+  "transparent": {
+    "responses": {
+      "upstream": [
+        {
+          "path": "/v1/responses",
+          "headers": {
+            "authorization": "Bearer golden-client-key",
+            "content-type": "application/json",
+            "x-acme-trace": "golden",
+            "x-codex-turn-metadata": "{\"cwd\": \"/srv/acme/apollo\", \"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\"}"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "instructions": "Answer for <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>.",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD>"
+              },
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "<PRIVYX_PERSON_172131BFCE007D8B> asked."
+                  }
+                ],
+                "encrypted_content": "gAAAA-golden"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "name": "lookup",
+                "description": "Find a person at <PRIVYX_ORG_370331243235B3DE>",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "client_metadata": {
+              "workspace": "/srv/acme/apollo",
+              "remote": "git@<PRIVYX_IP_ADDRESS_4F36749E26AC5198>:acme.git"
+            },
+            "store": false,
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "resp_golden",
+          "object": "response",
+          "status": "completed",
+          "output": [
+            {
+              "type": "reasoning",
+              "id": "rs_2",
+              "summary": [
+                {
+                  "type": "summary_text",
+                  "text": "About ana@example.com."
+                }
+              ]
+            },
+            {
+              "type": "message",
+              "id": "msg_1",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Noted: ana@example.com John Smith Acme Corp 10.0.0.12 hunter2x9.",
+                  "annotations": []
+                }
+              ]
+            },
+            {
+              "type": "function_call",
+              "id": "fc_2",
+              "call_id": "call_2",
+              "name": "lookup",
+              "arguments": "{\"email\": \"ana@example.com\"}",
+              "status": "completed"
+            }
+          ],
+          "model": "gpt-golden"
+        }
+      }
+    },
+    "responses-stream": {
+      "upstream": [
+        {
+          "path": "/v1/responses",
+          "headers": {
+            "authorization": "Bearer golden-client-key",
+            "content-type": "application/json",
+            "x-acme-trace": "golden",
+            "x-codex-turn-metadata": "{\"cwd\": \"/srv/acme/apollo\", \"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\"}"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "instructions": "Answer for <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>.",
+            "input": [
+              {
+                "type": "message",
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD>"
+              },
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "<PRIVYX_PERSON_172131BFCE007D8B> asked."
+                  }
+                ],
+                "encrypted_content": "gAAAA-golden"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "name": "lookup",
+                "description": "Find a person at <PRIVYX_ORG_370331243235B3DE>",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "client_metadata": {
+              "workspace": "/srv/acme/apollo",
+              "remote": "git@<PRIVYX_IP_ADDRESS_4F36749E26AC5198>:acme.git"
+            },
+            "store": false,
+            "stream": true
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "event": "response.created",
+            "data": {
+              "type": "response.created",
+              "response": {
+                "id": "resp_golden",
+                "object": "response",
+                "status": "in_progress",
+                "output": []
+              }
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "type": "response.output_item.added",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "content": []
+              }
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "Noted: ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "ana@example.com ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "John Smith ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "Acme Corp ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "10.0.0.12 ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "hunter2x9.",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "type": "response.output_text.done",
+              "text": "Noted: ana@example.com John Smith Acme Corp 10.0.0.12 hunter2x9.",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "type": "response.output_item.done",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Noted: ana@example.com John Smith Acme Corp 10.0.0.12 hunter2x9.",
+                    "annotations": []
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "type": "response.output_item.added",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc_2",
+                "call_id": "call_2",
+                "name": "lookup",
+                "arguments": "",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "event": "response.function_call_arguments.delta",
+            "data": {
+              "type": "response.function_call_arguments.delta",
+              "delta": "{\"email\": \"ana@example.com\"}",
+              "item_id": "fc_2",
+              "output_index": 2
+            }
+          },
+          {
+            "event": "response.function_call_arguments.done",
+            "data": {
+              "type": "response.function_call_arguments.done",
+              "arguments": "{\"email\": \"ana@example.com\"}",
+              "item_id": "fc_2",
+              "output_index": 2
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "type": "response.output_item.done",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc_2",
+                "call_id": "call_2",
+                "name": "lookup",
+                "arguments": "{\"email\": \"ana@example.com\"}",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "event": "response.completed",
+            "data": {
+              "type": "response.completed",
+              "response": {
+                "id": "resp_golden",
+                "object": "response",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "reasoning",
+                    "id": "rs_2",
+                    "summary": [
+                      {
+                        "type": "summary_text",
+                        "text": "About ana@example.com."
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "id": "msg_1",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Noted: ana@example.com John Smith Acme Corp 10.0.0.12 hunter2x9.",
+                        "annotations": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "lookup",
+                    "arguments": "{\"email\": \"ana@example.com\"}",
+                    "status": "completed"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "input-tokens": {
+      "upstream": [
+        {
+          "path": "/v1/responses/input_tokens",
+          "headers": {
+            "authorization": "Bearer golden-client-key",
+            "content-type": "application/json",
+            "x-acme-trace": "golden",
+            "x-codex-turn-metadata": "{\"cwd\": \"/srv/acme/apollo\", \"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\"}"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "input": "Mail <PRIVYX_EMAIL_5393005290036A9E> for <PRIVYX_PERSON_172131BFCE007D8B>"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "object": "response.input_tokens",
+          "input_tokens": 12
+        }
+      }
+    }
+  },
+  "gateway-openai": {
+    "responses": {
+      "upstream": [
+        {
+          "path": "/v1/chat/completions",
+          "headers": {
+            "authorization": "Bearer golden-privyx-key",
+            "content-type": "application/json"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "instructions": "Answer for <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>.",
+            "input": [
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+                  }
+                ]
+              },
+              {
+                "type": "message",
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD>"
+              },
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "<PRIVYX_PERSON_172131BFCE007D8B> asked."
+                  }
+                ],
+                "encrypted_content": "gAAAA-golden"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "name": "lookup",
+                "description": "Find a person at <PRIVYX_ORG_370331243235B3DE>",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "client_metadata": {
+              "workspace": "/srv/acme/apollo",
+              "remote": "git@<PRIVYX_IP_ADDRESS_4F36749E26AC5198>:acme.git"
+            },
+            "store": false,
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "id": "resp_golden",
+          "object": "response",
+          "status": "completed",
+          "output": [
+            {
+              "type": "reasoning",
+              "id": "rs_2",
+              "summary": [
+                {
+                  "type": "summary_text",
+                  "text": "About John Smith."
+                }
+              ]
+            },
+            {
+              "type": "message",
+              "id": "msg_1",
+              "role": "assistant",
+              "status": "completed",
+              "content": [
+                {
+                  "type": "output_text",
+                  "text": "Noted: John Smith Acme Corp <PRIVYX_EMAIL_1> ana@example.com 10.0.0.12 hunter2x9.",
+                  "annotations": []
+                }
+              ]
+            },
+            {
+              "type": "function_call",
+              "id": "fc_2",
+              "call_id": "call_2",
+              "name": "lookup",
+              "arguments": "{\"email\": \"John Smith\"}",
+              "status": "completed"
+            }
+          ],
+          "model": "gpt-golden"
+        }
+      }
+    },
+    "responses-stream": {
+      "upstream": [
+        {
+          "path": "/v1/chat/completions",
+          "headers": {
+            "authorization": "Bearer golden-privyx-key",
+            "content-type": "application/json"
+          },
+          "body": {
+            "model": "gpt-golden",
+            "instructions": "Answer for <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>.",
+            "input": [
+              {
+                "type": "message",
+                "role": "developer",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+                  }
+                ]
+              },
+              {
+                "type": "message",
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "lookup",
+                "arguments": "{\"email\": \"<PRIVYX_EMAIL_5393005290036A9E>\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "DB_PASSWORD=<PRIVYX_SECRET_993993BF927C6FDD>"
+              },
+              {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [
+                  {
+                    "type": "summary_text",
+                    "text": "<PRIVYX_PERSON_172131BFCE007D8B> asked."
+                  }
+                ],
+                "encrypted_content": "gAAAA-golden"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "name": "lookup",
+                "description": "Find a person at <PRIVYX_ORG_370331243235B3DE>",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "email": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "client_metadata": {
+              "workspace": "/srv/acme/apollo",
+              "remote": "git@<PRIVYX_IP_ADDRESS_4F36749E26AC5198>:acme.git"
+            },
+            "store": false,
+            "stream": true
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "event": "response.created",
+            "data": {
+              "type": "response.created",
+              "response": {
+                "id": "resp_golden",
+                "object": "response",
+                "status": "in_progress",
+                "output": []
+              }
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "type": "response.output_item.added",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "content": []
+              }
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "Noted: ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "John Smith ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "Acme Corp ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "<PRIVYX_EMAIL_1> ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "ana@example.com ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "10.0.0.12 ",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "type": "response.output_text.delta",
+              "delta": "hunter2x9.",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "type": "response.output_text.done",
+              "text": "Noted: John Smith Acme Corp <PRIVYX_EMAIL_1> ana@example.com 10.0.0.12 hunter2x9.",
+              "item_id": "msg_1",
+              "output_index": 1,
+              "content_index": 0
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "type": "response.output_item.done",
+              "output_index": 1,
+              "item": {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                  {
+                    "type": "output_text",
+                    "text": "Noted: John Smith Acme Corp <PRIVYX_EMAIL_1> ana@example.com 10.0.0.12 hunter2x9.",
+                    "annotations": []
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "type": "response.output_item.added",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc_2",
+                "call_id": "call_2",
+                "name": "lookup",
+                "arguments": "",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "event": "response.function_call_arguments.delta",
+            "data": {
+              "type": "response.function_call_arguments.delta",
+              "delta": "{\"email\": \"John Smith\"}",
+              "item_id": "fc_2",
+              "output_index": 2
+            }
+          },
+          {
+            "event": "response.function_call_arguments.done",
+            "data": {
+              "type": "response.function_call_arguments.done",
+              "arguments": "{\"email\": \"John Smith\"}",
+              "item_id": "fc_2",
+              "output_index": 2
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "type": "response.output_item.done",
+              "output_index": 2,
+              "item": {
+                "type": "function_call",
+                "id": "fc_2",
+                "call_id": "call_2",
+                "name": "lookup",
+                "arguments": "{\"email\": \"John Smith\"}",
+                "status": "completed"
+              }
+            }
+          },
+          {
+            "event": "response.completed",
+            "data": {
+              "type": "response.completed",
+              "response": {
+                "id": "resp_golden",
+                "object": "response",
+                "status": "completed",
+                "output": [
+                  {
+                    "type": "reasoning",
+                    "id": "rs_2",
+                    "summary": [
+                      {
+                        "type": "summary_text",
+                        "text": "About John Smith."
+                      }
+                    ]
+                  },
+                  {
+                    "type": "message",
+                    "id": "msg_1",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                      {
+                        "type": "output_text",
+                        "text": "Noted: John Smith Acme Corp <PRIVYX_EMAIL_1> ana@example.com 10.0.0.12 hunter2x9.",
+                        "annotations": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "lookup",
+                    "arguments": "{\"email\": \"John Smith\"}",
+                    "status": "completed"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

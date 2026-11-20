@@ -1,0 +1,603 @@
+{
+  "transparent": {
+    "chat": {
+      "upstream": [
+        {
+          "path": "/api/chat",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "llama-golden",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>.",
+                "images": [
+                  "aGVsbG8="
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "function": {
+                      "name": "send_mail",
+                      "arguments": {
+                        "to": "<PRIVYX_EMAIL_5393005290036A9E>"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_name": "send_mail",
+                "content": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_mail",
+                  "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "to": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "options": {
+              "temperature": 0
+            },
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "model": "llama-golden",
+          "created_at": "2026-01-01T00:00:00Z",
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 9,
+          "message": {
+            "role": "assistant",
+            "content": "Noted: John Smith Acme Corp ana@example.com 10.0.0.12 +1 202 555 0143.",
+            "tool_calls": [
+              {
+                "function": {
+                  "name": "send_mail",
+                  "arguments": {
+                    "to": "John Smith"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "chat-stream": {
+      "upstream": [
+        {
+          "path": "/api/chat",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "llama-golden",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+              },
+              {
+                "role": "user",
+                "content": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>.",
+                "images": [
+                  "aGVsbG8="
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "function": {
+                      "name": "send_mail",
+                      "arguments": {
+                        "to": "<PRIVYX_EMAIL_5393005290036A9E>"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_name": "send_mail",
+                "content": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+              }
+            ],
+            "tools": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "send_mail",
+                  "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {
+                      "to": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "options": {
+              "temperature": 0
+            },
+            "stream": true
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/x-ndjson",
+        "body": [
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": "Noted: "
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": "John Smith "
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": "Acme Corp "
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": "ana@example.com "
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": "10.0.0.12 "
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": ""
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": "+1 202 555 0143."
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "function": {
+                    "name": "send_mail",
+                    "arguments": {
+                      "to": "John Smith"
+                    }
+                  }
+                }
+              ]
+            },
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "done": true,
+            "done_reason": "stop",
+            "eval_count": 9,
+            "message": {
+              "role": "assistant",
+              "content": ""
+            }
+          }
+        ]
+      }
+    },
+    "generate": {
+      "upstream": [
+        {
+          "path": "/api/generate",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "llama-golden",
+            "system": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>.",
+            "prompt": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>.",
+            "stream": false
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "model": "llama-golden",
+          "created_at": "2026-01-01T00:00:00Z",
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 9,
+          "response": "Noted: John Smith Acme Corp ana@example.com 10.0.0.12."
+        }
+      }
+    },
+    "generate-stream": {
+      "upstream": [
+        {
+          "path": "/api/generate",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "model": "llama-golden",
+            "system": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>.",
+            "prompt": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/x-ndjson",
+        "body": [
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "Noted: ",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "John Smith ",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "Acme Corp ",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "ana@example.com ",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "response": "10.0.0.12.",
+            "done": false
+          },
+          {
+            "model": "llama-golden",
+            "created_at": "2026-01-01T00:00:00Z",
+            "done": true,
+            "done_reason": "stop",
+            "eval_count": 9,
+            "response": ""
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,934 @@
+{
+  "transparent": {
+    "generate": {
+      "upstream": [
+        {
+          "path": "/v1beta/models/gemini-golden:generateContent?key=golden-client-key",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "systemInstruction": {
+              "parts": [
+                {
+                  "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+                }
+              ]
+            },
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "send_mail",
+                      "args": {
+                        "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                        "name": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                      }
+                    },
+                    "thoughtSignature": "c2lnLWdvbGRlbg=="
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "send_mail",
+                      "response": {
+                        "result": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+                      }
+                    }
+                  },
+                  {
+                    "fileData": {
+                      "mimeType": "text/plain",
+                      "fileUri": "https://example.com/files/acme"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "functionDeclarations": [
+                  {
+                    "name": "send_mail",
+                    "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                    "parameters": {
+                      "type": "OBJECT",
+                      "properties": {
+                        "to": {
+                          "type": "STRING"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "generationConfig": {
+              "temperature": 0
+            }
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Noted: John Smith Acme Corp ana@example.com 10.0.0.12 +1 202 555 0143."
+                  },
+                  {
+                    "functionCall": {
+                      "name": "send_mail",
+                      "args": {
+                        "to": "John Smith"
+                      }
+                    }
+                  }
+                ]
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 40,
+            "candidatesTokenCount": 9,
+            "totalTokenCount": 49
+          },
+          "modelVersion": "gemini-golden",
+          "responseId": "golden"
+        }
+      }
+    },
+    "generate-stream": {
+      "upstream": [
+        {
+          "path": "/v1beta/models/gemini-golden:streamGenerateContent?key=golden-client-key&alt=sse",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "systemInstruction": {
+              "parts": [
+                {
+                  "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+                }
+              ]
+            },
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "send_mail",
+                      "args": {
+                        "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                        "name": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                      }
+                    },
+                    "thoughtSignature": "c2lnLWdvbGRlbg=="
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "send_mail",
+                      "response": {
+                        "result": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+                      }
+                    }
+                  },
+                  {
+                    "fileData": {
+                      "mimeType": "text/plain",
+                      "fileUri": "https://example.com/files/acme"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "functionDeclarations": [
+                  {
+                    "name": "send_mail",
+                    "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                    "parameters": {
+                      "type": "OBJECT",
+                      "properties": {
+                        "to": {
+                          "type": "STRING"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "generationConfig": {
+              "temperature": 0
+            }
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "Noted: "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "John Smith "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "Acme Corp "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "ana@example.com "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "10.0.0.12 "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "+1 202 555 0143."
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "functionCall": {
+                          "name": "send_mail",
+                          "args": {
+                            "to": "John Smith"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finishReason": "STOP"
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden",
+              "usageMetadata": {
+                "promptTokenCount": 40,
+                "candidatesTokenCount": 9,
+                "totalTokenCount": 49
+              }
+            }
+          }
+        ]
+      }
+    },
+    "count-tokens": {
+      "upstream": [
+        {
+          "path": "/v1beta/models/gemini-golden:countTokens?key=golden-client-key",
+          "headers": {
+            "content-type": "application/json",
+            "x-acme-trace": "golden"
+          },
+          "body": {
+            "generateContentRequest": {
+              "model": "models/gemini-golden",
+              "systemInstruction": {
+                "parts": [
+                  {
+                    "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+                  }
+                ]
+              },
+              "contents": [
+                {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                    }
+                  ]
+                },
+                {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "name": "send_mail",
+                        "args": {
+                          "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                          "name": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                        }
+                      },
+                      "thoughtSignature": "c2lnLWdvbGRlbg=="
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "functionResponse": {
+                        "name": "send_mail",
+                        "response": {
+                          "result": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+                        }
+                      }
+                    },
+                    {
+                      "fileData": {
+                        "mimeType": "text/plain",
+                        "fileUri": "https://example.com/files/acme"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "tools": [
+                {
+                  "functionDeclarations": [
+                    {
+                      "name": "send_mail",
+                      "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                      "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                          "to": {
+                            "type": "STRING"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "generationConfig": {
+                "temperature": 0
+              }
+            }
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "totalTokens": 12
+        }
+      }
+    }
+  },
+  "gateway-google": {
+    "generate": {
+      "upstream": [
+        {
+          "path": "/v1beta/models/gemini-golden:generateContent",
+          "headers": {
+            "content-type": "application/json",
+            "x-goog-api-key": "golden-privyx-key"
+          },
+          "body": {
+            "systemInstruction": {
+              "parts": [
+                {
+                  "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+                },
+                {
+                  "text": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+                }
+              ]
+            },
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "send_mail",
+                      "args": {
+                        "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                        "name": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                      }
+                    },
+                    "thoughtSignature": "c2lnLWdvbGRlbg=="
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "send_mail",
+                      "response": {
+                        "result": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+                      }
+                    }
+                  },
+                  {
+                    "fileData": {
+                      "mimeType": "text/plain",
+                      "fileUri": "https://example.com/files/acme"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "functionDeclarations": [
+                  {
+                    "name": "send_mail",
+                    "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                    "parameters": {
+                      "type": "OBJECT",
+                      "properties": {
+                        "to": {
+                          "type": "STRING"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "generationConfig": {
+              "temperature": 0
+            }
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Noted: John Smith Acme Corp <PRIVYX_EMAIL_1> ana@example.com 10.0.0.12 +1 202 555 0143."
+                  },
+                  {
+                    "functionCall": {
+                      "name": "send_mail",
+                      "args": {
+                        "to": "John Smith"
+                      }
+                    }
+                  }
+                ]
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 40,
+            "candidatesTokenCount": 9,
+            "totalTokenCount": 49
+          },
+          "modelVersion": "gemini-golden",
+          "responseId": "golden"
+        }
+      }
+    },
+    "generate-stream": {
+      "upstream": [
+        {
+          "path": "/v1beta/models/gemini-golden:streamGenerateContent?alt=sse",
+          "headers": {
+            "content-type": "application/json",
+            "x-goog-api-key": "golden-privyx-key"
+          },
+          "body": {
+            "systemInstruction": {
+              "parts": [
+                {
+                  "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+                },
+                {
+                  "text": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+                }
+              ]
+            },
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                  }
+                ]
+              },
+              {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "send_mail",
+                      "args": {
+                        "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                        "name": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                      }
+                    },
+                    "thoughtSignature": "c2lnLWdvbGRlbg=="
+                  }
+                ]
+              },
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "functionResponse": {
+                      "name": "send_mail",
+                      "response": {
+                        "result": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+                      }
+                    }
+                  },
+                  {
+                    "fileData": {
+                      "mimeType": "text/plain",
+                      "fileUri": "https://example.com/files/acme"
+                    }
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "functionDeclarations": [
+                  {
+                    "name": "send_mail",
+                    "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                    "parameters": {
+                      "type": "OBJECT",
+                      "properties": {
+                        "to": {
+                          "type": "STRING"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "generationConfig": {
+              "temperature": 0
+            }
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": [
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "Noted: "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "John Smith "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "Acme Corp "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "<PRIVYX_EMAIL_1> "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "ana@example.com "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "10.0.0.12 "
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "text": "+1 202 555 0143."
+                      }
+                    ]
+                  },
+                  "index": 0
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden"
+            }
+          },
+          {
+            "data": {
+              "candidates": [
+                {
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {
+                        "functionCall": {
+                          "name": "send_mail",
+                          "args": {
+                            "to": "John Smith"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "index": 0,
+                  "finishReason": "STOP"
+                }
+              ],
+              "modelVersion": "gemini-golden",
+              "responseId": "golden",
+              "usageMetadata": {
+                "promptTokenCount": 40,
+                "candidatesTokenCount": 9,
+                "totalTokenCount": 49
+              }
+            }
+          }
+        ]
+      }
+    },
+    "count-tokens": {
+      "upstream": [
+        {
+          "path": "/v1beta/models/gemini-golden:countTokens",
+          "headers": {
+            "content-type": "application/json",
+            "x-goog-api-key": "golden-privyx-key"
+          },
+          "body": {
+            "generateContentRequest": {
+              "model": "models/gemini-golden",
+              "systemInstruction": {
+                "parts": [
+                  {
+                    "text": "You help <PRIVYX_PERSON_172131BFCE007D8B> of <PRIVYX_ORG_370331243235B3DE>."
+                  },
+                  {
+                    "text": "Privacy notice from the Privyx proxy: some values in this conversation are replaced by placeholders such as <PRIVYX_EMAIL_1>. Treat each placeholder as the value itself and copy it exactly as written, brackets included, wherever that value is needed: in replies, code, commands, file contents, and tool calls. Do not change, split, encode, translate, or guess what is behind a placeholder."
+                  }
+                ]
+              },
+              "contents": [
+                {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "text": "Mail <PRIVYX_EMAIL_5393005290036A9E> about <PRIVYX_IP_ADDRESS_4F36749E26AC5198>."
+                    }
+                  ]
+                },
+                {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "name": "send_mail",
+                        "args": {
+                          "to": "<PRIVYX_EMAIL_5393005290036A9E>",
+                          "name": "<PRIVYX_PERSON_172131BFCE007D8B>"
+                        }
+                      },
+                      "thoughtSignature": "c2lnLWdvbGRlbg=="
+                    }
+                  ]
+                },
+                {
+                  "role": "user",
+                  "parts": [
+                    {
+                      "functionResponse": {
+                        "name": "send_mail",
+                        "response": {
+                          "result": "sent from <PRIVYX_PHONE_A503931E53CA61FC>"
+                        }
+                      }
+                    },
+                    {
+                      "fileData": {
+                        "mimeType": "text/plain",
+                        "fileUri": "https://example.com/files/acme"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "tools": [
+                {
+                  "functionDeclarations": [
+                    {
+                      "name": "send_mail",
+                      "description": "Mail the staff of <PRIVYX_ORG_370331243235B3DE>",
+                      "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                          "to": {
+                            "type": "STRING"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "generationConfig": {
+                "temperature": 0
+              }
+            }
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": {
+          "totalTokens": 12
+        }
+      }
+    }
+  }
+}
