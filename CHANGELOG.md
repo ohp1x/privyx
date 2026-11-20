@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Config:** the published JSON schema checks a profile's `privyx` settings and each preset as it checks a config file, so an editor completes their keys and flags a misspelled one; before, any key fitted there
+
 ### Security
 
 - **CLI:** `privyx run grok` sends xAI Grok Build's own key instead of one of Privyx's own (`PRIVYX_API_KEY`, `PRIVYX_OPENAI_API_KEY`, or the key of the provider type in effect), and `privyx run ollama` sends the Ollama server no such key, also when `PRIVYX_PROVIDER` names a provider type; a key set in the profile's own `privyx` settings is still sent

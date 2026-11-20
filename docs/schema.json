@@ -104,9 +104,8 @@
           "type": "array"
         },
         "privyx": {
-          "additionalProperties": true,
           "title": "Privyx",
-          "type": "object"
+          "$ref": "#/$defs/ProfileSettings"
         }
       },
       "title": "AgentConfig",
@@ -1557,6 +1556,216 @@
           }
         }
       ]
+    },
+    "ProfileSettings": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "default": "127.0.0.1",
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "title": "Port",
+          "anyOf": [
+            {
+              "default": 8000,
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "log_level": {
+          "default": "info",
+          "title": "Log Level",
+          "type": "string"
+        },
+        "logging": {
+          "default": "text",
+          "title": "Logging",
+          "type": "string"
+        },
+        "log_file": {
+          "default": "",
+          "title": "Log File",
+          "type": "string"
+        },
+        "upstream_url": {
+          "default": "",
+          "title": "Upstream Url",
+          "type": "string"
+        },
+        "vault": {
+          "$ref": "#/$defs/VaultConfig"
+        },
+        "detector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DetectorConfig"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/DetectorConfig"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Detector"
+        },
+        "policy": {
+          "$ref": "#/$defs/PolicyConfig"
+        },
+        "operator": {
+          "$ref": "#/$defs/OperatorConfig"
+        },
+        "anchor": {
+          "$ref": "#/$defs/AnchorConfig"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionConfig"
+        },
+        "token": {
+          "$ref": "#/$defs/TokenConfig"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderConfig"
+        },
+        "proxy": {
+          "$ref": "#/$defs/ProxyConfig"
+        },
+        "audit": {
+          "$ref": "#/$defs/AuditConfig"
+        },
+        "tracing": {
+          "$ref": "#/$defs/TracingConfig"
+        },
+        "plugins": {
+          "$ref": "#/$defs/PluginsConfig"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLSConfig"
+        },
+        "harvest": {
+          "title": "Harvest",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PresetSettings": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "default": "127.0.0.1",
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "title": "Port",
+          "anyOf": [
+            {
+              "default": 8000,
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "log_level": {
+          "default": "info",
+          "title": "Log Level",
+          "type": "string"
+        },
+        "logging": {
+          "default": "text",
+          "title": "Logging",
+          "type": "string"
+        },
+        "log_file": {
+          "default": "",
+          "title": "Log File",
+          "type": "string"
+        },
+        "vault": {
+          "$ref": "#/$defs/VaultConfig"
+        },
+        "detector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DetectorConfig"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/DetectorConfig"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Detector"
+        },
+        "policy": {
+          "$ref": "#/$defs/PolicyConfig"
+        },
+        "operator": {
+          "$ref": "#/$defs/OperatorConfig"
+        },
+        "anchor": {
+          "$ref": "#/$defs/AnchorConfig"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionConfig"
+        },
+        "token": {
+          "$ref": "#/$defs/TokenConfig"
+        },
+        "proxy": {
+          "$ref": "#/$defs/ProxyConfig"
+        },
+        "audit": {
+          "$ref": "#/$defs/AuditConfig"
+        },
+        "tracing": {
+          "$ref": "#/$defs/TracingConfig"
+        },
+        "plugins": {
+          "$ref": "#/$defs/PluginsConfig"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLSConfig"
+        },
+        "harvest": {
+          "title": "Harvest",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "description": "Top-level Privyx settings.",
@@ -1660,8 +1869,7 @@
     },
     "presets": {
       "additionalProperties": {
-        "additionalProperties": true,
-        "type": "object"
+        "$ref": "#/$defs/PresetSettings"
       },
       "title": "Presets",
       "type": "object"
