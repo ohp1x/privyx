@@ -1046,6 +1046,25 @@ def test_run_ollama_without_a_server_stops_before_starting_the_tool(
     assert not marker.exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a shell script stands in for ollama")
+def test_run_an_ollama_wrapper_checks_the_server_too(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    tool = tmp_path / "ollama-wrap"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    config = tmp_path / "privyx.yaml"
+    config.write_text(f"agents:\n  wrapped:\n    extends: ollama\n    command: {tool}\n")
+    checked: list[str] = []
+    monkeypatch.setattr("privyx.cli.commands.run._check_ollama", checked.append)
+    monkeypatch.setattr("privyx.cli.commands.run._run_target", lambda **kw: None)
+    monkeypatch.setenv("OLLAMA_HOST", "gpu.example.test")
+
+    runner.invoke(cli, ["run", "-c", str(config), "wrapped"])
+
+    assert checked == ["http://gpu.example.test:11434"]
+
+
 def test_run_ollama_sends_no_key_of_privyx_to_the_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
