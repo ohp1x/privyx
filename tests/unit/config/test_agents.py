@@ -9,8 +9,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.config.loader import load_config, trust
+from privyx.config.schema import ProviderKeysConfig
 from privyx.core.errors import ConfigError
+from privyx.providers.registry import resolve_api_key
 
 
 def test_profile_layers_and_sources(
@@ -501,3 +504,34 @@ def test_a_readable_file_with_a_credential_is_warned_about(
     for message in messages:
         assert "agents.claude:work.env.ANTHROPIC_AUTH_TOKEN" in message
         assert "abc123" not in message
+
+
+@pytest.mark.parametrize("agent", ["grok", "ollama"])
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {"PRIVYX_API_KEY": "sk-" + "proj-fake"},
+        {"PRIVYX_OPENAI_API_KEY": "sk-" + "proj-fake"},
+        {"PRIVYX_PROVIDER": "openai", "PRIVYX_OPENAI_API_KEY": "sk-" + "proj-fake"},
+        {"PRIVYX_PROVIDER": "anthropic", "PRIVYX_ANTHROPIC_API_KEY": "sk-" + "ant-fake"},
+        {"PRIVYX_PROVIDER": "google", "PRIVYX_GOOGLE_API_KEY": "AIza" + "fake"},
+    ],
+)
+def test_a_profile_for_another_host_sends_no_key_of_privyx(
+    agent: str, environment: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    assert resolve_api_key(load_config(agent=agent)) is None
+
+
+def test_a_profile_for_another_host_clears_every_key() -> None:
+    keys = dict.fromkeys(["api_key", *ProviderKeysConfig.model_fields], "")
+    for agent in ("grok", "ollama"):
+        assert DEFAULT_AGENTS[agent]["privyx"] == {"provider": keys}
+
+
+def test_a_key_set_for_the_profile_still_reaches_its_host(tmp_path: Path) -> None:
+    config = tmp_path / "grok.yaml"
+    config.write_text("agents:\n  grok:\n    privyx: {provider: {api_key: xai-fake}}\n")
+    assert resolve_api_key(load_config(config, agent="grok")) == "xai-fake"
