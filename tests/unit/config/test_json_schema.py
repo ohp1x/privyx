@@ -52,6 +52,25 @@ def test_a_misspelled_setting_does_not_fit() -> None:
     assert not _validator().is_valid({"session": {"strategy": "client", "strategey": "x"}})
 
 
+def test_profile_settings_and_presets_are_checked_like_a_config_file() -> None:
+    validator = _validator()
+    assert validator.is_valid(
+        {
+            "agents": {"x": {"privyx": {"session": {"strategy": "client"}, "port": "${PORT}"}}},
+            "presets": {"debug": {"log_level": "debug", "vault": {"type": "memory"}}},
+        }
+    )
+    for config in (
+        {"agents": {"x": {"privyx": {"sesion": {}}}}},
+        {"agents": {"x": {"privyx": {"presets": {}}}}},
+        {"agents": {"x": {"privyx": {"include": "more.yaml"}}}},
+        {"presets": {"debug": {"log_levle": "debug"}}},
+        {"presets": {"debug": {"provider": {"type": "openai"}}}},
+        {"presets": {"debug": {"upstream_url": "https://example.com"}}},
+    ):
+        assert not validator.is_valid(config), config
+
+
 def test_a_plugin_section_keeps_its_own_options() -> None:
     assert _validator().is_valid({"detector": {"type": "acme", "acme_threshold": 3}})
 

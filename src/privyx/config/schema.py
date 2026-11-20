@@ -706,6 +706,20 @@ def json_schema(
     for name, model in PLUGGABLE.items():
         loaded = None if plugins is None else plugins.get(name, {})
         _by_type(schema["$defs"], name, model, loaded)
+    # A profile's settings and a preset are partial config files, less the
+    # keys the loader refuses there; `include` is a file's own.
+    from privyx.config.loader import _NOT_IN_PRESET
+
+    for name, refused in (
+        ("ProfileSettings", ("agents", "presets", "include")),
+        ("PresetSettings", _NOT_IN_PRESET),
+    ):
+        kept = {k: v for k, v in schema["properties"].items() if k not in refused}
+        schema["$defs"][name] = {"type": "object", "properties": kept}
+        schema["$defs"][name]["additionalProperties"] = False
+    profile = schema["$defs"]["AgentConfig"]["properties"]
+    profile["privyx"] = {"title": "Privyx", "$ref": "#/$defs/ProfileSettings"}
+    schema["properties"]["presets"]["additionalProperties"] = {"$ref": "#/$defs/PresetSettings"}
     return {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": SCHEMA_URL, **schema}
 
 
