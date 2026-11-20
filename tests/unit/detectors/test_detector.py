@@ -1,0 +1,611 @@
+"""Tests for detector components."""
+
+from __future__ import annotations
+
+import re
+import time
+
+import pytest
+
+from privyx.app._build import build_detector
+from privyx.core import ConfigError, Context
+from privyx.detectors import RegexDetector, YamlDetector
+from privyx.detectors._pattern import (
+    DEFAULT_PATTERNS,
+    OPTIONAL_PATTERNS,
+    UNDERSCORE_SPLIT,
+    split_underscore,
+)
+
+
+@pytest.mark.asyncio
+async def test_regex_detector_finds_email() -> None:
+    detector = RegexDetector()
+    detection = await detector.detect("Email: alice@example.com", Context())
+    assert len(detection.spans) == 1
+    span = detection.spans[0]
+    assert span.entity_type == "EMAIL"
+    assert span.text == "alice@example.com"
+
+
+@pytest.mark.asyncio
+async def test_regex_detector_finds_multiple_entities() -> None:
+    detector = RegexDetector()
+    text = "alice@example.com +1 (555) 123-4567 192.168.0.1"
+    detection = await detector.detect(text, Context())
+    types = {s.entity_type for s in detection.spans}
+    assert "EMAIL" in types
+    assert "PHONE" in types
+    assert "IP_ADDRESS" in types
+
+
+@pytest.mark.asyncio
+async def test_yaml_detector_custom_rules() -> None:
+    detector = YamlDetector(
+        patterns={"CODE": r"\b[A-Z]{3}\d{2}\b"}, underscore_separates_words=False
+    )
+    detection = await detector.detect("code is ABC12", Context())
+    assert len(detection.spans) == 1
+    assert detection.spans[0].entity_type == "CODE"
+    assert detection.spans[0].text == "ABC12"
+
+
+@pytest.mark.asyncio
+async def test_no_false_positive_on_plain_text() -> None:
+    detector = RegexDetector()
+    detection = await detector.detect("hello world, nothing sensitive here", Context())
+    assert not detection
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "a@b.io",
+        "first.last+tag@mail.example.co.uk",
+        # At the RFC 5321 limits: 64-character local part, 251-character domain.
+        "x" * 64 + "@" + "sub." * 58 + "example.photography",
+    ],
+)
+def test_email_matches_the_whole_address(address: str) -> None:
+    detection = RegexDetector().detect_sync(f"mail {address} now", Context())
+    assert [s.text for s in detection.spans] == [address]
+
+
+@pytest.mark.parametrize(
+    ("text", "cards"),
+    [
+        ("4111 1111 1111 1111 or 378282246310005", ["4111 1111 1111 1111", "378282246310005"]),
+        # Both fail the Luhn check: a millisecond timestamp and an order ID.
+        ("ts 1790517229401 order 1234567812345678", []),
+    ],
+)
+def test_credit_card_must_pass_the_luhn_check(text: str, cards: list[str]) -> None:
+    detection = RegexDetector().detect_sync(text, Context())
+    assert [s.text for s in detection.spans if s.entity_type == "CREDIT_CARD"] == cards
+
+
+def test_credit_card_skips_a_unix_time_that_passes_the_luhn_check() -> None:
+    # Codex sends the start of each turn in milliseconds; both pass the Luhn check.
+    text = '{"turn_started_at_unix_ms":1794459442510} at 1794459442510000 us'
+    assert RegexDetector().detect_sync(text, Context()).spans == []
+
+
+@pytest.mark.parametrize(
+    "card",
+    [
+        "4111111111111111",  # Visa
+        "5555555555554444",  # Mastercard
+        "2223003122003222",  # Mastercard 2-series
+        "378282246310005",  # Amex
+        "6011111111111117",  # Discover
+        "3530111333300000",  # JCB
+        "6200000000000005",  # UnionPay
+        "36227206271667",  # Diners Club
+    ],
+)
+def test_credit_card_still_finds_every_network(card: str) -> None:
+    detection = RegexDetector().detect_sync(f"card {card} on file", Context())
+    assert [(s.entity_type, s.text) for s in detection.spans] == [("CREDIT_CARD", card)]
+
+
+@pytest.mark.parametrize(
+    ("text", "phones"),
+    [
+        ("call +1 (555) 010-4477 or 555-010-9981", ["+1 (555) 010-4477", "555-010-9981"]),
+        (
+            "wa 0812-3456, 081234567890, +6281234567890",
+            ["0812-3456", "081234567890", "+6281234567890"],
+        ),
+        # Two bare groups: a screen size, the seconds and year of a date, an ID.
+        ("1920 1080 at 14:02:11 2026 for INV-2026-0042", []),
+        # A YYYYMMDD date at the start of an added diff line is too short for E.164.
+        ("+20260927,15912", []),
+        # The seconds and milliseconds of a timestamp.
+        ("2026-10-08T09:49:08.123+08:00", []),
+    ],
+)
+def test_phone_numbers_and_what_only_looks_like_one(text: str, phones: list[str]) -> None:
+    detection = RegexDetector().detect_sync(text, Context())
+    assert [s.text for s in detection.spans if s.entity_type == "PHONE"] == phones
+
+
+@pytest.mark.parametrize(
+    ("address", "masked"),
+    [
+        ("10.0.3.17", True),
+        ("192.168.1.20", True),
+        ("8.8.8.8", True),
+        ("127.0.0.1", False),  # loopback
+        ("0.0.0.0", False),
+        ("192.0.2.10", False),  # documentation ranges
+        ("203.0.113.7", False),
+        ("999.1.2.300", False),  # a version number, not an address
+    ],
+)
+def test_ip_address_must_point_at_a_host(address: str, masked: bool) -> None:
+    detection = RegexDetector().detect_sync(f"host {address} is up", Context())
+    assert [s.text for s in detection.spans] == ([address] if masked else [])
+
+
+def test_own_pattern_for_a_builtin_entity_is_used_as_written() -> None:
+    detector = YamlDetector(
+        patterns={"CREDIT_CARD": r"\b\d{16}\b"}, underscore_separates_words=False
+    )
+    detection = detector.detect_sync("id 1234567812345678", Context())
+    assert [s.text for s in detection.spans] == ["1234567812345678"]
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        ('password: str = "typed-canary-739"', "typed-canary-739"),
+        ("const apiKey: string = 'typed-canary-739';", "typed-canary-739"),
+        ('SECRET_KEY: str = r"raw-canary-739"', "raw-canary-739"),
+        ('password = """single-canary-739"""', "single-canary-739"),
+        ("password = '''first-canary\nsecond-canary'''", "first-canary\nsecond-canary"),
+        ('SECRET_KEY = b"""first-canary\nsecond-canary"""', "first-canary\nsecond-canary"),
+        ('password = """first\\\nsecond"""', "first\\\nsecond"),
+        ('password = """"leading-quote-canary"""', '"leading-quote-canary'),
+        ("curl --password cli-canary-739", "cli-canary-739"),
+        ('curl --password "two words canary"', "two words canary"),
+        ("redis-server --requirepass redis-canary-739", "redis-canary-739"),
+        ("tool --api-key cli-canary-739", "cli-canary-739"),
+        ("tool --db-password cli-canary-739", "cli-canary-739"),
+        ("tool --client-secret cli-canary-739", "cli-canary-739"),
+        ("tool --token=cli-canary-739", "cli-canary-739"),
+    ],
+)
+def test_secret_literals_and_cli_values_are_masked_whole(text: str, secret: str) -> None:
+    detection = RegexDetector().detect_sync(text, Context()).merged(text)
+    assert [(span.entity_type, span.text) for span in detection.spans] == [("SECRET", secret)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "password: str",
+        "token: string;",
+        "_KEYS: tuple[str, ...]",
+        'password: str = os.environ["DB_PASSWORD"]',
+        "const password: string = process.env.DB_PASSWORD;",
+        "api_key: When set, overrides the environment variable.",
+        'password = ""',
+        'password = """"""',
+        "curl --password",
+        "tool --token --help",
+        'tool --token "$ACCESS_TOKEN"',
+        "tool --api-key ${API_KEY}",
+        "parser.add_argument('--password', help='Password for the service')",
+        "token_type: Bearer",
+        'API_KEY_PATTERN = r"""(?x)',
+        'TOKEN_REGEX = r"[a-z]+"',
+        'const passwordPattern: string = "[a-z]+";',
+        "token_count: 5",
+        "pass_rate: 0.9",
+        "TOKEN_LIMIT = 4096",
+        "secret_level: 3",
+        'session_token_ttl: "3600"',
+        "ACCESS_TOKEN_EXPIRY=1700000000",
+        "apiKeyCount: 7",
+        "PASSWORD_MAX_SIZE=64",
+    ],
+)
+def test_secret_declarations_and_references_are_kept(text: str) -> None:
+    assert not RegexDetector().detect_sync(text, Context())
+
+
+def test_a_secret_named_after_a_limit_is_still_masked() -> None:
+    """Only the name's end describes it: ``RATE_LIMIT_TOKEN`` holds a token."""
+    found = RegexDetector().detect_sync("RATE_LIMIT_TOKEN=abc123def456", Context())
+    assert [(s.entity_type, s.text) for s in found.spans] == [("SECRET", "abc123def456")]
+
+
+def _fill(unit: str, size: int = 100_000) -> str:
+    return (unit * (size // len(unit) + 1))[:size]
+
+
+#: Near-misses that make an unbounded quantifier backtrack: long runs of one
+#: character class, and the prefixes the built-in patterns look for.
+_ADVERSARIAL = {
+    "letters": _fill("a"),
+    "hex": _fill("0123456789abcdef"),
+    "dotted": _fill("abc."),
+    "digits": _fill("1 "),
+    "spaced digits": "1" + " " * 100_000 + "1",
+    "dashes": _fill("-"),
+    "at signs": _fill("a@"),
+    "long domain": "a@" + _fill("b"),
+    "dotted domain": "a@" + _fill("b."),
+    "local parts": _fill("b" * 64 + "@" + "c" * 255),
+    "key header": "-----BEGIN RSA PRIVATE KEY-----\n" + _fill("A"),
+    "jwt": "eyJ" + _fill("a") + ".eyJ",
+    "schemes": _fill("a://"),
+    "bearer": _fill("bearer "),
+    "whitespace": _fill("a b\n"),
+    "escaped newlines": _fill("\\n"),
+    "open quote": 'password="' + _fill("x"),
+    "assignments": _fill("token="),
+    "triple quote": 'password="""' + _fill("x"),
+    "quoted escapes": 'password="""' + _fill("\\\\"),
+    "cli flags": _fill("--password "),
+}
+
+
+def test_builtin_patterns_stay_linear_on_adversarial_input() -> None:
+    # Each takes ~20 ms at most here; the unbounded EMAIL pattern took ~8 s on
+    # several of these inputs and froze the event loop for that long.
+    slow = []
+    for entity, pattern in {**DEFAULT_PATTERNS, **OPTIONAL_PATTERNS}.items():
+        compiled = re.compile(pattern)
+        for shape, text in _ADVERSARIAL.items():
+            start = time.perf_counter()
+            for _ in compiled.finditer(text):
+                pass
+            elapsed = time.perf_counter() - start
+            if elapsed > 0.5:
+                slow.append(f"{entity} on {shape}: {elapsed:.1f} s")
+    assert not slow
+
+
+@pytest.mark.asyncio
+async def test_value_group_marks_only_the_value() -> None:
+    # `value` group → only it; an alternative without it → the whole match;
+    # an empty `value` → nothing.
+    detector = YamlDetector(
+        patterns={"SECRET": r"PASSWORD=(?P<value>\S*)|sk-\w+"}, underscore_separates_words=False
+    )
+    detection = await detector.detect("DB_PASSWORD=hunter2 sk-abc PASSWORD= x", Context())
+    assert [(s.entity_type, s.text) for s in detection.spans] == [
+        ("SECRET", "hunter2"),
+        ("SECRET", "sk-abc"),
+    ]
+    assert detection.spans[0].start == len("DB_PASSWORD=")
+
+
+async def _detect_terms(text: str, **config: object) -> dict[str, list[str]]:
+    """Build a detector from a `terms` config and return {entity: [matched text]}.
+
+    Term variants and `_` as a word separator are off unless ``config`` turns
+    them on.
+    """
+    options = {
+        "term_variants": False,
+        "underscore_separates_words": False,
+        "merge_terms": False,
+        **config,
+    }
+    detector = build_detector({"type": "regex", **options})
+    detection = (await detector.detect(text, Context())).merged(text)
+    found: dict[str, list[str]] = {}
+    for span in detection.spans:
+        found.setdefault(span.entity_type, []).append(span.text)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_terms_longest_match_wins() -> None:
+    found = await _detect_terms("hi annbob", terms={"PERSON": ["ann", "bob", "annbob"]})
+    assert found == {"PERSON": ["annbob"]}
+
+
+@pytest.mark.asyncio
+async def test_terms_match_case_insensitively() -> None:
+    found = await _detect_terms("Ann and ANN and ann", terms={"PERSON": ["ann"]})
+    assert found["PERSON"] == ["Ann", "ANN", "ann"]
+
+
+@pytest.mark.asyncio
+async def test_terms_respect_word_boundaries() -> None:
+    found = await _detect_terms("annual report by deann", terms={"PERSON": ["ann"]})
+    assert found == {}
+
+
+@pytest.mark.asyncio
+async def test_terms_match_a_url_verbatim() -> None:
+    url = "https://git.internal.example/team"
+    found = await _detect_terms(f"see {url} today", terms={"URL": [url]})
+    assert found == {"URL": [url]}
+
+
+@pytest.mark.parametrize("term", ["AcmeCorp", "Acme Corp", "acme-corp", "ACME_CORP"])
+@pytest.mark.asyncio
+async def test_terms_match_their_other_spellings(term: str) -> None:
+    text = "acmecorp, Acme Corp, acme-corp, ACME_CORP, acmeCorp, acme.corp"
+    found = await _detect_terms(text, terms={"ORG": [term]}, term_variants=True)
+    assert found == {"ORG": text.split(", ")}
+
+
+@pytest.mark.asyncio
+async def test_terms_match_only_as_written_without_term_variants() -> None:
+    text = "Acme Corp, acmecorp, acme-corp, acme_corp"
+    found = await _detect_terms(text, terms={"ORG": ["Acme Corp"]})
+    assert found == {"ORG": ["Acme Corp"]}
+
+
+@pytest.mark.asyncio
+async def test_terms_split_only_into_words_of_two_letters_or_more() -> None:
+    # "iPhone" is no "i phone"; a URL keeps its own spelling.
+    found = await _detect_terms(
+        "i phone, i-phone, git-internal.example/team",
+        terms={"PRODUCT": ["iPhone"], "URL": ["git.internal.example/team"]},
+        term_variants=True,
+    )
+    assert found == {}
+
+
+@pytest.mark.asyncio
+async def test_underscore_separates_words_in_terms() -> None:
+    text = "ACME_API_KEY acme_billing DB_JOHN JOHN__SMITH x_acme_corp johnson john2"
+    terms = {"ORG": ["acme", "acme_corp"], "PERSON": ["john", "smith"]}
+
+    assert await _detect_terms(text, terms=terms) == {}
+    found = await _detect_terms(text, terms=terms, underscore_separates_words=True)
+    assert found == {"ORG": ["ACME", "acme", "acme_corp"], "PERSON": ["JOHN", "JOHN", "SMITH"]}
+
+
+@pytest.mark.asyncio
+async def test_underscore_separates_words_in_builtin_patterns_and_keeps_their_checks() -> None:
+    key = "sk-" + "proj-abcdefghijklmnop1234"
+    text = (
+        f"host_10.0.0.1 ssn_123-45-6789 card_4111111111111111 my_{key} "
+        "bad_4111111111111112 v_999.1.2.3 task-abcdefghijklmnopqrstuv password=str_abc123"
+    )
+
+    assert await _detect_terms(text) == {"SECRET": ["str_abc123"]}
+    found = await _detect_terms(text, underscore_separates_words=True)
+    # Luhn and the address check still apply; `task-` is no `sk-`, and a
+    # secret's value keeps its `_`.
+    assert found == {
+        "IP_ADDRESS": ["10.0.0.1"],
+        "SSN": ["123-45-6789"],
+        "CREDIT_CARD": ["4111111111111111"],
+        "API_KEY": [key],
+        "SECRET": ["str_abc123"],
+    }
+
+
+def test_split_underscore_changes_each_pattern_it_applies_to() -> None:
+    """A built-in in the set whose boundary form changed would be skipped silently."""
+    for entity in UNDERSCORE_SPLIT:
+        pattern = DEFAULT_PATTERNS.get(entity) or OPTIONAL_PATTERNS[entity]
+        split = split_underscore(pattern)
+        assert split != pattern, entity
+        assert r"(?<!\w" not in split and r"\b" not in split, entity
+        re.compile(split)
+
+
+@pytest.mark.asyncio
+async def test_terms_keep_the_builtin_patterns() -> None:
+    found = await _detect_terms("ann at a@example.com", terms={"PERSON": ["ann"]})
+    assert found["PERSON"] == ["ann"]
+    assert found["EMAIL"] == ["a@example.com"]
+
+
+@pytest.mark.asyncio
+async def test_terms_and_patterns_coexist() -> None:
+    found = await _detect_terms(
+        "ann owns EMP-123456",
+        terms={"PERSON": ["ann"]},
+        patterns={"EMPLOYEE_ID": r"\bEMP-\d{6}\b"},
+    )
+    assert found["PERSON"] == ["ann"]
+    assert found["EMPLOYEE_ID"] == ["EMP-123456"]
+
+
+@pytest.mark.asyncio
+async def test_patterns_win_over_terms_for_the_same_entity(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """And say so, by count, once: the terms themselves are what the config protects."""
+    from privyx.detectors import _pattern as yaml_detector
+
+    monkeypatch.setattr(yaml_detector, "_OVERRIDES_WARNED", set())
+    config = {
+        "terms": {"PERSON": ["ann", "cy"], "ORG": ["acme"]},
+        "patterns": {"PERSON": r"\bbob\b"},
+    }
+    with caplog.at_level("WARNING", logger="privyx"):
+        found = await _detect_terms("ann and bob", **config)
+        build_detector({"type": "regex", **config})  # built again: no second warning
+    assert found == {"PERSON": ["bob"]}
+    assert len(caplog.records) == 1
+    assert "'PERSON' replaces its 2 terms" in caplog.text
+    assert "ann" not in caplog.text and "ORG" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_empty_term_list_matches_nothing() -> None:
+    found = await _detect_terms("anything at all", terms={"PERSON": [], "ORG": ["  "]})
+    assert found == {}
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize(
+    ("pattern", "text", "expected"),
+    [
+        (r"\bbob\b", "ANN bob BOB annual", ["ANN", "bob"]),
+        (r"(?i)\bbob\b", "ANN bob BOB", ["ANN", "bob", "BOB"]),
+        (r"(?x) (?i) bob # a trailing comment", "ANN BOB", ["ANN", "BOB"]),
+        (r"(?# flags follow)(?i)bob", "ANN BOB", ["ANN", "BOB"]),
+        (r"(?a)\bbob\b", "éanné ANN bob", ["ANN", "bob"]),
+        (r"^bob$", "ANN bob", ["ANN"]),
+        (r"label=(?P<value>bob)", "ANN label=bob", ["ANN", "bob"]),
+        (r"(bo)\1", "ANN bobo", ["ANN", "bobo"]),
+    ],
+)
+async def test_merge_terms_keeps_both_branches_and_regex_semantics(
+    dtype: str, pattern: str, text: str, expected: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    detector = build_detector(
+        {
+            "type": dtype,
+            "merge_terms": True,
+            "terms": {"PERSON": ["ann"]},
+            "patterns": {"PERSON": pattern},
+        }
+    )
+    found = await detector.detect(text, Context())
+    assert [s.text for s in found.spans if s.entity_type == "PERSON"] == expected
+    assert "replaces" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_merge_terms_tries_the_term_before_a_shorter_regex() -> None:
+    found = await _detect_terms(
+        "john smith",
+        merge_terms=True,
+        terms={"PERSON": ["john smith"]},
+        patterns={"PERSON": r"\bjohn\b"},
+    )
+    assert found == {"PERSON": ["john smith"]}
+
+
+@pytest.mark.asyncio
+async def test_merge_terms_keeps_variants_and_underscore_boundaries() -> None:
+    found = await _detect_terms(
+        "DB_ACME_CORP acmeCorp ORG-123",
+        merge_terms=True,
+        term_variants=True,
+        underscore_separates_words=True,
+        terms={"ORGANIZATION": ["Acme Corp"]},
+        patterns={"ORGANIZATION": r"ORG-\d{3}"},
+    )
+    assert found == {"ORGANIZATION": ["ACME_CORP", "acmeCorp", "ORG-123"]}
+
+
+def test_merge_terms_reports_an_invalid_original_regex() -> None:
+    with pytest.raises(ConfigError, match="invalid regex for entity 'PERSON'"):
+        build_detector(
+            {"merge_terms": True, "terms": {"PERSON": ["ann"]}, "patterns": {"PERSON": "("}}
+        )
+
+
+@pytest.mark.parametrize(
+    "terms",
+    [
+        "ann",  # not a mapping
+        {"PERSON": "ann"},  # a bare string, not a list
+        {"PERSON": 42},
+    ],
+)
+def test_malformed_terms_raise_config_error(terms: object) -> None:
+    with pytest.raises(ConfigError):
+        build_detector({"type": "regex", "terms": terms})
+
+
+@pytest.mark.parametrize("entity", ["my-person", "1PERSON", "", "A" * 65])
+def test_invalid_entity_name_raises_config_error(entity: str) -> None:
+    with pytest.raises(ConfigError, match="invalid entity name"):
+        build_detector({"type": "regex", "terms": {entity: ["ann"]}})
+
+
+@pytest.mark.asyncio
+async def test_detector_list_pools_spans_from_every_detector() -> None:
+    detector = build_detector(
+        [{"type": "regex"}, {"type": "yaml", "patterns": {"CODE": r"\b[A-Z]{3}\d{2}\b"}}]
+    )
+    detection = await detector.detect("mail alice@example.com code ABC12", Context())
+    assert sorted((s.entity_type, s.text) for s in detection.spans) == [
+        ("CODE", "ABC12"),
+        ("EMAIL", "alice@example.com"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_detector_list_collapses_exact_duplicates() -> None:
+    detector = build_detector([{"type": "regex"}, {"type": "regex"}])
+    detection = await detector.detect("mail alice@example.com", Context())
+    assert len(detection.spans) == 1
+
+
+def test_empty_detector_list_raises_config_error() -> None:
+    with pytest.raises(ConfigError, match="must not be empty"):
+        build_detector([])
+
+
+def test_disable_turns_a_built_in_off() -> None:
+    text = "card 378282246310005, mail alice@example.com"
+    detector = build_detector({"type": "regex", "cache": False, "disable": ["CREDIT_CARD"]})
+    spans = detector.detect_sync(text, Context()).spans
+    assert [(s.entity_type, s.text) for s in spans] == [("EMAIL", "alice@example.com")]
+
+
+def test_disable_keeps_your_own_pattern_for_the_entity() -> None:
+    config = {"disable": ["CREDIT_CARD"], "patterns": {"CREDIT_CARD": r"\bCC-\d{4}\b"}}
+    detector = build_detector({"type": "regex", "cache": False, **config})
+    spans = detector.detect_sync("card CC-1234 or 378282246310005", Context()).spans
+    assert [(s.entity_type, s.text) for s in spans] == [("CREDIT_CARD", "CC-1234")]
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize("entity", sorted(OPTIONAL_PATTERNS))
+def test_disable_accepts_an_inactive_optional_entity(dtype: str, entity: str) -> None:
+    config = {"type": dtype, "cache": False, "patterns": {"CODE": "ABC123"}}
+    baseline = build_detector(config).detect_sync("ABC123 alice@example.com", Context())
+    disabled = build_detector({**config, "disable": [entity]})
+    assert disabled.detect_sync("ABC123 alice@example.com", Context()) == baseline
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize("entity", ["CREDITCARD", "NOT_AN_ENTITY"])
+def test_disable_rejects_an_unknown_entity(dtype: str, entity: str) -> None:
+    with pytest.raises(ConfigError, match=entity):
+        build_detector({"type": dtype, "disable": [entity]})
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+def test_disable_rejects_an_entity_that_is_also_enabled(dtype: str) -> None:
+    with pytest.raises(ConfigError, match="both.*enable.*disable.*CRYPTO_WALLET"):
+        build_detector({"type": dtype, "enable": ["CRYPTO_WALLET"], "disable": ["CRYPTO_WALLET"]})
+
+
+@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+def test_disable_keeps_terms_for_an_optional_entity(dtype: str) -> None:
+    detector = build_detector(
+        {"type": dtype, "cache": False, "disable": ["MRN"], "terms": {"MRN": ["ABC123"]}}
+    )
+    spans = detector.detect_sync("ABC123", Context()).spans
+    assert [(s.entity_type, s.text) for s in spans] == [("MRN", "ABC123")]
+
+
+def test_custom_secret_pattern_retains_heuristic_checks() -> None:
+    custom_secret_pattern = (
+        r"(?i)(?P<name>[a-z_]+)\s*(?P<sep>[:=])\s*(?P<q>['\"]?)(?P<value>[^\s'\";]+)(?P=q)"
+    )
+    detector = RegexDetector(patterns={"SECRET": custom_secret_pattern})
+
+    # Legitimate secret should still be detected
+    valid_text = 'my_secret = "super-secret-123"'
+    detection = detector.detect_sync(valid_text, Context())
+    assert len(detection.spans) == 1
+    assert detection.spans[0].text == "super-secret-123"
+
+    # False positives like TOKEN_URL or password: str should be filtered out by _secret_value
+    fp_text1 = 'TOKEN_URL = "https://example.com/oauth/token"'
+    assert len(detector.detect_sync(fp_text1, Context()).spans) == 0
+
+    fp_text2 = "password: str"
+    assert len(detector.detect_sync(fp_text2, Context()).spans) == 0
+
+    fp_text3 = "api_key = api_key"
+    assert len(detector.detect_sync(fp_text3, Context()).spans) == 0

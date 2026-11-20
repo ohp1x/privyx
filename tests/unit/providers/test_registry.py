@@ -1,45 +1,57 @@
-"""Tests for provider registry and adapters."""
+"""The built-in providers, from the registry, and the upstream URL and key a config resolves to."""
 
 from __future__ import annotations
 
 import httpx
 import pytest
 
-from privyx.config.loader import load_config
+from privyx import load_config
+from privyx.app import Privyx
+from privyx.app._build import build_provider
 from privyx.core import ConfigError
-from privyx.providers.generic import GenericProvider, upstream_client
-from privyx.providers.registry import (
+from privyx.detectors import RegexDetector
+from privyx.engine import PrivacyEngine
+from privyx.gateway.server import Gateway
+from privyx.operators import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.providers import (
     DEFAULT_BASE_URLS,
-    build_provider,
-    default_registry,
+    GenericProvider,
+    Provider,
     resolve_api_key,
     resolve_base_url,
 )
+from privyx.proxy.http import upstream_client
+from privyx.vaults import MemoryVault
 
 
 def test_registry_builds_generic() -> None:
-    registry = default_registry()
-    provider = registry.build("generic", {"base_url": "http://localhost:9999"})
+    provider = Privyx().registry(Provider).build("generic", {"base_url": "http://localhost:9999"})
     assert isinstance(provider, GenericProvider)
-    assert provider._base_url == "http://localhost:9999"  # noqa: SLF001
+    assert provider.base_url == "http://localhost:9999"
 
 
 def test_gateway_waits_for_the_upstream_as_long_as_the_transparent_proxy() -> None:
     # `privyx proxy --gateway` serves it, and an upstream can take minutes to send
     # its first byte: a flat 60 s timeout turned those requests into a 502.
-    provider = GenericProvider(base_url="http://localhost:9999")
-    assert provider._client.timeout == httpx.Timeout(  # noqa: SLF001
+    assert upstream_client().timeout == httpx.Timeout(
         connect=10.0, read=300.0, write=300.0, pool=10.0
     )
 
 
+def _engine() -> PrivacyEngine:
+    return PrivacyEngine(RegexDetector(), DefaultPolicy(), PseudonymOperator(), MemoryVault())
+
+
 @pytest.mark.parametrize("ptype", ["generic", "openai", "anthropic"])
-def test_provider_client_follows_the_proxy_settings(ptype: str) -> None:
-    proxy = {"timeout": 42, "connect_timeout": 3, "max_connections": 7}
-    provider = build_provider(load_config(extra={"provider": {"type": ptype}, "proxy": proxy}))
-    client = provider._client  # noqa: SLF001
+async def test_the_gateway_client_follows_the_proxy_settings(ptype: str) -> None:
+    proxy = {"mode": "gateway", "timeout": 42, "connect_timeout": 3, "max_connections": 7}
+    settings = load_config(extra={"provider": {"type": ptype}, "proxy": proxy})
+    gateway = Gateway(_engine(), build_provider(settings), settings)
+    client = gateway._client  # noqa: SLF001
     assert client.timeout == httpx.Timeout(connect=3.0, read=42.0, write=42.0, pool=10.0)
     assert client._transport._pool._max_connections == 7  # noqa: SLF001
+    await gateway.close()
 
 
 @pytest.mark.parametrize(
@@ -58,7 +70,7 @@ async def test_upstream_client_retries_only_a_connection_that_did_not_open(
     outcome: object,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("privyx.providers.generic._CONNECT_RETRY_DELAYS", (0.0, 0.0))
+    monkeypatch.setattr("privyx.proxy.http._CONNECT_RETRY_DELAYS", (0.0, 0.0))
     sent: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -86,16 +98,13 @@ def test_upstream_client_keeps_the_proxy_environment(monkeypatch: pytest.MonkeyP
 
 
 def test_registry_unknown_provider_raises() -> None:
-    registry = default_registry()
-    with pytest.raises(ConfigError):
-        registry.build("nonexistent", {})
+    with pytest.raises(ConfigError, match="unknown provider type 'nonexistent'"):
+        Privyx().registry(Provider).build("nonexistent", {})
 
 
 def test_registry_names() -> None:
-    registry = default_registry()
-    assert "generic" in registry.names()
-    assert "openai" in registry.names()
-    assert "anthropic" in registry.names()
+    names = Privyx().registry(Provider).builtin_names()
+    assert names == ["generic", "openai", "anthropic", "google"]
 
 
 # --------------------------------------------------------------------------
@@ -131,7 +140,9 @@ def test_upstream_url_beats_config_base_url() -> None:
     )
 
     assert resolve_base_url(settings) == "http://127.0.0.1:9999"
-    assert build_provider(settings)._base_url == "http://127.0.0.1:9999"  # noqa: SLF001
+    assert build_provider(settings).url("/v1/chat/completions", stream=False) == (
+        "http://127.0.0.1:9999"
+    )
 
 
 def test_per_provider_api_key_beats_the_generic_one() -> None:
@@ -141,7 +152,7 @@ def test_per_provider_api_key_beats_the_generic_one() -> None:
 
     provider = build_provider(settings)
 
-    assert provider._api_key == "specific"  # noqa: SLF001
+    assert provider.options.api_key == "specific"
 
 
 def test_api_key_resolution_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,7 +175,38 @@ def test_api_key_resolution_order(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_anthropic_provider_sets_the_version_header() -> None:
     provider = build_provider(load_config(extra={"provider": {"type": "anthropic"}}))
 
-    assert provider._headers["anthropic-version"] == "2023-06-01"  # noqa: SLF001
+    assert provider.headers()["anthropic-version"] == "2023-06-01"
+
+
+@pytest.mark.parametrize(
+    ("ptype", "header", "value"),
+    [
+        ("generic", "authorization", "Bearer k"),
+        ("openai", "authorization", "Bearer k"),
+        ("anthropic", "x-api-key", "k"),
+        ("google", "x-goog-api-key", "k"),
+    ],
+)
+def test_each_type_sends_its_key_in_its_own_header(ptype: str, header: str, value: str) -> None:
+    provider = build_provider(load_config(extra={"provider": {"type": ptype, "api_key": "k"}}))
+    request = httpx.Request("POST", "https://up.test/", headers=provider.headers())
+    auth = provider.auth()
+    assert auth is not None
+    sent = next(auth.auth_flow(request))
+    assert sent.headers[header] == value
+    assert ("authorization" in sent.headers) is (header == "authorization")
+
+
+def test_a_configured_header_wins_over_the_key() -> None:
+    provider = build_provider(
+        load_config(
+            extra={"provider": {"type": "anthropic", "api_key": "k", "headers": {"X-Api-Key": "h"}}}
+        )
+    )
+    request = httpx.Request("POST", "https://up.test/", headers=provider.headers())
+    auth = provider.auth()
+    assert auth is not None
+    assert next(auth.auth_flow(request)).headers["x-api-key"] == "h"
 
 
 def test_shipped_example_configs_resolve_to_their_documented_endpoint() -> None:

@@ -21,8 +21,8 @@ def _resolved(root):
 
 async def _run(name, arguments, config=None, root=None, engine=None):
     """A tools/call result, decoded: (value or message, is_error)."""
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     settings = load_config(str(config) if config else None)
     built, close = await build_engine(settings)
@@ -231,8 +231,8 @@ async def test_precommit_reads_plain_unified_diffs(diff, expected):
 
 @pytest.mark.asyncio
 async def test_sanitize_never_overwrites_and_leaves_no_session(tmp_path):
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     config = _sqlite(tmp_path)
     (tmp_path / "input.txt").write_text("ana@example.com")
@@ -284,8 +284,8 @@ async def test_sanitize_sees_a_json_value_with_its_key(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sanitize_memory_vault_warns_and_keeps_nothing(tmp_path):
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     (tmp_path / "input.txt").write_text("ana@example.com")
     settings = load_config(None)
@@ -377,8 +377,8 @@ def _record(event, ts, **fields):
 
 async def _prompt(name, config=None, engine=None):
     """The text of a prompts/get answer."""
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     settings = load_config(str(config) if config else None)
     built, close = await build_engine(settings)
@@ -525,7 +525,7 @@ async def test_prompts_are_listed_and_an_unknown_one_is_an_error():
 
 
 async def _answers(*lines):
-    from privyx.config.loader import load_config
+    from privyx import load_config
 
     settings = load_config(None)
     return [await _respond(line, None, settings, Path.cwd()) for line in lines]  # type: ignore[arg-type]
@@ -687,8 +687,8 @@ def test_output_below_python_goes_to_stderr():
 
 @pytest.mark.asyncio
 async def test_sanitize_saves_the_session_once(tmp_path):
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
+    from privyx import load_config
+    from privyx.app._build import build_engine
 
     config = _sqlite(tmp_path)
     leaves = {f"k{i}": f"user{i}@example.com" for i in range(50)}
@@ -754,9 +754,9 @@ def test_nan_ids_get_valid_json():
 
 @pytest.mark.asyncio
 async def test_failed_cleanup_keeps_the_reason(tmp_path):
-    from privyx.config.loader import load_config
+    from privyx import load_config
+    from privyx.app._build import build_engine
     from privyx.core import VaultError
-    from privyx.core.builder import build_engine
 
     (tmp_path / "bad.json").write_text("{")
     settings = load_config(None)

@@ -11,13 +11,13 @@ import asyncio
 import json
 
 from privyx import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.detectors import RegexDetector
+from privyx.operators import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.streaming.adapters.generic import SSEStreamAdapter
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 from privyx.streaming.sse import SSEEvent
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 
 async def main() -> None:

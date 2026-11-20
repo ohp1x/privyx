@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 import click
 
 if TYPE_CHECKING:
-    from privyx.privacy.detector.builtin import RegexDetector
-    from privyx.token.codec import TokenCodec
+    from privyx.detectors import YamlDetector
+    from privyx.token.codec import FormatCodec
 
 _MARKER = "# Installed by `privyx install-hook`."
 _HOOKS = {
@@ -87,7 +87,7 @@ def commit_msg(file: Path) -> None:
     _report([f"commit message:{line}  {what}" for line, what in _findings(lines, _codec())])
 
 
-def _findings(lines: list[tuple[int, str]], codec: TokenCodec) -> list[tuple[int, str]]:
+def _findings(lines: list[tuple[int, str]], codec: FormatCodec) -> list[tuple[int, str]]:
     """``(line number, what)`` for each secret and placeholder in ``lines``.
 
     The lines are checked as one text, so a private key spanning several is
@@ -113,13 +113,17 @@ def _findings(lines: list[tuple[int, str]], codec: TokenCodec) -> list[tuple[int
 
 
 @functools.cache
-def _secret_detector() -> RegexDetector:
+def _secret_detector() -> YamlDetector:
     """Built once: `privyx mcp serve` checks a diff per file, on every call."""
-    from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, SECRET_TYPES, RegexDetector
+    from privyx.detectors import YamlDetector
+    from privyx.detectors._pattern import DEFAULT_PATTERNS, SECRET_TYPES
 
     # Code and tests are full of emails and phone numbers, but a key must
     # never be committed.
-    return RegexDetector({entity: DEFAULT_PATTERNS[entity] for entity in SECRET_TYPES})
+    return YamlDetector(
+        patterns={entity: DEFAULT_PATTERNS[entity] for entity in SECRET_TYPES},
+        underscore_separates_words=False,
+    )
 
 
 def _added_lines(diff: str) -> dict[str, list[tuple[int, str]]]:
@@ -225,11 +229,11 @@ def _name(line: str, previous: str) -> str:
     return name.removeprefix("b/") if git else name
 
 
-def _codec() -> TokenCodec:
+def _codec() -> FormatCodec:
     """The configured token codec, or the default one when the config cannot be read."""
-    from privyx.config.loader import load_config
+    from privyx.app import load_config
+    from privyx.app._build import build_codec
     from privyx.core import PrivyxError
-    from privyx.core.builder import build_codec
     from privyx.token.codec import FormatCodec
 
     try:

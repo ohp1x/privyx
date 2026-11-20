@@ -143,7 +143,7 @@ def watch(session_id: str | None, config_path: str | None, lines: int, follow: b
     One SESSION_ID, or every session.  Removed text is shown as [-...-], added
     text as {+...+}.  The tap holds original values, and so does this output.
     """
-    from privyx.config.loader import load_config
+    from privyx.app import load_config
     from privyx.core import PrivyxError
     from privyx.observability.tap import tap_file
 
@@ -338,7 +338,7 @@ def _sse_text(text: str) -> str:
 
 
 def _open_log(file: Path | None, config_path: str | None) -> tuple[Path, TextIO]:
-    from privyx.config.loader import load_config
+    from privyx.app import load_config
     from privyx.core import PrivyxError
 
     try:

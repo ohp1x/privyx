@@ -1,0 +1,115 @@
+"""Presidio detector — entity naming and config wiring.
+
+Presidio itself is an optional extra, so these tests inject a stand-in analyzer.
+What is actually at risk here is not Presidio's NER (that is Presidio's problem)
+but the seam around it: the entity names it emits, and whether a config can
+select it at all.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import pytest
+
+from privyx.app._build import build_detector
+from privyx.core import ConfigError, Context
+from privyx.detectors._presidio import PresidioDetector
+from privyx.policies import StrictPolicy
+from privyx.testing import services
+
+
+@dataclass
+class _Result:
+    entity_type: str
+    start: int
+    end: int
+    score: float = 0.9
+
+
+class _FakeAnalyzer:
+    """Stands in for ``AnalyzerEngine``, recording how it was called."""
+
+    def __init__(self, results: list[_Result]) -> None:
+        self._results = results
+        self.calls: list[dict] = []
+
+    def analyze(self, **kwargs: object) -> list[_Result]:
+        self.calls.append(dict(kwargs))
+        return self._results
+
+
+async def test_presidio_names_are_translated_for_the_strict_policy() -> None:
+    """EMAIL_ADDRESS must reach the policy as EMAIL, or strict drops the PII."""
+    text = "mail ana@example.com about the invoice"
+    start = text.index("ana@example.com")
+    detector = PresidioDetector(
+        analyzer=_FakeAnalyzer([_Result("EMAIL_ADDRESS", start, start + len("ana@example.com"))])
+    )
+
+    detection = await detector.detect(text, Context())
+    assert [s.entity_type for s in detection.spans] == ["EMAIL"]
+    assert detection.spans[0].text == "ana@example.com"
+
+    kept = await StrictPolicy().decide(detection, Context())
+    assert len(kept.spans) == 1, "strict policy dropped the span — the alias did not apply"
+
+
+async def test_unknown_entity_types_pass_through_unchanged() -> None:
+    detector = PresidioDetector(analyzer=_FakeAnalyzer([_Result("PERSON", 0, 3)]))
+    detection = await detector.detect("Ana", Context())
+    assert [s.entity_type for s in detection.spans] == ["PERSON"]
+
+
+async def test_entities_and_threshold_reach_the_analyzer() -> None:
+    analyzer = _FakeAnalyzer([])
+    detector = PresidioDetector(
+        analyzer=analyzer, entities=["PERSON"], score_threshold=0.7, language="id"
+    )
+
+    await detector.detect("halo", Context())
+
+    assert analyzer.calls[0]["entities"] == ["PERSON"]
+    assert analyzer.calls[0]["score_threshold"] == 0.7
+    assert analyzer.calls[0]["language"] == "id"
+
+
+async def test_empty_entities_means_every_recognizer() -> None:
+    analyzer = _FakeAnalyzer([])
+    await PresidioDetector(analyzer=analyzer).detect("halo", Context())
+    assert analyzer.calls[0]["entities"] is None
+
+
+async def test_config_can_select_presidio() -> None:
+    """``detector.type: presidio`` must be a known type.
+
+    Before it was registered this raised ``unknown detector type``. Without
+    Presidio installed it now fails on the missing extra instead — either way,
+    at startup, and never with 'unknown'.
+    """
+    detector = build_detector({"type": "presidio", "score_threshold": 0.5, "cache": False})
+    try:
+        await detector.open(services())
+    except ConfigError as exc:
+        assert "unknown detector type" not in str(exc)
+        pytest.skip(f"presidio extra not installed: {exc}")
+    else:
+        assert type(detector).name == "presidio"
+
+
+async def test_a_failed_model_download_is_a_config_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """spaCy exits the process when it cannot download a missing model."""
+    nlp_engine = pytest.importorskip("presidio_analyzer.nlp_engine")
+
+    class Provider:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def create_engine(self) -> None:
+            raise SystemExit(1)
+
+    monkeypatch.setattr(nlp_engine, "NlpEngineProvider", Provider)
+    with pytest.raises(ConfigError, match="is not installed"):
+        await PresidioDetector(model="xx_missing_model").open(services())

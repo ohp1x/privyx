@@ -49,9 +49,9 @@ from functools import lru_cache
 from typing import Any
 
 from privyx.core import LeakError, Session, leaf_text, put_back
+from privyx.detectors._pattern import SECRET_TYPES
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import SECRET_TYPES
-from privyx.token.codec import LabelCodec, TokenCodec
+from privyx.token.codec import FormatCodec, LabelCodec
 from privyx.token.model import LogicalToken
 
 #: The schemas whose request/response bodies this module knows how to walk.
@@ -376,7 +376,7 @@ async def transform_request(
                 values,
                 underscore=engine.underscore_separates_words,
                 codec=engine.codec,
-                fixed=getattr(engine.operator, "fixed_text", ""),
+                fixed=engine.operator.fixed_text,
                 written=written[0],
                 glued=glued,
                 tools=_declared_names(payload, schema),
@@ -395,7 +395,7 @@ async def transform_request(
                     copies,
                     underscore=engine.underscore_separates_words,
                     codec=engine.codec,
-                    fixed=getattr(engine.operator, "fixed_text", ""),
+                    fixed=engine.operator.fixed_text,
                     glued=glued,
                 )
                 written[0] += count
@@ -456,7 +456,7 @@ def _has_cache_control(value: Any) -> bool:
     return False
 
 
-def directive(codec: TokenCodec) -> str:
+def directive(codec: FormatCodec) -> str:
     """The instruction ``proxy.directive`` adds: keep placeholders exactly as written.
 
     With ``token.label_format``, the example is a labeled placeholder, and a
@@ -560,7 +560,7 @@ def find_leaks(
     masked: set[str],
     *,
     underscore: bool = False,
-    codec: TokenCodec | None = None,
+    codec: FormatCodec | None = None,
     fixed: str = "",
     written: int | None = None,
     tools: frozenset[str] = frozenset(),
@@ -638,7 +638,7 @@ def _mask_copies(
     copies: dict[str, str],
     *,
     underscore: bool,
-    codec: TokenCodec,
+    codec: FormatCodec,
     fixed: str,
     glued: Collection[str],
 ) -> tuple[str, int]:

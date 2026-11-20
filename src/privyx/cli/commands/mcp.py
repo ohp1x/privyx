@@ -94,14 +94,14 @@ def wrap(session_id: str | None, config_path: str | None, command: tuple[str, ..
 
 
 async def _wrap(command: tuple[str, ...], session_id: str | None, config_path: str | None) -> int:
+    from privyx.app import load_config
+    from privyx.app._build import build_engine
     from privyx.app._plugins import load_plugins
-    from privyx.config.loader import load_config
     from privyx.core import Context, SessionNotFoundError
-    from privyx.core.builder import build_engine
 
     settings = load_config(config_path)
-    load_plugins(settings)
-    engine, close = await build_engine(settings)
+    app = load_plugins(settings)
+    engine, close = await build_engine(settings, app)
     try:
         sid = (await engine.get_or_create_session(session_id)).session_id
         click.echo(f"session: {sid}", err=True)

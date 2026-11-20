@@ -9,8 +9,8 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from privyx import load_config
 from privyx.cli.main import cli
-from privyx.config.loader import load_config
 from privyx.core import ConfigError
 
 PRESETS = {

@@ -139,9 +139,9 @@ def serve(config_path: str | None, root: Path) -> None:
 
 
 async def _serve(config_path: str | None, root: Path) -> None:
+    from privyx.app import load_config
+    from privyx.app._build import build_engine
     from privyx.app._plugins import load_plugins
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_engine
 
     write, restore = _protocol_output()
     try:
@@ -151,8 +151,8 @@ async def _serve(config_path: str | None, root: Path) -> None:
             # Built once: a model-backed detector is slow to load, and a broken
             # config fails here rather than on every call.
             settings = load_config(config_path)
-            load_plugins(settings)
-            engine, close = await build_engine(settings)
+            app = load_plugins(settings)
+            engine, close = await build_engine(settings, app)
             try:
                 while raw := sys.stdin.buffer.readline():
                     line = raw.decode("utf-8", errors="replace").strip()

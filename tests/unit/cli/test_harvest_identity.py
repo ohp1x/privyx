@@ -11,16 +11,16 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
+from privyx.app._build import build_detector
 from privyx.cli import workspace
 from privyx.cli.commands.run import _harvest
 from privyx.cli.main import cli
 from privyx.config.schema import Settings
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.yaml import build_detector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.schemas import transform_request
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 
 @pytest.fixture

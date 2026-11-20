@@ -1,8 +1,9 @@
 """Privyx — AI data privacy gateway.
 
 Core public API. Import the privacy engine, sessions, and vault backends here.
-:class:`Privyx` (experimental) assembles and serves Privyx from Python; it is
-loaded on first use, so importing this package does not import the web stack.
+:class:`Privyx` (experimental) assembles and serves Privyx from Python, and
+:func:`load_config` reads the settings; both are loaded on first use, so
+importing this package does not import the web stack.
 """
 
 from __future__ import annotations
@@ -14,14 +15,14 @@ from privyx.engine import PrivacyEngine
 from privyx.version import __version__
 
 if TYPE_CHECKING:
-    from privyx.app import Privyx
+    from privyx.app import Privyx, load_config
 
-__all__ = ["PrivacyEngine", "Privyx", "Session", "__version__"]
+__all__ = ["PrivacyEngine", "Privyx", "Session", "__version__", "load_config"]
 
 
 def __getattr__(name: str) -> Any:
-    if name == "Privyx":
-        from privyx.app import Privyx
+    if name in ("Privyx", "load_config"):
+        import privyx.app
 
-        return Privyx
+        return getattr(privyx.app, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

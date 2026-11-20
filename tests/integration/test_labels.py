@@ -8,17 +8,18 @@ from typing import Any
 import httpx
 import pytest
 
+from privyx.anchors import HMACAnchor
+from privyx.app._build import build_engine
 from privyx.config.schema import Settings
 from privyx.core import ConfigError, Context, Detection, Session
-from privyx.core.builder import build_engine
 from privyx.engine import PrivacyEngine
 from privyx.gateway.server import Gateway
 from privyx.gateway.transparent import create_transparent_app
-from privyx.privacy.anchor.hmac import HMACAnchor
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.providers.generic import GenericProvider
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.providers import GenericProvider
 from privyx.proxy.schemas import directive
 from privyx.proxy.transparent import TransparentProxy
+from privyx.testing import services
 from privyx.token.codec import LabelCodec
 
 pytest.importorskip("faker")
@@ -102,6 +103,16 @@ async def test_an_unusable_label_setting_fails_at_startup(
         await build_engine(Settings(audit={"enabled": False}, **override))
 
 
+async def _labeled(
+    codec: LabelCodec, labels: Any, anchor: HMACAnchor | None = None, id_length: int = 16
+) -> PseudonymOperator:
+    """A ``pseudonym`` operator writing ``codec``'s labels, which ``labels`` gives."""
+    operator = PseudonymOperator()
+    await operator.open(services(codec=codec, anchor=anchor, id_length=id_length))
+    operator._labels = labels  # noqa: SLF001 - in place of Faker's
+    return operator
+
+
 async def test_an_id_stands_for_one_value_whatever_the_type() -> None:
     # A counter: EMAIL_1 was freed, so the next value would get id 2 beside PERSON_2.
     engine = await _engine(_settings(label_format="<{namespace}_{id}:{label}>"))
@@ -111,9 +122,9 @@ async def test_an_id_stands_for_one_value_whatever_the_type() -> None:
     assert masked.transformations[0].replacement.startswith("<PRIVYX_3:")
 
     # An anchored id: another value already holds this id under another type.
-    anchor = HMACAnchor("a-test-secret")
+    anchor = HMACAnchor(secret="a-test-secret")
     codec = LabelCodec("<{namespace}_{type}_{id}>", "<{namespace}_{id}:{label}>")
-    operator = PseudonymOperator(codec, anchor, id_length=8, labels=lambda *_: "Fake Name")
+    operator = await _labeled(codec, lambda *_: "Fake Name", anchor, id_length=8)
     taken = await anchor.anchor(NAME, Context())
     digest = taken.rsplit("_", 1)[-1].upper()
     other = Session()
@@ -127,17 +138,17 @@ async def test_an_id_stands_for_one_value_whatever_the_type() -> None:
 async def test_a_label_that_is_the_value_or_shares_its_name_is_not_used() -> None:
     labels = {0: "John Smith", 1: "John Brown", 2: "Mary Brown"}
     codec = LabelCodec("<{namespace}_{type}_{id}>", LABELED)
-    operator = PseudonymOperator(codec, labels=lambda _type, _value, salt: labels.get(salt, "x"))
+    operator = await _labeled(codec, lambda _type, _value, salt: labels.get(salt, "x"))
     found = Detection()
     found.add(0, len(NAME), "PERSON", NAME)
     result = await operator.pseudonymize(NAME, found, Session(), Context())
     assert result.text == "<PRIVYX_PERSON_1:Mary Brown>"
 
-    only_shared = PseudonymOperator(codec, labels=lambda *_: "John Brown")
+    only_shared = await _labeled(codec, lambda *_: "John Brown")
     result = await only_shared.pseudonymize(NAME, found, Session(), Context())
     assert result.text == "<PRIVYX_PERSON_1:John Brown>"  # the best there is, not the name
 
-    only_the_value = PseudonymOperator(codec, labels=lambda *_: "JOHN SMITH")
+    only_the_value = await _labeled(codec, lambda *_: "JOHN SMITH")
     result = await only_the_value.pseudonymize(NAME, found, Session(), Context())
     assert result.text == "<PRIVYX_PERSON_1>"
 
@@ -162,7 +173,7 @@ async def test_a_label_never_holds_another_value_of_the_session() -> None:
     # `James` is masked too, so `James Wilson` would send it, and fail the DLP check.
     labels = {0: "James Wilson", 1: "Ann Lee"}
     codec = LabelCodec("<{namespace}_{type}_{id}>", LABELED)
-    operator = PseudonymOperator(codec, labels=lambda _type, _token, salt: labels[salt % 2])
+    operator = await _labeled(codec, lambda _type, _token, salt: labels[salt % 2])
     text = "James met mary smith"
     found = Detection()
     found.add(0, 5, "PERSON", "James")
@@ -224,12 +235,10 @@ async def _apps(seen: list[dict[str, Any]], **proxy: Any) -> list[Any]:
     engine = await _engine(settings)
     transparent = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
     gateway_settings = settings.model_copy(update={"proxy": settings.proxy.model_copy()})
-    provider = GenericProvider(
-        base_url="https://up.test/v1/chat/completions", client=_upstream(seen)
-    )
+    provider = GenericProvider(base_url="https://up.test/v1/chat/completions")
     return [
         create_transparent_app(engine, transparent, settings),
-        Gateway(engine, provider, gateway_settings).app,
+        Gateway(engine, provider, gateway_settings, client=_upstream(seen)).app,
     ]
 
 

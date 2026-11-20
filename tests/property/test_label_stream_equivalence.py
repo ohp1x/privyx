@@ -8,7 +8,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from privyx.core import Session
-from privyx.privacy.operator.base import restore
+from privyx.operators._restore import restore
 from privyx.streaming.deanonymizer import TokenStreamProcessor
 from privyx.token.codec import LabelCodec
 

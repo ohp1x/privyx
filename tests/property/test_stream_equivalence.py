@@ -30,13 +30,14 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
+from privyx.anchors import HMACAnchor
 from privyx.core import Context, Detection, Session, Span
-from privyx.privacy.anchor.hmac import HMACAnchor
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.detectors import RegexDetector
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 from privyx.streaming.sse import SSEDecoder, SSEEvent, parse_sse
+from privyx.testing import services
 
 # Realistic PII, one per entity type the built-in detector knows, so the
 # generated corpus exercises multi-word entity names (CREDIT_CARD, IP_ADDRESS)
@@ -86,11 +87,13 @@ def chunk(text: str, sizes: list[int]) -> list[str]:
 #: The two pseudonym suffix styles: per-session counters, and anchor-derived
 #: hex tokens.  Parametrizing on this is what keeps principle #13 honest for
 #: both — the trie sees a different prefix structure in each case.
-ANCHORS = [None, HMACAnchor("property-test-secret")]
+ANCHORS = [None, HMACAnchor(secret="property-test-secret")]
 
 
-def operator(anchor: HMACAnchor | None) -> PseudonymOperator:
-    return PseudonymOperator(anchor=anchor)
+async def operator(anchor: HMACAnchor | None) -> PseudonymOperator:
+    opened = PseudonymOperator()
+    await opened.open(services(anchor=anchor))
+    return opened
 
 
 def pseudonymize(text: str, anchor: HMACAnchor | None = None) -> tuple[str, Session]:
@@ -101,7 +104,7 @@ def pseudonymize(text: str, anchor: HMACAnchor | None = None) -> tuple[str, Sess
         context = Context(session_id=session.session_id)
         detection = await RegexDetector().detect(text, context)
         detection = await DefaultPolicy().decide(detection, context)
-        result = await operator(anchor).pseudonymize(text, detection, session, context)
+        result = await (await operator(anchor)).pseudonymize(text, detection, session, context)
         return result.text, session
 
     return asyncio.run(_run())
@@ -111,7 +114,7 @@ def batch_deanonymize(text: str, session: Session, anchor: HMACAnchor | None = N
     """The reference implementation the streaming path must match."""
 
     async def _run() -> str:
-        result = await operator(anchor).deanonymize(
+        result = await (await operator(anchor)).deanonymize(
             text, session, Context(session_id=session.session_id)
         )
         return result.text
@@ -188,7 +191,7 @@ def test_anchored_pseudonyms_are_session_independent(text: str) -> None:
 
     Two independent sessions, no shared state — only the key relates them.
     """
-    anchor = HMACAnchor("property-test-secret")
+    anchor = HMACAnchor(secret="property-test-secret")
     first, first_session = pseudonymize(text, anchor)
     second, _ = pseudonymize(text, anchor)
     assume(first_session.mapping)

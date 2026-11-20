@@ -33,7 +33,7 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from privyx.streaming.recognizer import CodecRecognizer, Recognizer, TrieRecognizer
-from privyx.token.codec import TokenCodec, TokenIds
+from privyx.token.codec import FormatCodec, TokenIds
 
 
 @runtime_checkable
@@ -133,7 +133,7 @@ class TokenStreamProcessor(_BufferedStream):
 
     def __init__(
         self,
-        codec: TokenCodec,
+        codec: FormatCodec,
         resolve: Callable[[str], str | None],
         ids: TokenIds | None = None,
     ) -> None:

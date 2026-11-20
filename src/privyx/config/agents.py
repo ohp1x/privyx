@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from privyx.core import ConfigError
 
+if TYPE_CHECKING:
+    from privyx.config.loader import _Types
+
 
 def resolve_profiles(
-    profiles: dict[str, Any], sources: dict[str, str]
+    profiles: dict[str, Any], sources: dict[str, str], types: _Types
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """Resolve final parents first, retaining the origin of inherited fields.
 
@@ -53,7 +56,7 @@ def resolve_profiles(
             for section in ("budget", "privyx"):
                 own, inherited = child.get(section), parent.get(section)
                 if isinstance(own, dict) and isinstance(inherited, dict):
-                    effective[section] = _deep_merge(inherited, own)
+                    effective[section] = _deep_merge(inherited, own, types)
             prefix = f"agents.{child_name}."
             inherited_origins = (
                 profile_origins.get(parent_name, {}) if isinstance(parent_name, str) else {}

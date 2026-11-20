@@ -18,13 +18,14 @@ from typing import Any
 import httpx
 import pytest
 
+from privyx.anchors import HMACAnchor
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.anchor.hmac import HMACAnchor
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.testing import opened
+from privyx.vaults import MemoryVault
 
 USERS = [
     "mail alice@example.com about the invoice",
@@ -64,7 +65,9 @@ async def test_echoed_turns_are_byte_identical(
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
-        operator=PseudonymOperator(anchor=HMACAnchor("s" * 32) if anchored else None),
+        operator=await opened(
+            PseudonymOperator(), anchor=HMACAnchor(secret="s" * 32) if anchored else None
+        ),
         vault=MemoryVault(),
         directive=directive,
     )

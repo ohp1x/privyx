@@ -29,9 +29,10 @@ from privyx.core import (
     Context,  # noqa: E402
     Session,  # noqa: E402
 )
-from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
-from privyx.privacy.operator.faker import FakerOperator, _restore_literal  # noqa: E402
-from privyx.privacy.policy.default import DefaultPolicy  # noqa: E402
+from privyx.detectors import RegexDetector  # noqa: E402
+from privyx.operators._faker import FakerOperator  # noqa: E402
+from privyx.operators._literal import _restore_literal  # noqa: E402
+from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.streaming.deanonymizer import StreamingDeanonymizer  # noqa: E402
 
 PII_POOL = [

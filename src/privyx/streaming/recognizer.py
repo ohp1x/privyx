@@ -26,7 +26,7 @@ from collections.abc import Callable, Iterable
 from typing import Protocol, runtime_checkable
 
 from privyx.streaming.trie import PseudonymTrie
-from privyx.token.codec import TokenCodec, TokenIds
+from privyx.token.codec import FormatCodec, TokenIds
 
 
 @runtime_checkable
@@ -95,34 +95,23 @@ class CodecRecognizer:
 
     def __init__(
         self,
-        codec: TokenCodec,
+        codec: FormatCodec,
         resolve: Callable[[str], str | None],
         ids: TokenIds | None = None,
     ) -> None:
         self._codec = codec
         self._resolve = resolve
         self._ids = ids
-        # A token may be written without its edge literals, or as its id alone;
-        # a codec that does not know those forms (a plugin's) keeps to full tokens.
-        self._at = getattr(codec, "restorable_at", None)
-        self._prefix_len = getattr(codec, "restorable_prefix_len", None)
-        start_chars = getattr(codec, "start_chars", None)
-        chars = start_chars(ids) if start_chars else None
+        # A token may be written without its edge literals, or as its id alone.
+        chars = codec.start_chars(ids)
         # None: any character may begin a token, so nothing is skipped.
         self._start = None if chars is None else _any_of(chars)
 
     def longest_prefix_len(self, text: str, pos: int) -> int:
-        if self._prefix_len is None:
-            return self._codec.longest_prefix_len(text, pos)
-        length: int = self._prefix_len(text, pos, self._ids)
-        return length
+        return self._codec.restorable_prefix_len(text, pos, self._ids)
 
     def match_at(self, text: str, pos: int) -> tuple[str, str] | None:
-        if self._at is None:
-            match = self._codec.match_at(text, pos)
-            found = (match.end, match.text) if match else None
-        else:
-            found = self._at(text, pos, self._ids)
+        found = self._codec.restorable_at(text, pos, self._ids)
         if found is None:
             return None
         end, token = found

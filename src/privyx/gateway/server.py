@@ -2,7 +2,7 @@
 
 Unlike the transparent proxy, this app exposes *its own* endpoints and forwards
 every one of them to the single upstream endpoint named by ``provider.base_url``
-(:func:`~privyx.providers.registry.resolve_base_url`), used verbatim.  That is
+(:func:`~privyx.providers.resolve_base_url`), used verbatim.  That is
 the reason to pick this mode: the incoming path is not echoed at the upstream,
 so an upstream carrying a base path (``https://host/anthropic/v1/messages``,
 an Azure deployment, an OpenRouter prefix) works here and cannot be expressed in
@@ -25,6 +25,7 @@ import time
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, FastAPI, Request
 
 from privyx.config.schema import ProxyConfig, Settings
@@ -33,10 +34,9 @@ from privyx.core import request_id as new_request_id
 from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.observability.usage import UsageMeter
-from privyx.providers.base import Provider
-from privyx.providers.google import GoogleProvider
+from privyx.providers import GoogleProvider, Provider
 from privyx.proxy._plugin_routes import include_router
-from privyx.proxy.http import HTTPProxy
+from privyx.proxy.http import HTTPProxy, upstream_client
 from privyx.proxy.schemas import has_token_ids
 from privyx.proxy.session import resolve_session_id
 from privyx.proxy.streaming import AuditedStream
@@ -83,10 +83,14 @@ class Gateway:
     Args:
         engine: Configured privacy engine.
         provider: Upstream provider (owned by the caller, which closes it).
-        settings: Validated settings; ``proxy.routes`` selects the served paths.
+        settings: Validated settings; ``proxy.routes`` selects the served paths,
+            and ``proxy.timeout``, ``connect_timeout``, and ``max_connections``
+            shape the client.
         audit: Optional audit logger for the PII-safe ``proxy.request`` event.
         router: Plugin routes, served before the proxy's.  ``app.state``
             holds ``engine`` and ``settings`` for their handlers.
+        client: The client requests go out with, owned by the caller; without
+            one the gateway opens its own, which :meth:`close` closes.
 
     Raises:
         ConfigError: If a plugin route overlaps a route of ``proxy.routes``.
@@ -99,6 +103,7 @@ class Gateway:
         settings: Settings | None = None,
         audit: AuditLogger | None = None,
         router: APIRouter | None = None,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         self._engine = engine
         self._settings = settings
@@ -107,15 +112,23 @@ class Gateway:
         self._session_strategy = settings.session.strategy if settings else "ephemeral"
         if settings is not None and settings.audit.tap:
             _log.warning("audit.tap records in transparent mode only; gateway mode has no tap")
-        routes = dict(settings.proxy.routes) if settings else ProxyConfig().routes
+        proxy = settings.proxy if settings else ProxyConfig()
+        routes = dict(proxy.routes)
         self._routes = served_routes(routes, google=isinstance(provider, GoogleProvider))
+        self._owns_client = client is None
+        self._client = client or upstream_client(
+            timeout=proxy.timeout,
+            connect_timeout=proxy.connect_timeout,
+            max_connections=proxy.max_connections,
+        )
         # One proxy per schema: the stream adapter (and the schema used to
-        # restore a batch response) is per-instance, while the provider — hence
-        # the upstream endpoint and its connection pool — is shared.
+        # restore a batch response) is per-instance, while the provider and the
+        # client — hence the upstream endpoint and its connection pool — are shared.
         self._proxies = {
             schema: HTTPProxy(
                 engine=engine,
                 provider=provider,
+                client=self._client,
                 stream_adapter=build_stream_adapter(schema),
                 schema=schema,
             )
@@ -130,6 +143,11 @@ class Gateway:
     @property
     def app(self) -> Any:
         return self._app
+
+    async def close(self) -> None:
+        """Close the client the requests go out with, unless the caller gave it."""
+        if self._owns_client:
+            await self._client.aclose()
 
     @property
     def routes(self) -> dict[str, str]:
@@ -436,6 +454,6 @@ def _upstream_host(settings: Settings | None) -> str:
     """Host of the resolved upstream, for the ``proxy.request`` audit field."""
     if settings is None:
         return ""
-    from privyx.providers.registry import resolve_base_url
+    from privyx.providers import resolve_base_url
 
     return urlsplit(resolve_base_url(settings)).netloc or ""

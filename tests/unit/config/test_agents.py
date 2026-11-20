@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from privyx import load_config
 from privyx.config.defaults import DEFAULT_AGENTS
-from privyx.config.loader import load_config, trust
-from privyx.config.schema import ProviderKeysConfig
+from privyx.config.loader import trust
 from privyx.core import ConfigError
-from privyx.providers.registry import resolve_api_key
+from privyx.providers import resolve_api_key
 
 
 def test_profile_layers_and_sources(
@@ -526,7 +526,7 @@ def test_a_profile_for_another_host_sends_no_key_of_privyx(
 
 
 def test_a_profile_for_another_host_clears_every_key() -> None:
-    keys = dict.fromkeys(["api_key", *ProviderKeysConfig.model_fields], "")
+    keys = dict.fromkeys(["api_key", "openai_api_key", "anthropic_api_key", "google_api_key"], "")
     for agent in ("grok", "ollama"):
         assert DEFAULT_AGENTS[agent]["privyx"] == {"provider": keys}
 

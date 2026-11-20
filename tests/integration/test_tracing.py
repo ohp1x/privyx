@@ -12,13 +12,13 @@ import httpx
 import pytest
 
 from privyx.core import ConfigError
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.observability import tracing
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"

@@ -9,11 +9,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from privyx import load_config
+from privyx.app._build import build_detector
 from privyx.cli import workspace
 from privyx.cli.main import cli
-from privyx.config.loader import is_trusted, load_config
+from privyx.config.loader import is_trusted
 from privyx.core import Context
-from privyx.privacy.detector.yaml import build_detector
 
 DSN = "https://abc123@o1.ingest.example.test/42"
 STRIPE = "not-a-real-" + "secret-42"
@@ -250,7 +251,7 @@ def test_the_scan_pattern_masks_the_whole_value(text: str, value: str) -> None:
     import re
 
     from privyx.cli.commands.scan import env_pattern
-    from privyx.privacy.detector.yaml import backtracks
+    from privyx.detectors._pattern import backtracks
 
     pattern = env_pattern("CUSTOM_VALUE")
     match = re.search(pattern, text)

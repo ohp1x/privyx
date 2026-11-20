@@ -1,8 +1,8 @@
 """Token codec — the *only* place that knows how a token looks in text.
 
-A :class:`TokenCodec` converts between a :class:`~privyx.token.model.LogicalToken`
-and its textual representation.  :class:`FormatCodec` is a codec driven entirely
-by a configurable format string such as::
+A codec converts between a :class:`~privyx.token.model.LogicalToken` and its
+textual representation.  :class:`FormatCodec` is a codec driven entirely by a
+configurable format string such as::
 
     <{namespace}_{type}_{id}>        # the default
     [[{namespace}:{type}:{id}]]
@@ -52,7 +52,7 @@ import re
 from bisect import bisect_left
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from privyx.token.errors import TokenFormatError
 from privyx.token.model import LogicalToken
@@ -150,26 +150,6 @@ class TokenIds:
         return at < len(self._sorted) and self._sorted[at].startswith(text)
 
 
-@runtime_checkable
-class TokenCodec(Protocol):
-    """Converts between logical tokens and their textual form."""
-
-    @property
-    def namespace(self) -> str:
-        """Default namespace stamped onto tokens this codec creates."""
-        ...
-
-    def encode(self, token: LogicalToken) -> str: ...
-
-    def parse(self, text: str) -> LogicalToken | None: ...
-
-    def finditer(self, text: str) -> Iterator[TokenMatch]: ...
-
-    def match_at(self, text: str, pos: int) -> TokenMatch | None: ...
-
-    def longest_prefix_len(self, text: str, pos: int) -> int: ...
-
-
 @dataclass(frozen=True, slots=True)
 class _Field:
     name: str
@@ -179,7 +159,7 @@ class _Field:
 
 
 class FormatCodec:
-    """A :class:`TokenCodec` built from a format string.
+    """A token codec built from a format string; the other codecs extend it.
 
     Args:
         format: Template with ``{namespace}``, ``{type}``, and ``{id}``

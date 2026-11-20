@@ -8,40 +8,27 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from privyx import load_config
+from privyx.app import Privyx
+from privyx.app._schema import json_schema
 from privyx.cli.main import cli
-from privyx.config.loader import load_config
-from privyx.config.schema import (
-    AnchorConfig,
-    DetectorConfig,
-    OperatorConfig,
-    PolicyConfig,
-    ProviderConfig,
-    VaultConfig,
-    json_schema,
-)
+from privyx.config.schema import PLUGGABLE
 from privyx.core import ConfigError
-from privyx.core.builder import ANCHORS, OPERATORS, VAULTS
-from privyx.privacy.detector.yaml import DETECTORS
-from privyx.privacy.policy.loader import POLICIES
-from privyx.providers.registry import default_registry
 
 
-def test_every_builtin_type_has_settings_and_a_registry_entry() -> None:
-    assert set(DetectorConfig.builtin_types) == set(DETECTORS.names())
-    assert set(PolicyConfig.builtin_types) == set(POLICIES.names())
-    assert set(OperatorConfig.builtin_types) == set(OPERATORS.names())
-    assert set(AnchorConfig.builtin_types) == set(ANCHORS.names())
-    assert set(VaultConfig.builtin_types) == set(VAULTS.names())
-    assert set(ProviderConfig.builtin_types) == set(default_registry().names())
+def test_the_schema_offers_each_builtin_type_of_the_registry() -> None:
+    app, defs = Privyx(), json_schema()["$defs"]
+    for name, model in PLUGGABLE.items():
+        offered = defs[model.__name__]["properties"]["type"]["anyOf"][0]["enum"]
+        assert offered == sorted(app._registries[name].builtin_names()), name
 
 
-def test_the_section_is_the_union_of_its_types_settings() -> None:
-    sections = (DetectorConfig, PolicyConfig, OperatorConfig, AnchorConfig, VaultConfig)
-    for model in (*sections, ProviderConfig):
-        used = {"type", *model.shared_fields}
-        for kind in model.builtin_types:
-            used |= model.type_fields(kind)
-        assert used == set(model.model_fields), model.__name__
+def test_the_shared_settings_of_a_section_are_its_kind_options() -> None:
+    """What Privyx applies whatever the type is what every component's Options take."""
+    app = Privyx()
+    for name, model in PLUGGABLE.items():
+        base = app._registries[name].base
+        assert set(model.shared_fields()) == set(base.Options.model_fields), name
 
 
 jsonschema = pytest.importorskip("jsonschema")

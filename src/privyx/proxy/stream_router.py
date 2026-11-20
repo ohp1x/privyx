@@ -44,7 +44,7 @@ import copy
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from privyx.proxy.object_stream import GeminiStream, OllamaStream
 from privyx.proxy.schemas import remember_thinking, walk_sync
@@ -55,7 +55,10 @@ from privyx.streaming.deanonymizer import (
     TokenStreamProcessor,
 )
 from privyx.streaming.sse import SSEDecoder, SSEEvent
-from privyx.token.codec import TokenCodec
+from privyx.token.codec import FormatCodec
+
+if TYPE_CHECKING:
+    from privyx.operators import Operator
 
 _DONE = "[DONE]"
 
@@ -110,7 +113,7 @@ class StreamRouter:
 
     def __init__(
         self,
-        codec: TokenCodec,
+        codec: FormatCodec,
         resolve: Callable[[str], str | None],
         adapter: SSEStreamAdapter,
         make_processor: Callable[[], StreamDeanonymizer] | None = None,
@@ -608,7 +611,7 @@ class LineRouter:
 
     def __init__(
         self,
-        codec: TokenCodec,
+        codec: FormatCodec,
         resolve: Callable[[str], str | None],
         make_processor: Callable[[], StreamDeanonymizer] | None = None,
     ) -> None:
@@ -641,49 +644,41 @@ class LineRouter:
         return [_dumps(obj) + "\n" for obj in self._objects.feed(payload)]
 
 
-def resolver_for(operator: object, mapping: dict[str, str]) -> Callable[[str], str | None]:
-    """Build the token → original resolver for ``operator`` over ``mapping``.
+def resolver_for(operator: Operator, mapping: dict[str, str]) -> Callable[[str], str | None]:
+    """The token → original resolver of ``operator`` over ``mapping``.
 
     Most operators store the plaintext in the mapping, so the resolver is just
     ``mapping.get``.  An operator whose mapping value is not the plaintext
     (``encrypt`` stores ciphertext) overrides
-    :meth:`~privyx.privacy.operator.base.BaseOperator.build_resolver` to transform
-    it.  Read via ``getattr`` so a plugin predating the method still resolves.
+    :meth:`~privyx.operators.Operator.build_resolver` to transform it.
     """
-    builder = getattr(operator, "build_resolver", None)
-    if callable(builder):
-        resolver: Callable[[str], str | None] = builder(mapping)
-        return resolver
-    return mapping.get
+    return operator.build_resolver(mapping)
 
 
 def select_processor_factory(
-    operator: object,
-    codec: TokenCodec,
+    operator: Operator,
+    codec: FormatCodec,
     resolve: Callable[[str], str | None],
     mapping: dict[str, str],
 ) -> Callable[[], StreamDeanonymizer]:
     """Choose the streaming restorer for ``operator``.
 
-    An operator whose :attr:`~privyx.privacy.operator.base.BaseOperator.stream_restore`
-    is ``"literal"`` (faker) substitutes ordinary text, so a stream is reversed by
+    An operator whose :attr:`~privyx.operators.Operator.stream_restore` is
+    ``"literal"`` (faker) substitutes ordinary text, so a stream is reversed by
     matching the exact values with a trie seeded from this session's ``mapping``.
     Everything else restores by codec syntax (pseudonym, hash) — the default.
-    Read via ``getattr`` so any operator (including a plugin that predates the
-    attribute) defaults to the codec path.
     """
-    if getattr(operator, "stream_restore", "token") == "literal":
+    if operator.stream_restore == "literal":
         return lambda: StreamingDeanonymizer(mapping)
     # A token's id may be written alone.  The session's tokens are indexed once
     # for all of this stream's processors, and again on its next stream: keep
     # the index with the session if a long one ever makes that show.
-    index = getattr(codec, "ids", None)
-    ids = index(mapping) if index else None
+    ids = codec.ids(mapping)
     return lambda: TokenStreamProcessor(codec, resolve, ids)
 
 
 def restore_chunks(
-    chunks: list[Any], operator: object, codec: TokenCodec, mapping: dict[str, str]
+    chunks: list[Any], operator: Operator, codec: FormatCodec, mapping: dict[str, str]
 ) -> tuple[list[Any], int]:
     """Restore a Gemini stream sent as one JSON array (no ``alt=sse``).
 

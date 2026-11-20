@@ -15,8 +15,8 @@ from typing import Any
 import httpx
 import pytest
 
-from privyx.config.loader import load_config
-from privyx.core.builder import build_engine
+from privyx import load_config
+from privyx.app._build import build_engine
 from privyx.gateway.transparent import create_transparent_app
 from privyx.observability.audit import AuditLogger
 from privyx.proxy.transparent import TransparentProxy

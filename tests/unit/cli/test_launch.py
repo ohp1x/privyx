@@ -11,6 +11,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from privyx import load_config
 from privyx.cli.commands.run import (
     TARGETS,
     _set_terminal_title,
@@ -20,7 +21,6 @@ from privyx.cli.commands.run import (
 )
 from privyx.cli.launch import PI_UPSTREAMS, build_launch_plan, profile_target
 from privyx.cli.main import cli
-from privyx.config.loader import load_config
 from privyx.config.schema import AgentConfig, Settings
 from privyx.core import ConfigError
 

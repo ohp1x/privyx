@@ -12,13 +12,13 @@ import pytest
 from click.testing import CliRunner
 
 from privyx.cli.main import cli
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.observability.tap import Tap, tap_file
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.transparent import TransparentProxy
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 

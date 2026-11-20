@@ -1,0 +1,150 @@
+"""Presidio-backed detector — NER for the entities a regex cannot catch.
+
+The built-in ``regex`` detector is reliable for *structured* PII (email, SSN,
+credit card) and blind to everything else.  Presidio adds names, organizations,
+locations, and the rest by running spaCy over the text.
+
+Presidio (and the spaCy model it needs) is an optional dependency: selecting
+``detector.type: presidio`` without it installed fails at startup with a
+:class:`~privyx.core.ConfigError`, never mid-request — the same contract
+the ``faker`` and ``encrypt`` operators follow.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from pydantic import Field
+
+from privyx.core import ConfigError, Context, Detection, Services
+from privyx.detectors._base import Detector
+
+#: Presidio entity names → the names the rest of Privyx speaks (the built-in
+#: patterns, ``ENTITY_PRIORITY``, and the ``strict`` policy's allow-list).
+#: Without this, ``policy: strict`` would drop every Presidio span — its
+#: allow-list holds ``EMAIL``, not ``EMAIL_ADDRESS`` — and forward the PII
+#: untouched.  Unlisted types pass through under their Presidio name.
+ENTITY_ALIASES: dict[str, str] = {
+    "EMAIL_ADDRESS": "EMAIL",
+    "PHONE_NUMBER": "PHONE",
+    "US_SSN": "SSN",
+    "US_BANK_NUMBER": "BANK_ACCOUNT",
+    "LOCATION": "LOCATION",
+    "ORGANIZATION": "ORG",
+}
+
+#: Analyzers keyed by ``(language, model)``.  Loading spaCy costs seconds, and
+#: ``privyx doctor`` alone builds several engines; the reference implementation
+#: this was taken from cached for the same reason.
+_ANALYZERS: dict[tuple[str, str], Any] = {}
+
+
+def _load_analyzer(language: str, model: str, kwargs: dict[str, Any]) -> Any:
+    """Build (or reuse) a Presidio analyzer backed by an explicit spaCy model.
+
+    The NLP engine is configured explicitly rather than left to Presidio's
+    default, which quietly expects ``en_core_web_lg`` to be present.
+
+    Raises:
+        ConfigError: If Presidio is not installed, or the spaCy model is
+            missing — both at startup, so a request never fails halfway.
+    """
+    cached = _ANALYZERS.get((language, model))
+    if cached is not None:
+        return cached
+
+    try:
+        from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+    except ImportError as exc:  # pragma: no cover - optional dep
+        raise ConfigError(
+            "detector type 'presidio' requires the 'presidio' extra; install with "
+            "`pip install privyx[presidio]` (or `uv sync --all-extras`)"
+        ) from exc
+
+    try:
+        provider = NlpEngineProvider(
+            nlp_configuration={
+                "nlp_engine_name": "spacy",
+                "models": [{"lang_code": language, "model_name": model}],
+            }
+        )
+        analyzer = AnalyzerEngine(
+            nlp_engine=provider.create_engine(),
+            supported_languages=[language],
+            **kwargs,
+        )
+    # A missing model is downloaded by Presidio; when that fails, spaCy calls
+    # sys.exit, which would end the proxy without saying why.
+    except (OSError, SystemExit) as exc:
+        raise ConfigError(
+            f"spaCy model {model!r} is not installed; run `python -m spacy download {model}`"
+        ) from exc
+
+    _ANALYZERS[(language, model)] = analyzer
+    return analyzer
+
+
+class PresidioDetector(Detector):
+    """Detector backed by the Microsoft Presidio analyzer.
+
+    ``language`` is passed to Presidio and spaCy, and ``model`` names the
+    spaCy model, ``{language}_core_web_sm`` when empty.  An empty ``entities``
+    means *every* recognizer Presidio has — the safer default for a privacy
+    tool, since an unlisted type is an undetected one.  ``score_threshold`` is
+    the minimum confidence to keep: Presidio scores NER hits well below 1.0,
+    so 0.0 would flood the output with guesses.  The analyzer is loaded by
+    :meth:`open`, or on first use.
+
+    Args:
+        analyzer: A ready-made analyzer, for tests and advanced wiring.  When
+            given, Presidio is never imported.
+        **options: The detector's :class:`Options`.
+
+    Raises:
+        ConfigError: From :meth:`open`, if Presidio or the spaCy model is missing.
+    """
+
+    name = "presidio"
+
+    class Options(Detector.Options):
+        language: str = "en"
+        model: str = ""  # spaCy model (empty → {language}_core_web_sm)
+        entities: list[str] = Field(default_factory=list)  # empty → all recognizers
+        score_threshold: float = 0.35  # minimum confidence
+
+    options: Options
+
+    def __init__(self, *, analyzer: Any = None, **options: Any) -> None:
+        super().__init__(**options)
+        self._analyzer = analyzer
+
+    async def open(self, services: Services) -> None:
+        """Load the analyzer and its spaCy model, which takes seconds."""
+        self._loaded()
+
+    def _loaded(self) -> Any:
+        if self._analyzer is None:
+            language = self.options.language
+            model = self.options.model or f"{language}_core_web_sm"
+            self._analyzer = _load_analyzer(language, model, {})
+        return self._analyzer
+
+    def detect_sync(self, text: str, context: Context) -> Detection:
+        results = self._loaded().analyze(
+            text=text,
+            language=self.options.language,
+            entities=list(self.options.entities) or None,
+            score_threshold=float(self.options.score_threshold),
+        )
+        detection = Detection()
+        for r in results:
+            entity_type = ENTITY_ALIASES.get(r.entity_type, r.entity_type)
+            detection.add(r.start, r.end, entity_type, text[r.start : r.end])
+        return detection
+
+    async def detect(self, text: str, context: Context) -> Detection:
+        """Run Presidio in a thread pool — its analyzer is synchronous."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.detect_sync, text, context)

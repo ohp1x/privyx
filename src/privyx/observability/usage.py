@@ -126,9 +126,9 @@ def safe_model(name: str) -> bool:
 
 @functools.cache
 def _detector() -> Any:
-    from privyx.privacy.detector.builtin import RegexDetector
+    from privyx.detectors import RegexDetector
 
-    return RegexDetector()
+    return RegexDetector(underscore_separates_words=False)
 
 
 def usage_tokens(fields: Mapping[str, int]) -> int:

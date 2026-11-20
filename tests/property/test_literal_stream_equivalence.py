@@ -16,11 +16,11 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from privyx.core import Context, Session
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.faker import LiteralOperator
-from privyx.privacy.operator.fpe import FPEOperator
-from privyx.privacy.operator.partial import PartialOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.detectors import RegexDetector
+from privyx.operators._fpe import FPEOperator
+from privyx.operators._literal import LiteralOperator
+from privyx.operators._partial import PartialOperator
+from privyx.policies import DefaultPolicy
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 
 PII_POOL = [

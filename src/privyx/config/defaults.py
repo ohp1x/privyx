@@ -107,7 +107,7 @@ DEFAULTS: dict[str, object] = {
     "session": {"strategy": "ephemeral"},
     "token": {"namespace": "PRIVYX", "format": "<{namespace}_{type}_{id}>"},
     # An unset base_url resolves to the provider type's own default (see
-    # privyx.providers.registry.DEFAULT_BASE_URLS).
+    # privyx.providers.DEFAULT_BASE_URLS).
     "provider": {"type": "generic"},
     "audit": {
         "enabled": True,

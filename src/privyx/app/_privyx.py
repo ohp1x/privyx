@@ -20,28 +20,41 @@ engine alone::
 
     px.run()
 
-A package does the same in a ``setup(px)`` function that ``plugins.modules``
-names.  The interface may change in a 0.x release.
+A package does the same in a ``setup(app)`` function that ``plugins.modules``
+names, and a file of ``plugins.paths`` in its own.  The interface may change
+in a 0.x release.
 
-Plugins are registered in one process-wide registry, so a process holds one
-``Privyx``.
+Each ``Privyx`` has registries of its own: two in one process do not see each
+other's components.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from privyx.core import Event, EventBus
+from privyx.core import Component, ConfigError, Event, EventBus, Registry
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
     from privyx.config.schema import Settings
     from privyx.engine import PrivacyEngine
+
+#: The packages of the kinds Privyx builds, each with a ``setup(app)`` that
+#: registers its built-ins.
+_KINDS = (
+    "privyx.vaults",
+    "privyx.anchors",
+    "privyx.policies",
+    "privyx.providers",
+    "privyx.detectors",
+    "privyx.operators",
+)
 
 
 class Privyx:
@@ -57,24 +70,41 @@ class Privyx:
     def __init__(self, config: str | Path | None = None, **overrides: Any) -> None:
         self._config = config
         self._overrides = overrides
-        self._components: list[type] = []
+        self._registries: dict[str, Registry[Any]] = {}
         self._events = EventBus()
         self._router: APIRouter | None = None
         self._modules: set[str] = set()
+        self._files: set[Path] = set()
+        for package in _KINDS:
+            importlib.import_module(package).setup(self)
 
-    def add[T: type](self, cls: T) -> T:
-        """Add component ``cls``; usable as a class decorator.
-
-        Its family follows from its base class and its type from its ``name``,
-        as for a plugin in ``plugins.paths``.
+    def registry[C: Component](self, kind: type[C]) -> Registry[C]:
+        """The registry of ``kind``, a kind's base class such as ``Vault``, or a component of it.
 
         Raises:
-            ConfigError: If ``cls`` is not a component class.
+            ConfigError: If ``kind`` belongs to no kind.
         """
-        from privyx.app._plugins import family
+        name: str | None = getattr(kind, "kind", None)
+        if name is None:
+            raise ConfigError(f"{kind.__name__} is not a component of any kind")
+        registry = self._registries.get(name)
+        if registry is None:
+            base = next(c for c in kind.__mro__ if "kind" in c.__dict__)
+            registry = self._registries[name] = Registry(cast("type[C]", base))
+        return registry
 
-        family(cls)
-        self._components.append(cls)
+    def add[T: type[Component]](self, cls: T) -> T:
+        """Add component ``cls`` under its ``name``; usable as a class decorator.
+
+        Its kind follows from its base class.
+
+        Raises:
+            ConfigError: If ``cls`` is not a component, is abstract, has no
+                name of its own, or another component of its kind has its name.
+        """
+        if not (isinstance(cls, type) and issubclass(cls, Component)):
+            raise ConfigError(f"{cls!r} is not a Privyx component")
+        self.registry(cls).add(cls)
         return cls
 
     def use(self, module: str) -> None:
@@ -124,9 +154,13 @@ class Privyx:
 
     def _settings(self) -> Settings:
         """Load the settings: the config files, the environment, then the overrides."""
+        return self._load(self._config, extra=self._overrides or None)
+
+    def _load(self, path: str | Path | None = None, **options: Any) -> Settings:
+        """:func:`privyx.config.loader.load_config` with this app's types checked."""
         from privyx.config.loader import load_config
 
-        return load_config(self._config, extra=self._overrides or None)
+        return load_config(path, types=self._registries, **options)
 
     def run(self) -> None:
         """Serve the proxy, as ``privyx proxy`` does, until stopped."""
@@ -136,14 +170,27 @@ class Privyx:
 
     @asynccontextmanager
     async def engine(self) -> AsyncIterator[PrivacyEngine]:
-        """The privacy engine, with this ``Privyx``'s components; the vault closes on exit."""
+        """The privacy engine, with this ``Privyx``'s components; they close on exit."""
+        from privyx.app._build import build_engine
         from privyx.app._plugins import load_plugins
-        from privyx.core.builder import build_engine
 
         settings = self._settings()
-        load_plugins(settings, app=self)
-        engine, close = await build_engine(settings)
+        load_plugins(settings, self)
+        engine, close = await build_engine(settings, self)
         try:
             yield engine
         finally:
             await close()
+
+
+def load_config(path: str | Path | None = None, **options: Any) -> Settings:
+    """Load the settings, with the options of each built-in component type checked.
+
+    The arguments are :func:`privyx.config.loader.load_config`'s.  A plugin's
+    options are checked when its component is built.
+
+    Raises:
+        ConfigError: If a file cannot be read, a setting is unknown or
+            invalid, or a reference cannot be resolved.
+    """
+    return Privyx()._load(path, **options)

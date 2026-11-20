@@ -6,15 +6,15 @@ import json
 from typing import Any
 
 from privyx.config.schema import ProxyConfig
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.observability.usage import UsageMeter
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
 from privyx.proxy.stream_router import LineRouter
 from privyx.token.codec import FormatCodec
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 TOKEN = "<PRIVYX_EMAIL_1>"

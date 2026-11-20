@@ -105,9 +105,9 @@ def _env_keys(root: Path) -> list[Found]:
     """A pattern per ``.env`` key, unless the built-in detector already masks its value."""
     from privyx.cli import workspace
     from privyx.core import Context
-    from privyx.privacy.detector.builtin import RegexDetector
+    from privyx.detectors import RegexDetector
 
-    builtin = RegexDetector()
+    builtin = RegexDetector(underscore_separates_words=False)
     found = []
     for key, value, name in workspace.env_values(root):
         entity = workspace.env_entity(key)

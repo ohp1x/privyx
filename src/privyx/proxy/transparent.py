@@ -48,13 +48,13 @@ from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
 from privyx.observability.tap import Tap
 from privyx.observability.usage import UsageMeter
-from privyx.providers.generic import upstream_client
 from privyx.proxy.headers import (
     RUN_TOKEN_HEADER,
     UPSTREAMS_HEADER,
     filter_request_headers,
     filter_response_headers,
 )
+from privyx.proxy.http import upstream_client
 from privyx.proxy.schemas import (
     AUTH_QUERY_PARAMS,
     MASKED_HEADERS,
@@ -158,7 +158,7 @@ class TransparentProxy:
     Args:
         engine: Configured privacy engine.
         origin: Upstream origin (``scheme://host[:port]``); the request path is
-            appended to it.  See :func:`privyx.providers.registry.resolve_origin`.
+            appended to it.  See :func:`privyx.providers.resolve_origin`.
             With ``strip_prefix``, the upstream URL including its path.
         strip_prefix: When set (``""`` included), the request path must lie
             under this prefix, which is removed before the rest is appended to
@@ -176,7 +176,7 @@ class TransparentProxy:
             tests to inject a mock transport.
         timeout, connect_timeout, max_connections: For the client built when
             ``client`` is not given; see
-            :func:`~privyx.providers.generic.upstream_client`.
+            :func:`~privyx.proxy.http.upstream_client`.
         audit: Optional audit logger for the PII-safe ``proxy.request`` event.
             Defaults to a disabled no-op logger.
         session_strategy: How to identify a session when the client sends no

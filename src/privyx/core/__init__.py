@@ -6,6 +6,7 @@ Nothing here imports another Privyx package at run time.  Names outside
 
 from privyx.core._component import Component, Options, Services
 from privyx.core._context import Context
+from privyx.core._entities import BUILTIN_ENTITIES as BUILTIN_ENTITIES
 from privyx.core._errors import (
     ConfigError,
     DetectorError,
@@ -26,6 +27,8 @@ from privyx.core._json import put_back as put_back
 from privyx.core._json import value_spans as value_spans
 from privyx.core._json import with_key as with_key
 from privyx.core._registry import Registry
+from privyx.core._registry import imported as imported
+from privyx.core._registry import lazy_attribute as lazy_attribute
 from privyx.core._results import Detection, Span, Transformation, TransformResult
 from privyx.core._session import Session
 from privyx.core._text import apply_replacements as apply_replacements

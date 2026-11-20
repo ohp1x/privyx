@@ -53,7 +53,7 @@ def routes(config_path: str | None) -> None:
     """Show which request paths are masked, and with which wire schema."""
     from privyx.config.redact import redact
     from privyx.gateway.server import served_routes
-    from privyx.providers.registry import resolve_base_url
+    from privyx.providers import resolve_base_url
 
     settings = _load(config_path)
     proxy = settings.proxy
@@ -84,7 +84,7 @@ def regex(pattern: str, config_path: str | None) -> None:
     Reports whether it can backtrack catastrophically and how fast it scans
     ordinary text.
     """
-    from privyx.privacy.detector.yaml import backtracks
+    from privyx.detectors._pattern import backtracks
 
     entity = None
     configured = _configured_patterns(config_path)
@@ -125,8 +125,8 @@ def token(token: str, reveal: bool, config_path: str | None) -> None:
 
 
 async def _token(token: str, reveal: bool, config_path: str | None) -> None:
+    from privyx.app._build import build_codec
     from privyx.cli.commands.session import _mask, _open_vault, _ts
-    from privyx.core.builder import build_codec
 
     async with _open_vault(config_path) as (settings, vault):
         sessions = [s for s in await vault.list_sessions() if token in s.mapping]
@@ -139,7 +139,7 @@ async def _token(token: str, reveal: bool, config_path: str | None) -> None:
     if not sessions:
         click.echo(f"Not found in any session (vault: {settings.vault.type})", err=True)
         sys.exit(1)
-    ttl = settings.vault.ttl
+    ttl = settings.vault.model_dump().get("ttl")
     for s in sessions:
         original = s.mapping[token]
         click.echo("")
@@ -154,7 +154,7 @@ async def _token(token: str, reveal: bool, config_path: str | None) -> None:
 
 
 def _load(config_path: str | None) -> Settings:
-    from privyx.config.loader import load_config
+    from privyx.app import load_config
     from privyx.core import PrivyxError
 
     try:
@@ -167,7 +167,7 @@ def _load(config_path: str | None) -> Settings:
 def _configured_patterns(config_path: str | None) -> dict[str, str]:
     """Entity → regex of every regex/yaml detector configured, built-ins included."""
     from privyx.core import PrivyxError
-    from privyx.privacy.detector.yaml import _builtins, _enabled, _patterns_from
+    from privyx.detectors._pattern import _builtins, _enabled, _patterns_from
 
     settings = _load(config_path)
     sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]

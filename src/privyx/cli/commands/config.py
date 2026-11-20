@@ -25,9 +25,10 @@ def config_cmd(
     show: bool, sources: bool, path: bool, schema: bool, config_path: str | None
 ) -> None:
     """Inspect configuration."""
-    from privyx.config.loader import active_config_paths, load_config
+    from privyx.app import load_config
+    from privyx.config.loader import active_config_paths
     from privyx.core import PrivyxError
-    from privyx.providers.registry import resolve_base_url
+    from privyx.providers import resolve_base_url
 
     if schema:
         click.echo(json.dumps(_schema(config_path), indent=2))
@@ -68,9 +69,9 @@ def _schema(config_path: str | None) -> dict[str, Any]:
     cannot be loaded, since the schema is what helps to fix it.  Secret
     references are not resolved, so no password manager is asked.
     """
-    from privyx.app._plugins import load_plugins, loaded_options
-    from privyx.config.loader import load_config
-    from privyx.config.schema import json_schema
+    from privyx.app import load_config
+    from privyx.app._plugins import load_plugins
+    from privyx.app._schema import json_schema
     from privyx.core import PrivyxError
 
     try:
@@ -78,10 +79,10 @@ def _schema(config_path: str | None) -> dict[str, Any]:
         plugins = settings.plugins
         if not (plugins.enabled and (plugins.paths or plugins.modules)):
             return json_schema()
-        load_plugins(settings)
+        app = load_plugins(settings)
     except PrivyxError:
         return json_schema()
-    return json_schema(loaded_options() or None)
+    return json_schema(app)
 
 
 def _with_sources(

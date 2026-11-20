@@ -14,8 +14,8 @@ from typing import Any
 
 import httpx
 
-from privyx.config.loader import load_config
-from privyx.core.builder import build_engine
+from privyx import load_config
+from privyx.app._build import build_engine
 from privyx.proxy.http import HTTPProxy
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.streaming.sse import SSEDecoder, SSEEvent
@@ -76,14 +76,17 @@ class Upstream:
 
 
 async def _proxy(upstream: Upstream, **kwargs: Any) -> tuple[HTTPProxy, Any]:
-    from privyx.providers.generic import GenericProvider
+    from privyx.providers import GenericProvider
 
     settings = load_config()
     engine, close = await build_engine(settings)
     client = httpx.AsyncClient(transport=httpx.MockTransport(upstream.handler))
-    provider = GenericProvider(base_url=URL, client=client, **kwargs)
+    provider = GenericProvider(base_url=URL, **kwargs)
     proxy = HTTPProxy(
-        engine=engine, provider=provider, stream_adapter=build_stream_adapter("anthropic")
+        engine=engine,
+        provider=provider,
+        client=client,
+        stream_adapter=build_stream_adapter("anthropic"),
     )
     return proxy, close
 
@@ -145,7 +148,7 @@ async def test_stream_round_trip_and_event_order() -> None:
         assert all(ev.event == json.loads(ev.data)["type"] for ev in _events(out))
     finally:
         await close()
-        await proxy._provider.close()  # noqa: SLF001
+        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_non_text_deltas_are_not_rewritten() -> None:
@@ -170,7 +173,7 @@ async def test_non_text_deltas_are_not_rewritten() -> None:
         assert "hmm <PRIVYX_EMAIL_1>" in out  # unmapped, so untouched
     finally:
         await close()
-        await proxy._provider.close()  # noqa: SLF001
+        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_pseudonym_split_across_events_and_chunks() -> None:
@@ -193,4 +196,4 @@ async def test_pseudonym_split_across_events_and_chunks() -> None:
         assert _text(out) == f"to {EMAIL} ok"
     finally:
         await close()
-        await proxy._provider.close()  # noqa: SLF001
+        await proxy._client.aclose()  # noqa: SLF001

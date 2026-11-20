@@ -23,14 +23,14 @@ import httpx  # noqa: E402
 
 from privyx.config.schema import Settings  # noqa: E402
 from privyx.core import DetectorError, VaultError  # noqa: E402
+from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
 from privyx.gateway.server import Gateway  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
-from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
-from privyx.privacy.operator.pseudonym import PseudonymOperator  # noqa: E402
-from privyx.privacy.policy.default import DefaultPolicy  # noqa: E402
-from privyx.providers.generic import GenericProvider  # noqa: E402
-from privyx.vault.memory import MemoryVault  # noqa: E402
+from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
+from privyx.policies import DefaultPolicy  # noqa: E402
+from privyx.providers import GenericProvider  # noqa: E402
+from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "alice@example.com"
 UPSTREAM = "https://up.test/anthropic/v1/messages"
@@ -82,13 +82,11 @@ def _upstream_client() -> httpx.AsyncClient:
 def _client(
     engine: PrivacyEngine, audit: AuditLogger | None = None
 ) -> tuple[httpx.AsyncClient, Any]:
-    provider = GenericProvider(
-        base_url=UPSTREAM,
-        headers={"x-api-key": "sk-test"},
-        client=_upstream_client(),
-    )
+    provider = GenericProvider(base_url=UPSTREAM, headers={"x-api-key": "sk-test"})
     settings = Settings(provider={"type": "anthropic", "base_url": UPSTREAM})
-    gateway = Gateway(engine=engine, provider=provider, settings=settings, audit=audit)
+    gateway = Gateway(
+        engine=engine, provider=provider, settings=settings, audit=audit, client=_upstream_client()
+    )
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
     ), gateway
@@ -115,13 +113,15 @@ def _stream_client(engine: PrivacyEngine, audit: AuditLogger) -> tuple[httpx.Asy
             200, headers={"content-type": "text/event-stream"}, content=frames.encode()
         )
 
-    provider = GenericProvider(
-        base_url=UPSTREAM,
-        headers={"x-api-key": "sk-test"},
+    provider = GenericProvider(base_url=UPSTREAM, headers={"x-api-key": "sk-test"})
+    settings = Settings(provider={"type": "anthropic", "base_url": UPSTREAM})
+    gateway = Gateway(
+        engine=engine,
+        provider=provider,
+        settings=settings,
+        audit=audit,
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    settings = Settings(provider={"type": "anthropic", "base_url": UPSTREAM})
-    gateway = Gateway(engine=engine, provider=provider, settings=settings, audit=audit)
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
     ), gateway
@@ -416,13 +416,15 @@ async def test_upstream_error_is_relayed(stream: bool) -> None:
     engine = PrivacyEngine(
         detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
     )
-    provider = GenericProvider(
-        base_url=UPSTREAM,
+    provider = GenericProvider(base_url=UPSTREAM)
+    gateway = Gateway(
+        engine=engine,
+        provider=provider,
+        settings=Settings(),
         client=httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _: httpx.Response(400, json=error))
         ),
     )
-    gateway = Gateway(engine=engine, provider=provider, settings=Settings())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
     ) as client:
@@ -451,10 +453,13 @@ async def test_no_upstream_response_is_named_by_status_and_type(
     def fail(request: httpx.Request) -> httpx.Response:
         raise failure("")  # a timeout's message is empty
 
-    provider = GenericProvider(
-        base_url=UPSTREAM, client=httpx.AsyncClient(transport=httpx.MockTransport(fail))
+    provider = GenericProvider(base_url=UPSTREAM)
+    gateway = Gateway(
+        engine=_engine(),
+        provider=provider,
+        settings=Settings(),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(fail)),
     )
-    gateway = Gateway(engine=_engine(), provider=provider, settings=Settings())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
     ) as client:
@@ -541,10 +546,13 @@ async def test_gateway_azure_deployment_preserves_path_and_query() -> None:
         "https://my-res.openai.azure.com/openai/deployments/gpt4/chat/completions"
         "?api-version=2024-02-15-preview"
     )
-    provider = GenericProvider(
-        base_url=azure_url, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = GenericProvider(base_url=azure_url)
+    gateway = Gateway(
+        engine=_engine(),
+        provider=provider,
+        settings=Settings(),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    gateway = Gateway(engine=_engine(), provider=provider, settings=Settings())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
     ) as client:
@@ -575,11 +583,14 @@ async def test_gateway_custom_route_preserves_configured_base_url() -> None:
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     custom_url = "https://custom-host.com/custom-endpoint?api-version=1"
-    provider = GenericProvider(
-        base_url=custom_url, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    )
+    provider = GenericProvider(base_url=custom_url)
     settings = Settings(proxy={"routes": {"/my-chat": "openai"}})
-    gateway = Gateway(engine=_engine(), provider=provider, settings=settings)
+    gateway = Gateway(
+        engine=_engine(),
+        provider=provider,
+        settings=settings,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
     ) as client:
@@ -599,10 +610,13 @@ async def test_gateway_openai_completions_does_not_route_to_chat() -> None:
         return httpx.Response(200, json={"choices": [{"text": "restored"}]})
 
     chat_url = "https://api.openai.com/v1/chat/completions"
-    provider = GenericProvider(
-        base_url=chat_url, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = GenericProvider(base_url=chat_url)
+    gateway = Gateway(
+        engine=_engine(),
+        provider=provider,
+        settings=Settings(),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    gateway = Gateway(engine=_engine(), provider=provider, settings=Settings())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=gateway.app), base_url="http://test"
     ) as client:

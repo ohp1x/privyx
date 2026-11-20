@@ -15,16 +15,16 @@ from typing import Any
 import httpx
 import pytest
 
+from privyx.app._build import build_provider
 from privyx.config.schema import Settings
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.providers.google import GoogleProvider
-from privyx.providers.registry import build_provider
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.providers import GoogleProvider
 from privyx.proxy.transparent import TransparentProxy
 from privyx.streaming.sse import SSEDecoder
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 KEY = "AIza" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW"
@@ -154,8 +154,9 @@ def _gateway(capture: list[httpx.Request], base_url: str = "") -> httpx.AsyncCli
     settings = Settings(provider={"type": "google", "base_url": base_url, "api_key": KEY})
     provider = build_provider(settings)
     assert isinstance(provider, GoogleProvider)
-    provider._client = _upstream(capture)  # the mock upstream
-    gateway = Gateway(engine=_engine(), provider=provider, settings=settings)
+    gateway = Gateway(
+        engine=_engine(), provider=provider, settings=settings, client=_upstream(capture)
+    )
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=gateway.app), base_url="http://p")
 
 
@@ -249,8 +250,9 @@ async def test_directive_reaches_generate_but_not_count_tokens(mode: str) -> Non
     if mode == "gateway":
         settings = Settings(provider={"type": "google"})
         provider = build_provider(settings)
-        provider._client = _upstream(capture)  # type: ignore[attr-defined]
-        app = Gateway(engine=engine, provider=provider, settings=settings).app
+        app = Gateway(
+            engine=engine, provider=provider, settings=settings, client=_upstream(capture)
+        ).app
     else:
         from privyx.gateway.transparent import create_transparent_app
 

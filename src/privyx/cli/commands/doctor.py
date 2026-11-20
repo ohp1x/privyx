@@ -14,27 +14,30 @@ import importlib.util
 import os
 import secrets
 import sys
-from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncIterator, Callable
+from typing import TYPE_CHECKING
 
 import click
 
 from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
+    import httpx
+
+    from privyx.app import Privyx
     from privyx.config.schema import Settings
     from privyx.core import Detection
-    from privyx.privacy.detector.base import Detector
-    from privyx.privacy.policy.base import Policy
+    from privyx.detectors import Detector
+    from privyx.policies import Policy
 
-Check = Callable[["Settings"], tuple[bool, str]]
+Check = Callable[["Settings", "Privyx"], tuple[bool, str]]
 
 
 @click.command()
 @config_options
 def doctor(config_path: str | None) -> None:
     """Run diagnostic checks system-wide."""
-    from privyx.config.loader import load_config
+    from privyx.app import Privyx, load_config
 
     click.echo("Privyx Doctor")
     click.echo("=============")
@@ -43,15 +46,16 @@ def doctor(config_path: str | None) -> None:
     except Exception as exc:
         click.echo(f"  ✗ configuration: {type(exc).__name__}: {exc}")
         sys.exit(1)
-    auto = settings.anchor.secret == "auto"
+    app = Privyx()
+    auto = settings.anchor.model_dump().get("secret") == "auto"
     if auto:
         # A diagnosis must not create ~/.privyx/anchor.key: check with a key of its own.
         anchor = settings.anchor.model_copy(update={"secret": secrets.token_hex(32)})
         settings = settings.model_copy(update={"anchor": anchor})
 
     checks: list[tuple[str, Check]] = [
-        # First: loads plugins into the registry so the component checks below
-        # can see plugin-provided types.
+        # First: loads plugins into the app so the component checks below can
+        # see plugin-provided types.
         ("plugins", _check_plugins),
         *([("anchor key", _check_anchor_key)] if auto else []),
         ("detector", _check_detector),
@@ -66,7 +70,7 @@ def doctor(config_path: str | None) -> None:
     all_ok = True
     for name, check in checks:
         try:
-            ok, msg = check(settings)
+            ok, msg = check(settings, app)
         except Exception as exc:  # a check that blew up is a failed check
             ok, msg = False, f"{type(exc).__name__}: {exc}"
         status = "✓" if ok else "✗"
@@ -76,26 +80,22 @@ def doctor(config_path: str | None) -> None:
         sys.exit(1)
 
 
-def _check_plugins(settings: Settings) -> tuple[bool, str]:
-    """Configured plugins load, and report what each family gained.
+def _check_plugins(settings: Settings, app: Privyx) -> tuple[bool, str]:
+    """Configured plugins load, and report what each kind gained.
 
     Runs first so the detector/vault/provider checks below resolve plugin types.
     """
     from privyx.app._plugins import load_plugins
-    from privyx.plugins.registry import PLUGINS
 
     plugins = settings.plugins
     if not plugins.enabled or not (plugins.paths or plugins.modules):
         return (True, "no plugin paths configured")
 
-    load_plugins(settings)  # raises ConfigError on a bad path/module/collision
+    load_plugins(settings, app)  # raises ConfigError on a bad path/module/collision
+    registries = app._registries
     families = {
-        "detector": PLUGINS.detectors.names(),
-        "operator": PLUGINS.operators.names(),
-        "policy": PLUGINS.policies.names(),
-        "provider": PLUGINS.providers.names(),
-        "anchor": PLUGINS.anchors.names(),
-        "vault": PLUGINS.vaults.names(),
+        kind: [name for name in registries[kind].names() if not registries[kind].is_builtin(name)]
+        for kind in ("detector", "operator", "policy", "provider", "anchor", "vault")
     }
     total = sum(len(names) for names in families.values())
     if not total:
@@ -104,19 +104,19 @@ def _check_plugins(settings: Settings) -> tuple[bool, str]:
     return (True, f"{total} plugin(s) — {summary}")
 
 
-def _check_detector(settings: Settings) -> tuple[bool, str]:
+def _check_detector(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """The configured detector compiles and scans a diagnostic sample."""
-    from privyx.core.builder import build_detector_from
+    from privyx.app._build import build_detector_from
 
-    detector = build_detector_from(settings)
+    detector = build_detector_from(settings, app)
     _, result = asyncio.run(_probe_sample(settings, detector))
     if not result.spans:
         sections = settings.detector if isinstance(settings.detector, list) else [settings.detector]
         if any(
             section.type == "regex"
             and not any(
-                "EMAIL" in rules
-                for rules in (section.disable, section.patterns, section.terms, section.context)
+                "EMAIL" in (section.model_dump().get(rules) or ())
+                for rules in ("disable", "patterns", "terms", "context")
             )
             for section in sections
         ):
@@ -143,7 +143,7 @@ async def _probe_sample(
     # Composite detectors send every candidate to every member.
     if all(section.type in {"regex", "yaml"} for section in sections):
         for section in sections:
-            for terms in section.terms.values():
+            for terms in section.model_dump().get("terms", {}).values():
                 term = next((value for value in terms if value.strip()), "")
                 if term:
                     samples.append(term)
@@ -157,7 +157,7 @@ async def _probe_sample(
     return "", Detection()
 
 
-def _check_permissions(settings: Settings) -> tuple[bool, str]:
+def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """Sensitive files (.db, audit log, anchor.key) must be owner-only (0600)."""
     import os
     from pathlib import Path
@@ -165,8 +165,8 @@ def _check_permissions(settings: Settings) -> tuple[bool, str]:
     if os.name != "posix":
         return (True, "skipped: non-posix platform")
 
-    from privyx.core.builder import _sqlite_path
     from privyx.security.keys import default_anchor_secret_path
+    from privyx.vaults._sqlite import sqlite_path
 
     candidates: list[Path] = [
         default_anchor_secret_path(),
@@ -177,7 +177,7 @@ def _check_permissions(settings: Settings) -> tuple[bool, str]:
         Path("privyx.db-shm"),
     ]
     if settings.vault.type == "sqlite":
-        db_path = _sqlite_path(settings.vault.dsn)
+        db_path = sqlite_path(settings.vault.model_dump()["dsn"])
         if db_path != ":memory:":
             candidates.extend([Path(db_path), Path(f"{db_path}-wal"), Path(f"{db_path}-shm")])
     if settings.audit.path:
@@ -214,17 +214,17 @@ def _check_permissions(settings: Settings) -> tuple[bool, str]:
     return (True, "sensitive files owner-only (0600)")
 
 
-def _check_vault(settings: Settings) -> tuple[bool, str]:
+def _check_vault(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """The configured vault round-trips a session.
 
     This is where a bad DSN, a missing driver or an unreachable Redis shows up
     — all of which otherwise surface only at the first request.
     """
+    from privyx.app._build import build_vault
     from privyx.core import Session
-    from privyx.core.builder import build_vault
 
     async def _probe() -> tuple[bool, str]:
-        vault, close = await build_vault(settings)
+        vault, close = await build_vault(settings, app)
         session = Session()
         try:
             # An arbitrary mapping entry: the vault stores opaque key→value pairs
@@ -245,33 +245,35 @@ def _check_vault(settings: Settings) -> tuple[bool, str]:
     return asyncio.run(_probe())
 
 
-def _check_provider(settings: Settings) -> tuple[bool, str]:
+def _check_provider(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """The configured provider is registered and constructible."""
     if importlib.util.find_spec("httpx") is None:
         return (False, "httpx not installed")
 
+    from privyx.app._build import build_provider
     from privyx.config.redact import redact
-    from privyx.plugins.registry import PLUGINS
-    from privyx.providers.registry import build_provider, default_registry, resolve_base_url
+    from privyx.providers import Provider, resolve_base_url
 
     ptype = settings.provider.type
-    known = default_registry().names()
-    if ptype not in known and ptype not in PLUGINS.providers:
-        available = known + [f"{n} (plugin)" for n in PLUGINS.providers.names()]
+    registry = app.registry(Provider)
+    if ptype not in registry:
+        plugins = [f"{n} (plugin)" for n in registry.names() if not registry.is_builtin(n)]
+        available = sorted(registry.builtin_names()) + plugins
         return (False, f"unknown provider {ptype!r} (known: {', '.join(available)})")
-    build_provider(settings)
+    build_provider(settings, app)
     return (True, f"{ptype} → {redact(resolve_base_url(settings), 'url')}")
 
 
-def _check_proxy(settings: Settings) -> tuple[bool, str]:
+def _check_proxy(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """A request payload survives the proxy with no PII left in it."""
+    from privyx.app._build import build_engine
     from privyx.core import Session
-    from privyx.core.builder import build_engine
+    from privyx.providers import GenericProvider
     from privyx.proxy.http import HTTPProxy
     from privyx.streaming.adapters.registry import build_stream_adapter
 
     async def _probe() -> tuple[bool, str]:
-        engine, close = await build_engine(settings)
+        engine, close = await build_engine(settings, app)
         session = Session()
         try:
             await engine.vault.create(session)
@@ -280,7 +282,8 @@ def _check_proxy(settings: Settings) -> tuple[bool, str]:
                 return (True, "skipped: no diagnostic sample is masked by the detector and policy")
             proxy = HTTPProxy(
                 engine=engine,
-                provider=_ReplayProvider([]),
+                provider=GenericProvider(),
+                client=_replay([]),
                 stream_adapter=build_stream_adapter(settings.provider.type),
             )
             payload, session_id = await proxy.process_request(
@@ -293,8 +296,8 @@ def _check_proxy(settings: Settings) -> tuple[bool, str]:
                 # A token's entity name can itself be a configured term.
                 for replacement in sorted(stored.mapping, key=len, reverse=True):
                     remainder = remainder.replace(replacement, "")
-            if settings.operator.type == "redact":
-                remainder = remainder.replace(settings.operator.token, "")
+            if engine.operator.fixed_text:
+                remainder = remainder.replace(engine.operator.fixed_text, "")
             if transformed == text or any(span.text in remainder for span in detection.spans):
                 return (False, "diagnostic sample survived the request transform")
             count = len(stored.mapping) if stored else 0
@@ -308,7 +311,7 @@ def _check_proxy(settings: Settings) -> tuple[bool, str]:
     return asyncio.run(_probe())
 
 
-def _check_streaming(settings: Settings) -> tuple[bool, str]:
+def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """A pseudonym split across SSE chunks is restored before the client sees it.
 
     The split lands inside the pseudonym on purpose: that is exactly the case a
@@ -316,15 +319,16 @@ def _check_streaming(settings: Settings) -> tuple[bool, str]:
     """
     import json
 
+    from privyx.app._build import build_engine
     from privyx.core import Session
-    from privyx.core.builder import build_engine
+    from privyx.providers import GenericProvider
     from privyx.proxy.http import HTTPProxy
     from privyx.proxy.stream_router import resolver_for
     from privyx.streaming.adapters.openai import OpenAIStreamAdapter
     from privyx.streaming.sse import parse_sse
 
     async def _probe() -> tuple[bool, str]:
-        engine, close = await build_engine(settings)
+        engine, close = await build_engine(settings, app)
         session = Session()
         try:
             await engine.vault.create(session)
@@ -350,7 +354,8 @@ def _check_streaming(settings: Settings) -> tuple[bool, str]:
             adapter = OpenAIStreamAdapter()
             proxy = HTTPProxy(
                 engine=engine,
-                provider=_ReplayProvider([body[:midpoint], body[midpoint:]]),
+                provider=GenericProvider(),
+                client=_replay([body[:midpoint], body[midpoint:]]),
                 stream_adapter=adapter,
             )
             out = "".join([c async for c in proxy.process_stream({}, session.session_id)])
@@ -369,7 +374,7 @@ def _check_streaming(settings: Settings) -> tuple[bool, str]:
     return asyncio.run(_probe())
 
 
-def _check_routes(settings: Settings) -> tuple[bool, str]:
+def _check_routes(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """Describe effective masking coverage and expose unmasked forwarding."""
     from privyx.config.schema import ProxyConfig
     from privyx.proxy.schemas import KNOWN_SCHEMAS
@@ -411,18 +416,19 @@ def _check_routes(settings: Settings) -> tuple[bool, str]:
     )
 
 
-def _check_anchor_key(settings: Settings) -> tuple[bool, str]:
+def _check_anchor_key(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """The automatic anchor key can be read, or created on first use.
 
     Checked without creating it: a key file that exists must be readable and
     not empty, and a missing one needs a writable directory to be made in.
     """
-    from privyx.core.builder import _operator_takes_anchor, _takes_secret
+    from privyx.anchors import Anchor, HMACAnchor
+    from privyx.operators import Operator
     from privyx.security.keys import default_anchor_secret_path
 
-    if not _operator_takes_anchor(settings):
+    if not app.registry(Operator).get(settings.operator.type).uses_anchor:
         return (True, f"not used by operator={settings.operator.type}")
-    if not _takes_secret(settings):
+    if not issubclass(app.registry(Anchor).get(settings.anchor.type), HMACAnchor):
         return (True, f"not used by anchor={settings.anchor.type}")
     path = default_anchor_secret_path()
     try:
@@ -441,7 +447,7 @@ def _check_anchor_key(settings: Settings) -> tuple[bool, str]:
     return (False, f"cannot create {path}: {parent} is not writable")
 
 
-def _check_configuration(settings: Settings) -> tuple[bool, str]:
+def _check_configuration(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """Settings load and validate, and every named component can be built.
 
     ``build_anchor`` is called here rather than getting a check of its own: an
@@ -449,9 +455,9 @@ def _check_configuration(settings: Settings) -> tuple[bool, str]:
     reports config errors.  It also makes the anchor state visible, since
     "anchored or not" changes what pseudonyms look like.
     """
-    from privyx.core.builder import build_anchor
+    from privyx.app._build import build_anchor
 
-    anchor = build_anchor(settings)  # raises ConfigError on an unknown type
+    anchor = build_anchor(settings, app)  # raises ConfigError on an unknown type
     anchoring = f"anchor={settings.anchor.type}" if anchor else "anchor=off"
     return (
         True,
@@ -460,20 +466,18 @@ def _check_configuration(settings: Settings) -> tuple[bool, str]:
     )
 
 
-class _ReplayProvider:
-    """Provider that replays fixed chunks, so no network is ever touched."""
+def _replay(chunks: list[str]) -> httpx.AsyncClient:
+    """A client whose upstream streams back ``chunks``, so no network is ever touched."""
+    import httpx
 
-    def __init__(self, chunks: list[str]) -> None:
-        self._chunks = chunks
+    class Chunks(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            for chunk in chunks:
+                yield chunk.encode()
 
-    async def send(self, payload: Any, session_id: str | None = None) -> Any:
-        raise AssertionError("doctor must not contact the upstream provider")
+    def reply(request: httpx.Request) -> httpx.Response:
+        if not chunks:
+            raise AssertionError("doctor must not contact the upstream provider")
+        return httpx.Response(200, stream=Chunks())
 
-    async def stream(
-        self, payload: Any, session_id: str | None = None
-    ) -> AsyncGenerator[str, None]:
-        for chunk in self._chunks:
-            yield chunk
-
-    async def close(self) -> None:
-        return None
+    return httpx.AsyncClient(transport=httpx.MockTransport(reply))

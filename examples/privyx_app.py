@@ -12,7 +12,8 @@ import re
 import sys
 
 from privyx import Privyx
-from privyx.plugins import BaseDetector, Context, Detection
+from privyx.core import Context, Detection
+from privyx.detectors import Detector
 
 # Read like `privyx proxy`: the config files, then PRIVYX_* variables, then
 # these settings, which win as command-line flags do.
@@ -22,7 +23,7 @@ CODENAME = re.compile(r"\bproject [A-Z][a-z]+\b")
 
 
 @px.add
-class CodenameDetector(BaseDetector):
+class CodenameDetector(Detector):
     """Masks project codenames, which no built-in pattern knows."""
 
     name = "codename"

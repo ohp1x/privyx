@@ -7,59 +7,81 @@ passthrough branch and pseudonyms reached the client verbatim.  Nothing caught
 it, because the streaming tests hand-assembled :class:`SSEEvent` objects and
 never crossed the provider → proxy boundary.
 
-So: drive everything through ``HTTPProxy.process_stream`` with a fake provider
+So: drive everything through ``HTTPProxy.process_stream`` with a fake upstream
 whose framing we control, and assert on the bytes a client would actually see.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncIterator, Iterable
 from typing import Any
 
+import httpx
 import pytest
 
+from privyx.core import ProviderError
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.providers.base import BaseProvider
-from privyx.proxy.http import HTTPProxy
+from privyx.operators._pseudonym import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.providers import GenericProvider
+from privyx.proxy.http import HTTPProxy as _HTTPProxy
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
 from privyx.streaming.adapters.openai import OpenAIStreamAdapter
 from privyx.streaming.sse import SSEDecoder
-from privyx.vault.memory import MemoryVault
+from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 PHONE = "+1-555-0142"
 
 
-class FakeProvider(BaseProvider):
-    """Provider that replays a fixed list of raw chunks.
+class FakeProvider(GenericProvider):
+    """An upstream that replays a fixed list of raw chunks, through a client of its own.
 
     The chunks are raw text with SSE framing intact — exactly what a real
     transport hands over — so the proxy's decoder is genuinely exercised.
     """
 
-    def __init__(self, chunks: Iterable[str], batch: Any = None) -> None:
+    def __init__(self, chunks: Iterable[str], batch: Any = None, status: int = 200) -> None:
+        super().__init__(base_url="https://upstream.example.com/v1/chat/completions")
         self.chunks = list(chunks)
         self.batch = batch
+        self.status = status
         self.sent: list[Any] = []
-        self.closed = False
+        self.paths: list[str] = []
+        self.client = httpx.AsyncClient(transport=httpx.MockTransport(self._reply))
 
-    async def send(self, payload: Any, session_id: str | None = None) -> Any:
-        self.sent.append(payload)
-        return self.batch
+    def _reply(self, request: httpx.Request) -> httpx.Response:
+        self.sent.append(json.loads(request.content))
+        self.paths.append(request.url.path)
+        if "text/event-stream" in request.headers.get("accept", ""):
+            return httpx.Response(self.status, stream=_Chunks(self.chunks))
+        return httpx.Response(self.status, json=self.batch)
 
-    async def stream(  # type: ignore[override]
-        self, payload: Any, session_id: str | None = None
-    ) -> AsyncGenerator[str, None]:
-        self.sent.append(payload)
-        for chunk in self.chunks:
-            yield chunk
 
-    async def close(self) -> None:
-        self.closed = True
+class _Chunks(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[str | bytes]) -> None:
+        self._chunks = chunks
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            yield chunk if isinstance(chunk, bytes) else chunk.encode()
+
+
+def HTTPProxy(  # noqa: N802 - stands in for the class, with the fake's client
+    engine: PrivacyEngine,
+    provider: FakeProvider,
+    stream_adapter: Any = None,
+    schema: str = "openai",
+) -> _HTTPProxy:
+    return _HTTPProxy(
+        engine=engine,
+        provider=provider,
+        client=provider.client,
+        stream_adapter=stream_adapter,
+        schema=schema,
+    )
 
 
 def _engine() -> PrivacyEngine:
@@ -389,25 +411,18 @@ async def test_send_batch_forwards_payload() -> None:
     assert provider.sent == [{"model": "x"}]
 
 
-async def test_a_type_error_inside_send_is_not_retried() -> None:
-    """A provider that takes ``path`` gets it; a failure inside its send is not resent."""
-
-    class Failing(FakeProvider):
-        async def send(
-            self, payload: Any, session_id: str | None = None, *, path: str | None = None
-        ) -> Any:
-            self.sent.append(path)
-            raise TypeError("broke after the request went out")
-
-    provider = Failing([])
-    with pytest.raises(TypeError):
-        await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/embeddings")
-
-    assert provider.sent == ["/v1/embeddings"]
-
-
-async def test_a_provider_without_path_keeps_its_own_endpoint() -> None:
+async def test_the_provider_decides_where_a_batch_goes() -> None:
     provider = FakeProvider([], batch={"ok": True})
-    assert await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/embeddings") == {
-        "ok": True
-    }
+    await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/embeddings")
+    await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/chat/completions")
+
+    assert provider.paths == ["/v1/embeddings", "/v1/chat/completions"]
+
+
+async def test_an_upstream_error_keeps_its_status_and_body() -> None:
+    provider = FakeProvider([], batch={"error": "quota"}, status=429)
+    with pytest.raises(ProviderError) as caught:
+        await HTTPProxy(_engine(), provider).send_batch({})
+
+    assert caught.value.status_code == 429
+    assert json.loads(caught.value.body) == {"error": "quota"}

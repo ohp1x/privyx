@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.privacy.detector.builtin import RegexDetector
-from privyx.privacy.operator.pseudonym import PseudonymOperator
-from privyx.privacy.policy.default import DefaultPolicy
-from privyx.vault.memory import MemoryVault
+from privyx.operators import PseudonymOperator
+from privyx.policies import DefaultPolicy
+from privyx.vaults import MemoryVault
 
 
 async def smoke() -> None:

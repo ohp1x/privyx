@@ -22,7 +22,7 @@ from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
     from privyx.config.schema import Settings
-    from privyx.vault.base import Vault
+    from privyx.vaults import Vault
 
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
@@ -125,14 +125,14 @@ def _run(coro: Coroutine[Any, Any, None]) -> None:
 
 @asynccontextmanager
 async def _open_vault(config_path: str | None) -> AsyncIterator[tuple[Settings, Vault]]:
+    from privyx.app import load_config
+    from privyx.app._build import build_vault
     from privyx.app._plugins import load_plugins
-    from privyx.config.loader import load_config
-    from privyx.core.builder import build_vault
 
     settings = load_config(config_path)
     # Register plugin component types so a configured plugin vault resolves.
-    load_plugins(settings)
-    vault, close = await build_vault(settings)
+    app = load_plugins(settings)
+    vault, close = await build_vault(settings, app)
     try:
         yield settings, vault
     finally:
@@ -345,7 +345,7 @@ def _show_usage(settings: Settings, responses: int, by_model: dict[str, dict[str
 
 
 async def _prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
-    from privyx.core.builder import build_audit_logger
+    from privyx.app._build import build_audit_logger
     from privyx.observability.audit import AuditLogger
 
     cutoff = time.time() - older_than

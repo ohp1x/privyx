@@ -3,7 +3,7 @@
 A :class:`LogicalToken` carries *what a token means* (which namespace, entity
 type, and identifier it stands for) and says nothing about *how it looks* in
 text.  Turning it into characters — and back — is the job of a
-:class:`~privyx.token.codec.TokenCodec`.  Nothing outside the token subsystem
+:class:`~privyx.token.codec.FormatCodec`.  Nothing outside the token subsystem
 should construct textual delimiters; it should build a ``LogicalToken`` and hand
 it to the codec.
 """
@@ -32,7 +32,7 @@ class LogicalToken:
 
     Fields are validated for basic hygiene only; whether a value is
     *representable* in a particular syntax is decided by the codec at
-    :meth:`~privyx.token.codec.TokenCodec.encode` time, since that depends on the
+    :meth:`~privyx.token.codec.FormatCodec.encode` time, since that depends on the
     configured field grammar.
     """
 

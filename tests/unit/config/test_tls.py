@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from privyx import load_config
 from privyx.config.env import env_config
-from privyx.config.loader import load_config
 from privyx.config.schema import Settings, TLSConfig
 
 

@@ -19,16 +19,16 @@ from privyx.cli.launch import build_launch_plan  # noqa: E402
 from privyx.cli.main import cli  # noqa: E402
 from privyx.config.schema import Settings  # noqa: E402
 from privyx.core import ConfigError  # noqa: E402
+from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
 from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
-from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
-from privyx.privacy.operator.pseudonym import PseudonymOperator  # noqa: E402
-from privyx.privacy.policy.default import DefaultPolicy  # noqa: E402
-from privyx.providers.registry import resolve_transparent_upstream  # noqa: E402
+from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
+from privyx.policies import DefaultPolicy  # noqa: E402
+from privyx.providers import resolve_transparent_upstream  # noqa: E402
 from privyx.proxy.headers import RUN_TOKEN_HEADER, UPSTREAMS_HEADER  # noqa: E402
 from privyx.proxy.transparent import TransparentProxy  # noqa: E402
-from privyx.vault.memory import MemoryVault  # noqa: E402
+from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "ana@example.com"
 ROUTER = "https://router.example.com/api/v1"

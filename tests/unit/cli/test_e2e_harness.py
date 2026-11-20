@@ -178,9 +178,9 @@ def test_auto_mode_is_refused_for_an_agent_without_one(run_harness: ModuleType) 
 def test_seed_runs_on_the_defaults_with_terms_and_a_pattern_merged(
     run_harness: ModuleType, tmp_path: Path
 ) -> None:
-    from privyx.config.loader import load_config
+    from privyx import load_config
+    from privyx.app._build import build_detector_from
     from privyx.core import Context
-    from privyx.core.builder import build_detector_from
 
     run_harness.seed(tmp_path, {})
     settings = load_config(tmp_path / "privyx.yaml")
