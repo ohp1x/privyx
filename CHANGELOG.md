@@ -75,6 +75,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** the leak check no longer refuses a request when a masked term is part of a tool name the request declares, such as `acme` in `mcp__acme__search`, or in a label of a tool definition it sends unchanged, such as a parameter name or title
 - **Proxy:** the leak check no longer refuses a request when a masked value is part of its own placeholder or redaction token, such as a term `PERSON` in `<PRIVYX_PERSON_1>` with `_` separating words
 
+## [0.1.40] - 2026-11-20
+
+### Security
+
+- **CLI:** `privyx run grok` sends xAI Grok Build's own key instead of one of Privyx's own (`PRIVYX_API_KEY`, `PRIVYX_OPENAI_API_KEY`, or the key of the provider type in effect), and `privyx run ollama` sends the Ollama server no such key, also when `PRIVYX_PROVIDER` names a provider type; a key set in the profile's own `privyx` settings is still sent
+- **CLI:** a profile that extends a built-in one with a `command` of its own, such as a wrapper script, follows the endpoint the tool reads from its environment, as the built-in profile does; before, its masked requests and the tool's own credentials went to the provider's default host. The new profile field `endpoint_env` names those variables for any other profile
+
 ## [0.1.39] - 2026-11-17
 
 ### Fixed
@@ -765,6 +772,7 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 [0.2.2]: https://github.com/ohp1x/privyx/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ohp1x/privyx/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.2.0
+[0.1.40]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.1.40
 [0.1.39]: https://github.com/ohp1x/privyx/compare/v0.1.38...v0.1.39
 [0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
 [0.1.37]: https://github.com/ohp1x/privyx/compare/v0.1.36...v0.1.37
