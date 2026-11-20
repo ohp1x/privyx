@@ -203,7 +203,7 @@
                   },
                   {
                     "type": "text",
-                    "text": "Noted: <PRIVYX_PERSON_172131BFCE007D8B> <PRIVYX_ORG_370331243235B3DE> <PRIVYX_EMAIL_5393005290036A9E> <PRIVYX_IP_ADDRESS_4F36749E26AC5198> <PRIVYX_SECRET_993993BF927C6FDD> <PRIVYX_PHONE_A503931E53CA61FC> <PRIVYX_PHONE_43EC0715990008DC> 1111."
+                    "text": "Noted: <PRIVYX_PERSON_172131BFCE007D8B> <PRIVYX_ORG_370331243235B3DE> <PRIVYX_EMAIL_5393005290036A9E> <PRIVYX_IP_ADDRESS_4F36749E26AC5198> <PRIVYX_SECRET_993993BF927C6FDD> <PRIVYX_PHONE_A503931E53CA61FC> <PRIVYX_CREDIT_CARD_8E245B8D0AADA100>."
                   },
                   {
                     "type": "tool_use",
@@ -469,29 +469,7 @@
               "index": 1,
               "delta": {
                 "type": "text_delta",
-                "text": "4111 1111 1111 1111 "
-              }
-            }
-          },
-          {
-            "event": "content_block_delta",
-            "data": {
-              "type": "content_block_delta",
-              "index": 1,
-              "delta": {
-                "type": "text_delta",
-                "text": "4111 1111 1111"
-              }
-            }
-          },
-          {
-            "event": "content_block_delta",
-            "data": {
-              "type": "content_block_delta",
-              "index": 1,
-              "delta": {
-                "type": "text_delta",
-                "text": "."
+                "text": "4111 1111 1111 1111."
               }
             }
           },
@@ -794,7 +772,7 @@
                   },
                   {
                     "type": "text",
-                    "text": "Noted: <PRIVYX_PERSON_172131BFCE007D8B> <PRIVYX_ORG_370331243235B3DE> <PRIVYX_EMAIL_1> <PRIVYX_EMAIL_5393005290036A9E> <PRIVYX_IP_ADDRESS_4F36749E26AC5198> <PRIVYX_SECRET_993993BF927C6FDD> <PRIVYX_PHONE_A503931E53CA61FC> <PRIVYX_PHONE_43EC0715990008DC> 1111."
+                    "text": "Noted: <PRIVYX_PERSON_172131BFCE007D8B> <PRIVYX_ORG_370331243235B3DE> <PRIVYX_EMAIL_1> <PRIVYX_EMAIL_5393005290036A9E> <PRIVYX_IP_ADDRESS_4F36749E26AC5198> <PRIVYX_SECRET_993993BF927C6FDD> <PRIVYX_PHONE_A503931E53CA61FC> <PRIVYX_CREDIT_CARD_8E245B8D0AADA100>."
                   },
                   {
                     "type": "tool_use",
@@ -1060,18 +1038,7 @@
               "index": 1,
               "delta": {
                 "type": "text_delta",
-                "text": "4111 1111 1111 1111 "
-              }
-            }
-          },
-          {
-            "event": "content_block_delta",
-            "data": {
-              "type": "content_block_delta",
-              "index": 1,
-              "delta": {
-                "type": "text_delta",
-                "text": "4111 1111 1111."
+                "text": "4111 1111 1111 1111."
               }
             }
           },

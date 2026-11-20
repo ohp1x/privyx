@@ -84,6 +84,22 @@ def test_credit_card_must_pass_the_luhn_check(text: str, cards: list[str]) -> No
     assert [s.text for s in detection.spans if s.entity_type == "CREDIT_CARD"] == cards
 
 
+@pytest.mark.parametrize(
+    ("text", "card"),
+    [
+        ("row 7 4111-1111-1111-1111 ok", "4111-1111-1111-1111"),
+        ("id 12 4111 1111 1111 1111", "4111 1111 1111 1111"),
+        ("1 4111 1111 1111 1111", "4111 1111 1111 1111"),
+        ("call +1 202 555 0143 4111 1111 1111 1111.", "4111 1111 1111 1111"),
+    ],
+)
+def test_credit_card_after_another_digit_group(text: str, card: str) -> None:
+    # The candidate that starts at the group before fails the check, and the
+    # card number starts inside it.
+    detection = RegexDetector().detect_sync(text, Context())
+    assert [s.text for s in detection.spans if s.entity_type == "CREDIT_CARD"] == [card]
+
+
 def test_credit_card_skips_a_unix_time_that_passes_the_luhn_check() -> None:
     # Codex sends the start of each turn in milliseconds; both pass the Luhn check.
     text = '{"turn_started_at_unix_ms":1794459442510} at 1794459442510000 us'

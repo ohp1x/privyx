@@ -304,6 +304,13 @@ _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     **catalog.CHECKS,
 }
 
+#: Built-in entities whose candidate can start with a number written before the
+#: value, so that the value starts inside a candidate the check rejects: the card
+#: number in ``7 4111-1111-1111-1111`` after the rejected ``7 4111-1111-1111``.
+#: The other checked patterns cannot start inside a candidate of their own, or
+#: would only find a tail of the rejected value, which their check reads whole.
+_SEARCH_INSIDE_REJECTED = frozenset({"CREDIT_CARD"})
+
 
 # Every SECRET match starts with a CLI flag or one of these name prefixes.
 # Explicit initial character classes let re skip unrelated text with its fast
@@ -396,6 +403,21 @@ def _check_for(
     return None
 
 
+def _checked_matches(pattern: re.Pattern[str], text: str, check: Check) -> Iterator[re.Match[str]]:
+    """The matches of ``pattern`` in ``text`` that pass ``check``.
+
+    Unlike finditer, the search goes on from the next character of a rejected
+    match, not from its end, so a value that starts inside it is found.
+    """
+    pos = 0
+    while (match := pattern.search(text, pos)) is not None:
+        if check(match):
+            yield match
+            pos = match.end()
+        else:
+            pos = match.start() + 1
+
+
 def _detect(
     compiled: list[tuple[str, re.Pattern[str], Check | None, frozenset[str] | None]], text: str
 ) -> Detection:
@@ -411,11 +433,13 @@ def _detect(
     detection = Detection()
     for entity, pattern, check, context in compiled:
         has_value = "value" in pattern.groupindex
-        matches = (
-            _secret_matches(pattern, text)
-            if entity == "SECRET" and pattern.pattern == SECRET_PATTERN
-            else pattern.finditer(text)
-        )
+        if entity == "SECRET" and pattern.pattern == SECRET_PATTERN:
+            matches = _secret_matches(pattern, text)
+        elif check is not None and entity in _SEARCH_INSIDE_REJECTED:
+            matches = _checked_matches(pattern, text, check)
+            check = None  # already applied
+        else:
+            matches = pattern.finditer(text)
         for match in matches:
             if check is not None and not check(match):
                 continue
