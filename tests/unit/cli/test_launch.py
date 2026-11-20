@@ -22,7 +22,7 @@ from privyx.cli.launch import PI_UPSTREAMS, build_launch_plan, profile_target
 from privyx.cli.main import cli
 from privyx.config.loader import load_config
 from privyx.config.schema import AgentConfig, Settings
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 
 @pytest.mark.parametrize("agent", [*TARGETS, "work"])

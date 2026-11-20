@@ -68,7 +68,7 @@ def lint(config_path: str | None) -> None:
     retry with it masks the value.  Terms from another file that no detector
     uses are reported first.  Exits 1 when a spelling is not fully masked.
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     try:
         leaks = asyncio.run(_lint(config_path))
@@ -79,10 +79,10 @@ def lint(config_path: str | None) -> None:
 
 
 async def _lint(config_path: str | None) -> int:
+    from privyx.app._plugins import load_plugins
     from privyx.cli.commands.detect import _policy_reason
     from privyx.config.loader import load_config
     from privyx.core.builder import build_policy_from
-    from privyx.plugins.loader import load_plugins
     from privyx.privacy.detector.yaml import build_detector
 
     unused: list[str] = []
@@ -194,7 +194,7 @@ def _spellings(term: str) -> list[Parts]:
 
 async def _missing(probe: _Probe, detector: Detector, policy: Policy | None) -> set[int]:
     """The sensitive positions of ``probe`` the detector and policy leave unmasked."""
-    from privyx.core.context import Context
+    from privyx.core import Context
 
     text, context = probe.text, Context()
     detection = await detector.detect(text, context)

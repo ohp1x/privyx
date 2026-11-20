@@ -1,11 +1,10 @@
-"""Tests for the JSON walk and the key probe in :mod:`privyx.privacy.transform.json`."""
+"""Tests for the JSON walk and the key probe in :mod:`privyx.core._json`."""
 
 from __future__ import annotations
 
 import json
 
-from privyx.core.result import Span
-from privyx.privacy.transform.json import map_values, value_spans, with_key
+from privyx.core import Span, map_values, value_spans, with_key
 
 
 def test_value_spans_land_on_the_characters_json_escaped() -> None:

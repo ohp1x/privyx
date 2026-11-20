@@ -453,7 +453,7 @@ def test_compact_restores_the_issued_token_where_both_forms_match(
     fmt: str, token: str, written: str, restored: str
 ) -> None:
     """Batch and stream both give back the original, not merely the same text."""
-    from privyx.core.session import Session
+    from privyx.core import Session
     from privyx.privacy.operator.base import restore
     from privyx.streaming.deanonymizer import TokenStreamProcessor
 
@@ -469,9 +469,7 @@ def test_compact_restores_the_issued_token_where_both_forms_match(
 
 
 async def test_compact_tokens_round_trip_under_a_format_they_overlap() -> None:
-    from privyx.core.context import Context
-    from privyx.core.result import Detection, Span
-    from privyx.core.session import Session
+    from privyx.core import Context, Detection, Session, Span
     from privyx.privacy.operator.pseudonym import PseudonymOperator
 
     operator = PseudonymOperator(codec=CompactCodec(FormatCodec("<{type}~{id}")))

@@ -14,7 +14,7 @@ from types import MappingProxyType
 
 from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.config.schema import AgentConfig, BudgetConfig, Settings
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.providers.registry import resolve_base_url, resolve_transparent_upstream
 
 AUTO_ANCHOR = "auto"

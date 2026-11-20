@@ -6,16 +6,12 @@ with options, the result and session types, and :func:`restore`.  Other import
 paths work too, but may move between releases.
 
 :data:`PLUGINS` is the process-wide registry the ``build_*`` functions consult;
-:func:`privyx.plugins.loader.load_plugins` populates it.
+:func:`privyx.app._plugins.load_plugins` populates it.
 """
 
 from __future__ import annotations
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
-from privyx.core.result import Detection, TransformResult
-from privyx.core.session import Session
-from privyx.plugins.hooks import HookManager
+from privyx.core import ConfigError, Context, Detection, Session, TransformResult
 from privyx.plugins.registry import (
     PLUGINS,
     BuildContext,
@@ -44,7 +40,6 @@ __all__ = [
     "ConfigError",
     "Context",
     "Detection",
-    "HookManager",
     "LogicalToken",
     "PluginRegistry",
     "Registry",

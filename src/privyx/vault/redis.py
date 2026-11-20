@@ -20,8 +20,7 @@ from redis.backoff import NoBackoff
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 
-from privyx.core.errors import VaultError
-from privyx.core.session import Session
+from privyx.core import Session, VaultError
 from privyx.vault.base import BaseVault
 
 _KEY_PREFIX = "privyx:session:"

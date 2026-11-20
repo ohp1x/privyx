@@ -5,7 +5,7 @@ OpenAI CLI, ...) would otherwise get a fresh, throwaway session on every HTTP
 call — so a multi-turn conversation is re-tokenized from scratch each turn and
 shows up as many sessions.  This module turns the configured ``session.strategy``
 into a *stable* session id derived from what the request already carries, so
-:meth:`~privyx.core.engine.PrivacyEngine.get_or_create_session` reuses one
+:meth:`~privyx.engine.PrivacyEngine.get_or_create_session` reuses one
 session across a conversation's turns.
 
 The rules (see :class:`~privyx.config.schema.SessionConfig`):

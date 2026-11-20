@@ -17,8 +17,8 @@ import httpx
 import pytest
 
 from privyx.config.loader import load_config
+from privyx.core import ProviderError
 from privyx.core.builder import build_engine
-from privyx.core.errors import ProviderError
 from privyx.providers.generic import GenericProvider
 from privyx.proxy.http import HTTPProxy
 from privyx.streaming.adapters.registry import build_stream_adapter

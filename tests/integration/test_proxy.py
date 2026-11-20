@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from privyx.core.engine import PrivacyEngine
+from privyx.engine import PrivacyEngine
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy

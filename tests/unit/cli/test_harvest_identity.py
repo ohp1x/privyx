@@ -15,7 +15,7 @@ from privyx.cli import workspace
 from privyx.cli.commands.run import _harvest
 from privyx.cli.main import cli
 from privyx.config.schema import Settings
-from privyx.core.engine import PrivacyEngine
+from privyx.engine import PrivacyEngine
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy

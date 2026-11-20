@@ -19,8 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from privyx.core.errors import VaultError
-from privyx.core.session import Session
+from privyx.core import Session, VaultError
 from privyx.vault.base import BaseVault
 
 #: A commit appends to the write-ahead log instead of syncing the database and

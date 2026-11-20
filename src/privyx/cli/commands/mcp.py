@@ -77,7 +77,7 @@ def wrap(session_id: str | None, config_path: str | None, command: tuple[str, ..
     masked, so the model sees placeholders; placeholders in what the client
     sends are restored first, so the server works on the real values.
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     try:
         code = asyncio.run(_wrap(command, session_id, config_path))
@@ -94,11 +94,10 @@ def wrap(session_id: str | None, config_path: str | None, command: tuple[str, ..
 
 
 async def _wrap(command: tuple[str, ...], session_id: str | None, config_path: str | None) -> int:
+    from privyx.app._plugins import load_plugins
     from privyx.config.loader import load_config
+    from privyx.core import Context, SessionNotFoundError
     from privyx.core.builder import build_engine
-    from privyx.core.context import Context
-    from privyx.core.errors import SessionNotFoundError
-    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
     load_plugins(settings)
@@ -367,8 +366,7 @@ async def _rewrite(
     parsed and checked, never ``line`` itself: a parser drops what it does not
     keep, such as the first of two duplicate keys, unchecked.
     """
-    from privyx.core.errors import OperatorError
-    from privyx.privacy.transform.json import leaf_text, put_back
+    from privyx.core import OperatorError, leaf_text, put_back
 
     try:
         message = json.loads(line)

@@ -9,8 +9,7 @@ from typing import Any
 import pytest
 import redis.exceptions
 
-from privyx.core.errors import VaultError
-from privyx.core.session import Session
+from privyx.core import Session, VaultError
 from privyx.vault.redis import RedisVault, redis_client
 
 

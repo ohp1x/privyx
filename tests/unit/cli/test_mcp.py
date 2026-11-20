@@ -379,7 +379,7 @@ def test_stops_with_unread_server_output(config: Path, tmp_path: Path, stop: str
     script = "import privyx.cli.commands.mcp as m\nm._LINE_LIMIT = 1024\n"
     if stop == "mask-error":
         script += (
-            "import asyncio, privyx.core.engine as e\n"
+            "import asyncio, privyx.engine as e\n"
             "async def boom(*a, **k):\n"
             "    await asyncio.sleep(1)\n"
             "    raise OSError('boom')\n"
@@ -555,7 +555,7 @@ def _gone(pid: int) -> None:
 
 def test_a_reply_that_fails_to_mask_is_not_sent(config: Path, tmp_path: Path) -> None:
     script = (
-        "import privyx.core.engine as e\n"
+        "import privyx.engine as e\n"
         "async def boom(*a, **k): raise OSError('boom')\n"
         "e.PrivacyEngine.transform = boom\n"
         "from privyx.cli.main import cli; cli()\n"
@@ -590,8 +590,8 @@ def test_a_reply_that_fails_to_mask_is_not_sent(config: Path, tmp_path: Path) ->
 async def test_keys_made_one_are_an_error(operator: str, message: dict[str, Any]) -> None:
     from privyx.cli.commands.mcp import _rewrite
     from privyx.config.schema import Settings
+    from privyx.core import OperatorError
     from privyx.core.builder import build_engine
-    from privyx.core.errors import OperatorError
 
     settings = Settings.model_validate(
         # Counter tokens, which the pseudonym case names.

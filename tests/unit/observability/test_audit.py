@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 
 from privyx.config.schema import AuditConfig, Settings
+from privyx.core import ConfigError
 from privyx.core.builder import build_audit_logger
-from privyx.core.errors import ConfigError
 from privyx.observability.audit import SCHEMA_VERSION, AuditEvent, AuditLogger
 
 

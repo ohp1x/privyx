@@ -16,11 +16,8 @@ import pytest
 
 from privyx.config.loader import load_config
 from privyx.config.schema import Settings
+from privyx.core import ConfigError, Context, Detection, OperatorError, Session, Span
 from privyx.core.builder import build_anchor, build_operator
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError, OperatorError
-from privyx.core.result import Detection, Span
-from privyx.core.session import Session
 from privyx.privacy.anchor.hmac import HMACAnchor
 from privyx.privacy.operator.base import BaseOperator, restore
 from privyx.privacy.operator.hash import HashOperator

@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from privyx.config.schema import ProxyConfig
-from privyx.core.engine import PrivacyEngine
+from privyx.engine import PrivacyEngine
 from privyx.observability.usage import UsageMeter
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator

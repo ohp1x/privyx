@@ -240,7 +240,7 @@ def test_concurrent_pipe_processes_keep_distinct_mappings(config: Path) -> None:
     # Slow masking after the session read to expose overlapping updates reliably.
     script = """
 import asyncio
-from privyx.core.engine import PrivacyEngine
+from privyx.engine import PrivacyEngine
 from privyx.cli.main import cli
 original = PrivacyEngine.transform
 async def slow(self, *args, **kwargs):

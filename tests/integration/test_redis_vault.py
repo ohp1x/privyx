@@ -13,9 +13,8 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import VaultError
-from privyx.core.session import Session
+from privyx.core import Session, VaultError
+from privyx.engine import PrivacyEngine
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy

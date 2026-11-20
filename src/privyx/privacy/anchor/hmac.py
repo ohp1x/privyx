@@ -11,7 +11,7 @@ import hashlib
 import hmac
 import re
 
-from privyx.core.context import Context
+from privyx.core import Context
 from privyx.privacy.anchor.base import BaseAnchor
 
 _ANCHOR_RE = re.compile(r"^PRIVYX_([0-9a-f]{64})$")

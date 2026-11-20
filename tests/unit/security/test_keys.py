@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.security.keys import read_or_create_anchor_secret
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")

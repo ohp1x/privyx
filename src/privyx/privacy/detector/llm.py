@@ -9,7 +9,7 @@ detector list rather than used alone.
 
 Failure is closed by default: an error, a timeout (``timeout``), or a reply
 with no JSON array of spans fails the request with
-:class:`~privyx.core.errors.DetectorError`, so no text reaches the upstream
+:class:`~privyx.core.DetectorError`, so no text reaches the upstream
 having skipped the scan it was configured for.  ``fallback_on_error`` opts into
 scanning with the built-in regex patterns instead, which lets through whatever
 only the LLM would have caught; every fallback is logged and counted as
@@ -21,7 +21,7 @@ rather than truncated: a truncated tail would never be scanned at all.
 ``llm`` is an optional extra: selecting it without ``openai`` or
 ``anthropic`` installed (``pip install privyx[providers]``, or
 ``uv sync --all-extras``) fails at startup with a
-:class:`~privyx.core.errors.ConfigError`, never mid-request — the same
+:class:`~privyx.core.ConfigError`, never mid-request — the same
 contract ``faker``, ``encrypt``, and ``presidio`` follow.
 """
 
@@ -34,9 +34,7 @@ import re
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError, DetectorError
-from privyx.core.result import Detection, Span
+from privyx.core import ConfigError, Context, Detection, DetectorError, Span
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.detector.yaml import _ENTITY_NAME, _bounded
 
@@ -165,7 +163,7 @@ class LLMDetector:
         timeout: Seconds the whole scan (every chunk) may take before it fails.
         max_chars: Longest text sent in one call; longer text is chunked.
         fallback_on_error: On failure, scan with the built-in regex patterns
-            instead of raising :class:`~privyx.core.errors.DetectorError`.
+            instead of raising :class:`~privyx.core.DetectorError`.
         underscore: ``_`` separates words when a reported value is looked up
             (``JOHN`` in ``DB_JOHN``), and for the fallback's patterns.
 

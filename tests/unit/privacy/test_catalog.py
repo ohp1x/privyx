@@ -8,9 +8,8 @@ from pathlib import Path
 import pytest
 
 from privyx.config.loader import load_config
+from privyx.core import ConfigError, Context
 from privyx.core.builder import build_detector_from
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
 from privyx.privacy.detector.catalog import _BASE58, shannon
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.policy.strict import StrictPolicy

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from privyx.core.errors import VaultError
-from privyx.core.session import Session
+from privyx.core import Session, VaultError
 from privyx.vault.memory import MemoryVault
 
 

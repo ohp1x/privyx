@@ -119,7 +119,7 @@ def safe_model(name: str) -> bool:
     """
     if not _MODEL.fullmatch(name):
         return False
-    from privyx.core.context import Context
+    from privyx.core import Context
 
     return not _detector().detect_sync(name, Context()).spans
 

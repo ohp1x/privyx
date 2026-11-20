@@ -25,8 +25,10 @@ from hypothesis import strategies as st
 
 pytest.importorskip("faker")
 
-from privyx.core.context import Context  # noqa: E402
-from privyx.core.session import Session  # noqa: E402
+from privyx.core import (
+    Context,  # noqa: E402
+    Session,  # noqa: E402
+)
 from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402
 from privyx.privacy.operator.faker import FakerOperator, _restore_literal  # noqa: E402
 from privyx.privacy.policy.default import DefaultPolicy  # noqa: E402

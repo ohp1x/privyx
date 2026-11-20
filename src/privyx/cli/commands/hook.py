@@ -94,7 +94,7 @@ def _findings(lines: list[tuple[int, str]], codec: TokenCodec) -> list[tuple[int
     found too.  A secret is named by its type only, so the hook's output, which
     a coding agent may read, never repeats it.
     """
-    from privyx.core.context import Context
+    from privyx.core import Context
 
     text = "\n".join(line for _, line in lines)
     starts = [0]
@@ -228,8 +228,8 @@ def _name(line: str, previous: str) -> str:
 def _codec() -> TokenCodec:
     """The configured token codec, or the default one when the config cannot be read."""
     from privyx.config.loader import load_config
+    from privyx.core import PrivyxError
     from privyx.core.builder import build_codec
-    from privyx.core.errors import PrivyxError
     from privyx.token.codec import FormatCodec
 
     try:

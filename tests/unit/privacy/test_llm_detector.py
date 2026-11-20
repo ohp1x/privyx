@@ -16,8 +16,7 @@ import re
 
 import pytest
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError, DetectorError
+from privyx.core import ConfigError, Context, DetectorError
 from privyx.privacy.detector.llm import LLMDetector
 from privyx.privacy.detector.yaml import build_detector
 

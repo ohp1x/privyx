@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-from privyx.core.context import Context
+from privyx.core import Context
 from privyx.privacy.detector import decode
 from privyx.privacy.detector.yaml import build_detector
 

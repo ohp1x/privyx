@@ -14,8 +14,8 @@ from click.testing import CliRunner
 
 from privyx.cli.commands.run import _run_settings
 from privyx.cli.main import cli
+from privyx.core import Context
 from privyx.core.builder import build_anchor
-from privyx.core.context import Context
 from privyx.privacy.anchor.hmac import HMACAnchor
 
 

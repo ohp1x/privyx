@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 if TYPE_CHECKING:
     from privyx.privacy.anchor.base import Anchor
@@ -135,7 +135,7 @@ class Registry[T]:
 class PluginRegistry:
     """One :class:`Registry` per pluggable component family.
 
-    Populated by :func:`privyx.plugins.loader.load_plugins` and consulted as a
+    Populated by :func:`privyx.app._plugins.load_plugins` and consulted as a
     *fallback* by the ``build_*`` functions when a config ``type`` is not one of
     the built-ins.  Keeping plugin factories in a separate registry (rather than
     merging them into the built-in dispatch) means a broken or missing plugin

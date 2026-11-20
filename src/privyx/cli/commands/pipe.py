@@ -26,7 +26,7 @@ def pipe(session_id: str | None, restore: bool, config_path: str | None) -> None
     those.  --restore puts the original values back, given the --session the
     lines were masked with.
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     if restore and not session_id:
         click.echo("Error: --restore needs --session ID", err=True)
@@ -64,11 +64,10 @@ def _drop_stdout() -> None:
 
 
 async def _pipe(session_id: str | None, restore: bool, config_path: str | None) -> None:
+    from privyx.app._plugins import load_plugins
     from privyx.config.loader import load_config
+    from privyx.core import Context, SessionNotFoundError
     from privyx.core.builder import build_engine
-    from privyx.core.context import Context
-    from privyx.core.errors import SessionNotFoundError
-    from privyx.plugins.loader import load_plugins
 
     settings = load_config(config_path)
     load_plugins(settings)

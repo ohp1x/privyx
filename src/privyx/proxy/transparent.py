@@ -40,9 +40,9 @@ from urllib.parse import urlsplit
 import httpx
 
 from privyx.config.schema import ProxyConfig
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import LeakError, VaultError
-from privyx.core.session import Session
+from privyx.core import LeakError, Session, VaultError
+from privyx.core import request_id as new_request_id
+from privyx.engine import PrivacyEngine
 from privyx.observability import tracing
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
@@ -73,7 +73,6 @@ from privyx.proxy.stream_router import (
 )
 from privyx.proxy.streaming import AuditedStream
 from privyx.streaming.adapters.registry import build_stream_adapter
-from privyx.utils.ids import request_id as new_request_id
 
 _JSON = "application/json"
 _SSE = "text/event-stream"

@@ -11,10 +11,13 @@ import pytest
 
 pytest.importorskip("faker")
 
+from privyx.core import (  # noqa: E402
+    Context,  # noqa: E402
+    Detection,
+    Session,  # noqa: E402
+    Span,
+)
 from privyx.core.builder import build_operator  # noqa: E402
-from privyx.core.context import Context  # noqa: E402
-from privyx.core.result import Detection, Span  # noqa: E402
-from privyx.core.session import Session  # noqa: E402
 from privyx.privacy.operator.faker import FakerOperator  # noqa: E402
 
 TEXT = "Email alice@example.com or bob@example.com, ssn 123-45-6789"

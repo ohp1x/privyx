@@ -7,7 +7,7 @@ Components come from three places, all opt-in:
   *defined* in it is registered.
 - ``plugins.modules``: importable modules, such as an installed package.  Each
   is imported and its ``setup(px)`` called with a :class:`~privyx.app.Privyx`,
-  which it adds components, routes, and hooks to.
+  which it adds components, routes, and listeners to.
 - :meth:`Privyx.add <privyx.app.Privyx.add>` in the user's own code.
 
 There is no entry-point discovery: a package installed in the environment,
@@ -22,11 +22,6 @@ Contract for a component class:
       ``@classmethod from_config(cls, config: Config, ctx: BuildContext)``;
     - without ``Config``, optionally ``@classmethod from_config(cls, config:
       dict) -> Self``; otherwise a no-argument constructor is used.
-
-Contract for lifecycle:
-    - module-level ``on_startup()`` / ``on_shutdown()`` (sync or async) in a
-      ``plugins.paths`` module, or ``px.on_startup`` / ``px.on_shutdown``, are
-      collected into the returned :class:`~privyx.plugins.hooks.HookManager`.
 """
 
 from __future__ import annotations
@@ -50,8 +45,7 @@ from privyx.config.schema import (
     ProviderConfig,
     VaultConfig,
 )
-from privyx.core.errors import ConfigError, PrivyxError
-from privyx.plugins.hooks import HookManager
+from privyx.core import ConfigError, PrivyxError
 from privyx.plugins.registry import (
     ANCHOR_KEY,
     CODEC_KEY,
@@ -89,25 +83,23 @@ _BASES: list[tuple[type, str, str, type[BaseModel]]] = [
 _LIVE_KEYS = frozenset({ANCHOR_KEY, CODEC_KEY, ID_LENGTH_KEY})
 
 
-def load_plugins(settings: Settings, app: Privyx | None = None) -> HookManager:
+def load_plugins(settings: Settings, app: Privyx | None = None) -> None:
     """Register every plugin component the config and ``app`` name.
 
     Repopulates :data:`PLUGINS` from scratch each call, so a second call in the
     same process (e.g. ``privyx doctor`` then a serve) never sees stale
     registrations.  ``plugins.modules`` get ``app`` in their ``setup``, or a
     new :class:`~privyx.app.Privyx` when there is none; each module is set up
-    once per ``app``.  Returns a :class:`HookManager` with every lifecycle hook
-    found; the caller fires it around the serving lifecycle.
+    once per ``app``.
 
     Raises:
         ConfigError: If a configured path does not exist, a module fails to
             import or has no ``setup``, or two plugins in the same family claim
             the same ``name``.
     """
-    from privyx.app import Privyx
+    from privyx.app._privyx import Privyx
 
     PLUGINS.clear()
-    hooks = HookManager()
     px = app if app is not None else Privyx()
 
     plugins = settings.plugins
@@ -117,13 +109,12 @@ def load_plugins(settings: Settings, app: Privyx | None = None) -> HookManager:
             if not path.exists():
                 raise ConfigError(f"plugin path does not exist: {raw}")
             for module in _import_modules(path):
-                _register_module(module, hooks)
+                for cls in _discover(module):
+                    register(cls, module.__name__)
         for name in plugins.modules:
-            px._set_up(name)
+            px.use(name)
     for cls in px._components:
         register(cls, f"{type(px).__name__}.add")
-    hooks.extend(px._hooks)
-    return hooks
 
 
 def loaded_options() -> dict[str, dict[str, type[BaseModel] | None]]:
@@ -216,17 +207,6 @@ def _import_file(file: Path) -> ModuleType:
     except Exception as exc:
         raise ConfigError(f"failed to import plugin {file}: {exc}") from exc
     return module
-
-
-def _register_module(module: ModuleType, hooks: HookManager) -> None:
-    """Register every plugin component found in ``module`` and collect its hooks."""
-    for cls in _discover(module):
-        register(cls, module.__name__)
-
-    for attr, add in (("on_startup", hooks.add_startup), ("on_shutdown", hooks.add_shutdown)):
-        hook = getattr(module, attr, None)
-        if callable(hook):
-            add(module.__name__, hook)
 
 
 def _discover(module: ModuleType) -> list[type]:

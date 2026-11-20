@@ -10,7 +10,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from privyx.core.context import Context
+from privyx.core import Context
 from privyx.privacy.detector.builtin import SECRET_PATTERN, YamlDetector, _secret_matches
 
 from .test_detection_eval import CORPUS, _parse

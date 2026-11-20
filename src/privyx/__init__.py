@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from privyx.core.engine import PrivacyEngine
-from privyx.core.session import Session
+from privyx.core import Session
+from privyx.engine import PrivacyEngine
 from privyx.version import __version__
 
 if TYPE_CHECKING:

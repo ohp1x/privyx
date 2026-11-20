@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from privyx.core.result import Transformation
+from privyx.core._results import Transformation
 
 
 def apply_replacements(text: str, transformations: list[Transformation]) -> str:

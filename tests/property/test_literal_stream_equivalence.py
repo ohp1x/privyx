@@ -15,8 +15,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from privyx.core.context import Context
-from privyx.core.session import Session
+from privyx.core import Context, Session
 from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.faker import LiteralOperator
 from privyx.privacy.operator.fpe import FPEOperator

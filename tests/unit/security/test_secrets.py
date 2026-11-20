@@ -14,7 +14,7 @@ from click.testing import CliRunner
 
 from privyx.cli.main import cli
 from privyx.config.loader import load_config
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.security import secrets
 
 KEY = "sk-" + "ant-api03-abcdefghijklmnop"

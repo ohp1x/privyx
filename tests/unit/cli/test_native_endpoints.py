@@ -13,7 +13,7 @@ from privyx.cli.commands.run import TARGETS
 from privyx.cli.launch import build_launch_plan
 from privyx.cli.main import cli
 from privyx.config.schema import Settings
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 
 @pytest.fixture(autouse=True)

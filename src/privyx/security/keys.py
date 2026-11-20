@@ -17,7 +17,7 @@ import tempfile
 from hashlib import sha256
 from pathlib import Path
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 #: Required key length in bytes (AES-256 / HMAC-SHA256).
 KEY_BYTES = 32

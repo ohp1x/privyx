@@ -22,10 +22,9 @@ import httpx
 
 from privyx.config.defaults import DEFAULTS
 from privyx.config.schema import Settings
+from privyx.core import Context, Session
 from privyx.core.builder import build_engine
-from privyx.core.context import Context
-from privyx.core.engine import PrivacyEngine
-from privyx.core.session import Session
+from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator

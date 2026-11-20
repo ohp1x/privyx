@@ -312,7 +312,7 @@ class AuditLogger:
             transformations: Number of replacements applied.
             detector_counts: What the detectors reported doing (``llm_calls``,
                 ``llm_input_tokens``, ``llm_fallbacks``, ...); see
-                :attr:`privyx.core.context.Context.counters`.
+                :attr:`privyx.core.Context.counters`.
 
         Within a request scope the counts accumulate into one ``session.transform``
         per exchange (flushed by :meth:`flush_transform`); outside a scope the event

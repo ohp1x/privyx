@@ -55,7 +55,7 @@ def proxy(
 ) -> None:
     """Start the privacy proxy server."""
     from privyx.config.loader import active_config_paths, load_config
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     extra: dict[str, Any] = {}
     if host is not None:
@@ -185,25 +185,26 @@ async def _run_server(
     """Build the engine from settings, serve the selected app, and release resources.
 
     ``app``, a :class:`~privyx.app.Privyx`, adds its components, routes, and
-    hooks; without one, ``plugins.modules`` are set up with a new one.
+    listeners; without one, ``plugins.modules`` are set up with a new one.
 
     Returns ``True`` when the server stopped because a config file changed.
     """
     from privyx.app import Privyx
+    from privyx.app._plugins import load_plugins
     from privyx.core.builder import build_audit_logger, build_engine
+    from privyx.events import AppStarting, AppStopping
     from privyx.observability import tracing
     from privyx.observability.logging import configure_logging
-    from privyx.plugins.loader import load_plugins
 
     configure_logging(settings)
     px = app if app is not None else Privyx()
     # Load plugins before building the engine so a plugin detector/operator/etc.
     # is registered by the time build_engine resolves the configured types.
-    hooks = load_plugins(settings, app=px)
+    load_plugins(settings, app=px)
     tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
-    await hooks.run_startup()
+    await px._events.emit(AppStarting())
     reload_event = asyncio.Event() if watch_paths else None
     watcher = (
         asyncio.create_task(_watch_config(watch_paths, reload_event))
@@ -218,7 +219,7 @@ async def _run_server(
     finally:
         if watcher is not None:
             watcher.cancel()
-        await hooks.run_shutdown()
+        await px._events.emit(AppStopping())
         await close_vault()
         audit.close()
     return reload_event is not None and reload_event.is_set()

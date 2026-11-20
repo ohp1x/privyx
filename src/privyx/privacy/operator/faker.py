@@ -20,7 +20,7 @@ on the methods below:
   realism.
 
 ``faker`` is an optional dependency; selecting this operator without it installed
-fails at startup with a :class:`~privyx.core.errors.ConfigError` rather than on
+fails at startup with a :class:`~privyx.core.ConfigError` rather than on
 the first request (mirroring how a missing vault extra fails in the builder).
 """
 
@@ -29,12 +29,16 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
-from privyx.core.result import Detection, Transformation, TransformResult
-from privyx.core.session import Session
+from privyx.core import (
+    ConfigError,
+    Context,
+    Detection,
+    Session,
+    Transformation,
+    TransformResult,
+    apply_replacements,
+)
 from privyx.privacy.operator.base import BaseOperator
-from privyx.privacy.transform.text import apply_replacements
 from privyx.streaming.trie import PseudonymTrie
 
 #: How many times to re-roll a fake before falling back to a numeric suffix, when

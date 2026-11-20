@@ -11,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from privyx.cli.main import cli
-from privyx.core.errors import VaultError
+from privyx.core import VaultError
 
 doctor_module = importlib.import_module("privyx.cli.commands.doctor")
 
@@ -159,7 +159,7 @@ def test_doctor_still_detects_a_broken_stream(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_doctor_still_detects_a_broken_builtin_detector(monkeypatch: pytest.MonkeyPatch) -> None:
-    from privyx.core.result import Detection
+    from privyx.core import Detection
     from privyx.privacy.detector.builtin import RegexDetector
 
     monkeypatch.setattr(RegexDetector, "detect_sync", lambda *args: Detection())
@@ -283,7 +283,7 @@ def test_doctor_never_sends_configured_terms_to_plugin_detector(
 ) -> None:
     import yaml
 
-    from privyx.core.result import Detection
+    from privyx.core import Detection
     from privyx.plugins.registry import PLUGINS, Registry
 
     term = "apollo-private"

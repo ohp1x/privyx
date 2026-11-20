@@ -16,7 +16,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from privyx.core.context import Context
+from privyx.core import Context
 from privyx.privacy.detector.builtin import RegexDetector
 
 from .test_detector import _ADVERSARIAL

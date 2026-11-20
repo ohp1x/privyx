@@ -14,9 +14,9 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
-from privyx.app import include_router
 from privyx.config.schema import ProxyConfig, Settings
-from privyx.core.engine import PrivacyEngine
+from privyx.engine import PrivacyEngine
+from privyx.proxy._plugin_routes import include_router
 from privyx.proxy.transparent import TransparentProxy
 
 _CATCH_ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]

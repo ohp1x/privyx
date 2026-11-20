@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from privyx.core.session import Session
+from privyx.core import Session
 from privyx.vault.base import BaseVault
 from privyx.vault.memory import MemoryVault
 from privyx.vault.redis import RedisVault

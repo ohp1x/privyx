@@ -7,12 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from privyx.app._plugins import load_plugins
 from privyx.config.loader import load_config
 from privyx.config.schema import Settings
+from privyx.core import ConfigError, Context
 from privyx.core.builder import build_anchor, build_detector_from, build_operator, build_vault
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
-from privyx.plugins.loader import load_plugins
 from privyx.plugins.registry import PLUGINS
 from privyx.privacy.detector.yaml import build_detector
 from privyx.privacy.policy.loader import build_policy
@@ -22,7 +21,7 @@ from privyx.providers.registry import build_provider
 
 DETECTOR = """
 from privyx.privacy.detector.base import BaseDetector
-from privyx.core.result import Detection
+from privyx.core import Detection
 
 class LicensePlateDetector(BaseDetector):
     name = "license_plate"
@@ -37,7 +36,7 @@ class LicensePlateDetector(BaseDetector):
 
 OPERATOR = """
 from privyx.privacy.operator.base import BaseOperator
-from privyx.core.result import TransformResult
+from privyx.core import TransformResult
 
 class UppercaseOperator(BaseOperator):
     name = "uppercase"
@@ -124,7 +123,7 @@ class DictVault(BaseVault):
 
 CONFIGURED = """
 from privyx.privacy.detector.base import BaseDetector
-from privyx.core.result import Detection
+from privyx.core import Detection
 
 class ConfiguredDetector(BaseDetector):
     name = "configured"
@@ -143,7 +142,7 @@ class ConfiguredDetector(BaseDetector):
 
 UNNAMED = """
 from privyx.privacy.detector.base import BaseDetector
-from privyx.core.result import Detection
+from privyx.core import Detection
 
 class WidgetDetector(BaseDetector):
     def detect_sync(self, text, context):
@@ -152,7 +151,7 @@ class WidgetDetector(BaseDetector):
 
 DUPLICATE = """
 from privyx.privacy.detector.base import BaseDetector
-from privyx.core.result import Detection
+from privyx.core import Detection
 
 class OneDetector(BaseDetector):
     name = "dup"
@@ -375,34 +374,3 @@ def test_single_file_path(tmp_path: Path) -> None:
     file = _write(tmp_path, "plug.py", DETECTOR)
     load_plugins(Settings(plugins={"enabled": True, "paths": [str(file)]}))
     assert "license_plate" in PLUGINS.detectors
-
-
-# --- lifecycle hooks ------------------------------------------------------
-
-
-async def test_startup_and_shutdown_hooks_fire(tmp_path: Path) -> None:
-    source = f"""
-import pathlib
-FLAG = pathlib.Path({str(tmp_path / "flags")!r})
-
-def on_startup():
-    FLAG.write_text("started")
-
-async def on_shutdown():
-    FLAG.write_text("stopped")
-"""
-    hooks = load_plugins(_settings(tmp_path, source))
-    await hooks.run_startup()
-    assert (tmp_path / "flags").read_text() == "started"
-    await hooks.run_shutdown()
-    assert (tmp_path / "flags").read_text() == "stopped"
-
-
-async def test_failing_startup_hook_raises(tmp_path: Path) -> None:
-    source = """
-def on_startup():
-    raise RuntimeError("nope")
-"""
-    hooks = load_plugins(_settings(tmp_path, source))
-    with pytest.raises(ConfigError, match="startup hook"):
-        await hooks.run_startup()

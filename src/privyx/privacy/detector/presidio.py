@@ -6,7 +6,7 @@ locations, and the rest by running spaCy over the text.
 
 Presidio (and the spaCy model it needs) is an optional dependency: selecting
 ``detector.type: presidio`` without it installed fails at startup with a
-:class:`~privyx.core.errors.ConfigError`, never mid-request — the same contract
+:class:`~privyx.core.ConfigError`, never mid-request — the same contract
 the ``faker`` and ``encrypt`` operators follow.
 """
 
@@ -15,9 +15,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from privyx.core.context import Context
-from privyx.core.errors import ConfigError
-from privyx.core.result import Detection
+from privyx.core import ConfigError, Context, Detection
 from privyx.privacy.detector.base import BaseDetector
 
 #: Presidio entity names → the names the rest of Privyx speaks (the built-in

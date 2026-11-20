@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from privyx.core.errors import ProviderError
+from privyx.core import ProviderError
 from privyx.providers.base import BaseProvider
 
 #: Seconds to wait before each retry of a connection that could not be opened.

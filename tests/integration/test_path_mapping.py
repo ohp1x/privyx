@@ -18,8 +18,8 @@ from privyx.cli.commands.run import TARGETS  # noqa: E402
 from privyx.cli.launch import build_launch_plan  # noqa: E402
 from privyx.cli.main import cli  # noqa: E402
 from privyx.config.schema import Settings  # noqa: E402
-from privyx.core.engine import PrivacyEngine  # noqa: E402
-from privyx.core.errors import ConfigError  # noqa: E402
+from privyx.core import ConfigError  # noqa: E402
+from privyx.engine import PrivacyEngine  # noqa: E402
 from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.privacy.detector.builtin import RegexDetector  # noqa: E402

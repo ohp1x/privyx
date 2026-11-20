@@ -19,7 +19,7 @@ from privyx.cli.native import (
     exec_agent,
     wait_for_agent_exit,
 )
-from privyx.core.errors import PrivyxError
+from privyx.core import PrivyxError
 
 
 def test_can_exec_agent_false_when_not_posix(monkeypatch: pytest.MonkeyPatch) -> None:

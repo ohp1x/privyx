@@ -27,15 +27,15 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, FastAPI, Request
 
-from privyx.app import include_router
 from privyx.config.schema import ProxyConfig, Settings
-from privyx.core.engine import PrivacyEngine
-from privyx.core.errors import ProviderError, VaultError
-from privyx.core.session import Session
+from privyx.core import ProviderError, Session, VaultError
+from privyx.core import request_id as new_request_id
+from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.observability.usage import UsageMeter
 from privyx.providers.base import Provider
 from privyx.providers.google import GoogleProvider
+from privyx.proxy._plugin_routes import include_router
 from privyx.proxy.http import HTTPProxy
 from privyx.proxy.schemas import has_token_ids
 from privyx.proxy.session import resolve_session_id
@@ -50,7 +50,6 @@ from privyx.proxy.transparent import (
     upstream_failure,
 )
 from privyx.streaming.adapters.registry import build_stream_adapter
-from privyx.utils.ids import request_id as new_request_id
 
 #: Token-counting and compaction endpoints.  The gateway posts every path to
 #: one chat endpoint, which would turn a token count into a billed completion,

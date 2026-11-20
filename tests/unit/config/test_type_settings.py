@@ -19,8 +19,8 @@ from privyx.config.schema import (
     VaultConfig,
     json_schema,
 )
+from privyx.core import ConfigError
 from privyx.core.builder import ANCHORS, OPERATORS, VAULTS
-from privyx.core.errors import ConfigError
 from privyx.privacy.detector.yaml import DETECTORS
 from privyx.privacy.policy.loader import POLICIES
 from privyx.providers.registry import default_registry

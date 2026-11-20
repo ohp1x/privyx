@@ -13,17 +13,19 @@ import httpx
 import pytest
 from fastapi import APIRouter, FastAPI, Request
 
-from privyx.app import Privyx, include_router
+from privyx.app import Privyx
+from privyx.app._plugins import load_plugins
 from privyx.config.loader import load_config
 from privyx.config.schema import Settings, json_schema
+from privyx.core import ConfigError, ListenerError
 from privyx.core.builder import build_engine, build_operator, build_vault
-from privyx.core.errors import ConfigError
+from privyx.events import AppStarting, AppStopping
 from privyx.gateway.server import Gateway
 from privyx.gateway.transparent import create_transparent_app
-from privyx.plugins.loader import load_plugins
 from privyx.plugins.registry import PLUGINS
 from privyx.privacy.detector.yaml import build_detector
 from privyx.providers.generic import GenericProvider
+from privyx.proxy._plugin_routes import include_router
 from privyx.token.codec import FormatCodec
 
 # A detector with options checked by its Config, and an operator that reports
@@ -118,7 +120,7 @@ def _config(tmp_path: Path, data: dict[str, Any]) -> Path:
 
 def test_the_public_module_names_what_a_plugin_needs() -> None:
     import privyx.plugins as api
-    from privyx.core.result import Detection
+    from privyx.core import Detection
     from privyx.privacy.operator.base import restore
     from privyx.vault.base import BaseVault
 
@@ -342,7 +344,7 @@ def test_the_schema_checks_each_builtin_type_and_leaves_plugins_open() -> None:
 def test_the_schema_with_loaded_plugins_closes_type_and_checks_their_options(
     tmp_path: Path,
 ) -> None:
-    from privyx.plugins.loader import loaded_options
+    from privyx.app._plugins import loaded_options
 
     load_plugins(Settings(plugins={"paths": [str(_write(tmp_path, "p.py", CONFIGURED))]}))
     schema = json_schema(loaded_options())
@@ -356,7 +358,7 @@ def test_the_schema_with_loaded_plugins_closes_type_and_checks_their_options(
 
 
 def test_a_plugin_named_like_a_builtin_type_does_not_change_its_schema(tmp_path: Path) -> None:
-    from privyx.plugins.loader import loaded_options
+    from privyx.app._plugins import loaded_options
 
     source = KEYED_PROVIDER.replace('name = "cloud"', 'name = "openai"')
     load_plugins(Settings(plugins={"paths": [str(_write(tmp_path, "p.py", source))]}))
@@ -409,6 +411,8 @@ def test_config_schema_asks_no_password_manager(
 BUNDLE_INIT = """
 from fastapi import Request
 
+from privyx.events import AppStarting, AppStopping
+
 from .detector import BundleDetector
 
 EVENTS = []
@@ -421,13 +425,13 @@ def setup(px):
     async def ping(request: Request):
         return {"engine": type(request.app.state.engine).__name__}
 
-    @px.on_startup
-    def started():
-        EVENTS.append("started")
+    @px.on(AppStarting)
+    def started(event):
+        EVENTS.append(event.name)
 
-    @px.on_shutdown
-    async def stopped():
-        EVENTS.append("stopped")
+    @px.on(AppStopping)
+    async def stopped(event):
+        EVENTS.append(event.name)
 """
 
 BUNDLE_DETECTOR = """
@@ -458,14 +462,14 @@ def bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         del sys.modules[name]
 
 
-async def test_a_module_sets_up_components_routes_and_hooks(bundle: str) -> None:
+async def test_a_module_sets_up_components_routes_and_listeners(bundle: str) -> None:
     px = Privyx()
-    hooks = load_plugins(Settings(plugins={"modules": [bundle]}), app=px)
+    load_plugins(Settings(plugins={"modules": [bundle]}), app=px)
     assert "bundle" in PLUGINS.detectors
 
-    await hooks.run_startup()
-    await hooks.run_shutdown()
-    assert sys.modules[bundle].EVENTS == ["started", "stopped"]
+    await px._events.emit(AppStarting())
+    await px._events.emit(AppStopping())
+    assert sys.modules[bundle].EVENTS == ["app.starting", "app.stopping"]
     assert len(px.router.routes) == 1
 
 
@@ -668,7 +672,7 @@ def test_overrides_win_over_the_config_file(tmp_path: Path) -> None:
     assert (settings.port, settings.log_level) == (9002, "debug")
 
 
-def test_run_serves_the_proxy_with_routes_and_hooks(
+def test_run_serves_the_proxy_with_routes_and_listeners(
     bundle: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import privyx.cli.commands.proxy as proxy_cmd
@@ -684,4 +688,32 @@ def test_run_serves_the_proxy_with_routes_and_hooks(
     Privyx(config).run()
 
     assert answers == [{"engine": "PrivacyEngine"}]
-    assert sys.modules[bundle].EVENTS == ["started", "stopped"]
+    assert sys.modules[bundle].EVENTS == ["app.starting", "app.stopping"]
+
+
+def test_a_starting_listener_that_fails_stops_the_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import privyx.cli.commands.proxy as proxy_cmd
+
+    served: list[bool] = []
+
+    async def serve(server: Any, event: Any) -> None:
+        served.append(True)
+
+    monkeypatch.setattr(proxy_cmd, "_serve_until_reload", serve)
+    px = Privyx(_config(tmp_path, {"audit": {"enabled": False}}))
+    stopped: list[str] = []
+
+    @px.on(AppStarting)
+    def refuse(event: AppStarting) -> None:
+        raise RuntimeError("no license")
+
+    @px.on(AppStopping)
+    def stop(event: AppStopping) -> None:
+        stopped.append(event.name)
+
+    with pytest.raises(ListenerError, match="refuse failed on app.starting: no license"):
+        px.run()
+    assert served == []
+    assert stopped == []

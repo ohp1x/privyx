@@ -30,11 +30,9 @@ from benchmark import _claude_code_body
 
 from privyx.config.defaults import DEFAULTS
 from privyx.config.schema import Settings
+from privyx.core import Context, Detection, Session
 from privyx.core.builder import build_engine
-from privyx.core.context import Context
-from privyx.core.engine import PrivacyEngine
-from privyx.core.result import Detection
-from privyx.core.session import Session
+from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.privacy.detector.base import BaseDetector
 from privyx.privacy.detector.builtin import DEFAULT_PATTERNS, RegexDetector

@@ -18,7 +18,7 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 
 _tracer: Any = None
 #: Built on first enable and kept, so a reload that turns tracing back on reuses it.

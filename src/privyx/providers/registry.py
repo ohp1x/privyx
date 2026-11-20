@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.plugins.registry import PLUGINS, SET_KEY
 from privyx.providers.base import Provider
 from privyx.providers.generic import GenericProvider

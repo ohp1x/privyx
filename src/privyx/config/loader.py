@@ -34,7 +34,7 @@ from privyx.config.agents import resolve_profiles
 from privyx.config.defaults import DEFAULTS
 from privyx.config.env import discovery_disabled, env_config
 from privyx.config.schema import PLUGGABLE, DetectorConfig, PluggableConfig, Settings
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.security.secrets import resolve_secrets
 
 _log = logging.getLogger("privyx")

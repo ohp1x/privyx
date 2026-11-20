@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from privyx.config.loader import load_config
-from privyx.core.errors import ConfigError
+from privyx.core import ConfigError
 from privyx.providers.generic import GenericProvider, upstream_client
 from privyx.providers.registry import (
     DEFAULT_BASE_URLS,

@@ -150,7 +150,7 @@ def run(
       privyx run codex --provider openai
       privyx run --env-var MY_TOOL_BASE_URL -- my-tool --flag
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     if not target and not list_targets:
         raise click.UsageError("missing TARGET (try `privyx run --list`)")
@@ -471,15 +471,16 @@ async def _run_target(
         The tool's exit code.
     """
     from privyx.app import Privyx
+    from privyx.app._plugins import load_plugins
     from privyx.cli.budget import Budget
     from privyx.cli.commands.proxy import build_transparent_proxy
     from privyx.core.builder import build_audit_logger, build_engine
+    from privyx.events import AppStarting, AppStopping
     from privyx.gateway.server import Gateway
     from privyx.gateway.transparent import create_transparent_app
     from privyx.observability import tracing
     from privyx.observability.audit import AuditEventType
     from privyx.observability.logging import configure_logging
-    from privyx.plugins.loader import load_plugins
     from privyx.providers.registry import build_provider
 
     if settings is None:
@@ -493,7 +494,7 @@ async def _run_target(
     sock, bound_port = _listen(settings.host, port)
 
     px = Privyx()
-    hooks = load_plugins(settings, app=px)
+    load_plugins(settings, app=px)
     tracing.configure(settings.tracing.enabled)
     audit = build_audit_logger(settings)
     engine, close_vault = await build_engine(settings, audit=audit)
@@ -517,7 +518,7 @@ async def _run_target(
         audit.close()
         sock.close()
         raise
-    await hooks.run_startup()
+    await px._events.emit(AppStarting())
 
     budget = spec.budget
     guard = (
@@ -585,7 +586,7 @@ async def _run_target(
     finally:
         server.should_exit = True
         await serve_task
-        await hooks.run_shutdown()
+        await px._events.emit(AppStopping())
         await close_vault()
         await close_upstream()
         audit.close()
@@ -610,7 +611,7 @@ def _listen(host: str, port: int) -> tuple[socket.socket, int]:
     Raises:
         PrivyxError: If the port cannot be bound, e.g. another process uses it.
     """
-    from privyx.core.errors import PrivyxError
+    from privyx.core import PrivyxError
 
     sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as uvicorn's own bind does

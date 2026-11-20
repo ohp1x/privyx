@@ -11,8 +11,7 @@ import re
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from privyx.core.context import Context
-from privyx.core.result import Detection, Span
+from privyx.core import Context, Detection, Span
 from privyx.privacy.detector import catalog, decode, normalize
 from privyx.privacy.detector.base import BaseDetector, Detector
 
