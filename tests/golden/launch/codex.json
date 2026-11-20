@@ -1,0 +1,326 @@
+{
+  "default": {
+    "run": "privyx run --dry-run codex",
+    "exit_code": 0,
+    "output": [
+      "Profile: codex",
+      "Command: codex -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: openai [defaults]",
+      "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://api.openai.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "codex",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "arguments": {
+    "run": "privyx run --dry-run codex -- -c model=acme 'two words'",
+    "exit_code": 0,
+    "output": [
+      "Profile: codex",
+      "Command: codex -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"' -c model=acme 'two words' -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: openai [defaults]",
+      "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://api.openai.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "codex",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\"",
+        "-c",
+        "model=acme",
+        "two words",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "endpoint": {
+    "run": "privyx run --dry-run codex",
+    "exit_code": 0,
+    "output": [
+      "Profile: codex",
+      "Command: codex -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"' -c 'model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: openai [defaults]",
+      "Upstream: https://codex.example.com/v1 [Codex config (model_providers.router)]",
+      "Native endpoint (used): https://codex.example.com/v1 [Codex config (model_providers.router)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://codex.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "codex",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\"",
+        "-c",
+        "model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "upstream": {
+    "run": "privyx run --dry-run --upstream https://upstream.example.com/v1 codex",
+    "exit_code": 0,
+    "output": [
+      "Profile: codex",
+      "Command: codex -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"' -c 'model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: openai [defaults]",
+      "Upstream: https://upstream.example.com/v1 [CLI]",
+      "Native endpoint (overridden): https://codex.example.com/v1 [Codex config (model_providers.router)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://upstream.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "codex",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\"",
+        "-c",
+        "model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "provider": {
+    "run": "privyx run --dry-run --provider google codex",
+    "exit_code": 0,
+    "output": [
+      "Profile: codex",
+      "Command: codex -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: google [CLI]",
+      "Upstream: https://generativelanguage.googleapis.com [provider default (CLI)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://generativelanguage.googleapis.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "codex",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "privyx-key": {
+    "run": "privyx run --dry-run codex",
+    "exit_code": 1,
+    "output": [
+      "Error: Codex provider 'router' would receive Privyx's own API key; pass its URL as --upstream to confirm"
+    ]
+  },
+  "gateway": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run codex",
+    "exit_code": 0,
+    "output": [
+      "Profile: codex",
+      "Command: codex -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"' -c 'model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (gateway)",
+      "Provider: openai [defaults]",
+      "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
+      "Native endpoint (overridden): https://codex.example.com/v1 [Codex config (model_providers.router)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://api.openai.com/v1/chat/completions",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: <tmp>/config.yaml",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "codex",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\"",
+        "-c",
+        "model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "wrapper": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run wrap",
+    "exit_code": 0,
+    "output": [
+      "Profile: wrap",
+      "Command: /opt/acme/bin/wrap -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"' -c 'model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: openai [defaults]",
+      "Upstream: https://codex.example.com/v1 [Codex config (model_providers.router)]",
+      "Native endpoint (used): https://codex.example.com/v1 [Codex config (model_providers.router)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://codex.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: <tmp>/config.yaml",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "/opt/acme/bin/wrap",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\"",
+        "-c",
+        "model_providers.router.base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "variant": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run codex:work",
+    "exit_code": 0,
+    "output": [
+      "Profile: codex:work",
+      "Command: codex -c 'openai_base_url=\"http://127.0.0.1:<auto>/v1\"'",
+      "Adapter: codex",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: openai [defaults]",
+      "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://api.openai.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  ACME_TEAM=*** [<tmp>/config.yaml]",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "codex",
+        "-c",
+        "openai_base_url=\"http://127.0.0.1:<auto>/v1\""
+      ],
+      "env": {
+        "ACME_TEAM": "apollo",
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "model": {
+    "run": "privyx run --dry-run codex:llama3.2",
+    "exit_code": 2,
+    "output": [
+      "Usage: privyx run [OPTIONS] [TARGET] [ARGS]...",
+      "Try 'privyx run --help' for help.",
+      "",
+      "Error: no agent profile 'codex:llama3.2' (did you mean 'codex'?); define it under `agents` or, to launch a tool directly, pass --provider openai or anthropic (sets the usual base-URL variables) or --env-var NAME (see `privyx run --list`)"
+    ]
+  }
+}

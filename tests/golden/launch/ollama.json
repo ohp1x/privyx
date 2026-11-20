@@ -1,0 +1,354 @@
+{
+  "default": {
+    "run": "privyx run --dry-run ollama",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: http://127.0.0.1:11434 [defaults]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://127.0.0.1:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "arguments": {
+    "run": "privyx run --dry-run ollama -- -c model=acme 'two words'",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama -c model=acme 'two words'",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: http://127.0.0.1:11434 [defaults]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://127.0.0.1:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama",
+        "-c",
+        "model=acme",
+        "two words"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "endpoint": {
+    "run": "privyx run --dry-run ollama",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Native endpoint (used): http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://ollama.example.com:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "upstream": {
+    "run": "privyx run --dry-run --upstream https://upstream.example.com/v1 ollama",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: https://upstream.example.com/v1 [CLI]",
+      "Native endpoint (overridden): http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://upstream.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "provider": {
+    "run": "privyx run --dry-run --provider google ollama",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [CLI]",
+      "Upstream: http://127.0.0.1:11434 [defaults]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://127.0.0.1:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "privyx-key": {
+    "run": "privyx run --dry-run ollama",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Native endpoint (used): http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://ollama.example.com:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "gateway": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run ollama",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (gateway)",
+      "Provider: generic [defaults]",
+      "Upstream: http://127.0.0.1:11434 [defaults]",
+      "Native endpoint (overridden): http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://127.0.0.1:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: <tmp>/config.yaml",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "wrapper": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run wrap",
+    "exit_code": 0,
+    "output": [
+      "Profile: wrap",
+      "Command: /opt/acme/bin/wrap",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Native endpoint (used): http://ollama.example.com:11434 [environment OLLAMA_HOST]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://ollama.example.com:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: <tmp>/config.yaml",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "/opt/acme/bin/wrap"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "variant": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run ollama:work",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama:work",
+      "Command: ollama",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: http://127.0.0.1:11434 [defaults]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://127.0.0.1:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  ACME_TEAM=*** [<tmp>/config.yaml]",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama"
+      ],
+      "env": {
+        "ACME_TEAM": "apollo",
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "model": {
+    "run": "privyx run --dry-run ollama:llama3.2",
+    "exit_code": 0,
+    "output": [
+      "Profile: ollama",
+      "Command: ollama run llama3.2",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: generic [defaults]",
+      "Upstream: http://127.0.0.1:11434 [defaults]",
+      "Routing: tool → http://127.0.0.1:<auto> → http://127.0.0.1:11434",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OLLAMA_HOST=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "ollama",
+        "run",
+        "llama3.2"
+      ],
+      "env": {
+        "OLLAMA_HOST": "http://127.0.0.1:<auto>"
+      }
+    }
+  }
+}

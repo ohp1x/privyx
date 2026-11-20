@@ -1,0 +1,332 @@
+{
+  "default": {
+    "run": "privyx run --dry-run gemini",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini",
+      "Command: gemini",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [defaults]",
+      "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://generativelanguage.googleapis.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "arguments": {
+    "run": "privyx run --dry-run gemini -- -c model=acme 'two words'",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini",
+      "Command: gemini -c model=acme 'two words'",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [defaults]",
+      "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://generativelanguage.googleapis.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini",
+        "-c",
+        "model=acme",
+        "two words"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "endpoint": {
+    "run": "privyx run --dry-run gemini",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini",
+      "Command: gemini",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [defaults]",
+      "Upstream: https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Native endpoint (used): https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://gemini.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "upstream": {
+    "run": "privyx run --dry-run --upstream https://upstream.example.com/v1 gemini",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini",
+      "Command: gemini",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [defaults]",
+      "Upstream: https://upstream.example.com/v1 [CLI]",
+      "Native endpoint (overridden): https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://upstream.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "provider": {
+    "run": "privyx run --dry-run --provider google gemini",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini",
+      "Command: gemini",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [CLI]",
+      "Upstream: https://generativelanguage.googleapis.com [provider default (CLI)]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://generativelanguage.googleapis.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "privyx-key": {
+    "run": "privyx run --dry-run gemini",
+    "exit_code": 1,
+    "output": [
+      "Error: agent endpoint would receive Privyx's own API key; pass its URL as --upstream to confirm"
+    ]
+  },
+  "gateway": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run gemini",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini",
+      "Command: gemini",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (gateway)",
+      "Provider: google [defaults]",
+      "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
+      "Native endpoint (overridden): https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://generativelanguage.googleapis.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: <tmp>/config.yaml",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "wrapper": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run wrap",
+    "exit_code": 0,
+    "output": [
+      "Profile: wrap",
+      "Command: /opt/acme/bin/wrap",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [defaults]",
+      "Upstream: https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Native endpoint (used): https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://gemini.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: <tmp>/config.yaml",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "/opt/acme/bin/wrap"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "variant": {
+    "run": "privyx -c <tmp>/config.yaml run --dry-run gemini:work",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini:work",
+      "Command: gemini",
+      "Adapter: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [defaults]",
+      "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://generativelanguage.googleapis.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source adapter: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  ACME_TEAM=*** [<tmp>/config.yaml]",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini"
+      ],
+      "env": {
+        "ACME_TEAM": "apollo",
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "model": {
+    "run": "privyx run --dry-run gemini:llama3.2",
+    "exit_code": 2,
+    "output": [
+      "Usage: privyx run [OPTIONS] [TARGET] [ARGS]...",
+      "Try 'privyx run --help' for help.",
+      "",
+      "Error: no agent profile 'gemini:llama3.2' (did you mean 'gemini'?); define it under `agents` or, to launch a tool directly, pass --provider openai or anthropic (sets the usual base-URL variables) or --env-var NAME (see `privyx run --list`)"
+    ]
+  }
+}
