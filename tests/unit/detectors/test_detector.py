@@ -181,6 +181,37 @@ def test_ip_address_must_point_at_a_host(address: str, masked: bool) -> None:
     assert [s.text for s in detection.spans] == ([address] if masked else [])
 
 
+#: As long as the user and the password URL_CREDENTIAL reads can be.
+_LONG_USER, _LONG_PASSWORD = "u" * 256, "p!" + "s" * 254
+
+
+@pytest.mark.parametrize(
+    ("text", "spans"),
+    [
+        ("https://alice:pass@db.example.com", [("URL_CREDENTIAL", "pass")]),
+        ("https://alice:p!ss@db.example.com", [("URL_CREDENTIAL", "p!ss")]),
+        ("redis://:p:ss@db.example.com", [("URL_CREDENTIAL", "p:ss")]),
+        (
+            f"https://{_LONG_USER}:{_LONG_PASSWORD}@db.example.com",
+            [("URL_CREDENTIAL", _LONG_PASSWORD)],
+        ),
+        # No scheme, or too long a password, for URL_CREDENTIAL: the address is masked.
+        ("://alice:p!ss@db.example.com", [("EMAIL", "ss@db.example.com")]),
+        (
+            f"https://alice:{_LONG_PASSWORD}s@db.example.com",
+            [("EMAIL", "s" * 64 + "@db.example.com")],
+        ),
+        # A query is no password: the address in it is one.
+        ("https://example.com:8080/?to=ana@example.com", [("EMAIL", "ana@example.com")]),
+        ("https://example.com:8080?to=ana@example.com", [("EMAIL", "8080?to=ana@example.com")]),
+    ],
+)
+def test_a_url_password_is_no_email_address(text: str, spans: list[tuple[str, str]]) -> None:
+    """The host after a password stays readable."""
+    detection = RegexDetector().detect_sync(text, Context()).merged(text)
+    assert [(s.entity_type, s.text) for s in detection.spans] == spans
+
+
 def test_own_pattern_for_a_builtin_entity_is_used_as_written() -> None:
     detector = YamlDetector(
         patterns={"CREDIT_CARD": r"\b\d{16}\b"}, underscore_separates_words=False
