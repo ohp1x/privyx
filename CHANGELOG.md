@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Detection:** a URL password with a symbol in it, such as `p!ss` in `https://alice:p!ss@db.example.com`, is masked as the password alone; before, the host after it was masked with it, as an email address
+
 ### Security
 
 - **Detection:** a card number written in groups right after another number, such as `4111-1111-1111-1111` in `row 7 4111-1111-1111-1111` or a card number after a phone number, is masked; before, all of it or its last groups reached the provider unmasked

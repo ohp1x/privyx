@@ -200,17 +200,31 @@ def _host_address(match: re.Match[str]) -> bool:
     )
 
 
-_URL_USERINFO = re.compile(r"""(?i)[a-z][a-z0-9+.-]{0,20}://[^\s:/@"'<>]{0,256}:$""")
+#: The scheme before ``://`` and the ``user:password`` before ``@`` that
+#: URL_CREDENTIAL masks, but for ``?`` and ``#``, which end a URL's host: the
+#: address in ``https://example.com:8080?to=…`` is one.
+_URL_SCHEME = re.compile(r"(?i)[a-z][a-z0-9+.-]{0,20}\Z")
+_URL_USERINFO = re.compile(r"""[^\s:/@"'<>]{0,256}:[^\s/?#@"'<>]{1,256}""")
 
 
 def _email_address(match: re.Match[str]) -> bool:
     """A URL password followed by ``@host`` is not an email address.
 
-    URL_CREDENTIAL already captures the password. Treating password@host as an
-    email would merge both spans and mask the hostname too. Keep the hostname
-    visible and classify the password as a credential.
+    URL_CREDENTIAL already captures the password, also one whose last part
+    reads as an address after a symbol (``ss@db.example.com`` in ``p!ss@…``).
+    Treating password@host as an email would merge both spans and mask the
+    hostname too. Keep the hostname visible and classify the password as a
+    credential.
     """
-    return _URL_USERINFO.search(match.string[max(0, match.start() - 282) : match.start()]) is None
+    text = match.string
+    at = match.start() + match[0].index("@")
+    # The last "://" in the 3 + 256 + 1 + 256 characters before the "@": the
+    # user and the password hold no "/".
+    sep = text.rfind("://", max(0, at - 516), at)
+    return sep < 0 or not (
+        _URL_SCHEME.search(text, max(0, sep - 21), sep)
+        and _URL_USERINFO.fullmatch(text, sep + 3, at)
+    )
 
 
 def _phone_number(match: re.Match[str]) -> bool:
