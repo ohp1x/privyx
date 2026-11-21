@@ -236,6 +236,20 @@ def test_a_secret_named_after_a_limit_is_still_masked() -> None:
     assert [(s.entity_type, s.text) for s in found.spans] == [("SECRET", "abc123def456")]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "TOKEN_URL=https://auth.example.com/cb?client_secret=s3cr3tV4lue42",
+        "TOKEN_URL=https://auth.example.com/cb?client_secret=s3cr3tV4lue42&state=1",
+        '"token_url": "https://auth.example.com/cb?access_token=s3cr3tV4lue42"',
+    ],
+)
+def test_a_secret_assigned_inside_a_value_that_is_none_is_masked(text: str) -> None:
+    """``TOKEN_URL`` names a URL, but its query can assign a secret."""
+    found = RegexDetector().detect_sync(text, Context())
+    assert [(s.entity_type, s.text) for s in found.spans] == [("SECRET", "s3cr3tV4lue42")]
+
+
 def _fill(unit: str, size: int = 100_000) -> str:
     return (unit * (size // len(unit) + 1))[:size]
 
@@ -261,6 +275,7 @@ _ADVERSARIAL = {
     "escaped newlines": _fill("\\n"),
     "open quote": 'password="' + _fill("x"),
     "assignments": _fill("token="),
+    "url assignments": _fill("TOKEN_URL="),
     "triple quote": 'password="""' + _fill("x"),
     "quoted escapes": 'password="""' + _fill("\\\\"),
     "cli flags": _fill("--password "),

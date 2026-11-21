@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Security
 
 - **Detection:** a card number written in groups right after another number, such as `4111-1111-1111-1111` in `row 7 4111-1111-1111-1111` or a card number after a phone number, is masked; before, all of it or its last groups reached the provider unmasked
+- **Detection:** a secret assigned inside a value Privyx leaves as it is, such as `client_secret=…` in `TOKEN_URL=https://auth.example.com/cb?client_secret=…`, is masked; before, the whole value reached the provider unmasked
 
 ## [0.2.3] - 2026-11-20
 
