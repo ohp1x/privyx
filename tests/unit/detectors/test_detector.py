@@ -273,6 +273,7 @@ def test_secret_literals_and_cli_values_are_masked_whole(text: str, secret: str)
         "ACCESS_TOKEN_EXPIRY=1700000000",
         "apiKeyCount: 7",
         "PASSWORD_MAX_SIZE=64",
+        "api_key = load_key(path)",
     ],
 )
 def test_secret_declarations_and_references_are_kept(text: str) -> None:
@@ -325,6 +326,7 @@ _ADVERSARIAL = {
     "open quote": 'password="' + _fill("x"),
     "assignments": _fill("token="),
     "url assignments": _fill("TOKEN_URL="),
+    "a call": _fill("token=") + "()",
     "triple quote": 'password="""' + _fill("x"),
     "quoted escapes": 'password="""' + _fill("\\\\"),
     "cli flags": _fill("--password "),

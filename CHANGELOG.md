@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - **Detection:** a URL password with a symbol in it, such as `p!ss` in `https://alice:p!ss@db.example.com`, is masked as the password alone; before, the host after it was masked with it, as an email address
+- **Detection:** the built-in `SECRET` pattern took quadratic time on a long run of assignments to secret-looking names that ends in a call, such as `token=token=…()`, so 100 KB of it in a request froze the proxy, and every other request and stream, for ~9 s; it now scans the same input in ~80 ms and finds the same secrets. A custom `SECRET` pattern with `name` and `value` groups now also leaves an unquoted value followed by `(` unmasked, as the built-in one does
 
 ### Security
 

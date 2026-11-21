@@ -101,8 +101,8 @@ _SECRET_TYPE_NAMES_SET: frozenset[str] = frozenset(_SECRET_TYPE_NAMES)
 #: JS/Python, query strings, CLI flags.  Simple ``str`` / ``string`` annotations
 #: are allowed before an assignment. Quoted, up to the closing quote (including
 #: Python triple quotes), with or without a string prefix (``b"…"``); unquoted,
-#: up to whitespace or a delimiter, skipping type hints (``password: str``),
-#: ``${…}`` references, and calls (``token = get_token()``).
+#: up to whitespace or a delimiter, skipping type hints (``password: str``) and
+#: ``${…}`` references.
 #: ``_KEY`` must be upper case: ``cache_key`` or ``sort_key`` in code is no
 #: secret.  :func:`_secret_value` drops the rest of what cannot be one.
 #: A whitespace separator needs a CLI flag; quote selection is atomic so an
@@ -124,7 +124,7 @@ SECRET_PATTERN = (
 (?P<value>
     (?(triple) (?:\\[\s\S]|(?!(?P=triple))[^\\])+
       | (?(q) (?:\\.|(?!(?P=q))[^\r\n\\])+
-          | [^\s"'`,;&#(){}\[\]<>]++(?!\() ) )
+          | [^\s"'`,;&#(){}\[\]<>]++ ) )
 )
 """
 )
@@ -263,8 +263,9 @@ def _secret_value(match: re.Match[str]) -> bool:
     when it refers to a variable (``os.environ``, ``settings.SECRET_KEY``) or to
     one named for the same thing (``api_key=api_key``, ``self._token = token``),
     when it is a subscripted name (``_KEYS: tuple[str, ...]``) or the prefix of a
-    string literal (``r"…"``), or when a single word after a colon starts a
-    sentence (``api_key: When set, …`` in a docstring).
+    string literal (``r"…"``), when a single word after a colon starts a
+    sentence (``api_key: When set, …`` in a docstring), or when it is called
+    (``token = get_token()``).
     """
     groups = match.groupdict()
     name = groups.get("name")
@@ -286,6 +287,8 @@ def _secret_value(match: re.Match[str]) -> bool:
     if _DOTTED_IDENTIFIER.fullmatch(value):
         return False
     following = match.string[match.end() : match.end() + 1]
+    if following == "(":
+        return False
     if _IDENTIFIER.fullmatch(value) and (following == "[" or _named_for(value, name)):
         return False
     if _STRING_PREFIX.fullmatch(value) and following in ('"', "'"):
