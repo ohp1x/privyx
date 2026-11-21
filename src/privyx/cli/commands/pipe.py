@@ -64,21 +64,17 @@ def _drop_stdout() -> None:
 
 
 async def _pipe(session_id: str | None, restore: bool, config_path: str | None) -> None:
-    from privyx.app import load_config
-    from privyx.app._build import build_engine
-    from privyx.app._plugins import load_plugins
+    from privyx.app import Privyx
     from privyx.core import Context, SessionNotFoundError
 
-    settings = load_config(config_path)
-    app = load_plugins(settings)
-    if not restore and settings.vault.type == "memory":
+    app = Privyx(config_path)
+    if not restore and app.settings.vault.type == "memory":
         click.echo(
             "Warning: vault type is 'memory', so this output can never be restored. "
             "Configure a sqlite/redis vault to keep the mapping.",
             err=True,
         )
-    engine, close = await build_engine(settings, app)
-    try:
+    async with app.engine() as engine:
         if restore:
             sid = session_id or ""
             context = Context(session_id=sid, vault=engine.vault)
@@ -112,5 +108,3 @@ async def _pipe(session_id: str | None, restore: bool, config_path: str | None) 
                     line = (await engine.transform(line, session=session, persist=False)).text
             out.write(line.encode("utf-8"))
             out.flush()
-    finally:
-        await close()

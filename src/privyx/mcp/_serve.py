@@ -1,4 +1,8 @@
-"""`privyx mcp serve` — a local MCP server exposing detection, file masking and git checks."""
+"""``privyx mcp serve``: a local MCP server exposing detection, file masking, and git checks.
+
+MCP's stdio transport is JSON-RPC, one message per line.  Each tool and prompt
+is a use case of the app's services; this module speaks the protocol.
+"""
 
 from __future__ import annotations
 
@@ -6,21 +10,15 @@ import contextlib
 import errno
 import json
 import os
-import re
-import signal
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import click
-
-from privyx.cli.config import config_options
 from privyx.version import __version__
 
 if TYPE_CHECKING:
-    from privyx.config.schema import Settings
-    from privyx.engine import PrivacyEngine
+    from privyx.app import Privyx
 
 _TOOLS = [
     {
@@ -94,10 +92,6 @@ _RECENT = 5
 _VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18")
 
 
-#: An ANSI color or style escape, as `git diff --color` writes them.
-_COLOR = re.compile(r"\x1b\[[0-9;]*m")
-
-
 class _ToolError(Exception):
     """A tool call the caller can correct; the message holds no file content."""
 
@@ -106,63 +100,27 @@ class _UnknownTool(Exception):
     pass
 
 
-@click.command()
-@config_options
-@click.option(
-    "--root",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    default=".",
-    help="Directory the file tool may read and write in (default: the current one)",
-)
-def serve(config_path: str | None, root: Path) -> None:
-    """Serve Privyx tools over MCP stdio."""
-    import asyncio
+async def serve(app: Privyx, root: Path) -> None:
+    """Answer MCP messages on stdin until it closes; the file tool reads and writes under ``root``.
 
-    from privyx.cli.commands.pipe import _drop_stdout, _interrupt
-    from privyx.core import PrivyxError
-
-    # Ctrl-C stops at once, as in `privyx pipe`: the read from stdin blocks,
-    # and asyncio.run's own handler waits for it to return.
-    previous = signal.signal(signal.SIGINT, _interrupt)
-    try:
-        asyncio.run(_serve(config_path, root.resolve()))
-    except KeyboardInterrupt:
-        _drop_stdout()
-        sys.exit(130)
-    except BrokenPipeError:
-        _drop_stdout()  # the client went away
-    except (PrivyxError, OSError) as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
-    finally:
-        signal.signal(signal.SIGINT, previous)
-
-
-async def _serve(config_path: str | None, root: Path) -> None:
-    from privyx.app import load_config
-    from privyx.app._build import build_engine
-    from privyx.app._plugins import load_plugins
-
+    Raises:
+        ConfigError: If the app cannot be built.
+    """
     write, restore = _protocol_output()
     try:
         # Anything else printed, by a plugin as it loads say, would corrupt
         # the JSON-RPC stream: it goes to stderr.
         with contextlib.redirect_stdout(sys.stderr):
-            # Built once: a model-backed detector is slow to load, and a broken
-            # config fails here rather than on every call.
-            settings = load_config(config_path)
-            app = load_plugins(settings)
-            engine, close = await build_engine(settings, app)
-            try:
+            # Opened once, for every call: a model-backed detector is slow to
+            # load, and a broken config fails here rather than on every call.
+            async with app.engine():
                 while raw := sys.stdin.buffer.readline():
                     line = raw.decode("utf-8", errors="replace").strip()
                     if not line:
                         continue
-                    response = await _respond(line, engine, settings, root)
+                    response = await _respond(line, app, root)
                     if response is not None:
                         write((_dumps(response) + "\n").encode())
-            finally:
-                await close()
     finally:
         restore()
 
@@ -217,29 +175,27 @@ def _protocol_output() -> tuple[Callable[[bytes], None], Callable[[], None]]:
 
 
 async def _respond(
-    line: str, engine: PrivacyEngine, settings: Settings, root: Path
+    line: str, app: Privyx, root: Path
 ) -> dict[str, Any] | list[dict[str, Any]] | None:
     try:
         message = json.loads(line)
     except (ValueError, RecursionError):
         return _error(None, -32700, "Parse error")
     if not isinstance(message, list):
-        return await _answer(message, engine, settings, root)
+        return await _answer(message, app, root)
     if not message:
         return _error(None, -32600, "Invalid request")
-    responses = [r for m in message if (r := await _answer(m, engine, settings, root))]
+    responses = [r for m in message if (r := await _answer(m, app, root))]
     return responses or None
 
 
-async def _answer(
-    message: Any, engine: PrivacyEngine, settings: Settings, root: Path
-) -> dict[str, Any] | None:
+async def _answer(message: Any, app: Privyx, root: Path) -> dict[str, Any] | None:
     try:
-        return await _handle(message, engine, settings, root)
+        return await _handle(message, app, root)
     except Exception as exc:
         # One bad message must not stop the server, nor leave its caller
         # waiting: the error carries the request's id.
-        click.echo(f"privyx mcp serve: {type(exc).__name__}", err=True)
+        _log(type(exc).__name__)
         return _error(_id(message), -32603, "Internal error")
 
 
@@ -247,9 +203,7 @@ def _id(message: Any) -> Any:
     return message.get("id") if isinstance(message, dict) else None
 
 
-async def _handle(
-    message: Any, engine: PrivacyEngine, settings: Settings, root: Path
-) -> dict[str, Any] | None:
+async def _handle(message: Any, app: Privyx, root: Path) -> dict[str, Any] | None:
     if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
         return _error(_id(message), -32600, "Invalid request")
     if "method" not in message and ("result" in message or "error" in message):
@@ -279,15 +233,15 @@ async def _handle(
     elif method == "prompts/get":
         name = params.get("name")
         if name == "status":
-            text = await _status(engine, settings)
+            text = await _status(app)
         elif name == "audit-tail":
-            text = _audit_tail(settings)
+            text = _audit_tail(app)
         else:
             return _error(request_id, -32602, "Unknown prompt")
         result = {"messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
     elif method == "tools/call":
         try:
-            result = await _tool_result(params, engine, settings, root)
+            result = await _tool_result(params, app, root)
         except _UnknownTool:
             return _error(request_id, -32602, "Unknown tool")
     else:
@@ -299,9 +253,7 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
-async def _tool_result(
-    params: dict[str, Any], engine: PrivacyEngine, settings: Settings, root: Path
-) -> dict[str, Any]:
+async def _tool_result(params: dict[str, Any], app: Privyx, root: Path) -> dict[str, Any]:
     name = params.get("name")
     if not isinstance(name, str) or name not in {tool["name"] for tool in _TOOLS}:
         raise _UnknownTool
@@ -309,14 +261,14 @@ async def _tool_result(
         args = params.get("arguments", {})
         if not isinstance(args, dict):
             raise _ToolError("arguments must be an object")
-        value = await _call(name, args, engine, settings, root)
+        value = await _call(name, args, app, root)
         return {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]}
     except Exception as exc:
         message = _describe(exc)
         if message is None:
             # The exception's own message may quote what was being masked:
             # only its type is logged.
-            click.echo(f"privyx mcp serve: {name} failed: {type(exc).__name__}", err=True)
+            _log(f"{name} failed: {type(exc).__name__}")
             message = "Tool failed; see the server's log."
         return {"content": [{"type": "text", "text": message}], "isError": True}
 
@@ -338,12 +290,8 @@ def _describe(exc: Exception) -> str | None:
     return None
 
 
-async def _call(
-    name: str, args: dict[str, Any], engine: PrivacyEngine, settings: Settings, root: Path
-) -> dict[str, Any]:
+async def _call(name: str, args: dict[str, Any], app: Privyx, root: Path) -> dict[str, Any]:
     if name == "privyx_scan":
-        from privyx.core import Context, Detection
-
         text = args.get("text")
         if not isinstance(text, str):
             raise _ToolError("text must be a string")
@@ -356,27 +304,16 @@ async def _call(
             raise _ToolError("categories must be a non-empty array of strings")
         # The policy too, as `privyx detect` does: what is reported is what
         # privyx_sanitize_file masks.
-        context = Context()
-        detection = await engine.policy.decide(await engine.detector.detect(text, context), context)
+        found = await app.masking.detect(text, categories=categories)
         response: dict[str, Any] = {}
-        if categories is not None:
-            # Case-insensitive: `email` must not read as "nothing found".  What
-            # the filter left out is counted, so a name that matches no type
-            # (`PASSWORD` for SECRET) does not read as clean text either.
-            wanted = {c.upper() for c in categories}
-            left = Detection([s for s in detection.spans if s.entity_type.upper() not in wanted])
-            response["filtered_out"] = len(left.merged(text).spans)
-            detection = Detection([s for s in detection.spans if s.entity_type.upper() in wanted])
+        if found.filtered_out is not None:
+            response["filtered_out"] = found.filtered_out
         response["findings"] = [
-            {"start": s.start, "end": s.end, "category": s.entity_type}
-            for s in detection.merged(text).spans
+            {"start": f.start, "end": f.end, "category": f.category} for f in found.findings
         ]
         return response
     if name == "privyx_sanitize_file":
         import asyncio
-
-        from privyx.cli.commands.mask import _apply, _resolve_format
-        from privyx.core import PrivyxError
 
         path, output = args.get("path"), args.get("output_path")
         fmt = args.get("format", "auto")
@@ -399,69 +336,41 @@ async def _call(
             if not output_path.parent.is_dir():
                 raise _ToolError("output directory does not exist")
         source = await asyncio.to_thread(source_path.read_text, encoding="utf-8")
-        # With the memory vault nothing outside this call could read the
-        # mapping: the session stays out of the vault and goes with the call.
-        persistent = settings.vault.type != "memory"
-        if persistent:
-            sid = (await engine.get_or_create_session()).session_id
-            # One vault read and write for the file, not one per JSON leaf.
-            scope: Any = engine.session_scope(sid, require_existing=True)
-        else:
-            ephemeral = engine.ephemeral_session()
-            scope = contextlib.nullcontext(ephemeral)
-        try:
-            async with scope as session:
 
-                async def transform(leaf: str) -> str:
-                    return (await engine.transform(leaf, session=session, persist=False)).text
+        async def write(text: str) -> None:
+            assert output_path is not None
+            await asyncio.to_thread(_write_new, output_path, text)
 
-                async def under(key: str, leaf: str) -> str:
-                    # `{"password": "hunter2"}`: the value is a secret by its key.
-                    result = await engine.transform(leaf, session=session, persist=False, key=key)
-                    return result.text
-
-                result = await _apply(source, _resolve_format(fmt, path), (), transform, under)
-            if output_path is not None:
-                await asyncio.to_thread(_write_new, output_path, result)
-        except BaseException:
-            if persistent:
-                # The caller hears why the call failed, not why cleanup did.
-                with contextlib.suppress(PrivyxError):
-                    await engine.delete_session(sid, reason="sanitize_failed")
-            raise
-        finally:
-            if not persistent:
-                engine.end_ephemeral_session(ephemeral)
-        response = {"output_path": output} if output else {"text": result}
-        if persistent:
-            response["session_id"] = sid
+        masked = await app.masking.mask_document(
+            source,
+            fmt=app.masking.format_of(fmt, path),
+            write=write if output_path is not None else None,
+        )
+        response = {"output_path": output} if output else {"text": masked.text}
+        if masked.session_id is not None:
+            response["session_id"] = masked.session_id
         else:
             response["warning"] = (
                 "The memory vault mapping is lost after this call and cannot be restored."
             )
         return response
-    from privyx.cli.commands.hook import _added_lines, _findings
-
     diff = args.get("git_diff")
     if not isinstance(diff, str):
         raise _ToolError("git_diff must be a string")
-    # A diff git colored (`color.diff=always`) starts no line with `+` or `@@`.
-    diff = _COLOR.sub("", diff)
     findings = [
-        {"path": path, "line": line, "category": what.split(" ", 1)[0]}
-        for path, lines in _added_lines(diff).items()
-        for line, what in _findings(lines, engine.codec)
+        {"path": f.path, "line": f.line, "category": f.what.split(" ", 1)[0]}
+        for f in app.workspace.check_diff(diff)
     ]
     return {"ok": not findings, "findings": findings}
 
 
-async def _status(engine: PrivacyEngine, settings: Settings) -> str:
+async def _status(app: Privyx) -> str:
     from privyx.cli.commands.audit import _breakdown
     from privyx.cli.commands.session import _ts
     from privyx.observability.metrics import AuditStats
 
     lines = ["Privyx status, which never holds the masked values:", ""]
-    vault = settings.vault.type
+    vault = app.sessions.vault_type
     if vault == "memory":
         lines.append(
             "Vault: memory, which each privyx process keeps to itself: "
@@ -469,13 +378,12 @@ async def _status(engine: PrivacyEngine, settings: Settings) -> str:
         )
     else:
         try:
-            sessions = await engine.vault.list_sessions()
+            sessions = await app.sessions.list()
         except Exception as exc:
             # Only the type: the message may quote the vault's DSN, password
             # included.
             lines.append(f"Vault: {vault}, sessions cannot be listed ({type(exc).__name__})")
         else:
-            sessions.sort(key=lambda s: s.updated_at, reverse=True)
             mappings = sum(len(s.mapping) for s in sessions)
             lines.append(f"Vault: {vault}, {len(sessions)} session(s), {mappings} mapping(s)")
             lines += [
@@ -484,20 +392,14 @@ async def _status(engine: PrivacyEngine, settings: Settings) -> str:
             ]
             if len(sessions) > _RECENT:
                 lines.append(f"  and {len(sessions) - _RECENT} more")
-    if not settings.audit.enabled:
+    if not app.audit.enabled:
         lines.append("Audit trail: off (audit.enabled is false)")
         return "\n".join(lines)
-    totals, skipped = AuditStats(), 0
     try:
-        for record in _audit_records(settings):
-            try:
-                if record is None:
-                    raise ValueError
-                totals.add(record)
-            except (KeyError, TypeError, ValueError):
-                skipped += 1
+        found = app.audit.totals()
+        totals, skipped = found.stats, found.skipped
     except FileNotFoundError:
-        pass
+        totals, skipped = AuditStats(), 0
     except OSError as exc:
         lines.append(f"Audit trail: cannot be read ({exc.strerror or type(exc).__name__})")
         return "\n".join(lines)
@@ -520,16 +422,16 @@ async def _status(engine: PrivacyEngine, settings: Settings) -> str:
     return "\n".join(lines)
 
 
-def _audit_tail(settings: Settings) -> str:
+def _audit_tail(app: Privyx) -> str:
     from collections import deque
 
     from privyx.cli.commands.audit import _line
 
-    if not settings.audit.enabled:
+    if not app.audit.enabled:
         return "The Privyx audit trail is off (audit.enabled is false)."
     recent: deque[str] = deque(maxlen=_TAIL)
     try:
-        for record in _audit_records(settings):
+        for record in app.audit.records():
             # A line that is not a record is left out, not shown as written.
             if record is not None:
                 with contextlib.suppress(Exception):
@@ -543,18 +445,6 @@ def _audit_tail(settings: Settings) -> str:
     return "The latest Privyx audit events, which never hold the masked values:\n\n" + "\n".join(
         recent
     )
-
-
-def _audit_records(settings: Settings) -> Iterator[dict[str, Any] | None]:
-    """Each line of the audit trail as a record, or None for one that is not."""
-    path = Path(settings.audit.path).expanduser()
-    with path.open(encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            try:
-                record = json.loads(line)
-            except (ValueError, RecursionError):
-                record = None
-            yield record if isinstance(record, dict) else None
 
 
 def _inside(root: Path, path: str) -> Path:
@@ -584,3 +474,8 @@ def _write_new(path: Path, text: str) -> None:
         # restore.
         path.unlink(missing_ok=True)
         raise
+
+
+def _log(message: str) -> None:
+    """A line for the server's log: stderr, which the client shows or keeps."""
+    print(f"privyx mcp serve: {message}", file=sys.stderr, flush=True)

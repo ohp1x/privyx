@@ -16,8 +16,8 @@ import httpx
 
 from privyx import load_config
 from privyx.app._build import build_engine
-from privyx.proxy.http import HTTPProxy
-from privyx.streaming.adapters.registry import build_stream_adapter
+from privyx.core import Exchange
+from privyx.proxy import Pipeline
 from privyx.streaming.sse import SSEDecoder, SSEEvent
 
 EMAIL = "alice@example.com"
@@ -75,20 +75,33 @@ class Upstream:
         return json.loads(self.requests[-1].content)
 
 
-async def _proxy(upstream: Upstream, **kwargs: Any) -> tuple[HTTPProxy, Any]:
+#: The session every request of a test is masked in.
+SESSION = "ses_anthropic"
+
+
+async def _proxy(upstream: Upstream, **kwargs: Any) -> tuple[Pipeline, Any]:
     from privyx.providers import GenericProvider
 
     settings = load_config()
     engine, close = await build_engine(settings)
     client = httpx.AsyncClient(transport=httpx.MockTransport(upstream.handler))
     provider = GenericProvider(base_url=URL, **kwargs)
-    proxy = HTTPProxy(
-        engine=engine,
-        provider=provider,
-        client=client,
-        stream_adapter=build_stream_adapter("anthropic"),
-    )
-    return proxy, close
+    proxy = Pipeline(engine, provider, gateway=True, client=client)
+
+    async def close_all() -> None:
+        await close()
+        await client.aclose()
+
+    return proxy, close_all
+
+
+async def _stream(proxy: Pipeline, payload: dict[str, Any]) -> str:
+    """What the client gets for ``payload``, posted to ``/v1/messages`` in the session."""
+    headers = {"x-privyx-session": SESSION}
+    body = json.dumps(payload).encode()
+    reply = await proxy.handle(Exchange("POST", "/v1/messages", headers, body))
+    assert reply.stream is not None
+    return "".join([c if isinstance(c, str) else c.decode() async for c in reply.stream])
 
 
 def _events(raw: str) -> list[SSEEvent]:
@@ -113,15 +126,14 @@ async def test_stream_round_trip_and_event_order() -> None:
     upstream = Upstream()
     proxy, close = await _proxy(upstream, headers={"anthropic-version": "2023-06-01"})
     try:
-        payload, session_id = await proxy.process_request(
-            {
-                "model": "claude-sonnet-4",
-                "max_tokens": 256,
-                "system": f"The operator is {EMAIL}",
-                "messages": [{"role": "user", "content": f"reach me at {PHONE}"}],
-            }
-        )
-        session = await proxy._engine.vault.get(session_id)  # noqa: SLF001
+        payload = {
+            "model": "claude-sonnet-4",
+            "max_tokens": 256,
+            "system": f"The operator is {EMAIL}",
+            "messages": [{"role": "user", "content": f"reach me at {PHONE}"}],
+        }
+        await _stream(proxy, payload)  # masked once, so the pseudonyms are known
+        session = await proxy.engine.vault.get(SESSION)
         assert session is not None
         email_pseudonym = session.pseudonym_for(EMAIL)
         phone_pseudonym = session.pseudonym_for(PHONE)
@@ -130,7 +142,7 @@ async def test_stream_round_trip_and_event_order() -> None:
         upstream.body = anthropic_stream(
             ["I will mail ", email_pseudonym, " and call ", phone_pseudonym, "."]
         )
-        out = "".join([c async for c in proxy.process_stream(payload, session_id)])
+        out = await _stream(proxy, {**payload, "stream": True})
 
         sent = json.dumps(upstream.last_payload)
         assert EMAIL not in sent and PHONE not in sent
@@ -148,7 +160,6 @@ async def test_stream_round_trip_and_event_order() -> None:
         assert all(ev.event == json.loads(ev.data)["type"] for ev in _events(out))
     finally:
         await close()
-        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_non_text_deltas_are_not_rewritten() -> None:
@@ -164,16 +175,14 @@ async def test_non_text_deltas_are_not_rewritten() -> None:
     )
     proxy, close = await _proxy(upstream)
     try:
-        session = await proxy._engine.get_or_create_session()  # noqa: SLF001
         upstream.body = thinking + _event("message_stop", {"type": "message_stop"})
 
-        out = "".join([c async for c in proxy.process_stream({}, session.session_id)])
+        out = await _stream(proxy, {"stream": True})
 
         assert "thinking_delta" in out
         assert "hmm <PRIVYX_EMAIL_1>" in out  # unmapped, so untouched
     finally:
         await close()
-        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_pseudonym_split_across_events_and_chunks() -> None:
@@ -181,19 +190,16 @@ async def test_pseudonym_split_across_events_and_chunks() -> None:
     upstream = Upstream(chunk_size=3)
     proxy, close = await _proxy(upstream)
     try:
-        payload, session_id = await proxy.process_request(
-            {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
-        )
-        session = await proxy._engine.vault.get(session_id)  # noqa: SLF001
+        await _stream(proxy, {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]})
+        session = await proxy.engine.vault.get(SESSION)
         assert session is not None
         pseudonym = session.pseudonym_for(EMAIL)
         assert pseudonym is not None
 
         # One character per event, and 3 bytes per network chunk.
         upstream.body = anthropic_stream(["to ", *pseudonym, " ok"])
-        out = "".join([c async for c in proxy.process_stream(payload, session_id)])
+        out = await _stream(proxy, {"stream": True})
 
         assert _text(out) == f"to {EMAIL} ok"
     finally:
         await close()
-        await proxy._client.aclose()  # noqa: SLF001

@@ -17,9 +17,9 @@ import pytest
 
 from privyx import load_config
 from privyx.app._build import build_engine
-from privyx.gateway.transparent import create_transparent_app
 from privyx.observability.audit import AuditLogger
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
+from privyx.proxy._asgi import create_app
 from privyx.streaming.sse import SSEDecoder
 
 TOKEN = re.compile(r"<PRIVYX_[A-Z_]+_[A-Za-z0-9]+>")
@@ -312,14 +312,14 @@ async def test_agent_content_is_masked_and_restored(
 
     try:
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as provider:
-            proxy = TransparentProxy(
+            proxy = Pipeline(
                 engine,
                 origin="https://upstream.test",
                 client=provider,
                 audit=audit,
                 session_strategy=strategy,
             )
-            app = create_transparent_app(engine, proxy)
+            app = create_app(proxy)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app), base_url="http://proxy.test"
             ) as client:

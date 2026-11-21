@@ -51,9 +51,9 @@ def inspect() -> None:
 @config_options
 def routes(config_path: str | None) -> None:
     """Show which request paths are masked, and with which wire schema."""
-    from privyx.config.redact import redact
-    from privyx.gateway.server import served_routes
     from privyx.providers import resolve_base_url
+    from privyx.proxy import served_routes
+    from privyx.security import redact
 
     settings = _load(config_path)
     proxy = settings.proxy
@@ -125,13 +125,15 @@ def token(token: str, reveal: bool, config_path: str | None) -> None:
 
 
 async def _token(token: str, reveal: bool, config_path: str | None) -> None:
+    from privyx.app import Privyx
     from privyx.app._build import build_codec
-    from privyx.cli.commands.session import _mask, _open_vault, _ts
+    from privyx.cli.commands.session import _mask, _ts
 
-    async with _open_vault(config_path) as (settings, vault):
-        sessions = [s for s in await vault.list_sessions() if token in s.mapping]
+    app = Privyx(config_path)
+    sessions = [s for s in await app.sessions.list() if token in s.mapping]
+    settings = app.settings
 
-    parsed = build_codec(settings).parse(token)
+    parsed = build_codec(settings, app).parse(token)
     if parsed is None:
         click.echo(f"Not a token in the configured format ({settings.token.format})")
     else:

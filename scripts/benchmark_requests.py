@@ -31,7 +31,7 @@ from benchmark import _claude_code_body
 from privyx.app._build import build_engine
 from privyx.config.defaults import DEFAULTS
 from privyx.config.schema import Settings
-from privyx.core import Context, Detection, Session
+from privyx.core import Context, Detection, Exchange, Session
 from privyx.detectors import Detector, YamlDetector
 from privyx.detectors._cache import CachedDetector
 from privyx.detectors._pattern import DEFAULT_PATTERNS
@@ -39,8 +39,8 @@ from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
+from privyx.proxy import Pipeline
 from privyx.proxy.schemas import transform_request
-from privyx.proxy.transparent import TransparentProxy
 from privyx.vaults import MemoryVault
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,17 +144,17 @@ async def request_case(
 
     try:
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-            proxy = TransparentProxy(
-                engine, origin="http://upstream.test", client=client, audit=audit
-            )
+            proxy = Pipeline(engine, origin="http://upstream.test", client=client, audit=audit)
 
             async def send() -> float:
                 start = time.perf_counter()
                 response = await proxy.handle(
-                    method="POST",
-                    path="v1/messages",
-                    headers={"content-type": "application/json", "x-api-key": "synthetic"},
-                    body=body,
+                    Exchange(
+                        method="POST",
+                        path="v1/messages",
+                        headers={"content-type": "application/json", "x-api-key": "synthetic"},
+                        body=body,
+                    )
                 )
                 elapsed = (time.perf_counter() - start) * 1000
                 # Check outside the timer; proxy batch restore is inside it.
@@ -264,7 +264,7 @@ def metadata(args: argparse.Namespace) -> dict[str, Any]:
         "settings": Settings.model_validate(DEFAULTS).model_dump(mode="json"),
         "parameters": {"iterations": args.iterations, "target_kib": args.size_kb},
         "measurement": {
-            "boundary": "TransparentProxy.handle, batch reply, echo restore, mock upstream",
+            "boundary": "Pipeline.handle, batch reply, echo restore, mock upstream",
             "cache": "LRU cleared before each cold sample; exact body prewarmed for cached samples",
             "percentile": "nearest rank p95; median p50; times in ms",
             "warmup_requests_per_case": 1,

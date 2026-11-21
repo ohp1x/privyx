@@ -25,7 +25,6 @@ import shlex
 import shutil
 import socket
 import sys
-from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -248,7 +247,12 @@ def run(
         )
     except PrivyxError as exc:
         raise click.ClickException(str(exc)) from exc
-    harvested = _harvest(settings) if settings.harvest else None
+    if settings.harvest:
+        from privyx.workspace import harvest as harvest_workspace
+
+        harvested: str | None = harvest_workspace(settings, Path.cwd())
+    else:
+        harvested = None
     if dry_run:
         _show_plan(plan)
         _show_presets(settings, sources, target)
@@ -330,44 +334,8 @@ def _check_ollama(upstream: str) -> None:
         sys.exit(1)
 
 
-def _harvest(settings: Settings) -> str:
-    """Add a detector for what the working directory tells; return what it masks.
-
-    A detector of its own, so a ``patterns`` entry of the user's for the same
-    entity cannot override it.  Only counts are returned: the values are
-    never shown or written.
-    """
-    import re
-
-    from privyx.cli import workspace
-    from privyx.config.schema import DetectorConfig
-
-    root = Path.cwd()
-    terms: dict[str, list[str]] = {}
-    for item in workspace.unique(
-        workspace.git_terms(root, workspace.HARVEST_COMMITS) + workspace.os_user_terms()
-    ):
-        terms.setdefault(item.entity, []).append(item.value)
-    values: dict[str, set[str]] = {}
-    for key, value, _ in workspace.env_values(root):
-        entity = workspace.env_entity(key)
-        if entity:
-            values.setdefault(entity, set()).add(re.escape(value))
-    # Literal and case-sensitive, as a secret is: the fastest regex to search.
-    patterns = {e: "|".join(sorted(v, key=lambda p: (-len(p), p))) for e, v in values.items()}
-    if terms or patterns:
-        current = settings.detector if isinstance(settings.detector, list) else [settings.detector]
-        added = DetectorConfig.model_validate(
-            {"type": "yaml", "terms": terms, "patterns": patterns}
-        )
-        settings.detector = [*current, added]
-    counts = [f"{len(v)} {entity}" for entity, v in sorted(terms.items())]
-    counts.append(f"{sum(map(len, values.values()))} .env value(s)")
-    return ", ".join(counts)
-
-
 def _show_running(plan: LaunchPlan) -> None:
-    from privyx.config.redact import redact, redact_argv
+    from privyx.security import redact, redact_argv
 
     click.echo(f"Privyx proxy → {redact(plan.route, 'url')}", err=True)
     click.echo(f"Running: {shlex.join(redact_argv([plan.command, *plan.argv]))}", err=True)
@@ -376,7 +344,7 @@ def _show_running(plan: LaunchPlan) -> None:
 
 
 def _show_plan(plan: LaunchPlan) -> None:
-    from privyx.config.redact import redact, redact_argv
+    from privyx.security import redact, redact_argv
 
     sources = plan.sources
     click.echo(f"Profile: {plan.profile}")
@@ -416,8 +384,8 @@ def _show_presets(settings: Settings, sources: dict[str, str], profile: str) -> 
     left out.  A value that cannot be looked up by its dotted path (a key
     holding a dot) is left out, not guessed.
     """
-    from privyx.config.loader import CHOSEN_PRESETS
-    from privyx.config.redact import redact
+    from privyx.config import CHOSEN_PRESETS
+    from privyx.security import redact
 
     listed = settings.agents.get(profile)
     origin = sources.get(f"agents.{profile}.presets", "defaults")
@@ -473,15 +441,7 @@ async def _run_target(
         The tool's exit code.
     """
     from privyx.app import Privyx
-    from privyx.app._build import build_audit_logger, build_engine, open_provider
-    from privyx.app._plugins import load_plugins
-    from privyx.cli.budget import Budget
-    from privyx.cli.commands.proxy import build_transparent_proxy
-    from privyx.events import AppStarting, AppStopping
-    from privyx.gateway.server import Gateway
-    from privyx.gateway.transparent import create_transparent_app
-    from privyx.observability import tracing
-    from privyx.observability.audit import AuditEventType
+    from privyx.app._run import run_agent
     from privyx.observability.logging import configure_logging
 
     if settings is None:
@@ -494,122 +454,50 @@ async def _run_target(
     # Bound before the rest opens, so a port in use leaves nothing to undo.
     sock, bound_port = _listen(settings.host, port)
 
-    px = Privyx()
-    load_plugins(settings, px)
-    tracing.configure(settings.tracing.enabled)
-    audit = build_audit_logger(settings)
-    engine, close_vault = await build_engine(settings, px, audit=audit)
-    gateway: Gateway | None = None
-    if settings.proxy.mode == "gateway":
-        outbound: Any = await open_provider(settings, px)
-    else:
-        outbound = build_transparent_proxy(settings, engine, audit, plan.run_token)
-
-    async def close_upstream() -> None:
-        if gateway is not None:
-            await gateway.close()
-        await outbound.close()
-
-    try:
-        if settings.proxy.mode == "gateway":
-            gateway = Gateway(
-                engine=engine, provider=outbound, settings=settings, audit=audit, router=px._router
-            )
-            app = gateway.app
-        else:
-            app = create_transparent_app(engine, outbound, settings, px._router)
-    except BaseException:
-        # A plugin route over a masking route: nothing is served.
-        await close_upstream()
-        await close_vault()
-        audit.close()
-        sock.close()
-        raise
-    await px._events.emit(AppStarting())
-
-    budget = spec.budget
-    guard = (
-        Budget(app, budget, settings.proxy.routes, audit, Path(plan.profile).name)
-        if budget.max_turns or budget.max_tokens
-        else None
-    )
-    counted = _Counted(guard or app)
-    server = _make_server(counted, settings, bound_port)
-    if parent is not None:
-        # The worker handles SIGTERM itself; uvicorn must not re-raise it during cleanup.
-        server.capture_signals = nullcontext
-    serve_task = asyncio.create_task(server.serve(sockets=[sock]))
-    try:
-        await _wait_until_started(server, serve_task)
-        plan = plan.bind_port(bound_port)
-
+    async def launch(bound: LaunchPlan) -> int:
         # On stderr: stdout is the tool's, and may be piped into a parser.
         if ready is not None and parent is not None:
-            ready.sendall(json.dumps({"port": bound_port}).encode() + b"\n")
+            ready.sendall(json.dumps({"port": bound.port}).encode() + b"\n")
             ready.close()
             await wait_for_agent_exit(parent)
-            code = 0
-        else:
-            _show_running(plan)
-            code = await _spawn(plan)
-        # Drain requests still in flight first: one being masked when the tool
-        # exited may yet go out on a masking route.
-        server.should_exit = True
-        await serve_task
-        stats = audit.stats
-        if not audit.routed:
-            # What a tool that ignores the proxy URL looks like from here, or
-            # one whose model requests take a path outside proxy.routes.
-            counts: dict[str, Any] = {
-                "requests": counted.requests,
-                "passthrough": stats.events[AuditEventType.PROXY_PASSTHROUGH],
-                "blocked": stats.events[AuditEventType.PROXY_BLOCKED],
-                "failed": sum(stats.errors.values()),
-            }
-            # The profile's base name, so the trail holds no user paths.
-            audit.emit(AuditEventType.RUN_UNPROXIED, profile=Path(plan.profile).name, **counts)
-            # Only content passed through unmasked, or a request blocked or
-            # failed, shows something went wrong. No request at all is what
-            # help, a tool closed before its first prompt, or a refused model
-            # look like too, so that is left to the audit trail.
-            if audit.unmasked_bodies or counts["blocked"] or counts["failed"]:
-                # After exec the shell has likely drawn its prompt already.
-                click.echo(
-                    ("\n" if parent is not None else "")
-                    + f"Warning: {counted.requests} request(s) from {spec.command} "
-                    "reached Privyx, but none was sent upstream on a masking route "
-                    f"({counts['passthrough']} passed through unmasked, "
-                    f"{counts['blocked']} blocked, {counts['failed']} failed).",
-                    err=True,
-                )
-        if guard is not None and guard.exceeded:
-            click.echo(
-                ("\n" if parent is not None else "")
-                + f"Privyx stopped {spec.command}: the {guard.exceeded}, "
-                f"after {guard.turns} turn(s) and {guard.tokens} tokens.",
-                err=True,
-            )
-        return code
-    finally:
-        server.should_exit = True
-        await serve_task
-        await px._events.emit(AppStopping())
-        await close_vault()
-        await close_upstream()
-        audit.close()
+            return 0
+        _show_running(bound)
+        return await _spawn(bound)
 
-
-class _Counted:
-    """An ASGI app that counts the HTTP requests reaching ``app``."""
-
-    def __init__(self, app: Any) -> None:
-        self.app = app
-        self.requests = 0
-
-    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
-        if scope["type"] == "http":
-            self.requests += 1
-        await self.app(scope, receive, send)
+    outcome = await run_agent(
+        Privyx(),
+        settings,
+        plan,
+        sock,
+        bound_port,
+        budget=spec.budget,
+        launch=launch,
+        # The worker handles SIGTERM itself; uvicorn must not re-raise it during cleanup.
+        quiet_signals=parent is not None,
+    )
+    # After exec the shell has likely drawn its prompt already.
+    lead = "\n" if parent is not None else ""
+    counts = outcome.unproxied
+    # Only content passed through unmasked, or a request blocked or failed,
+    # shows something went wrong. No request at all is what help, a tool
+    # closed before its first prompt, or a refused model look like too, so
+    # that is left to the audit trail.
+    if counts is not None and (outcome.unmasked or counts["blocked"] or counts["failed"]):
+        click.echo(
+            lead + f"Warning: {outcome.requests} request(s) from {spec.command} "
+            "reached Privyx, but none was sent upstream on a masking route "
+            f"({counts['passthrough']} passed through unmasked, "
+            f"{counts['blocked']} blocked, {counts['failed']} failed).",
+            err=True,
+        )
+    if outcome.stopped is not None:
+        reason, turns, tokens = outcome.stopped
+        click.echo(
+            lead + f"Privyx stopped {spec.command}: the {reason}, "
+            f"after {turns} turn(s) and {tokens} tokens.",
+            err=True,
+        )
+    return outcome.code
 
 
 def _listen(host: str, port: int) -> tuple[socket.socket, int]:
@@ -628,36 +516,6 @@ def _listen(host: str, port: int) -> tuple[socket.socket, int]:
         sock.close()
         raise PrivyxError(f"cannot listen on {host}:{port}: {exc.strerror or exc}") from exc
     return sock, int(sock.getsockname()[1])
-
-
-def _make_server(app: Any, settings: Any, port: int) -> Any:
-    """Build a uvicorn server for ``app``, to serve the socket from :func:`_listen`."""
-    import uvicorn
-
-    config = uvicorn.Config(
-        app,
-        host=settings.host,
-        port=port,
-        log_level="warning",  # the tool owns the terminal; stay quiet
-        ws="none",  # a WebSocket upgrade arrives as a plain HTTP request
-        log_config=None,  # uvicorn's records go to Privyx's handlers, not stderr
-    )
-    return uvicorn.Server(config)
-
-
-async def _wait_until_started(server: Any, serve_task: asyncio.Task[Any]) -> None:
-    """Block until uvicorn reports it is accepting connections.
-
-    Raises:
-        RuntimeError: If the server task exits before becoming ready — e.g. the
-            port is taken.  Without this the tool would launch against a dead
-            proxy and fail with a confusing connection error.
-    """
-    while not server.started:
-        if serve_task.done():
-            await serve_task  # re-raise the startup failure
-            raise RuntimeError("proxy exited before it finished starting")
-        await asyncio.sleep(0.02)
 
 
 def _set_terminal_title(name: str) -> None:

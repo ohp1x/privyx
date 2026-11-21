@@ -1,18 +1,22 @@
-"""Transparent (drop-in) reverse proxy.
+"""The exchange flow: mask a request, send it upstream, restore the reply.
 
-Point a client's ``OPENAI_BASE_URL`` / ``ANTHROPIC_BASE_URL`` at Privyx and this
-proxy forwards every request to the upstream *origin* unchanged — except that
-chat requests are pseudonymized on the way out and the assistant's reply is
-restored on the way back, batch or streaming, without any client-side change.
+One flow serves both proxy modes; only where a request goes differs, the mode's
+routing rule (:mod:`privyx.proxy._upstream`).  The transparent proxy joins the
+request path to its upstream and relays the client's own headers, its key or
+login included; the gateway serves its routes only, and posts each to the
+provider's endpoint for it with the provider's headers alone.
 
-The per-request pipeline:
+The flow of one exchange (:meth:`Pipeline.handle`):
 
-1. classify the path against the configured routes (:func:`detect_schema`);
-2. for a chat path with a JSON body, pseudonymize the sensitive text leaves,
-   and on any path the headers that describe the client's machine;
-3. forward method, path, query, and (filtered) headers to ``origin/path``;
-4. restore the response — structurally for JSON, event-by-event for SSE — and
-   forward anything else (models, embeddings, non-JSON) verbatim.
+1. match the path against the configured routes: a masking route has a
+   dialect, and any other path is relayed unmasked or refused;
+2. on a masking route, parse the body, and find the session;
+3. mask the body, the headers that describe the client's machine, and the
+   query, then check that no masked value is left: direct calls, so privacy
+   never depends on what else is registered;
+4. send the request upstream with the provider's credential;
+5. restore the reply, structurally for JSON, event by event for a stream, and
+   relay anything else as it arrives.
 
 Sessions are resolved from the ``x-privyx-session`` header when present and are
 otherwise **ephemeral per request**: a request is pseudonymized and its reply
@@ -21,40 +25,44 @@ session per request is correct and — unlike a single shared session — cannot
 collide two callers' pseudonym maps.  It stays in memory for that one exchange
 and never touches the vault.
 
-:class:`TransparentProxy` is framework-agnostic: it returns a :class:`ProxyResponse`
-that the gateway turns into an ASGI response, so it can be unit-tested without a
-web server.
+:class:`Pipeline` takes an :class:`~privyx.core.Exchange` and returns a
+:class:`Reply`, without web framework types: the ASGI adapter
+(:mod:`privyx.proxy._asgi`) turns one into the other.
 """
 
 from __future__ import annotations
 
-import hmac
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import httpx
 
 from privyx.config.schema import ProxyConfig
-from privyx.core import LeakError, Session, VaultError
+from privyx.core import Exchange, LeakError, Session, VaultError
 from privyx.core import request_id as new_request_id
 from privyx.engine import PrivacyEngine
 from privyx.observability import tracing
 from privyx.observability.audit import AuditLogger
 from privyx.observability.metrics import AuditStats
-from privyx.observability.tap import Tap
 from privyx.observability.usage import UsageMeter
-from privyx.proxy.headers import (
-    RUN_TOKEN_HEADER,
-    UPSTREAMS_HEADER,
-    filter_request_headers,
-    filter_response_headers,
+from privyx.proxy._headers import filter_request_headers, filter_response_headers
+from privyx.proxy._session import resolve_session_id
+from privyx.proxy._streaming import AuditedStream
+from privyx.proxy._tap import Tap
+from privyx.proxy._upstream import (
+    header,
+    joined_path,
+    named_upstream,
+    served_routes,
+    upstream_client,
+    upstream_failure,
+    wants_stream,
 )
-from privyx.proxy.http import upstream_client
 from privyx.proxy.schemas import (
     AUTH_QUERY_PARAMS,
     MASKED_HEADERS,
@@ -63,7 +71,6 @@ from privyx.proxy.schemas import (
     restore_response,
     transform_request,
 )
-from privyx.proxy.session import resolve_session_id
 from privyx.proxy.stream_router import (
     LineRouter,
     StreamRouter,
@@ -71,13 +78,15 @@ from privyx.proxy.stream_router import (
     restore_chunks,
     select_processor_factory,
 )
-from privyx.proxy.streaming import AuditedStream
 from privyx.streaming.adapters.registry import build_stream_adapter
+
+if TYPE_CHECKING:
+    from privyx.providers import Provider
 
 _JSON = "application/json"
 _SSE = "text/event-stream"
 _NDJSON = "application/x-ndjson"  # Ollama's stream: one JSON object per line
-_log = logging.getLogger(__name__)
+_log = logging.getLogger("privyx.proxy")
 
 #: Body of the 503 returned when a request cannot be masked (a detector failed
 #: or timed out).  Fail-closed: the request is not forwarded.  No exception text:
@@ -138,8 +147,8 @@ def _elapsed_ms(start: float) -> float:
 
 
 @dataclass(slots=True)
-class ProxyResponse:
-    """A framework-agnostic response the gateway renders into an ASGI response.
+class Reply:
+    """What the pipeline answers an exchange with, for the adapter to send.
 
     Exactly one of ``body`` (a restored batch response) or ``stream`` (restored
     SSE text, or the bytes of a response with nothing to restore) is set.
@@ -152,41 +161,59 @@ class ProxyResponse:
     stream: AsyncIterator[str] | AsyncIterator[bytes] | None = None
 
 
-class TransparentProxy:
-    """Drop-in reverse proxy that pseudonymizes chat traffic per request.
+def _error(status: int, body: dict[str, Any], headers: dict[str, str] | None = None) -> Reply:
+    """A JSON error reply."""
+    return Reply(status, headers or {}, _JSON, json.dumps(body).encode())
+
+
+def _refusal(status: int, message: str) -> Reply:
+    """A request Privyx refuses itself, with ``message`` saying why."""
+    return _error(status, {"error": {"message": message}})
+
+
+class Pipeline:
+    """The privacy pipeline of one proxy: each exchange masked, sent, and restored.
 
     Args:
         engine: Configured privacy engine.
-        origin: Upstream origin (``scheme://host[:port]``); the request path is
-            appended to it.  See :func:`privyx.providers.resolve_origin`.
-            With ``strip_prefix``, the upstream URL including its path.
+        provider: The upstream's provider, owned by the caller.  Its
+            :meth:`~privyx.providers.Provider.auth` is the credential sent; the
+            transparent proxy writes a key in the header the request path's
+            format takes, and adds the configured ``headers``.  ``None`` sends
+            no credential of Privyx's.
+        gateway: Route as the gateway: only the routes it serves
+            (:func:`~privyx.proxy._upstream.served_routes`), each posted to
+            ``provider.url()`` with ``provider.headers()``, and none of the
+            client's headers or query.  Needs ``provider``.
+        origin: The transparent proxy's upstream origin (``scheme://host[:port]``);
+            the request path is appended to it.  See
+            :func:`privyx.providers.resolve_origin`.  With ``strip_prefix``, the
+            upstream URL including its path.
         strip_prefix: When set (``""`` included), the request path must lie
             under this prefix, which is removed before the rest is appended to
             ``origin``.  Paths outside it, or that could leave it, are refused.
             ``None`` appends the whole path (``proxy.path_mapping.mode: origin``).
-        routes: Path → wire-schema map (defaults to ``proxy.routes``' default:
+        routes: Path → dialect map (defaults to ``proxy.routes``' default:
             OpenAI Chat and Responses, Anthropic Messages and token counting).
         passthrough_unknown: Forward paths missing from ``routes`` verbatim.  When
             false they are refused with 403, so nothing reaches the upstream
             unmasked.
         forward_client_auth: Forward the client's ``Authorization`` / ``x-api-key``.
-        api_key: When set, overrides the upstream credential with this key.
-        extra_headers: Static headers merged into every upstream request.
         client: Optional httpx client (owned by the caller when supplied); used by
             tests to inject a mock transport.
         timeout, connect_timeout, max_connections: For the client built when
             ``client`` is not given; see
-            :func:`~privyx.proxy.http.upstream_client`.
+            :func:`~privyx.proxy._upstream.upstream_client`.
         audit: Optional audit logger for the PII-safe ``proxy.request`` event.
             Defaults to a disabled no-op logger.
         session_strategy: How to identify a session when the client sends no
             ``x-privyx-session`` header — ``ephemeral`` (default), ``client``, or
-            ``conversation``.  See :func:`privyx.proxy.session.resolve_session_id`.
+            ``conversation``.  See :func:`privyx.proxy._session.resolve_session_id`.
         tap: Optional developer tap that records each masked exchange before
-            and after masking (``audit.tap``; see :mod:`privyx.observability.tap`).
+            and after masking (``audit.tap``; see :mod:`privyx.proxy._tap`).
         run_token: Set by ``privyx run pi``, whose requests each name their
-            upstreams in :data:`~privyx.proxy.headers.UPSTREAMS_HEADER`, with
-            this secret in :data:`~privyx.proxy.headers.RUN_TOKEN_HEADER`.  The
+            upstreams in :data:`~privyx.proxy._headers.UPSTREAMS_HEADER`, with
+            this secret in :data:`~privyx.proxy._headers.RUN_TOKEN_HEADER`.  The
             request's route picks the base URL, and the path is appended to it;
             ``origin`` and ``strip_prefix`` are not used.  A request without a
             matching token, or with no base URL for its route, is refused.
@@ -195,13 +222,14 @@ class TransparentProxy:
     def __init__(
         self,
         engine: PrivacyEngine,
+        provider: Provider | None = None,
         *,
-        origin: str,
+        gateway: bool = False,
+        origin: str = "",
+        strip_prefix: str | None = None,
         routes: dict[str, str] | None = None,
         passthrough_unknown: bool = True,
         forward_client_auth: bool = True,
-        api_key: str | None = None,
-        extra_headers: Mapping[str, str] | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = 300.0,
         connect_timeout: float = 10.0,
@@ -209,26 +237,45 @@ class TransparentProxy:
         audit: AuditLogger | None = None,
         session_strategy: str = "ephemeral",
         tap: Tap | None = None,
-        strip_prefix: str | None = None,
         run_token: str | None = None,
     ) -> None:
+        if gateway and provider is None:
+            raise ValueError("the gateway needs a provider")
         self._engine = engine
+        self._provider = provider
+        self._gateway = gateway
+        self._origin = origin.rstrip("/")
         self._strip_prefix = strip_prefix
         self._run_token = run_token
         self._tap = tap
-        self._origin = origin.rstrip("/")
         self._audit = audit or AuditLogger(None)
         self._session_strategy = session_strategy
-        self._upstream_host = urlsplit(self._origin).netloc or self._origin
-        self._routes = routes if routes is not None else ProxyConfig().routes
-        self._passthrough_unknown = passthrough_unknown
-        self._forward_client_auth = forward_client_auth
-        self._api_key = api_key
-        self._extra_headers = dict(extra_headers or {})
+        routes = routes if routes is not None else ProxyConfig().routes
+        if gateway:
+            from privyx.providers import GoogleProvider
+
+            routes = served_routes(routes, google=isinstance(provider, GoogleProvider))
+        self._routes = routes
+        self._passthrough_unknown = passthrough_unknown and not gateway
+        self._forward_client_auth = forward_client_auth and not gateway
         self._owns_client = client is None
         self._client = client or upstream_client(
             timeout=timeout, connect_timeout=connect_timeout, max_connections=max_connections
         )
+
+    @property
+    def engine(self) -> PrivacyEngine:
+        return self._engine
+
+    @property
+    def gateway(self) -> bool:
+        """Whether this pipeline routes as the gateway."""
+        return self._gateway
+
+    @property
+    def routes(self) -> dict[str, str]:
+        """The masking routes, path → dialect: for the gateway, the ones it serves."""
+        return dict(self._routes)
 
     @property
     def stats(self) -> AuditStats:
@@ -236,39 +283,22 @@ class TransparentProxy:
         return self._audit.stats
 
     async def close(self) -> None:
-        """Release the httpx client if this proxy created it."""
+        """Release the httpx client if this pipeline created it."""
         if self._owns_client:
             await self._client.aclose()
 
-    async def handle(
-        self,
-        *,
-        method: str,
-        path: str,
-        headers: Mapping[str, str],
-        body: bytes | AsyncIterator[bytes],
-        query_params: Any | None = None,
-        session_id: str | None = None,
-        raw_path: str | None = None,
-    ) -> ProxyResponse:
-        """Run the full per-request pipeline and return a :class:`ProxyResponse`.
+    async def handle(self, exchange: Exchange) -> Reply:
+        """Run the exchange through the pipeline and return the :class:`Reply`.
 
-        ``body`` may be the chunks as they arrive: a routed body is read whole to
-        be masked, any other is streamed upstream as it comes.  ``raw_path`` is
-        the path as sent, before percent-decoding, when the server has it.
+        ``exchange.body`` may be the chunks as they arrive: a routed body is read
+        whole to be masked, any other is streamed upstream as it comes.
         """
-        span = tracing.start("privyx.request", headers=headers, **{"http.request.method": method})
+        exchange.path = "/" + exchange.path.lstrip("/")
+        span = tracing.start(
+            "privyx.request", headers=exchange.headers, **{"http.request.method": exchange.method}
+        )
         try:
-            result = await self._handle(
-                span,
-                method=method,
-                path=path,
-                headers=headers,
-                body=body,
-                query_params=query_params,
-                session_id=session_id,
-                raw_path=raw_path,
-            )
+            result = await self._handle(exchange, span)
         except BaseException as exc:
             tracing.end(span, error=exc)
             raise
@@ -280,212 +310,125 @@ class TransparentProxy:
             tracing.end(span)
         return result
 
-    async def _handle(
-        self,
-        span: Any,
-        *,
-        method: str,
-        path: str,
-        headers: Mapping[str, str],
-        body: bytes | AsyncIterator[bytes],
-        query_params: Any | None,
-        session_id: str | None,
-        raw_path: str | None = None,
-    ) -> ProxyResponse:
+    async def _handle(self, exchange: Exchange, span: Any) -> Reply:
         start = time.perf_counter()
         req_id = new_request_id()
         # Correlate every event of this exchange and aggregate its per-leaf
         # transform/restore into one line each; closed in the finally below (the
         # streaming generator carries req_id explicitly, so it needs no scope).
         token = self._audit.begin_request(req_id)
+        method, path, headers = exchange.method, exchange.path, exchange.headers
         sid: str | None = None
         ephemeral: Session | None = None
         defer_cleanup = False
         try:
-            if _ci_get(headers, "upgrade").lower() == "websocket":
+            if header(headers, "upgrade").lower() == "websocket":
                 # A WebSocket cannot be relayed here, so its frames could not be
                 # masked.  426 makes Codex fall back to HTTP at once; on another
                 # status it retries for seconds first, and gives up on a 400.
-                message = "privyx: WebSocket is not supported; use HTTP"
-                return ProxyResponse(
-                    status_code=426,
-                    media_type=_JSON,
-                    body=json.dumps({"error": {"message": message}}).encode(),
-                )
-            origin, prefix = self._origin, self._strip_prefix
-            if self._run_token is not None:
-                named = _named_upstream(headers, path, self._routes, self._run_token)
-                if named is None:
-                    self._audit.route_decision(allowed=False, method=method, reason="no_upstream")
-                    message = "privyx: the request names no upstream for its route"
-                    return ProxyResponse(
-                        status_code=403,
-                        media_type=_JSON,
-                        body=json.dumps({"error": {"message": message}}).encode(),
-                    )
-                origin, prefix = named, ""
-            upstream_path = _upstream_path(path, raw_path, prefix)
-            if upstream_path is None:
-                self._audit.route_decision(allowed=False, method=method, reason="outside_prefix")
-                message = (
-                    f"privyx: the path is outside proxy.path_mapping.strip_prefix "
-                    f"{prefix or '/'!r} or could leave it"
-                )
-                return ProxyResponse(
-                    status_code=404,
-                    media_type=_JSON,
-                    body=json.dumps({"error": {"message": message}}).encode(),
-                )
-            schema = detect_schema(path, self._routes)
-            if schema is not None:
-                tracing.annotate(
-                    span, **{"http.route": "/" + path.lstrip("/"), "privyx.schema": schema}
-                )
-            if schema is None:
+                return _refusal(426, "privyx: WebSocket is not supported; use HTTP")
+            base = self._base(exchange)
+            if isinstance(base, Reply):
+                return base
+            exchange.dialect = dialect = detect_schema(path, self._routes)
+            if dialect is not None:
+                tracing.annotate(span, **{"http.route": path, "privyx.schema": dialect})
+            else:
                 self._audit.route_decision(allowed=self._passthrough_unknown, method=method)
-                if self._passthrough_unknown and (
-                    _ci_get(headers, "content-length") not in ("", "0")
-                    or _ci_get(headers, "transfer-encoding")
+                if not self._passthrough_unknown:
+                    return _refusal(
+                        403,
+                        f"privyx: {path} is not in proxy.routes "
+                        "and proxy.passthrough_unknown is false",
+                    )
+                if header(headers, "content-length") not in ("", "0") or header(
+                    headers, "transfer-encoding"
                 ):
                     self._audit.unmasked_bodies += 1
-            if schema is None and not self._passthrough_unknown:
-                message = (
-                    f"privyx: /{path.lstrip('/')} is not in proxy.routes "
-                    "and proxy.passthrough_unknown is false"
-                )
-                return ProxyResponse(
-                    status_code=403,
-                    media_type=_JSON,
-                    body=json.dumps({"error": {"message": message}}).encode(),
-                )
-            if session_id is None:
-                session_id = _ci_get(headers, "x-privyx-session") or None
 
-            payload: Any = None
-            if schema is not None:
+            body, payload = exchange.body, None
+            if dialect is not None:
                 if not isinstance(body, bytes):
                     body = b"".join([chunk async for chunk in body])
                 # Parse the body once, up front: the session strategy may
                 # fingerprint it (e.g. the first user message), and the transform
                 # reuses the parse.  Whatever its content type says (`curl -d`
                 # sends a form type): a routed body that is not a JSON object
-                # would go upstream unmasked.
+                # would go upstream unmasked.  The gateway's routes all take one.
                 payload = _loads(body) if body else None
-                if body and not isinstance(payload, dict):
-                    return ProxyResponse(
-                        status_code=400, media_type=_JSON, body=json.dumps(INVALID_BODY).encode()
-                    )
+                if (body or self._gateway) and not isinstance(payload, dict):
+                    return _error(400, INVALID_BODY)
                 if isinstance(payload, dict) and has_token_ids(payload):
-                    return ProxyResponse(
-                        status_code=400, media_type=_JSON, body=json.dumps(TOKEN_IDS_BODY).encode()
-                    )
+                    return _error(400, TOKEN_IDS_BODY)
+                exchange.body = payload
             elif not isinstance(body, bytes) and not (
-                _ci_get(headers, "content-length") or _ci_get(headers, "transfer-encoding")
+                header(headers, "content-length") or header(headers, "transfer-encoding")
             ):
                 body = b""  # none was sent; an empty stream would go out chunked
+
             resolved_id, source = resolve_session_id(
                 self._session_strategy,
-                header_value=session_id,
+                header_value=header(headers, "x-privyx-session") or None,
                 headers=headers,
                 payload=payload,
-                schema=schema,
+                schema=dialect,
             )
             if source == "ephemeral":
                 # It lives for this request only, so it never touches the vault.
                 session = ephemeral = self._engine.ephemeral_session()
             else:
                 session = await self._engine.get_or_create_session(resolved_id, source=source)
-            sid = session.session_id
+            exchange.session_id = sid = session.session_id
             self._audit.set_session(sid)
 
-            upstream_headers = filter_request_headers(
-                headers,
-                schema=schema,
-                forward_client_auth=self._forward_client_auth,
-                api_key=self._api_key,
-                extra=self._extra_headers,
-            )
-            out_body = body
-            parsed_params = httpx.QueryParams(query_params) if query_params is not None else None
-            out_params: list[tuple[str, Any]] | None = (
-                list(parsed_params.multi_items()) if parsed_params else None
-            )
-            if out_params and (self._api_key or not self._forward_client_auth):
-                # The client's key in the query (Gemini's `?key=`) goes with its
-                # headers: Privyx's key replaces it, or none is relayed.
-                out_params = [(k, v) for k, v in out_params if k.lower() not in AUTH_QUERY_PARAMS]
+            stream = self._gateway and wants_stream(dialect, path, payload, exchange.query)
+            out_headers, params, auth = self._outgoing(exchange, stream)
+            out_body: Any = body
             transform_ms: float | None = None
             # A masked header comes on body-less requests too, and on unrouted
             # paths.
             if (
                 isinstance(payload, dict)
-                or not MASKED_HEADERS.isdisjoint(upstream_headers)
-                or out_params is not None
+                or not MASKED_HEADERS.isdisjoint(out_headers)
+                or params is not None
             ):
                 transform_start = time.perf_counter()
-                transform_span = tracing.start("privyx.transform", span)
-                try:
-                    transformed = await transform_request(
-                        payload or {},
-                        self._engine,
-                        sid,
-                        session=ephemeral,
-                        headers=upstream_headers,
-                        params=out_params,
-                        schema=schema,
-                        path="/" + path.lstrip("/"),
-                    )
-                except VaultError as exc:
-                    tracing.end(transform_span, error=exc)
-                    raise  # not a scan failure: answered below
-                except Exception as exc:
-                    tracing.end(transform_span, error=exc)
-                    self._audit.error(
-                        phase="transform",
-                        error_type=type(exc).__name__,
-                        session_id=sid,
-                        request_id=req_id,
-                        duration_ms=_elapsed_ms(start),
-                    )
-                    log_scan_failure(exc)
-                    status, error = scan_failure(exc)
-                    return ProxyResponse(
-                        status_code=status, media_type=_JSON, body=json.dumps(error).encode()
-                    )
+                masked = await self._mask(
+                    exchange, payload, out_headers, params, ephemeral, span, start, req_id
+                )
+                if isinstance(masked, Reply):
+                    return masked
                 transform_ms = _elapsed_ms(transform_start)
-                tracing.end(transform_span)
                 if isinstance(payload, dict):
-                    out_body = json.dumps(transformed, ensure_ascii=False).encode("utf-8")
+                    out_body = json.dumps(masked, ensure_ascii=False).encode("utf-8")
                     if self._tap is not None:
                         self._tap.record(
                             sid,
                             req_id,
                             "request",
-                            path="/" + path.lstrip("/"),
-                            schema=schema,
+                            path=path,
+                            schema=dialect,
                             before=payload,
-                            after=transformed,
+                            after=masked,
                         )
             self._audit.flush_transform()
 
-            url = origin + upstream_path
-            length = _ci_get(headers, "content-length")
+            url = base if base is not None else self._provider_url(path, stream)
+            length = header(headers, "content-length")
             if not isinstance(out_body, bytes) and length:
                 # Streamed unchanged, so its length still holds; without it
                 # httpx would send the body chunked.
-                upstream_headers["content-length"] = length
+                out_headers["content-length"] = length
             request = self._client.build_request(
-                method,
-                url,
-                headers=upstream_headers,
-                content=out_body,
-                params=out_params,
+                method, url, headers=out_headers, content=out_body, params=params
             )
             upstream_span = tracing.start("privyx.upstream", span)
-            if schema is not None:
+            if dialect is not None:
                 self._audit.routed += 1
             try:
-                response = await self._client.send(request, stream=True)
+                response = await self._client.send(
+                    request, stream=True, auth=auth or httpx.USE_CLIENT_DEFAULT
+                )
             except Exception as exc:
                 tracing.end(upstream_span, error=exc)
                 self._audit.error(
@@ -498,12 +441,7 @@ class TransparentProxy:
                 if not isinstance(exc, httpx.RequestError):
                     raise
                 status, error_headers, error = upstream_failure(exc)
-                return ProxyResponse(
-                    status_code=status,
-                    headers=error_headers,
-                    media_type=_JSON,
-                    body=json.dumps(error).encode(),
-                )
+                return _error(status, error, error_headers)
 
             tracing.end(upstream_span)
             resp_content_type = response.headers.get("content-type", "")
@@ -511,20 +449,20 @@ class TransparentProxy:
             resp_headers["x-privyx-session"] = sid
 
             # Restored as it streams: SSE, and the JSON lines of an Ollama route.
-            lines = schema == "ollama" and _NDJSON in resp_content_type
+            lines = dialect == "ollama" and _NDJSON in resp_content_type
             is_stream = (_SSE in resp_content_type or lines) and method.upper() != "HEAD"
             tracing.annotate(span, **{"privyx.stream": is_stream})
             self._audit.request(
                 method=method,
                 # An unmatched URL may itself contain PII. The route-decision
                 # event exposes the gap without copying a client-supplied path.
-                path="/" + path.lstrip("/") if schema is not None else "[unmatched]",
-                schema=schema,
+                path=path if dialect is not None else "[unmatched]",
+                schema=dialect,
                 status=response.status_code,
                 session_id=sid,
                 stream=is_stream,
                 duration_ms=_elapsed_ms(start),
-                upstream=urlsplit(origin).netloc if self._run_token else self._upstream_host,
+                upstream=urlsplit(url).netloc,
                 request_id=req_id,
                 transform_ms=transform_ms,
             )
@@ -533,13 +471,7 @@ class TransparentProxy:
                 await response.aclose()
                 if "content-length" in response.headers:
                     resp_headers["content-length"] = response.headers["content-length"]
-                return ProxyResponse(
-                    status_code=response.status_code,
-                    headers=resp_headers,
-                    media_type=resp_content_type or None,
-                    body=b"",
-                )
-
+                return Reply(response.status_code, resp_headers, resp_content_type or None, b"")
             if is_stream:
                 try:
                     # Read before the 200 goes out, so a failing vault is a 503.
@@ -550,32 +482,18 @@ class TransparentProxy:
                 # The generator owns cleanup: FastAPI/client cancellation closes
                 # it even when the caller does not drain the upstream stream.
                 defer_cleanup = True
-                return self._streaming_response(
-                    response,
-                    resp_headers,
-                    schema,
-                    sid,
-                    stored.mapping if stored is not None else {},
-                    req_id,
-                    start,
-                    ephemeral,
-                    span,
+                mapping = stored.mapping if stored is not None else {}
+                return self._stream_reply(
+                    response, resp_headers, dialect, sid, mapping, req_id, start, ephemeral, span,
                     lines=lines,
-                )
-            if schema and _JSON in resp_content_type:
-                return await self._batch_response(
-                    response,
-                    resp_headers,
-                    resp_content_type,
-                    sid,
-                    ephemeral,
-                    req_id,
-                    start,
-                    schema=schema,
-                    span=span,
-                )
+                )  # fmt: skip
+            if dialect and _JSON in resp_content_type:
+                return await self._batch_reply(
+                    response, resp_headers, resp_content_type, sid, ephemeral, req_id, start,
+                    dialect=dialect, span=span,
+                )  # fmt: skip
             defer_cleanup = True  # as for a stream
-            return self._relayed_response(
+            return self._relay_reply(
                 response, resp_headers, resp_content_type, sid, req_id, start, ephemeral, span
             )
         except VaultError as exc:
@@ -588,21 +506,140 @@ class TransparentProxy:
                 duration_ms=_elapsed_ms(start),
             )
             log_vault_failure(exc)
-            return ProxyResponse(
-                status_code=503, media_type=_JSON, body=json.dumps(VAULT_UNAVAILABLE_BODY).encode()
-            )
+            return _error(503, VAULT_UNAVAILABLE_BODY)
         finally:
             if not defer_cleanup:
                 self._end_session(ephemeral, req_id)
             self._audit.end_request(token)
 
-    # -- internals ---------------------------------------------------------
+    # -- routing -------------------------------------------------------------
 
-    def _streaming_response(
+    def _base(self, exchange: Exchange) -> str | Reply | None:
+        """The transparent proxy's upstream URL for ``exchange``, or the refusal.
+
+        ``None`` for the gateway, which asks the provider once it knows
+        whether the request streams (:meth:`_provider_url`).
+        """
+        if self._gateway:
+            return None
+        origin, prefix = self._origin, self._strip_prefix
+        if self._run_token is not None:
+            named = named_upstream(exchange.headers, exchange.path, self._routes, self._run_token)
+            if named is None:
+                self._audit.route_decision(
+                    allowed=False, method=exchange.method, reason="no_upstream"
+                )
+                return _refusal(403, "privyx: the request names no upstream for its route")
+            origin, prefix = named, ""
+        joined = joined_path(exchange.path, exchange.raw_path, prefix)
+        if joined is None:
+            self._audit.route_decision(
+                allowed=False, method=exchange.method, reason="outside_prefix"
+            )
+            return _refusal(
+                404,
+                f"privyx: the path is outside proxy.path_mapping.strip_prefix "
+                f"{prefix or '/'!r} or could leave it",
+            )
+        return origin + joined
+
+    def _provider_url(self, path: str, stream: bool) -> str:
+        """The gateway's upstream URL: the provider's endpoint for ``path``."""
+        assert self._provider is not None  # a gateway has one
+        return self._provider.url(path, stream=stream)
+
+    def _outgoing(
+        self, exchange: Exchange, stream: bool
+    ) -> tuple[dict[str, str], list[tuple[str, Any]] | None, httpx.Auth | None]:
+        """The headers, query, and credential to send upstream, before masking.
+
+        The transparent proxy relays the client's headers and query, with
+        Privyx's key, when it has one, in the header the request's format takes
+        (:func:`~privyx.proxy._headers.filter_request_headers`).  The gateway
+        sends the provider's headers and credential only.
+        """
+        from privyx.providers import ApiKey
+
+        auth = self._provider.auth() if self._provider is not None else None
+        if self._gateway:
+            assert self._provider is not None
+            own = {key.lower(): value for key, value in self._provider.headers().items()}
+            own.setdefault("content-type", _JSON)
+            if stream:
+                own["accept"] = _SSE
+            return own, None, auth
+        key = auth.key if isinstance(auth, ApiKey) else None
+        extra = self._provider.options.headers if self._provider is not None else None
+        out_headers = filter_request_headers(
+            exchange.headers,
+            schema=exchange.dialect,
+            forward_client_auth=self._forward_client_auth,
+            api_key=key,
+            extra=extra,
+        )
+        params: list[tuple[str, Any]] | None = list(exchange.query) or None
+        if params and (auth is not None or not self._forward_client_auth):
+            # The client's key in the query (Gemini's `?key=`) goes with its
+            # headers: Privyx's key replaces it, or none is relayed.
+            params = [(k, v) for k, v in params if k.lower() not in AUTH_QUERY_PARAMS]
+        # A key is written into the headers above; another credential is applied
+        # as the request goes out, over the body actually sent.
+        return out_headers, params, None if key is not None else auth
+
+    async def _mask(
+        self,
+        exchange: Exchange,
+        payload: dict[str, Any] | None,
+        headers: dict[str, str],
+        params: list[tuple[str, Any]] | None,
+        ephemeral: Session | None,
+        span: Any,
+        start: float,
+        request_id: str,
+    ) -> dict[str, Any] | Reply:
+        """The request masked and checked, or the reply refusing it when that fails.
+
+        ``headers`` and ``params``, the ones about to be sent, are masked in place.
+        """
+        sid = exchange.session_id
+        assert sid is not None
+        transform_span = tracing.start("privyx.transform", span)
+        try:
+            transformed = await transform_request(
+                payload or {},
+                self._engine,
+                sid,
+                session=ephemeral,
+                headers=headers,
+                params=params,
+                schema=exchange.dialect,
+                path=exchange.path,
+            )
+        except VaultError as exc:
+            tracing.end(transform_span, error=exc)
+            raise  # not a scan failure: answered by the caller
+        except Exception as exc:
+            tracing.end(transform_span, error=exc)
+            self._audit.error(
+                phase="transform",
+                error_type=type(exc).__name__,
+                session_id=sid,
+                request_id=request_id,
+                duration_ms=_elapsed_ms(start),
+            )
+            log_scan_failure(exc)
+            status, error = scan_failure(exc)
+            return _error(status, error)
+        tracing.end(transform_span)
+        return transformed
+
+    # -- replies -------------------------------------------------------------
+
+    def _stream_reply(
         self,
         response: httpx.Response,
         headers: dict[str, str],
-        schema: str | None,
+        dialect: str | None,
         session_id: str,
         mapping: dict[str, str],
         request_id: str,
@@ -611,13 +648,13 @@ class TransparentProxy:
         span: Any = None,
         *,
         lines: bool = False,
-    ) -> ProxyResponse:
+    ) -> Reply:
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
         stream_iter = self._stream(
-            response, schema, session_id, mapping, request_id, start, ephemeral, span, lines=lines
+            response, dialect, session_id, mapping, request_id, start, ephemeral, span, lines=lines
         )
-        return ProxyResponse(
+        return Reply(
             status_code=response.status_code,
             headers=headers,
             media_type=_NDJSON if lines else _SSE,
@@ -631,7 +668,7 @@ class TransparentProxy:
     async def _stream(
         self,
         response: httpx.Response,
-        schema: str | None,
+        dialect: str | None,
         session_id: str,
         mapping: dict[str, str],
         request_id: str,
@@ -649,10 +686,10 @@ class TransparentProxy:
         restored = 0
         meter = UsageMeter()
         # What the tap keeps, when it is on: the upstream's bytes and ours.
-        tapped: tuple[list[bytes], list[str]] | None = ([], []) if self._tap and schema else None
+        tapped: tuple[list[bytes], list[str]] | None = ([], []) if self._tap and dialect else None
         completed = aborted = False
         try:
-            adapter = build_stream_adapter(schema or "generic")
+            adapter = build_stream_adapter(dialect or "generic")
             # Count restores by wrapping the resolver: a non-None lookup is one
             # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
             # faker's literal trie restore does not consult ``resolve``.)
@@ -742,7 +779,7 @@ class TransparentProxy:
                 tracing.end(span, error=failure)
                 self._end_session(ephemeral, request_id)
 
-    def _relayed_response(
+    def _relay_reply(
         self,
         response: httpx.Response,
         headers: dict[str, str],
@@ -752,13 +789,13 @@ class TransparentProxy:
         start: float,
         ephemeral: Session | None,
         span: Any = None,
-    ) -> ProxyResponse:
+    ) -> Reply:
         """Forward a response with nothing to restore as it arrives.
 
         Read whole first, like a restored one, a download of any size sat in
         memory and reached the client only after its last byte.
         """
-        return ProxyResponse(
+        return Reply(
             status_code=response.status_code,
             headers=headers,
             media_type=content_type or None,
@@ -836,7 +873,7 @@ class TransparentProxy:
         if ephemeral is not None:
             self._engine.end_ephemeral_session(ephemeral, request_id=request_id)
 
-    async def _batch_response(
+    async def _batch_reply(
         self,
         response: httpx.Response,
         headers: dict[str, str],
@@ -845,9 +882,9 @@ class TransparentProxy:
         ephemeral: Session | None,
         request_id: str,
         start: float,
-        schema: str | None = None,
+        dialect: str | None = None,
         span: Any = None,
-    ) -> ProxyResponse:
+    ) -> Reply:
         data = await response.aread()
         await response.aclose()
         restore_span = tracing.start("privyx.restore", span)
@@ -855,15 +892,15 @@ class TransparentProxy:
         upstream_data = data
         payload = _loads(data)
         meter.feed_json(payload)  # embeddings report usage too
-        chunks = schema == "gemini" and isinstance(payload, list)
-        if schema != "embeddings" and (isinstance(payload, dict) or chunks):
+        chunks = dialect == "gemini" and isinstance(payload, list)
+        if dialect != "embeddings" and (isinstance(payload, dict) or chunks):
             try:
                 restored: Any
                 if chunks:
                     restored = await self._restore_chunks(payload, session_id, ephemeral)
                 else:
                     restored = await restore_response(
-                        payload, self._engine, session_id, session=ephemeral, schema=schema
+                        payload, self._engine, session_id, session=ephemeral, schema=dialect
                     )
             except BaseException as exc:  # the vault failed: answered with 503
                 tracing.end(restore_span, error=exc)
@@ -893,12 +930,7 @@ class TransparentProxy:
                 upstream=_tapped_body(upstream_data),
                 restored=_tapped_body(data),
             )
-        return ProxyResponse(
-            status_code=response.status_code,
-            headers=headers,
-            media_type=content_type or None,
-            body=data,
-        )
+        return Reply(response.status_code, headers, content_type or None, data)
 
     async def _restore_chunks(
         self, chunks: list[Any], session_id: str, ephemeral: Session | None
@@ -916,27 +948,6 @@ class TransparentProxy:
         )
         self._audit.restore(session_id, transformations=count)
         return restored
-
-
-def upstream_failure(exc: BaseException) -> tuple[int, dict[str, str], dict[str, Any]]:
-    """Status, headers, and JSON body for an upstream call that got no response.
-
-    Also logs it: the class at WARNING and the traceback only at DEBUG, since a
-    dead or slow upstream is an expected condition, not a bug in Privyx.
-    """
-    name = type(exc).__name__
-    _log.warning("no response from the upstream: %s", name)
-    _log.debug("upstream request failed", exc_info=exc)
-    headers: dict[str, str] = {}
-    if isinstance(exc, httpx.PoolTimeout):
-        status, kind, message = 503, "busy", "privyx is at proxy.max_connections; retry later"
-        headers["retry-after"] = "10"  # the time it already waited for a free connection
-    elif isinstance(exc, httpx.TimeoutException):
-        status, kind, message = 504, "timeout", "the upstream did not respond in time"
-    else:
-        status, kind, message = 502, "unreachable", "privyx could not reach the upstream"
-    body = {"error": {"type": f"privyx_upstream_{kind}", "message": f"{message} ({name})"}}
-    return status, headers, body
 
 
 def scan_failure(exc: Exception) -> tuple[int, dict[str, Any]]:
@@ -958,65 +969,6 @@ def log_vault_failure(exc: VaultError) -> None:
     """Log a failed vault call: its cause at WARNING, the traceback only at DEBUG."""
     _log.warning("request failed: %s from the session vault", type(exc.__cause__ or exc).__name__)
     _log.debug("vault call failed", exc_info=exc)
-
-
-def _upstream_path(path: str, raw_path: str | None, prefix: str | None) -> str | None:
-    """The path to append to the upstream URL, or ``None`` to refuse the request.
-
-    Without a prefix, the whole path.  With one, the rest after it, cut at a
-    segment boundary (``/v1`` takes ``/v1/messages``, not ``/v10/messages``).
-    A dot segment, backslash, or percent sign (once decoded), or an encoded
-    ``/``, is refused rather than normalized: the joined URL could then leave
-    the upstream's own path.
-    """
-    path = "/" + path.lstrip("/")
-    if prefix is None:
-        return path
-    if (
-        any(c in path for c in "\\%?#")
-        or any(segment in (".", "..") for segment in path.split("/"))
-        or (raw_path is not None and "%2f" in raw_path.lower())
-    ):
-        return None
-    if path != prefix and not path.startswith(prefix + "/"):
-        return None
-    return path[len(prefix) :]
-
-
-def _named_upstream(
-    headers: Mapping[str, str], path: str, routes: dict[str, str], token: str
-) -> str | None:
-    """The base URL a ``privyx run pi`` request names for its route.
-
-    Each base URL is listed under a wire schema; the one for the schema of the
-    request path's route is used.  Only an http(s) base URL without
-    credentials is.  ``None`` when the token does not match or no base URL fits.
-    """
-    sent = _ci_get(headers, RUN_TOKEN_HEADER)
-    if not hmac.compare_digest(sent.encode(), token.encode()):
-        return None
-    bases = _loads(_ci_get(headers, UPSTREAMS_HEADER))
-    schema = detect_schema(path, routes)
-    if not (schema and isinstance(bases, dict) and isinstance(bases.get(schema), str)):
-        return None
-    try:
-        url = urlsplit(bases[schema])
-        _ = url.port
-    except ValueError:
-        return None
-    if url.scheme not in ("http", "https") or not url.hostname or "@" in url.netloc:
-        return None
-    # Rebuilt from its parts: a stray `?` or `#` would swallow the path.
-    return f"{url.scheme}://{url.netloc}{url.path.rstrip('/')}"
-
-
-def _ci_get(headers: Mapping[str, str], name: str) -> str:
-    """Case-insensitive header lookup that works for dicts and Headers objects."""
-    target = name.lower()
-    for key, value in headers.items():
-        if key.lower() == target:
-            return value
-    return ""
 
 
 def _tapped_body(data: bytes) -> Any:

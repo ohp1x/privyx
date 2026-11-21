@@ -16,7 +16,7 @@ class PluggableConfig(BaseModel):
     each defined once in a mixin listed before this class, which comes last so
     that ``type`` is the first field.  Every other key is an option of the
     type, kept as written: the component's ``Options`` check it.
-    :func:`~privyx.config.loader.load_config` checks a built-in type's options
+    :func:`~privyx.config.load_config` checks a built-in type's options
     and fills in their defaults.
     """
 
@@ -242,7 +242,7 @@ class ProxyConfig(BaseModel):
     path_mapping: PathMappingConfig = Field(default_factory=PathMappingConfig)
     forward_client_auth: bool = True
     passthrough_unknown: bool = True
-    # The upstream client, in both modes; see privyx.proxy.http.upstream_client.
+    # The upstream client, in both modes; see privyx.proxy._upstream.upstream_client.
     timeout: float = Field(default=300.0, gt=0)  # seconds between bytes, read or write
     connect_timeout: float = Field(default=10.0, gt=0)
     max_connections: int | None = Field(default=None, gt=0)  # unset: no limit

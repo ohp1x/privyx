@@ -19,13 +19,14 @@ import httpx
 import pytest
 
 from privyx.anchors import HMACAnchor
-from privyx.core import DetectorError
+from privyx.core import DetectorError, Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.providers import GenericProvider
+from privyx.proxy import Pipeline
 from privyx.testing import opened
 from privyx.vaults import MemoryVault
 
@@ -90,12 +91,14 @@ def _mock_client(capture: list[httpx.Request] | None = None) -> httpx.AsyncClien
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-async def _post_json(proxy: TransparentProxy, path: str, payload: dict[str, Any]) -> Any:
+async def _post_json(proxy: Pipeline, path: str, payload: dict[str, Any]) -> Any:
     return await proxy.handle(
-        method="POST",
-        path=path,
-        headers={"content-type": "application/json"},
-        body=json.dumps(payload).encode(),
+        Exchange(
+            method="POST",
+            path=path,
+            headers={"content-type": "application/json"},
+            body=json.dumps(payload).encode(),
+        )
     )
 
 
@@ -104,7 +107,7 @@ async def _post_json(proxy: TransparentProxy, path: str, payload: dict[str, Any]
 
 async def test_openai_batch_round_trip_and_headers() -> None:
     engine = _engine()
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client())
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client())
 
     result = await _post_json(
         proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
@@ -120,7 +123,7 @@ async def test_openai_batch_round_trip_and_headers() -> None:
 async def test_upstream_receives_pseudonym_not_pii() -> None:
     engine = _engine()
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(capture))
 
     await _post_json(
         proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
@@ -133,15 +136,17 @@ async def test_upstream_receives_pseudonym_not_pii() -> None:
 
 async def test_openai_stream_round_trip_done_last() -> None:
     engine = _engine()
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client())
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client())
 
     result = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json"},
-        body=json.dumps(
-            {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
-        ).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json"},
+            body=json.dumps(
+                {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+            ).encode(),
+        )
     )
 
     assert result.stream is not None
@@ -155,7 +160,7 @@ async def test_openai_stream_round_trip_done_last() -> None:
 async def test_anthropic_batch_round_trip() -> None:
     engine = _engine()
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(capture))
 
     result = await _post_json(
         proxy,
@@ -179,16 +184,18 @@ async def test_a_token_id_written_on_its_own_is_restored(stream: bool) -> None:
         vault=MemoryVault(),
     )
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(capture))
 
     async def ask(content: str) -> str:
         result = await proxy.handle(
-            method="POST",
-            path="v1/chat/completions",
-            headers={"content-type": "application/json", "x-privyx-session": "s1"},
-            body=json.dumps(
-                {"stream": stream, "messages": [{"role": "user", "content": content}]}
-            ).encode(),
+            Exchange(
+                method="POST",
+                path="v1/chat/completions",
+                headers={"content-type": "application/json", "x-privyx-session": "s1"},
+                body=json.dumps(
+                    {"stream": stream, "messages": [{"role": "user", "content": content}]}
+                ).encode(),
+            )
         )
         if result.stream is None:
             return result.body.decode()
@@ -208,7 +215,7 @@ async def test_a_token_id_written_on_its_own_is_restored(stream: bool) -> None:
 async def test_concurrent_requests_use_isolated_sessions() -> None:
     """Two callers must not share a pseudonym map (the veilstream single-session bug)."""
     engine = _engine()
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client())
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client())
 
     async def call(email: str) -> str:
         result = await _post_json(
@@ -227,7 +234,7 @@ async def test_concurrent_requests_use_isolated_sessions() -> None:
 async def test_a_path_that_repeats_v1_is_masked_before_the_upstream_answers_404() -> None:
     """What an Anthropic client calls when its base URL ends in ``/v1``."""
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     result = await _post_json(
         proxy, "v1/v1/messages", {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
@@ -242,9 +249,9 @@ async def test_a_path_that_repeats_v1_is_masked_before_the_upstream_answers_404(
 
 async def test_non_chat_path_is_forwarded_verbatim() -> None:
     engine = _engine()
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client())
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client())
 
-    result = await proxy.handle(method="GET", path="v1/models", headers={}, body=b"")
+    result = await proxy.handle(Exchange(method="GET", path="v1/models", headers={}, body=b""))
 
     assert result.stream is not None  # nothing to restore: relayed as it arrives
     data = json.loads(b"".join([chunk async for chunk in result.stream]))
@@ -254,11 +261,8 @@ async def test_non_chat_path_is_forwarded_verbatim() -> None:
 
 async def test_unrouted_path_refused_without_passthrough() -> None:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(
-        _engine(),
-        origin="https://up.test",
-        client=_mock_client(capture),
-        passthrough_unknown=False,
+    proxy = Pipeline(
+        _engine(), origin="https://up.test", client=_mock_client(capture), passthrough_unknown=False
     )
 
     refused = await _post_json(proxy, "v1/files", {"purpose": "fine-tune"})
@@ -279,13 +283,15 @@ async def test_websocket_upgrade_is_refused_with_426() -> None:
     HTTP at once; on another status it retries for seconds before it does.
     """
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     refused = await proxy.handle(
-        method="GET",
-        path="v1/responses",
-        headers={"Connection": "Upgrade", "Upgrade": "websocket"},
-        body=b"",
+        Exchange(
+            method="GET",
+            path="v1/responses",
+            headers={"Connection": "Upgrade", "Upgrade": "websocket"},
+            body=b"",
+        )
     )
 
     assert refused.status_code == 426
@@ -306,13 +312,15 @@ async def test_a_routed_body_that_is_not_a_json_object_is_never_forwarded(
     content_type: str, body: str
 ) -> None:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     result = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": content_type},
-        body=body.encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": content_type},
+            body=body.encode(),
+        )
     )
 
     assert result.status_code == 400
@@ -323,13 +331,15 @@ async def test_a_routed_body_that_is_not_a_json_object_is_never_forwarded(
 async def test_a_json_body_is_masked_whatever_its_content_type() -> None:
     # `curl -d` sends application/x-www-form-urlencoded unless told otherwise.
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     result = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/x-www-form-urlencoded"},
-        body=json.dumps({"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/x-www-form-urlencoded"},
+            body=json.dumps({"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}).encode(),
+        )
     )
 
     assert result.status_code == 200
@@ -343,15 +353,17 @@ def _codex_metadata() -> str:
 
 async def test_codex_turn_metadata_header_is_masked_with_the_body() -> None:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
     metadata = _codex_metadata()
     payload = {"input": f"mail {EMAIL}", "client_metadata": {"x-codex-turn-metadata": metadata}}
 
     await proxy.handle(
-        method="POST",
-        path="v1/responses",
-        headers={"content-type": "application/json", "X-Codex-Turn-Metadata": metadata},
-        body=json.dumps(payload).encode(),
+        Exchange(
+            method="POST",
+            path="v1/responses",
+            headers={"content-type": "application/json", "X-Codex-Turn-Metadata": metadata},
+            body=json.dumps(payload).encode(),
+        )
     )
 
     sent = capture[0]
@@ -369,10 +381,12 @@ async def test_codex_turn_metadata_header_is_masked_with_the_body() -> None:
 async def test_codex_turn_metadata_header_is_masked_without_a_body(path: str) -> None:
     # A request without a body carries the header too.
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     await proxy.handle(
-        method="GET", path=path, headers={"x-codex-turn-metadata": _codex_metadata()}, body=b""
+        Exchange(
+            method="GET", path=path, headers={"x-codex-turn-metadata": _codex_metadata()}, body=b""
+        )
     )
 
     sent = capture[0].headers["x-codex-turn-metadata"]
@@ -384,16 +398,10 @@ async def test_codex_turn_metadata_header_is_masked_without_a_body(path: str) ->
 @pytest.mark.parametrize("path", ["v1/responses", "v1/models"], ids=["routed", "unrouted"])
 async def test_query_params_are_masked_in_forwarded_request(path: str) -> None:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     query = [("user", EMAIL), ("limit", "10")]
-    await proxy.handle(
-        method="GET",
-        path=path,
-        headers={},
-        body=b"",
-        query_params=query,
-    )
+    await proxy.handle(Exchange(method="GET", path=path, headers={}, body=b"", query=query))
 
     sent_req = capture[0]
     sent_params = dict(sent_req.url.params)
@@ -404,16 +412,18 @@ async def test_query_params_are_masked_in_forwarded_request(path: str) -> None:
 
 async def test_query_params_masked_with_body_in_same_session() -> None:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     query = [("user", EMAIL)]
     body = {"messages": [{"role": "user", "content": f"hello {EMAIL}"}]}
     await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json"},
-        body=json.dumps(body).encode(),
-        query_params=query,
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json"},
+            body=json.dumps(body).encode(),
+            query=query,
+        )
     )
 
     sent_req = capture[0]
@@ -428,16 +438,18 @@ async def test_query_params_masked_with_body_in_same_session() -> None:
 async def test_auth_query_params_are_not_masked() -> None:
     # Native Gemini endpoints send ?key=AIza... which must be forwarded unchanged.
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
 
     api_key = "AIza" + "SyA1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvW"
     query = [("key", api_key), ("q", EMAIL)]
     await proxy.handle(
-        method="POST",
-        path="v1beta/models/gemini-pro:generateContent",
-        headers={"content-type": "application/json"},
-        body=b"{}",
-        query_params=query,
+        Exchange(
+            method="POST",
+            path="v1beta/models/gemini-pro:generateContent",
+            headers={"content-type": "application/json"},
+            body=b"{}",
+            query=query,
+        )
     )
 
     sent_req = capture[0]
@@ -454,16 +466,23 @@ async def test_auth_query_params_are_not_masked() -> None:
 )
 async def test_the_clients_query_key_is_dropped_with_its_headers(options: dict[str, Any]) -> None:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(
-        _engine(), origin="https://up.test", client=_mock_client(capture), **options
+    key = options.get("api_key")
+    proxy = Pipeline(
+        _engine(),
+        GenericProvider(api_key=key) if key else None,
+        origin="https://up.test",
+        client=_mock_client(capture),
+        forward_client_auth=options.get("forward_client_auth", True),
     )
 
     await proxy.handle(
-        method="POST",
-        path="v1beta/models/gemini-pro:generateContent",
-        headers={"content-type": "application/json", "x-goog-api-key": "client-key"},
-        body=b"{}",
-        query_params=[("key", "client-key"), ("alt", "sse")],
+        Exchange(
+            method="POST",
+            path="v1beta/models/gemini-pro:generateContent",
+            headers={"content-type": "application/json", "x-goog-api-key": "client-key"},
+            body=b"{}",
+            query=[("key", "client-key"), ("alt", "sse")],
+        )
     )
 
     sent = capture[0]
@@ -486,13 +505,15 @@ async def test_a_header_that_cannot_be_masked_is_never_forwarded() -> None:
         operator=PseudonymOperator(),
         vault=MemoryVault(),
     )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(capture))
 
     result = await proxy.handle(
-        method="GET",
-        path="v1/responses",
-        headers={"x-codex-turn-metadata": _codex_metadata()},
-        body=b"",
+        Exchange(
+            method="GET",
+            path="v1/responses",
+            headers={"x-codex-turn-metadata": _codex_metadata()},
+            body=b"",
+        )
     )
 
     assert result.status_code == 503
@@ -500,7 +521,7 @@ async def test_a_header_that_cannot_be_masked_is_never_forwarded() -> None:
     assert not capture
 
 
-def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> TransparentProxy:
+def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> Pipeline:
     audit = AuditLogger(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
@@ -509,7 +530,7 @@ def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> TransparentPr
         vault=MemoryVault(),
         audit=audit,
     )
-    return TransparentProxy(engine, origin="https://up.test", client=client, audit=audit)
+    return Pipeline(engine, origin="https://up.test", client=client, audit=audit)
 
 
 async def test_audit_trail_records_request_without_pii() -> None:
@@ -564,7 +585,7 @@ async def test_transform_ms_is_left_out_when_nothing_was_masked() -> None:
     buf = io.StringIO()
     proxy = _audited_proxy(buf, _mock_client())
 
-    await proxy.handle(method="GET", path="v1/models", headers={}, body=b"")
+    await proxy.handle(Exchange(method="GET", path="v1/models", headers={}, body=b""))
 
     records = [json.loads(line) for line in buf.getvalue().splitlines() if line]
     request = next(r for r in records if r["event"] == "proxy.request")
@@ -576,12 +597,14 @@ async def test_streaming_audit_records_restore_and_response() -> None:
     proxy = _audited_proxy(buf, _mock_client())
 
     result = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json"},
-        body=json.dumps(
-            {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
-        ).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json"},
+            body=json.dumps(
+                {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+            ).encode(),
+        )
     )
     # The response/restore events are emitted only once the stream is fully drained.
     assert result.stream is not None
@@ -629,12 +652,14 @@ async def test_ephemeral_stream_session_is_deleted_after_drain() -> None:
     proxy = _audited_proxy(buf, _mock_client())
 
     result = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json"},
-        body=json.dumps(
-            {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
-        ).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json"},
+            body=json.dumps(
+                {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+            ).encode(),
+        )
     )
     sid = result.headers["x-privyx-session"]
     assert result.stream is not None
@@ -651,12 +676,14 @@ async def test_ephemeral_stream_session_is_deleted_when_closed_early(pulled: int
     proxy = _audited_proxy(buf, _mock_client())
 
     result = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json"},
-        body=json.dumps(
-            {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
-        ).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json"},
+            body=json.dumps(
+                {"stream": True, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+            ).encode(),
+        )
     )
     sid = result.headers["x-privyx-session"]
     assert result.stream is not None
@@ -680,19 +707,23 @@ async def test_sticky_session_is_retained_and_not_deleted() -> None:
         vault=MemoryVault(),
         audit=audit,
     )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(), audit=audit)
 
     _ = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json", "x-privyx-session": "ses_sticky_1"},
-        body=json.dumps({"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json", "x-privyx-session": "ses_sticky_1"},
+            body=json.dumps({"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}).encode(),
+        )
     )
     second = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json", "x-privyx-session": "ses_sticky_1"},
-        body=json.dumps({"messages": [{"role": "user", "content": f"again {EMAIL}"}]}).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json", "x-privyx-session": "ses_sticky_1"},
+            body=json.dumps({"messages": [{"role": "user", "content": f"again {EMAIL}"}]}).encode(),
+        )
     )
 
     assert second.headers["x-privyx-session"] == "ses_sticky_1"
@@ -744,7 +775,7 @@ async def test_no_upstream_response_is_named_by_status_and_type(
         raise failure("")  # a timeout's message is empty
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(fail))
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=client)
+    proxy = Pipeline(_engine(), origin="https://up.test", client=client)
 
     result = await _post_json(
         proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": EMAIL}]}
@@ -762,7 +793,7 @@ async def test_no_upstream_response_is_named_by_status_and_type(
 
 async def test_session_header_reused_across_requests() -> None:
     engine = _engine()
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client())
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client())
 
     first = await _post_json(
         proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
@@ -770,10 +801,12 @@ async def test_session_header_reused_across_requests() -> None:
     sid = first.headers["x-privyx-session"]
 
     reused = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"content-type": "application/json", "x-privyx-session": sid},
-        body=json.dumps({"messages": [{"role": "user", "content": f"again {EMAIL}"}]}).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"content-type": "application/json", "x-privyx-session": sid},
+            body=json.dumps({"messages": [{"role": "user", "content": f"again {EMAIL}"}]}).encode(),
+        )
     )
 
     assert reused.headers["x-privyx-session"] == sid
@@ -786,13 +819,15 @@ def _auth_headers() -> dict[str, str]:
     return {"content-type": "application/json", "authorization": "Bearer sk-test"}
 
 
-async def _turn(proxy: TransparentProxy, messages: list[dict[str, Any]]) -> Any:
+async def _turn(proxy: Pipeline, messages: list[dict[str, Any]]) -> Any:
     """POST a chat turn with a credential but no x-privyx-session header."""
     return await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers=_auth_headers(),
-        body=json.dumps({"messages": messages}).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers=_auth_headers(),
+            body=json.dumps({"messages": messages}).encode(),
+        )
     )
 
 
@@ -806,7 +841,7 @@ async def test_conversation_strategy_reuses_one_session_across_turns() -> None:
         vault=MemoryVault(),
         audit=audit,
     )
-    proxy = TransparentProxy(
+    proxy = Pipeline(
         engine,
         origin="https://up.test",
         client=_mock_client(),
@@ -835,11 +870,8 @@ async def test_conversation_strategy_reuses_one_session_across_turns() -> None:
 
 async def test_conversation_strategy_isolates_distinct_conversations() -> None:
     engine = _engine()
-    proxy = TransparentProxy(
-        engine,
-        origin="https://up.test",
-        client=_mock_client(),
-        session_strategy="conversation",
+    proxy = Pipeline(
+        engine, origin="https://up.test", client=_mock_client(), session_strategy="conversation"
     )
 
     a = await _turn(proxy, [{"role": "user", "content": "topic one"}])
@@ -858,7 +890,7 @@ async def test_default_strategy_is_ephemeral_and_audited() -> None:
         vault=MemoryVault(),
         audit=audit,
     )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_mock_client(), audit=audit)
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(), audit=audit)
 
     a = await _turn(proxy, [{"role": "user", "content": f"mail {EMAIL}"}])
     b = await _turn(proxy, [{"role": "user", "content": f"mail {EMAIL}"}])
@@ -873,12 +905,9 @@ async def test_default_strategy_is_ephemeral_and_audited() -> None:
 
 async def test_head_method_returns_empty_body() -> None:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
     response = await proxy.handle(
-        method="HEAD",
-        path="/v1/chat/completions",
-        headers={},
-        body=b"",
+        Exchange(method="HEAD", path="/v1/chat/completions", headers={}, body=b"")
     )
     assert response.status_code == 200
     assert response.body == b""

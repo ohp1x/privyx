@@ -12,8 +12,6 @@ import pytest
 from click.testing import CliRunner
 
 from privyx.app._build import build_detector
-from privyx.cli import workspace
-from privyx.cli.commands.run import _harvest
 from privyx.cli.main import cli
 from privyx.config.schema import Settings
 from privyx.engine import PrivacyEngine
@@ -21,6 +19,7 @@ from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy.schemas import transform_request
 from privyx.vaults import MemoryVault
+from privyx.workspace import _harvest as workspace
 
 
 @pytest.fixture
@@ -40,7 +39,7 @@ async def test_harvest_masks_identity_in_safeguards(
     monkeypatch.chdir(tmp_path)
     settings = Settings()
     if harvest:
-        assert _harvest(settings) == "1 PERSON, 0 .env value(s)"
+        assert workspace.harvest(settings, Path.cwd()) == "1 PERSON, 0 .env value(s)"
     configs = settings.detector if isinstance(settings.detector, list) else [settings.detector]
     engine = PrivacyEngine(
         detector=build_detector([d.model_dump() for d in configs]),
@@ -122,5 +121,5 @@ def test_identity_is_deduplicated_with_git_author(
         workspace, "git_terms", lambda *a: [workspace.Found("PERSON", "Alice", "git")]
     )
     settings = Settings()
-    assert _harvest(settings) == "1 PERSON, 0 .env value(s)"
+    assert workspace.harvest(settings, Path.cwd()) == "1 PERSON, 0 .env value(s)"
     assert json.dumps(settings.model_dump()).count('"Alice"') == 1

@@ -18,12 +18,13 @@ from typing import Any
 import pytest
 import uvicorn
 
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.providers import GenericProvider
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
 from privyx.vaults import MemoryVault
 
 STREAMS = 150
@@ -58,14 +59,16 @@ def _transparent(origin: str) -> tuple[Callable[[], Awaitable[None]], Any]:
         operator=PseudonymOperator(),
         vault=MemoryVault(),
     )
-    proxy = TransparentProxy(engine, origin=origin)
+    proxy = Pipeline(engine, origin=origin)
 
     async def stream() -> None:
         result = await proxy.handle(
-            method="POST",
-            path="v1/messages",
-            headers={"content-type": "application/json"},
-            body=json.dumps(BODY).encode(),
+            Exchange(
+                method="POST",
+                path="v1/messages",
+                headers={"content-type": "application/json"},
+                body=json.dumps(BODY).encode(),
+            )
         )
         assert result.status_code == 200
         assert result.stream is not None
@@ -79,7 +82,7 @@ def _gateway(origin: str) -> tuple[Callable[[], Awaitable[None]], Any]:
     """What the gateway sends a stream with: the upstream client, aimed by the provider."""
     from types import SimpleNamespace
 
-    from privyx.proxy.http import upstream_client
+    from privyx.proxy._upstream import upstream_client
 
     provider = GenericProvider(base_url=f"{origin}/v1/messages")
     client = upstream_client()

@@ -11,10 +11,10 @@ from click.testing import CliRunner
 
 from privyx import load_config
 from privyx.app._build import build_detector
-from privyx.cli import workspace
 from privyx.cli.main import cli
-from privyx.config.loader import is_trusted
+from privyx.config import is_trusted
 from privyx.core import Context
+from privyx.workspace import _harvest as workspace
 
 DSN = "https://abc123@o1.ingest.example.test/42"
 STRIPE = "not-a-real-" + "secret-42"
@@ -196,10 +196,8 @@ def test_scan_keeps_a_trusted_config_trusted(runner: CliRunner, repo: Path) -> N
 
 
 def test_harvest_masks_the_workspace_for_one_run(runner: CliRunner, repo: Path) -> None:
-    from privyx.cli.commands.run import _harvest
-
     settings = load_config()
-    summary = _harvest(settings)
+    summary = workspace.harvest(settings, Path.cwd())
 
     assert summary == "1 ORGANIZATION, 2 PERSON, 1 PROJECT, 3 .env value(s)"
     assert isinstance(settings.detector, list)
@@ -250,8 +248,8 @@ def test_a_quoted_env_value_with_a_comment_loses_its_quotes(tmp_path: Path) -> N
 def test_the_scan_pattern_masks_the_whole_value(text: str, value: str) -> None:
     import re
 
-    from privyx.cli.commands.scan import env_pattern
     from privyx.detectors._pattern import backtracks
+    from privyx.workspace import env_pattern
 
     pattern = env_pattern("CUSTOM_VALUE")
     match = re.search(pattern, text)
@@ -281,12 +279,10 @@ def test_env_values_decode_escapes_in_quotes(tmp_path: Path, line: str, value: s
 def test_harvest_masks_a_value_with_an_escaped_quote(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from privyx.cli.commands.run import _harvest
-
     (tmp_path / ".env").write_text('CUSTOM_VALUE="abc-123\\"tail-456" # x\n', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     settings = load_config()
-    _harvest(settings)
+    workspace.harvest(settings, Path.cwd())
 
     detector = build_detector([d.model_dump() for d in settings.detector])  # type: ignore[union-attr]
     text = 'it is abc-123"tail-456 here'
@@ -297,12 +293,10 @@ def test_harvest_masks_a_value_with_an_escaped_quote(
 def test_harvest_masks_a_value_with_an_unknown_escape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from privyx.cli.commands.run import _harvest
-
     (tmp_path / ".env").write_text('CUSTOM_VALUE="abc\\q-123456"\n', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     settings = load_config()
-    _harvest(settings)
+    workspace.harvest(settings, Path.cwd())
 
     detector = build_detector([d.model_dump() for d in settings.detector])  # type: ignore[union-attr]
     text = "it is abc\\q-123456 here"

@@ -50,7 +50,7 @@ def _sessions(db: Path) -> list[tuple[str, str, float]]:
 def test_doctor_cleans_only_its_sessions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None
 ) -> None:
-    from privyx.proxy.http import HTTPProxy
+    from privyx.proxy.stream_router import StreamRouter
     from privyx.vaults._sqlite import SQLiteVault
 
     config = tmp_path / "config.yaml"
@@ -78,14 +78,13 @@ def test_doctor_cleans_only_its_sessions(
         async def fail_request(*args, **kwargs):
             raise RuntimeError("probe request failed")
 
-        monkeypatch.setattr(HTTPProxy, "process_request", fail_request)
+        monkeypatch.setattr("privyx.proxy.schemas.transform_request", fail_request)
     elif failure == "streaming":
 
-        async def fail_stream(*args, **kwargs):
+        def fail_stream(*args, **kwargs):
             raise RuntimeError("probe stream failed")
-            yield  # pragma: no cover
 
-        monkeypatch.setattr(HTTPProxy, "process_stream", fail_stream)
+        monkeypatch.setattr(StreamRouter, "feed", fail_stream)
 
     for _ in range(2):
         result = runner.invoke(cli, ["doctor", "-c", str(config)])
@@ -131,13 +130,11 @@ def test_doctor_respects_detector_and_policy_scope(
 def test_doctor_still_detects_a_broken_transform(
     monkeypatch: pytest.MonkeyPatch, prefix: str
 ) -> None:
-    from privyx.proxy.http import HTTPProxy
-
-    async def unchanged(self, payload, session_id=None, **kwargs):
+    async def unchanged(payload, engine, session_id, **kwargs):
         payload["messages"][0]["content"] = prefix + payload["messages"][0]["content"]
-        return payload, session_id
+        return payload
 
-    monkeypatch.setattr(HTTPProxy, "process_request", unchanged)
+    monkeypatch.setattr("privyx.proxy.schemas.transform_request", unchanged)
     result = CliRunner().invoke(cli, ["doctor"])
 
     assert result.exit_code == 1
@@ -145,13 +142,9 @@ def test_doctor_still_detects_a_broken_transform(
 
 
 def test_doctor_still_detects_a_broken_stream(monkeypatch: pytest.MonkeyPatch) -> None:
-    from privyx.proxy.http import HTTPProxy
+    from privyx.proxy.stream_router import StreamRouter
 
-    async def unrestored(self, payload, session_id, **kwargs):
-        async for chunk in self._provider.stream(payload):
-            yield chunk
-
-    monkeypatch.setattr(HTTPProxy, "process_stream", unrestored)
+    monkeypatch.setattr(StreamRouter, "feed", lambda self, chunk: [chunk])
     result = CliRunner().invoke(cli, ["doctor"])
 
     assert result.exit_code == 1

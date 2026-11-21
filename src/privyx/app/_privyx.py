@@ -18,7 +18,11 @@ engine alone::
     async def warm(event: AppStarting) -> None:
         ...
 
-    px.run()
+    px.serve()
+
+:meth:`Privyx.asgi` gives the same app to another ASGI server, or to a parent
+app that mounts it: ``uvicorn --factory acme.app:make_app``, where
+``make_app`` returns ``Privyx(...).asgi()``.
 
 A package does the same in a ``setup(app)`` function that ``plugins.modules``
 names, and a file of ``plugins.paths`` in its own.  The interface may change
@@ -32,7 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -42,6 +46,10 @@ from privyx.core import Component, ConfigError, Event, EventBus, Registry
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
+    from privyx.app._services._audit import Audit
+    from privyx.app._services._masking import Masking
+    from privyx.app._services._sessions import Sessions
+    from privyx.app._services._workspace import Workspace
     from privyx.config.schema import Settings
     from privyx.engine import PrivacyEngine
 
@@ -73,6 +81,15 @@ class Privyx:
         self._registries: dict[str, Registry[Any]] = {}
         self._events = EventBus()
         self._router: APIRouter | None = None
+        #: Edge middleware: (priority, order added, factory, options).
+        self._middleware: list[tuple[int, int, Callable[..., Any], dict[str, Any]]] = []
+        self._loaded: Settings | None = None
+        self._engine: PrivacyEngine | None = None
+        # The services, each made when first used.
+        self._masking: Masking | None = None
+        self._workspace: Workspace | None = None
+        self._sessions: Sessions | None = None
+        self._audit_service: Audit | None = None
         self._modules: set[str] = set()
         self._files: set[Path] = set()
         for package in _KINDS:
@@ -128,8 +145,8 @@ class Privyx:
         The highest ``priority`` runs first, then the order added.  A listener
         of :class:`~privyx.events.AppStarting` that fails stops the server
         from starting; one of :class:`~privyx.events.AppStopping` that fails
-        is logged.  Both are emitted by :meth:`run`, ``privyx proxy``, and
-        ``privyx run``, not by :meth:`engine`.
+        is logged.  Both are emitted as the app is served (:meth:`serve`,
+        :meth:`asgi`, ``privyx proxy``, ``privyx run``), not by :meth:`engine`.
         """
 
         def add(listener: F) -> F:
@@ -152,41 +169,123 @@ class Privyx:
             self._router = APIRouter()
         return self._router
 
-    def _settings(self) -> Settings:
-        """Load the settings: the config files, the environment, then the overrides."""
-        return self._load(self._config, extra=self._overrides or None)
+    def add_middleware(
+        self, factory: Callable[..., Any], *, priority: int = 0, **options: Any
+    ) -> None:
+        """Serve every request through ASGI middleware ``factory``, before the routes.
+
+        ``factory(app, **options)`` wraps the app inside it, as Starlette's
+        ``CORSMiddleware`` does: it sees every route, ``/health`` and plugin
+        routes too, before a body is read.  The highest ``priority`` is
+        outermost; of equal ones, the one added first.
+        """
+        self._middleware.append((priority, len(self._middleware), factory, options))
+
+    @property
+    def settings(self) -> Settings:
+        """The settings: the config files, the environment, then the overrides; read once."""
+        if self._loaded is None:
+            self._loaded = self._load(self._config, extra=self._overrides or None)
+        return self._loaded
 
     def _load(self, path: str | Path | None = None, **options: Any) -> Settings:
-        """:func:`privyx.config.loader.load_config` with this app's types checked."""
-        from privyx.config.loader import load_config
+        """:func:`privyx.config.load_config` with this app's types checked."""
+        from privyx.config import load_config
 
         return load_config(path, types=self._registries, **options)
 
-    def run(self) -> None:
-        """Serve the proxy, as ``privyx proxy`` does, until stopped."""
-        from privyx.cli.commands.proxy import _run_server
+    def asgi(self) -> Any:
+        """The app as ASGI: its middleware around its routes and the proxy's.
 
-        asyncio.run(_run_server(self._settings(), app=self))
+        Its lifespan opens the components as the server starts and closes them
+        as it stops; a parent app that mounts it must run that lifespan too
+        (a Starlette ``Mount`` does not).
+
+        Raises:
+            ConfigError: If the settings cannot be read, a plugin cannot be set
+                up, or a plugin route overlaps a masking route.
+        """
+        from privyx.app._serve import compose
+
+        return compose(self, self.settings)[0]
+
+    def serve(self, *, watch: Sequence[Path] = ()) -> bool:
+        """Serve the proxy, as ``privyx proxy`` does, until stopped.
+
+        With ``watch``, also until one of those files changes on disk, and then
+        return ``True`` (``privyx proxy --reload``).
+
+        Raises:
+            ConfigError: If the app cannot be built.
+        """
+        from privyx.app._serve import serve
+
+        return asyncio.run(serve(self, watch))
 
     @asynccontextmanager
     async def engine(self) -> AsyncIterator[PrivacyEngine]:
-        """The privacy engine, with this ``Privyx``'s components; they close on exit."""
+        """The privacy engine, with this ``Privyx``'s components; they close on exit.
+
+        Inside another ``engine()`` of this app, the same engine, which the
+        outer one closes: a server holds one open for all its calls.
+        """
         from privyx.app._build import build_engine
         from privyx.app._plugins import load_plugins
 
-        settings = self._settings()
+        if self._engine is not None:
+            yield self._engine
+            return
+        settings = self.settings
         load_plugins(settings, self)
         engine, close = await build_engine(settings, self)
+        self._engine = engine
         try:
             yield engine
         finally:
+            self._engine = None
             await close()
+
+    @property
+    def masking(self) -> Masking:
+        """Masking and restoring text and files, and detection (experimental)."""
+        if self._masking is None:
+            from privyx.app._services._masking import Masking
+
+            self._masking = Masking(self)
+        return self._masking
+
+    @property
+    def workspace(self) -> Workspace:
+        """The working directory: its scan, and the checks of its git hooks (experimental)."""
+        if self._workspace is None:
+            from privyx.app._services._workspace import Workspace
+
+            self._workspace = Workspace(self)
+        return self._workspace
+
+    @property
+    def sessions(self) -> Sessions:
+        """The vault's sessions: list, show, export, prune (experimental)."""
+        if self._sessions is None:
+            from privyx.app._services._sessions import Sessions
+
+            self._sessions = Sessions(self)
+        return self._sessions
+
+    @property
+    def audit(self) -> Audit:
+        """The audit trail and the tap: totals, recent events, records (experimental)."""
+        if self._audit_service is None:
+            from privyx.app._services._audit import Audit
+
+            self._audit_service = Audit(self)
+        return self._audit_service
 
 
 def load_config(path: str | Path | None = None, **options: Any) -> Settings:
     """Load the settings, with the options of each built-in component type checked.
 
-    The arguments are :func:`privyx.config.loader.load_config`'s.  A plugin's
+    The arguments are :func:`privyx.config.load_config`'s.  A plugin's
     options are checked when its component is built.
 
     Raises:

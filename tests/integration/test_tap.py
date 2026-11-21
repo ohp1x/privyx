@@ -12,12 +12,13 @@ import pytest
 from click.testing import CliRunner
 
 from privyx.cli.main import cli
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.observability.tap import Tap, tap_file
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
+from privyx.proxy._tap import Tap, tap_file
 from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
@@ -33,7 +34,7 @@ def _upstream(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"message": {"content": text}}]})
 
 
-def _proxy(tap: Tap | None) -> TransparentProxy:
+def _proxy(tap: Tap | None) -> Pipeline:
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -41,16 +42,18 @@ def _proxy(tap: Tap | None) -> TransparentProxy:
         vault=MemoryVault(),
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(_upstream))
-    return TransparentProxy(engine, origin="https://up.test", client=client, tap=tap)
+    return Pipeline(engine, origin="https://up.test", client=client, tap=tap)
 
 
-async def _exchange(proxy: TransparentProxy, *, stream: bool = False) -> str:
+async def _exchange(proxy: Pipeline, *, stream: bool = False) -> str:
     body = {"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
     result = await proxy.handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"x-privyx-session": "ses_tap"},
-        body=json.dumps(body).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"x-privyx-session": "ses_tap"},
+            body=json.dumps(body).encode(),
+        )
     )
     if result.stream is not None:
         return "".join([chunk async for chunk in result.stream])

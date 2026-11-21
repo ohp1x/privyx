@@ -175,7 +175,7 @@ def test_a_reference_resolves_only_where_config_show_masks_it(
 
 
 def test_every_resolved_value_is_masked_by_redact(monkeypatch: pytest.MonkeyPatch) -> None:
-    from privyx.config.redact import redact
+    from privyx.security import redact
 
     monkeypatch.setattr(secrets, "_op_read", lambda reference, path: KEY)
     ref = "op://dev/anthropic/credential"
@@ -191,7 +191,7 @@ def test_every_resolved_value_is_masked_by_redact(monkeypatch: pytest.MonkeyPatc
 
 
 def test_redact_shows_the_auto_anchor_marker_but_masks_a_real_secret() -> None:
-    from privyx.config.redact import redact
+    from privyx.security import redact
 
     assert redact({"anchor": {"secret": "auto"}}) == {"anchor": {"secret": "auto"}}
     assert redact({"anchor": {"secret": "a" * 64}}) == {"anchor": {"secret": "***"}}

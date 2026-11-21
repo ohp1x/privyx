@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from privyx.core import ConfigError
 
 if TYPE_CHECKING:
-    from privyx.config.loader import _Types
+    from privyx.config._layers import _Types
 
 
 def resolve_profiles(
@@ -21,7 +21,7 @@ def resolve_profiles(
     overriding its parent's even when it changes between env and env_from;
     ``budget`` and ``privyx`` merge deeply.
     """
-    from privyx.config.loader import _deep_merge, _record_sources
+    from privyx.config._layers import _deep_merge, _record_sources
 
     resolved: dict[str, Any] = {}
     origins: dict[str, str] = {}

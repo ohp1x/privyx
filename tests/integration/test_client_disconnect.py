@@ -25,13 +25,12 @@ pytest.importorskip("aiosqlite")
 from privyx.config.schema import Settings  # noqa: E402
 from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
-from privyx.gateway.server import Gateway  # noqa: E402
-from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.providers import GenericProvider  # noqa: E402
-from privyx.proxy.transparent import TransparentProxy  # noqa: E402
+from privyx.proxy import Pipeline  # noqa: E402
+from privyx.proxy._asgi import create_app  # noqa: E402
 from privyx.testing import services
 from privyx.vaults._sqlite import SQLiteVault  # noqa: E402
 
@@ -65,12 +64,23 @@ def _upstream(headers_sent: asyncio.Event) -> httpx.AsyncClient:
 
 def _app(mode: str, engine: PrivacyEngine, audit: AuditLogger, upstream: httpx.AsyncClient) -> Any:
     if mode == "transparent":
-        proxy = TransparentProxy(engine, origin="http://up.test", client=upstream, audit=audit)
-        return create_transparent_app(engine, proxy)
+        proxy = Pipeline(engine, origin="http://up.test", client=upstream, audit=audit)
+        return create_app(proxy)
     url = "http://up.test/v1/messages"
     provider = GenericProvider(base_url=url)
     settings = Settings(provider={"type": "anthropic", "base_url": url})
-    return Gateway(engine, provider, settings, audit=audit, client=upstream).app
+    return create_app(
+        Pipeline(
+            engine,
+            provider,
+            gateway=True,
+            routes=dict(settings.proxy.routes),
+            session_strategy=settings.session.strategy,
+            audit=audit,
+            client=upstream,
+        ),
+        settings,
+    )
 
 
 async def _drop_after_first_chunk(client: httpx.AsyncClient, url: str) -> None:

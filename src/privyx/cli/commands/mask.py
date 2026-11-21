@@ -16,9 +16,8 @@ import asyncio
 import json
 import os
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import click
 
@@ -28,13 +27,8 @@ from privyx.core import Session
 #: Input formats.  ``auto`` looks at the input file's extension.
 _FORMATS = ("auto", "text", "json", "jsonl")
 
-_EXTENSIONS = {".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl"}
-
 #: Errors these commands report as ``Error: ...`` + exit 1 rather than a traceback.
 _EXPECTED = (json.JSONDecodeError, OSError)
-
-#: Applied to one string leaf; async because the engine is.
-Transform = Callable[[str], Awaitable[str]]
 
 
 def _common_options(fn: Callable[..., None]) -> Callable[..., None]:
@@ -93,6 +87,7 @@ def mask(
     An existing --map file is continued, not overwritten: masking a second
     document against it keeps the tokens the first one was given.
     """
+    from privyx.app import Privyx
     from privyx.core import PrivyxError
 
     try:
@@ -101,24 +96,30 @@ def mask(
             click.echo("Usage: privyx mask [--stdin | -i FILE] <text>")
             sys.exit(1)
         loaded = _load_map(map_path) if map_path and Path(map_path).exists() else None
-        result, session = asyncio.run(
-            _mask_async(
+        app = Privyx(config_path)
+        if not map_path and app.settings.vault.type == "memory":
+            click.echo(
+                "Warning: vault type is 'memory', so the mapping is gone when this process "
+                "exits and this output can never be unmasked. Pass --map FILE, or configure "
+                "a sqlite/redis vault.",
+                err=True,
+            )
+        masked = asyncio.run(
+            app.masking.mask(
                 source,
-                _resolve_format(fmt, input_path),
-                paths,
-                loaded,
-                session_id,
-                config_path,
-                warn_unpersisted=not map_path,
+                fmt=app.masking.format_of(fmt, input_path),
+                paths=paths,
+                session=loaded,
+                session_id=session_id,
             )
         )
         if map_path:
             # The map holds the original values: a new file is owner-only.
             fd = os.open(map_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(_dumps(session.to_dict(), indent=2) + "\n")
-        click.echo(f"session: {session.session_id}", err=True)
-        _write_output(result, output_path)
+                f.write(json.dumps(masked.session.to_dict(), ensure_ascii=False, indent=2) + "\n")
+        click.echo(f"session: {masked.session.session_id}", err=True)
+        _write_output(masked.text, output_path)
     except (PrivyxError, *_EXPECTED) as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
@@ -141,6 +142,7 @@ def unmask(
 
     Tokens the mapping does not know are left untouched.
     """
+    from privyx.app import Privyx
     from privyx.core import PrivyxError
 
     if not map_path and not session_id:
@@ -151,14 +153,14 @@ def unmask(
         if source is None:
             click.echo("Usage: privyx unmask [--stdin | -i FILE] --map FILE <text>")
             sys.exit(1)
+        app = Privyx(config_path)
         result = asyncio.run(
-            _unmask_async(
+            app.masking.unmask(
                 source,
-                _resolve_format(fmt, input_path),
-                paths,
-                _load_map(map_path) if map_path else None,
-                session_id,
-                config_path,
+                fmt=app.masking.format_of(fmt, input_path),
+                paths=paths,
+                session=_load_map(map_path) if map_path else None,
+                session_id=session_id,
             )
         )
         _write_output(result, output_path)
@@ -184,14 +186,6 @@ def _read_input(text: tuple[str, ...], use_stdin: bool, input_path: str | None) 
     return " ".join(text) if text else None
 
 
-def _resolve_format(fmt: str, input_path: str | None) -> str:
-    if fmt != "auto":
-        return fmt
-    if input_path and input_path != "-":
-        return _EXTENSIONS.get(Path(input_path).suffix.lower(), "text")
-    return "text"
-
-
 def _write_output(text: str, output_path: str | None) -> None:
     if output_path and output_path != "-":
         Path(output_path).write_text(text, encoding="utf-8")
@@ -202,123 +196,3 @@ def _write_output(text: str, output_path: str | None) -> None:
 
 def _load_map(map_path: str) -> Session:
     return Session.from_dict(json.loads(Path(map_path).read_text(encoding="utf-8")))
-
-
-def _dumps(payload: Any, indent: int | None = None) -> str:
-    return json.dumps(payload, ensure_ascii=False, indent=indent)
-
-
-# --------------------------------------------------------------------------
-# Walking the input
-
-
-async def _apply(
-    source: str,
-    fmt: str,
-    paths: tuple[str, ...],
-    fn: Transform,
-    under: Callable[[str, str], Awaitable[str]] | None = None,
-) -> str:
-    """Apply ``fn`` to every string the chosen format exposes.
-
-    ``under(key, text)``, when given, stands in for ``fn`` on a JSON string or
-    number under a key (see :func:`~privyx.core.map_values`).
-    """
-    if fmt == "text":
-        return await fn(source)
-    if fmt == "jsonl":
-        lines = []
-        for line in source.splitlines():
-            if not line.strip():
-                lines.append(line)
-                continue
-            lines.append(_dumps(await _apply_json(json.loads(line), paths, fn, under)))
-        return "\n".join(lines)
-    return _dumps(await _apply_json(json.loads(source), paths, fn, under), indent=2)
-
-
-async def _apply_json(
-    payload: Any,
-    paths: tuple[str, ...],
-    fn: Transform,
-    under: Callable[[str, str], Awaitable[str]] | None,
-) -> Any:
-    """Apply ``fn`` to every string leaf of a JSON document."""
-    from privyx.core import map_values
-
-    return await map_values(payload, fn, under, paths=list(paths) or None)
-
-
-# --------------------------------------------------------------------------
-# The two pipelines
-
-
-async def _mask_async(
-    source: str,
-    fmt: str,
-    paths: tuple[str, ...],
-    loaded: Session | None,
-    session_id: str | None,
-    config_path: str | None,
-    *,
-    warn_unpersisted: bool,
-) -> tuple[str, Session]:
-    from privyx.app import load_config
-    from privyx.app._build import build_engine
-    from privyx.app._plugins import load_plugins
-
-    settings = load_config(config_path)
-    app = load_plugins(settings)
-    if warn_unpersisted and settings.vault.type == "memory":
-        click.echo(
-            "Warning: vault type is 'memory', so the mapping is gone when this process "
-            "exits and this output can never be unmasked. Pass --map FILE, or configure "
-            "a sqlite/redis vault.",
-            err=True,
-        )
-    engine, close = await build_engine(settings, app)
-    try:
-        session = loaded if loaded is not None else await engine.get_or_create_session(session_id)
-
-        async def transform(leaf: str) -> str:
-            return (await engine.transform(leaf, session=session)).text
-
-        async def under(key: str, leaf: str) -> str:
-            # `{"password": "hunter2"}`: the value is a secret by its key.
-            return (await engine.transform(leaf, session=session, key=key)).text
-
-        return await _apply(source, fmt, paths, transform, under), session
-    finally:
-        await close()
-
-
-async def _unmask_async(
-    source: str,
-    fmt: str,
-    paths: tuple[str, ...],
-    loaded: Session | None,
-    session_id: str | None,
-    config_path: str | None,
-) -> str:
-    from privyx.app import load_config
-    from privyx.app._build import build_engine
-    from privyx.app._plugins import load_plugins
-    from privyx.core import Context, SessionNotFoundError
-
-    settings = load_config(config_path)
-    app = load_plugins(settings)
-    engine, close = await build_engine(settings, app)
-    try:
-        # Resolve the session once, not once per leaf: a JSON document can hold
-        # thousands of strings and every one of them would hit the vault.
-        session = loaded if loaded is not None else await engine.vault.get(session_id or "")
-        if session is None:
-            raise SessionNotFoundError(f"session not found: {session_id}")
-        context = Context(session_id=session.session_id, vault=engine.vault)
-
-        async def restore(leaf: str) -> str:
-            return (await engine.operator.deanonymize(leaf, session, context)).text
-
-        return await _apply(source, fmt, paths, restore)
-    finally:
-        await close()

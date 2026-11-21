@@ -4,15 +4,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
 
 import click
-
-from privyx.cli.workspace import Found
-
-#: The file ``privyx scan`` adds to, and how ``privyx.yaml`` names it.
-TERMS_FILE = "privyx.d/terms.yaml"
-_HEADER = "# Added by `privyx scan`, which only ever adds to this file: edit it freely.\n"
 
 
 @click.command()
@@ -25,43 +18,26 @@ def scan(path: Path, yes: bool, dry_run: bool) -> None:
     Reads the git history (authors), the git remotes (owner and repository),
     the package manifests (project name), and the keys of .env files.  What you
     keep is added to privyx.d/terms.yaml, which privyx.yaml includes.  The
-    values in .env files are never written: only a pattern that masks the value
-    assigned to each key.
+    values in .env files are never written: only a pattern that masks the
+    value assigned to each key.
     """
-    from privyx.cli import workspace
-    from privyx.config.loader import is_trusted, trust
+    from privyx.app import Privyx
     from privyx.core import PrivyxError
+    from privyx.workspace import TERMS_FILE, is_env
 
-    root = path.resolve()
-    terms_file = root / TERMS_FILE
-    config_file = root / "privyx.yaml"
+    workspace = Privyx().workspace
     try:
-        existing = _read(terms_file)
+        found = workspace.scan(path)
     except PrivyxError as exc:
         raise click.ClickException(str(exc)) from exc
-    detector = existing.get("detector", {})
-    terms = {e: {str(v).casefold() for v in vs} for e, vs in detector.get("terms", {}).items()}
-    patterns = detector.get("patterns", {})
-
-    found = workspace.unique(
-        workspace.git_terms(root) + workspace.package_terms(root) + _env_keys(root)
-    )
-    new = [
-        item
-        for item in found
-        if (
-            item.entity not in patterns
-            if _is_env(item)
-            else item.value.casefold() not in terms.get(item.entity, ())
-        )
-    ]
+    new = found.new
     if not new:
-        click.echo(f"Nothing new to add to {terms_file}.")
+        click.echo(f"Nothing new to add to {found.terms_file}.")
         return
-    click.echo(f"Found in {root}:")
+    click.echo(f"Found in {found.root}:")
     width = max(len(item.entity) for item in new)
     for i, item in enumerate(new, 1):
-        shown = f"value of {item.value}" if _is_env(item) else item.value
+        shown = f"value of {item.value}" if is_env(item) else item.value
         click.echo(f"  {i:>3}  {item.entity:<{width}}  {shown}  ({item.source})")
     if dry_run:
         return
@@ -77,60 +53,25 @@ def scan(path: Path, yes: bool, dry_run: bool) -> None:
             click.echo("Nothing added.")
             return
 
-    trusted_before = config_file.is_file() and is_trusted(config_file)
-    terms_existed = terms_file.exists()
-    _add(existing, new)
-    terms_file.parent.mkdir(parents=True, exist_ok=True)
-    terms_file.write_text(_dump(existing), encoding="utf-8")
-    click.echo(f"Added {len(new)} to {terms_file}")
-
-    created = not config_file.exists()
-    if created:
-        config_file.write_text(f"include: [{TERMS_FILE}]\n", encoding="utf-8")
-        click.echo(f"Created {config_file}, which includes it")
-    else:
-        _check_included(config_file, terms_file)
     try:
-        # Trust only what was trusted before or is wholly written here: a
-        # privyx.yaml that came with the project is the user's to review.
-        if trusted_before or (created and not terms_existed):
-            trust(config_file)
-        elif not is_trusted(config_file):
-            click.echo(f"Run `privyx trust` in {root} to use it.")
+        added = workspace.add(found, new)
     except PrivyxError as exc:
         raise click.ClickException(str(exc)) from exc
-
-
-def _env_keys(root: Path) -> list[Found]:
-    """A pattern per ``.env`` key, unless the built-in detector already masks its value."""
-    from privyx.cli import workspace
-    from privyx.core import Context
-    from privyx.detectors import RegexDetector
-
-    builtin = RegexDetector(underscore_separates_words=False)
-    found = []
-    for key, value, name in workspace.env_values(root):
-        entity = workspace.env_entity(key)
-        assignment = f"{key}={value}"
-        spans = builtin.detect_sync(assignment, Context()).spans
-        if entity and not any(s.start <= len(key) + 1 and s.end >= len(assignment) for s in spans):
-            found.append(Found(entity, key, name))
-    return found
-
-
-def env_pattern(key: str) -> str:
-    """A regex masking the value assigned to ``key``: ``KEY=…``, ``KEY: …``, ``"KEY": "…"``.
-
-    A quoted value is masked up to its closing quote, spaces and all.
-    """
-    return (
-        rf"""(?<![\w.-]){key}["']?[ \t]*[=:][ \t]*(?P<q>["'`])?"""
-        r"""(?P<value>(?(q)(?:\\.|(?!(?P=q))[^\r\n\\])+|[^\s"'`,;]+))"""
-    )
-
-
-def _is_env(item: Found) -> bool:
-    return item.entity == f"ENV_{item.value}"
+    click.echo(f"Added {added.count} to {added.terms_file}")
+    if added.created:
+        click.echo(f"Created {found.config_file}, which includes it")
+    elif added.include_error is not None:
+        click.echo(f"{added.include_error}; fix it to use {TERMS_FILE}.", err=True)
+    elif not added.included:
+        click.echo(f"Add {TERMS_FILE} to the include list of {found.config_file} to use it.")
+    elif added.detector_list:
+        click.echo(
+            f"{found.config_file} gives detector as a list, which replaces the terms it "
+            f"includes; move the terms of {TERMS_FILE} into that list.",
+            err=True,
+        )
+    if added.untrusted:
+        click.echo(f"Run `privyx trust` in {found.root} to use it.")
 
 
 def _numbers(text: str, count: int) -> set[int]:
@@ -142,54 +83,3 @@ def _numbers(text: str, count: int) -> set[int]:
             raise click.BadParameter(f"{part!r} is not a number from 1 to {count}")
         numbers.add(int(part))
     return numbers
-
-
-def _read(path: Path) -> dict[str, Any]:
-    from privyx.config.loader import _read_yaml
-    from privyx.core import ConfigError
-
-    if not path.exists():
-        return {}
-    data = _read_yaml(path)
-    detector = data.get("detector", {})
-    if not isinstance(detector, dict) or not all(
-        isinstance(detector.get(key, {}), dict) for key in ("terms", "patterns")
-    ):
-        raise ConfigError(f"{path}: 'detector' must be a mapping with 'terms' and 'patterns'")
-    return data
-
-
-def _add(data: dict[str, Any], new: list[Found]) -> None:
-    detector = data.setdefault("detector", {})
-    for item in sorted(new, key=lambda item: (item.entity, item.value)):
-        if _is_env(item):
-            detector.setdefault("patterns", {})[item.entity] = env_pattern(item.value)
-        else:
-            detector.setdefault("terms", {}).setdefault(item.entity, []).append(item.value)
-
-
-def _dump(data: dict[str, Any]) -> str:
-    import yaml  # type: ignore[import-untyped]
-
-    return _HEADER + str(yaml.safe_dump(data, sort_keys=True, allow_unicode=True))
-
-
-def _check_included(config_file: Path, terms_file: Path) -> None:
-    """Say what to change when ``config_file`` does not bring in ``terms_file``'s terms."""
-    from privyx.config.loader import _included, _read_yaml
-    from privyx.core import ConfigError
-
-    try:
-        data = _read_yaml(config_file)
-        included = terms_file in [file.resolve() for file in _included(config_file, data)]
-    except ConfigError as exc:
-        click.echo(f"{exc}; fix it to use {TERMS_FILE}.", err=True)
-        return
-    if not included:
-        click.echo(f"Add {TERMS_FILE} to the include list of {config_file} to use it.")
-    elif isinstance(data.get("detector"), list):
-        click.echo(
-            f"{config_file} gives detector as a list, which replaces the terms it includes; "
-            f"move the terms of {TERMS_FILE} into that list.",
-            err=True,
-        )

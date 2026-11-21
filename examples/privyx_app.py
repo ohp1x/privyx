@@ -57,6 +57,6 @@ async def main() -> None:
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["serve"]:
-        px.run()
+        px.serve()
     else:
         asyncio.run(main())

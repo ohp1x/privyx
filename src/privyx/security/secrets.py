@@ -11,8 +11,8 @@ import shutil
 import subprocess
 from typing import Any
 
-from privyx.config.redact import _MASK_VALUES, _sensitive
 from privyx.core import ConfigError
+from privyx.security._redaction import _MASK_VALUES, _sensitive
 
 _SCHEMES = ("op://", "keychain://")
 
@@ -20,7 +20,7 @@ _SCHEMES = ("op://", "keychain://")
 def resolve_secrets(value: Any, path: str = "", name: str = "", masked: bool = False) -> Any:
     """Replace each secret reference in ``value`` with the secret it names.
 
-    A reference resolves only where :func:`privyx.config.redact.redact` masks
+    A reference resolves only where :func:`privyx.security.redact` masks
     the value, so a resolved secret is never shown by ``privyx config``: a
     field whose own name is a credential's (``api_key``, ``secret``, ...), and
     every value of a section masked in full (``headers``, ``env``, ...).  A

@@ -7,12 +7,13 @@ import json
 
 import httpx
 
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
 from privyx.vaults import MemoryVault
 
 USAGE = {
@@ -52,7 +53,7 @@ def _upstream(request: httpx.Request) -> httpx.Response:
     )
 
 
-def _proxy(buf: io.StringIO) -> TransparentProxy:
+def _proxy(buf: io.StringIO) -> Pipeline:
     audit = AuditLogger(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
@@ -62,7 +63,7 @@ def _proxy(buf: io.StringIO) -> TransparentProxy:
         audit=audit,
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(_upstream))
-    return TransparentProxy(engine, origin="https://up.test", client=client, audit=audit)
+    return Pipeline(engine, origin="https://up.test", client=client, audit=audit)
 
 
 def _response(buf: io.StringIO) -> dict:
@@ -74,7 +75,7 @@ async def test_batch_response_records_usage_and_model() -> None:
     buf = io.StringIO()
     proxy = _proxy(buf)
     await proxy.handle(
-        method="POST", path="v1/messages", headers={}, body=json.dumps(BODY).encode()
+        Exchange(method="POST", path="v1/messages", headers={}, body=json.dumps(BODY).encode())
     )
 
     response = _response(buf)
@@ -89,7 +90,7 @@ async def test_embeddings_response_records_usage() -> None:
     proxy = _proxy(buf)
     body = {"model": "text-embedding-3-small", "input": "hi"}
     await proxy.handle(
-        method="POST", path="v1/embeddings", headers={}, body=json.dumps(body).encode()
+        Exchange(method="POST", path="v1/embeddings", headers={}, body=json.dumps(body).encode())
     )
 
     response = _response(buf)
@@ -101,10 +102,12 @@ async def test_stream_response_records_the_final_usage() -> None:
     buf = io.StringIO()
     proxy = _proxy(buf)
     result = await proxy.handle(
-        method="POST",
-        path="v1/messages",
-        headers={},
-        body=json.dumps({**BODY, "stream": True}).encode(),
+        Exchange(
+            method="POST",
+            path="v1/messages",
+            headers={},
+            body=json.dumps({**BODY, "stream": True}).encode(),
+        )
     )
     assert result.stream is not None
     _ = [chunk async for chunk in result.stream]

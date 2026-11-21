@@ -15,11 +15,12 @@ import httpx
 import pytest
 
 from privyx.config.schema import Settings
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
 from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
@@ -71,14 +72,14 @@ def _engine() -> PrivacyEngine:
 
 async def _send(path: str, body: dict[str, Any]) -> tuple[Any, str, httpx.Request]:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(
-        _engine(), origin="http://ollama.test:11434", client=_upstream(capture)
-    )
+    proxy = Pipeline(_engine(), origin="http://ollama.test:11434", client=_upstream(capture))
     response = await proxy.handle(
-        method="POST",
-        path=path,
-        headers={"content-type": "application/json"},
-        body=json.dumps(body).encode(),
+        Exchange(
+            method="POST",
+            path=path,
+            headers={"content-type": "application/json"},
+            body=json.dumps(body).encode(),
+        )
     )
     data = response.body
     if data is None:
@@ -134,9 +135,15 @@ async def test_embed_input_is_masked() -> None:
 def test_the_gateway_does_not_serve_ollama_paths() -> None:
     pytest.importorskip("fastapi")
     from privyx.app._build import build_provider
-    from privyx.gateway.server import Gateway
+    from privyx.proxy import Pipeline
 
     for provider in ("generic", "google"):
         settings = Settings(provider={"type": provider})
-        gateway = Gateway(engine=_engine(), provider=build_provider(settings), settings=settings)
+        gateway = Pipeline(
+            _engine(),
+            build_provider(settings),
+            gateway=True,
+            routes=dict(settings.proxy.routes),
+            session_strategy=settings.session.strategy,
+        )
         assert "ollama" not in gateway.routes.values()

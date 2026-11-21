@@ -6,36 +6,19 @@ import asyncio
 
 import uvicorn
 
-from privyx import PrivacyEngine
-from privyx.config.schema import Settings
-from privyx.detectors import RegexDetector
-from privyx.gateway.server import Gateway
-from privyx.operators import PseudonymOperator
-from privyx.policies import DefaultPolicy
-from privyx.providers import GenericProvider
-from privyx.vaults import MemoryVault
+from privyx import Privyx
 
 
 async def main() -> None:
-    engine = PrivacyEngine(
-        detector=RegexDetector(),
-        policy=DefaultPolicy(),
-        operator=PseudonymOperator(),
-        vault=MemoryVault(),
-    )
+    # The settings `privyx proxy --gateway -u http://localhost:20128` would use.
+    app = Privyx(proxy={"mode": "gateway"}, provider={"base_url": "http://localhost:20128"})
 
-    settings = Settings()
-    provider = GenericProvider(base_url="http://localhost:20128")
-    gateway = Gateway(engine=engine, provider=provider, settings=settings)
-
-    config = uvicorn.Config(gateway.app, host="127.0.0.1", port=8000, log_level="info")
+    # Its lifespan opens the engine and the provider as uvicorn starts, and
+    # closes them as it stops.
+    config = uvicorn.Config(app.asgi(), host="127.0.0.1", port=8000, log_level="info")
     server = uvicorn.Server(config)
     print("Gateway running at http://127.0.0.1:8000  (Ctrl+C to stop)")
-    try:
-        await server.serve()
-    finally:
-        await gateway.close()
-        await provider.close()
+    await server.serve()
 
 
 if __name__ == "__main__":
