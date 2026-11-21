@@ -302,12 +302,20 @@ _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     **catalog.CHECKS,
 }
 
-#: Built-in entities whose candidate can start with a number written before the
-#: value, so that the value starts inside a candidate the check rejects: the card
-#: number in ``7 4111-1111-1111-1111`` after the rejected ``7 4111-1111-1111``.
-#: The other checked patterns cannot start inside a candidate of their own, or
-#: would only find a tail of the rejected value, which their check reads whole.
-_SEARCH_INSIDE_REJECTED = frozenset({"CREDIT_CARD"})
+#: Built-in entities whose match can start at a number written before the
+#: value, so that the value starts inside the match, and whether to search
+#: inside a match, given whether its check passed.  Inside a card candidate the
+#: check rejects: the card number in ``7 4111-1111-1111-1111`` after the
+#: rejected ``7 4111-1111-1111``.  Inside a phone number of bare groups the
+#: check accepts, with no ``+<country>`` code, area code in parentheses, or
+#: leading 0 to mark where it starts: the number in ``ref 2026 0812 3456 7890``
+#: after ``2026 0812 3456``.  The other checked patterns cannot start inside a
+#: candidate of their own, or would only find a tail of the rejected value,
+#: which their check reads whole.
+_SEARCH_INSIDE: dict[str, Callable[[re.Match[str], bool], bool]] = {
+    "CREDIT_CARD": lambda match, accepted: not accepted,
+    "PHONE": lambda match, accepted: accepted and match[0][0] not in "+(0",
+}
 
 
 # Every SECRET match starts with a CLI flag or one of these name prefixes.
@@ -409,19 +417,26 @@ def _check_for(
     return None
 
 
-def _checked_matches(pattern: re.Pattern[str], text: str, check: Check) -> Iterator[re.Match[str]]:
+def _checked_matches(
+    pattern: re.Pattern[str],
+    text: str,
+    check: Check,
+    inside: Callable[[re.Match[str], bool], bool],
+) -> Iterator[re.Match[str]]:
     """The matches of ``pattern`` in ``text`` that pass ``check``.
 
-    Unlike finditer, the search goes on from the next character of a rejected
-    match, not from its end, so a value that starts inside it is found.
+    Unlike finditer, the search goes on from the next character of a match
+    ``inside`` picks, not from its end, so a value that starts inside it is
+    found.  A match that ends no later than one found before adds nothing and
+    is left out.
     """
-    pos = 0
+    pos = end = 0
     while (match := pattern.search(text, pos)) is not None:
-        if check(match):
+        accepted = check(match)
+        if accepted and match.end() > end:
             yield match
-            pos = match.end()
-        else:
-            pos = match.start() + 1
+            end = match.end()
+        pos = match.start() + 1 if inside(match, accepted) else match.end()
 
 
 def _detect(
@@ -442,8 +457,8 @@ def _detect(
         if check is not None and entity == "SECRET" and pattern.pattern == SECRET_PATTERN:
             matches = _secret_matches(pattern, text, check)
             check = None  # already applied
-        elif check is not None and entity in _SEARCH_INSIDE_REJECTED:
-            matches = _checked_matches(pattern, text, check)
+        elif check is not None and entity in _SEARCH_INSIDE:
+            matches = _checked_matches(pattern, text, check, _SEARCH_INSIDE[entity])
             check = None  # already applied
         else:
             matches = pattern.finditer(text)
