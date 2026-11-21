@@ -13,7 +13,12 @@ if TYPE_CHECKING:
     from fastapi import APIRouter
 
 
-def include_router(app: Any, router: APIRouter | None, routes: dict[str, str]) -> None:
+def include_router(
+    app: Any,
+    router: APIRouter | None,
+    routes: dict[str, str],
+    versionless: frozenset[str] = frozenset(),
+) -> None:
     """Serve ``router``'s routes in ``app``.
 
     Called after ``/health`` and ``/metrics`` and before the proxy's own
@@ -33,15 +38,15 @@ def include_router(app: Any, router: APIRouter | None, routes: dict[str, str]) -
         return
     from starlette.routing import Match
 
-    from privyx.proxy.schemas import detect_schema, unversioned_routes
+    from privyx.proxy._routing import detect_schema, unversioned_routes
 
     taken = list(router.routes)
     # Every path the proxy masks, as detect_schema reads it: /v1/v1/... and
-    # Gemini paths without their version too.
+    # paths without their version too.
     masking = [
         *routes,
         *(f"/v1{route}" for route in routes if route.startswith("/v1/")),
-        *unversioned_routes(routes),
+        *unversioned_routes(routes, versionless),
     ]
     for route in taken:
         # Both ways: each masking path against the route, with the matcher that
@@ -55,10 +60,11 @@ def include_router(app: Any, router: APIRouter | None, routes: dict[str, str]) -
             fillers.update(filter(None, re.split(r"[/:]", _PARAM.sub("", path))))
         examples = (example for pattern in masking for example in _filled(pattern, fillers))
         overlaps = any(route.matches(_scope(example))[0] != Match.NONE for example in examples)
-        if overlaps or (isinstance(path, str) and detect_schema(_PARAM.sub("x", path), routes)):
+        sample = _PARAM.sub("x", path) if isinstance(path, str) else None
+        if overlaps or (sample is not None and detect_schema(sample, routes, versionless)):
             name = repr(path) if isinstance(path, str) else type(route).__name__
             raise ConfigError(f"plugin route {name} overlaps a masking route in proxy.routes")
-    app.router.routes.extend(_Unmasked(route, routes) for route in taken)
+    app.router.routes.extend(_Unmasked(route, routes, versionless) for route in taken)
 
 
 class _Unmasked:
@@ -69,16 +75,18 @@ class _Unmasked:
     ``detect_schema`` about the very path requested.
     """
 
-    def __init__(self, route: Any, routes: dict[str, str]) -> None:
+    def __init__(self, route: Any, routes: dict[str, str], versionless: frozenset[str]) -> None:
         self._route = route
         self._routes = routes
+        self._versionless = versionless
 
     def matches(self, scope: Any) -> tuple[Any, Any]:
         from starlette.routing import Match
 
-        from privyx.proxy.schemas import detect_schema
+        from privyx.proxy._routing import detect_schema
 
-        if scope.get("type") == "http" and detect_schema(scope.get("path", ""), self._routes):
+        path = scope.get("path", "")
+        if scope.get("type") == "http" and detect_schema(path, self._routes, self._versionless):
             return Match.NONE, {}
         match: tuple[Any, Any] = self._route.matches(scope)
         return match

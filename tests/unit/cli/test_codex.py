@@ -7,11 +7,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from privyx.cli.codex import custom_provider, openai_endpoint
-from privyx.cli.launch import build_launch_plan, profile_target
+from privyx.agents._codex import custom_provider, openai_endpoint
+from privyx.app._run import plan_launch as build_launch_plan
 from privyx.cli.main import cli
 from privyx.config.schema import AgentConfig, Settings
 from privyx.core import ConfigError
+
+from ._launch import build_target
 
 ROUTER = """
 model_provider = "router"
@@ -119,11 +121,10 @@ def test_provider_detection_and_launch_share_child_environment(
     monkeypatch.setenv(variable, str(tmp_path / "unused"))
     monkeypatch.setenv("AGENT_HOME", str(tmp_path))
     monkeypatch.setenv("AGENT_PATH", str(tmp_path / "bin"))
-    target = profile_target(
-        "work",
+    target = build_target(
         AgentConfig(
             command="codex",
-            adapter="codex",
+            type="codex",
             base_path="/v1",
             env_from={variable: "AGENT_HOME", "PATH": "AGENT_PATH"},
         ),
@@ -136,7 +137,7 @@ def test_provider_detection_and_launch_share_child_environment(
         monkeypatch.setenv("AGENT_PATH", str(tmp_path / "changed-bin"))
         return found
 
-    monkeypatch.setattr("privyx.cli.codex.custom_provider", detect)
+    monkeypatch.setattr("privyx.agents._codex.custom_provider", detect)
     plan = build_launch_plan(target, [], Settings(), 0, (), name="work")
     bound = plan.bind_port(12345)
     assert plan.upstream == "http://router.test:20128/v1"

@@ -25,13 +25,14 @@ def resolve_base_url(settings: Any) -> str:
 
     Precedence, highest first:
 
-    1. ``upstream_url`` — the explicit override (``--upstream``,
-       ``PRIVYX_UPSTREAM_URL``), so the CLI always wins.
-    2. ``provider.base_url`` — the endpoint named in the config file.
+    1. ``upstream_url`` — a destination other than the provider's own: a
+       profile's ``upstream``, or the agent endpoint ``privyx run`` follows.
+    2. ``provider.base_url`` — the provider's own (``--upstream`` and
+       ``PRIVYX_UPSTREAM_URL`` set it, above the config files).
     3. The provider type's documented default (:data:`DEFAULT_BASE_URLS`).
 
-    Both overrides default to empty precisely so a lower level can be reached;
-    a non-empty default at step 1 would make steps 2 and 3 unreachable.
+    Both default to empty precisely so a lower level can be reached; a
+    non-empty default at step 1 would make steps 2 and 3 unreachable.
     """
     provider_config = settings.provider
     return (
@@ -42,23 +43,62 @@ def resolve_base_url(settings: Any) -> str:
 
 
 def resolve_api_key(settings: Any) -> str | None:
-    """Return the upstream key ``settings`` resolves to, or ``None``.
+    """Return the upstream key of the provider in use, or ``None``.
 
-    Precedence, highest first — the same in gateway and transparent mode:
-
-    1. ``provider.<type>_api_key`` (``PRIVYX_OPENAI_API_KEY``, ...), so one
-       environment can hold a key per provider type.
-    2. ``provider.api_key`` (``PRIVYX_API_KEY``).
-
-    ``None`` means no key is configured: the gateway sends none, and the
-    transparent proxy relays the client's own.
+    The same in gateway and transparent mode.  ``None`` means it holds no
+    key: the gateway sends none, and the transparent proxy relays the
+    client's own.
     """
-    provider_config = settings.provider
-    return (
-        getattr(provider_config, f"{provider_config.type}_api_key", "")
-        or provider_config.api_key
-        or None
-    )
+    return settings.provider.api_key or None
+
+
+def held_credential(settings: Any) -> str | None:
+    """What credential of Privyx's own the provider in use sends, if any."""
+    if resolve_api_key(settings):
+        return "Privyx's own API key"
+    # Custom header names can carry credentials too; do not infer their safety.
+    if any(settings.provider.headers.values()):
+        return "Privyx's configured provider headers"
+    return None
+
+
+def check_credential(settings: Any, *, where: str = "") -> None:
+    """Refuse a destination that would take the provider's credential to another origin.
+
+    A credential goes only to the origin of the ``base_url`` it was written
+    with, or of its type's default (``settings._home``, set by the loader;
+    the provider's own when settings are built directly).  ``where`` names
+    the destination when it is not ``upstream_url``'s.
+
+    Raises:
+        ConfigError: If the requests would go to another origin.
+    """
+    held = held_credential(settings)
+    if held is None:
+        return
+    base, kind = settings._home or (settings.provider.base_url, settings.provider.type)
+    home = base or DEFAULT_BASE_URLS.get(kind, DEFAULT_BASE_URLS["generic"])
+    destination = where or resolve_base_url(settings)
+    if _origin(destination) != _origin(home):
+        raise ConfigError(
+            f"{held} is for {_origin(home)} only, but the requests would go to "
+            f"{_origin(destination)}: write that URL beside the key (in its provider, or "
+            "PRIVYX_UPSTREAM_URL beside PRIVYX_API_KEY), or define a provider for it under "
+            "'providers' with a key of its own and select it"
+        )
+
+
+def _origin(url: str) -> str:
+    """``scheme://host[:port]`` of ``url``, its default port left out, lowercased."""
+    parts = urlsplit(url if "://" in url else f"http://{url}")
+    host = (parts.hostname or "").lower()
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    default = {"http": 80, "https": 443}.get(parts.scheme.lower())
+    shown = f"[{host}]" if ":" in host else host
+    return f"{parts.scheme.lower()}://{shown}" + (f":{port}" if port and port != default else "")
 
 
 def resolve_origin(settings: Any) -> str:
@@ -82,21 +122,21 @@ def resolve_origin(settings: Any) -> str:
 def resolve_transparent_upstream(settings: Any) -> str:
     """Return the URL the transparent proxy appends a request path to.
 
-    The origin (:func:`resolve_origin`) unless ``proxy.path_mapping.mode`` is
-    ``prefix``; then the explicit upstream URL itself, path included.
+    The origin (:func:`resolve_origin`) unless ``provider.path_mapping.mode``
+    is ``prefix``; then the explicit upstream URL itself, path included.
 
     Raises:
         ConfigError: If prefix mode has no explicit upstream, or one whose
             query, fragment, or credentials a joined path could not keep.
     """
-    if settings.proxy.path_mapping.mode == "origin":
+    if settings.provider.path_mapping.mode == "origin":
         return resolve_origin(settings)
     # A provider type's default is a gateway endpoint, not a base to join.
     base: str = settings.upstream_url or settings.provider.base_url
     if not base:
         raise ConfigError(
-            "proxy.path_mapping.mode prefix needs an upstream URL "
-            "(--upstream, upstream_url, or provider.base_url)"
+            "provider.path_mapping.mode prefix needs an upstream URL "
+            "(--upstream, or provider.base_url)"
         )
     parts = urlsplit(base)
     if (
@@ -107,7 +147,7 @@ def resolve_transparent_upstream(settings: Any) -> str:
         or "@" in parts.netloc
     ):
         raise ConfigError(
-            "proxy.path_mapping.mode prefix needs an HTTP(S) upstream URL "
+            "provider.path_mapping.mode prefix needs an HTTP(S) upstream URL "
             "without query, fragment, or credentials"
         )
     return base.rstrip("/")

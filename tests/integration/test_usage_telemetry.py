@@ -10,10 +10,12 @@ import httpx
 from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
+from privyx.features import Metrics
 from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline
+from privyx.testing import listening
 from privyx.vaults import MemoryVault
 
 USAGE = {
@@ -53,8 +55,8 @@ def _upstream(request: httpx.Request) -> httpx.Response:
     )
 
 
-def _proxy(buf: io.StringIO) -> Pipeline:
-    audit = AuditLogger(buf)
+async def _proxy(buf: io.StringIO, metrics: Metrics | None = None) -> Pipeline:
+    audit = AuditLogger(buf, events=await listening(*([metrics] if metrics else [])))
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -73,7 +75,8 @@ def _response(buf: io.StringIO) -> dict:
 
 async def test_batch_response_records_usage_and_model() -> None:
     buf = io.StringIO()
-    proxy = _proxy(buf)
+    metrics = Metrics()
+    proxy = await _proxy(buf, metrics)
     await proxy.handle(
         Exchange(method="POST", path="v1/messages", headers={}, body=json.dumps(BODY).encode())
     )
@@ -81,13 +84,13 @@ async def test_batch_response_records_usage_and_model() -> None:
     response = _response(buf)
     assert response["model"] == "claude-opus-5-5"
     assert response["usage"] == {"input": 12, "output": 7, "cache_read": 3000, "cache_write": 40}
-    assert proxy.stats.tokens["cache_read"] == 3000
-    assert 'privyx_tokens_total{kind="cache_read"} 3000' in proxy.stats.prometheus()
+    assert metrics.stats.tokens["cache_read"] == 3000
+    assert 'privyx_tokens_total{kind="cache_read"} 3000' in metrics.stats.prometheus()
 
 
 async def test_embeddings_response_records_usage() -> None:
     buf = io.StringIO()
-    proxy = _proxy(buf)
+    proxy = await _proxy(buf)
     body = {"model": "text-embedding-3-small", "input": "hi"}
     await proxy.handle(
         Exchange(method="POST", path="v1/embeddings", headers={}, body=json.dumps(body).encode())
@@ -100,7 +103,7 @@ async def test_embeddings_response_records_usage() -> None:
 
 async def test_stream_response_records_the_final_usage() -> None:
     buf = io.StringIO()
-    proxy = _proxy(buf)
+    proxy = await _proxy(buf)
     result = await proxy.handle(
         Exchange(
             method="POST",

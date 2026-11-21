@@ -39,8 +39,7 @@ from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy import Pipeline
-from privyx.proxy.schemas import transform_request
+from privyx.proxy import Pipeline, transform_request
 from privyx.vaults import MemoryVault
 
 ROOT = Path(__file__).resolve().parents[1]

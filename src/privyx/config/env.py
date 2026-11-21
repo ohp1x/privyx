@@ -49,9 +49,17 @@ def env_config() -> dict[str, Any]:
         if not isinstance(parsed, dict):
             raise ConfigError("PRIVYX_AGENTS must be a JSON object of agent profiles")
         cfg["agents"] = parsed
+    # PRIVYX_PROVIDER selects a named provider; PRIVYX_API_KEY and
+    # PRIVYX_UPSTREAM_URL are the key and URL of the provider selected above
+    # the profiles (a profile's own provider does not take them).
     provider = _env("PROVIDER")
+    api_key = _env("API_KEY")
     if provider:
-        cfg.setdefault("provider", {})["type"] = provider
+        cfg["provider"] = provider
+        if api_key:
+            cfg["providers"] = {provider: {"api_key": api_key}}
+    elif api_key:
+        cfg["provider"] = {"api_key": api_key}
     vault_type = _env("VAULT")
     if vault_type:
         cfg["vault"] = {"type": vault_type}
@@ -68,16 +76,12 @@ def env_config() -> dict[str, Any]:
         cfg.setdefault("vault", {})["ttl"] = vault_ttl
     upstream = _env("UPSTREAM_URL")
     if upstream:
-        cfg["upstream_url"] = upstream
-        cfg.setdefault("provider", {})["base_url"] = upstream
-    api_key = _env("API_KEY")
-    if api_key:
-        cfg.setdefault("provider", {})["api_key"] = api_key
-    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"):
-        value = _env(key)
+        cfg["upstream_url"] = upstream  # the base URL of the provider selected
+    for name in ("openai", "anthropic", "google"):
+        # The key of the built-in provider of that name, for its own host only.
+        value = _env(f"{name.upper()}_API_KEY")
         if value:
-            provider_type = key.split("_")[0].lower()
-            cfg.setdefault("provider", {})[f"{provider_type}_api_key"] = value
+            cfg.setdefault("providers", {}).setdefault(name, {})["api_key"] = value
     if "PRIVYX_ANCHOR_SECRET" in os.environ:
         cfg.setdefault("anchor", {})["secret"] = _env("ANCHOR_SECRET")
     session_strategy = _env("SESSION_STRATEGY")

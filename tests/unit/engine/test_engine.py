@@ -6,6 +6,7 @@ import contextlib
 import io
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 
@@ -349,23 +350,23 @@ async def test_compact_tokens_from_config_round_trip() -> None:
 
 
 @pytest.mark.parametrize(
-    ("token", "operator", "length"),
+    ("operator", "length"),
     [
-        ({}, {}, 16),
-        ({"id_length": 6}, {}, 6),
-        ({}, {"type": "encrypt"}, 16),
-        ({"id_length": 6}, {"type": "encrypt"}, 6),
+        ({}, 16),
+        ({"id_length": 6}, 6),
+        ({"type": "encrypt"}, 16),
+        ({"type": "encrypt", "id_length": 6}, 6),
     ],
 )
-async def test_token_id_length_sets_anchored_and_encrypt_ids(
-    token: dict[str, int], operator: dict[str, object], length: int
+async def test_operator_id_length_sets_anchored_and_encrypt_ids(
+    operator: dict[str, object], length: int
 ) -> None:
     import re
 
     from privyx.app._build import build_engine
     from privyx.config.schema import Settings
 
-    if operator:
+    if operator.get("type") == "encrypt":
         pytest.importorskip("cryptography")
         operator = {**operator, "key": "ab" * 32}
     engine, close = await build_engine(
@@ -373,7 +374,6 @@ async def test_token_id_length_sets_anchored_and_encrypt_ids(
             vault={"type": "memory"},
             anchor={"secret": "test-secret"},
             operator=operator,
-            token=token,
             audit={"enabled": False},
         )
     )
@@ -388,13 +388,31 @@ async def test_token_id_length_sets_anchored_and_encrypt_ids(
 
 
 @pytest.mark.parametrize("length", [5, 65])
-def test_token_id_length_outside_6_to_64_is_rejected(length: int) -> None:
+def test_operator_id_length_outside_6_to_64_is_rejected(length: int) -> None:
     from pydantic import ValidationError
 
-    from privyx.config.schema import Settings
+    from privyx.operators import EncryptOperator, PseudonymOperator
 
-    with pytest.raises(ValidationError):
-        Settings(token={"id_length": length})
+    for operator in (PseudonymOperator, EncryptOperator):
+        with pytest.raises(ValidationError):
+            operator(id_length=length, key="ab" * 32) if operator is EncryptOperator else operator(
+                id_length=length
+            )
+
+
+def test_the_old_token_id_length_moves_to_the_operator_with_a_warning(tmp_path: Path) -> None:
+    from privyx import load_config
+
+    config = tmp_path / "privyx.yaml"
+    config.write_text("token:\n  id_length: 8\n")
+    warnings: list[str] = []
+
+    settings = load_config(config, warnings=warnings)
+
+    assert settings.operator.model_dump()["id_length"] == 8
+    assert "'token.id_length' is deprecated; write 'operator.id_length' (removed in 0.4.0)" in (
+        warnings
+    )
 
 
 async def test_dlp_check_comes_from_proxy_config() -> None:

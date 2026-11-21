@@ -2,7 +2,8 @@
 
 Precedence (low → high):
     1. Built-in defaults
-    2. Caller defaults (``base_extra``)
+    2. The defaults plugins add (``Privyx.defaults``), then the caller's
+       (``base_extra``)
     3. ``~/.privyx/config.yaml``
     4. ``privyx.yaml``, then ``.privyx/config.yaml``, in the working directory,
        each only once trusted
@@ -15,8 +16,9 @@ A file named with ``--config`` or ``PRIVYX_CONFIG`` is read alone, in place of
 
 from __future__ import annotations
 
+import difflib
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,12 +31,17 @@ from privyx.config._presets import (
     _preset_layers,
 )
 from privyx.config._unused import _UNUSED_WARNED, _raise_unknown, _unknown_keys, _unused
-from privyx.config.agents import resolve_profiles
+from privyx.config.agents import profile_type, resolve_profiles, translate_adapters
 from privyx.config.defaults import DEFAULTS
 from privyx.config.env import env_config
-from privyx.config.schema import PLUGGABLE, Settings
+from privyx.config.providers import (
+    resolve_provider,
+    token_warnings,
+    translate_keys,
+    translate_operator,
+)
+from privyx.config.schema import PLUGGABLE, AgentConfig, Settings
 from privyx.core import ConfigError
-from privyx.security.secrets import resolve_secrets
 
 if TYPE_CHECKING:
     from privyx.core import Registry
@@ -54,6 +61,10 @@ class _Types:
     def __init__(self, registries: Mapping[str, Registry[Any]]) -> None:
         self._registries = registries
         self._unions: dict[str, frozenset[str]] = {}
+
+    def registry(self, kind: str) -> Registry[Any] | None:
+        """The registry of ``kind``, such as ``agent``, if the app has one."""
+        return self._registries.get(kind)
 
     def builtin(self, section: str, kind: object) -> bool:
         """Whether ``kind`` is a built-in type of ``section``."""
@@ -149,7 +160,9 @@ def load_config(
     agent: str | None = None,
     presets: Sequence[str] | None = None,
     sources: dict[str, str] | None = None,
-    secrets: bool = True,
+    secrets: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    setup: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    defaults: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
     types: Mapping[str, Registry[Any]],
 ) -> Settings:
@@ -171,8 +184,13 @@ def load_config(
     below ``extra``; without a profile, just ``presets``.  ``presets`` defaults
     to :data:`CHOSEN_PRESETS`.
     ``sources`` optionally receives dotted field paths -> winning layer.
-    ``secrets=False`` leaves secret references (``op://``, ``keychain://``)
-    as written, so no password manager is asked.
+    ``secrets`` resolves the secret references of the merged config; without
+    it they are left as written (``op://...``), so no password manager is asked.
+    ``setup``, given the merged files, environment, and ``extra``, sets up
+    the plugins they name and returns the defaults those add (agent profiles,
+    presets): when there are some, the config is read again with them as
+    ``defaults``, just above Privyx's own.  A plugin a preset or a profile
+    names is not set up here.
     A setting a section's type does not use (:func:`_unused`) is an error when
     written beside the type; masking keys from another layer that no detector
     uses are logged, once per process, or appended to ``warnings`` when it is
@@ -189,40 +207,69 @@ def load_config(
     origins: dict[str, str] = {}
     layers: list[tuple[str, dict[str, Any]]] = []
 
+    deprecated: list[str] = []
+
     def apply(data: dict[str, Any], source: str) -> None:
         nonlocal merged
+        data = translate_keys(translate_adapters(data, deprecated), source, deprecated)
         layers.append((source, data))
         _record_sources(data, source, origins, base=merged)
         merged = _deep_merge(merged, data, known)
 
     apply(DEFAULTS, "defaults")
+    if defaults:
+        apply(defaults, "plugin defaults")
     apply(base_extra or {}, "run defaults")
 
     config_files, untrusted = _config_paths(path)
-    for config_file in untrusted:
+    # Read again with the plugins' defaults: what was said the first time stands.
+    warn = defaults is None
+    for config_file in untrusted if warn else ():
         _log.warning(
             "ignoring %s: not trusted, or changed since; run `privyx trust` to use it",
             config_file,
         )
     for config_file in config_files:
-        for file, data in _config_layers(config_file, warn=True):
+        for file, data in _config_layers(config_file, warn=warn):
             apply(_interpolate(data, file), str(file.resolve()))
 
     apply(env_config(), "environment")
 
     if extra:
         apply(extra, "CLI")
+    if setup is not None and (added := setup(merged)):
+        return load_config(
+            path,
+            extra=extra,
+            base_extra=base_extra,
+            agent=agent,
+            presets=presets,
+            sources=sources,
+            secrets=secrets,
+            defaults=added,
+            warnings=warnings,
+            types=types,
+        )
 
+    # The operator settings renamed for the type in use, now that it is known.
+    operator = merged.get("operator")
+    kind = operator.get("type") if isinstance(operator, dict) else None
+    kind = kind if isinstance(kind, str) else "pseudonym"
+    layers[:] = [(src, translate_operator(data, kind, src, deprecated)) for src, data in layers]
+    merged = translate_operator(merged, kind, "defaults", [])
     # A misspelled key would otherwise be dropped without a word, and the
     # setting it meant to change (a detector's terms, say) silently not apply.
     _raise_unknown(_unknown_keys(Settings, merged, known))
     _check_presets(merged, presets, known)
 
     profiles = merged.get("agents")
+    selected: Any = None
+    inherited_sources: dict[str, str] = {}
     if isinstance(profiles, dict):
         _apply_colon_inheritance(profiles)
         profiles, inherited_sources = resolve_profiles(profiles, origins, known)
         _check_overrides(profiles, known)
+        _check_types(profiles, known)
         if agent in profiles:
             profiles[agent] = _settle(profiles[agent], expand=True)
         selected = profiles.get(agent) if agent else None
@@ -234,22 +281,37 @@ def load_config(
         patches += _preset_layers(merged, presets)
         at = next((i for i, (source, _) in enumerate(layers) if source == "CLI"), len(layers))
         layers[at:at] = patches
-        # Reapply transport fields at their originating layer, so a late
-        # common environment/CLI override still beats an inherited profile.
-        effective: dict[str, Any] = {}
-        effective_sources: dict[str, str] = {}
-        for source, data in layers:
-            projection = {}
-            if isinstance(selected, dict):
-                for field in ("provider", "upstream"):
-                    if inherited_sources.get(f"agents.{agent}.{field}") == source:
-                        projection[field] = selected[field]
-            layer = _agent_layer(data, agent, projection, known)
-            _record_sources(layer, source, effective_sources, base=effective)
-            effective = _deep_merge(effective, layer, known)
+    # The selected profile's provider and upstream, at the layer each comes from.
+    projections: dict[str, dict[str, Any]] = {}
+    if isinstance(selected, dict):
+        for name in ("provider", "upstream"):
+            layer = inherited_sources.get(f"agents.{agent}.{name}")
+            if layer is not None:
+                projections.setdefault(layer, {})[name] = selected[name]
+    # Where requests go is the provider's, chosen across the layers below; the
+    # rest is merged again here, so the profile's settings land at their layer.
+    effective: dict[str, Any] = {}
+    effective_sources: dict[str, str] = {}
+    for source, data in layers:
+        rest = {k: v for k, v in data.items() if k not in ("provider", "providers", "upstream_url")}
+        _record_sources(rest, source, effective_sources, base=effective)
+        effective = _deep_merge(effective, rest, known)
+    resolved = resolve_provider(
+        layers,
+        projections,
+        lambda current, mapping: _deep_merge({"provider": current}, {"provider": mapping}, known)[
+            "provider"
+        ],
+        profile_layer=f"agents.{agent}.privyx",
+    )
+    effective["provider"] = resolved.provider
+    effective["providers"] = resolved.providers
+    effective["upstream_url"] = resolved.upstream_url
+    effective_sources.update(resolved.sources)
+    if isinstance(profiles, dict):
         effective["agents"] = profiles
         effective_sources.update(inherited_sources)
-        merged, origins = effective, effective_sources
+    merged, origins = effective, effective_sources
 
     if sources is not None:
         sources.clear()
@@ -257,6 +319,12 @@ def load_config(
     refused, unused = _unused(layers, merged, origins, known)
     if refused:
         raise ConfigError("; ".join(refused))
+    unused = (
+        list(dict.fromkeys(deprecated))
+        + resolved.warnings
+        + token_warnings(merged, origins)
+        + unused
+    )
 
     merged = _settle(merged, expand=False)
     # Another profile's deferred settings keep their secret references as
@@ -269,12 +337,18 @@ def load_config(
                 held[name] = {key: profile.pop(key) for key in _DEFERRED if key in profile}
     # So are the presets: the ones in use were applied above.
     definitions = merged.pop("presets", None)
-    if secrets:
-        merged = resolve_secrets(merged)
+    if secrets is not None:
+        merged = secrets(merged)
     for name, values in held.items():
         merged["agents"][name].update(values)
     if definitions is not None:
         merged["presets"] = definitions
+    named = merged.get("providers")
+    if isinstance(named, dict):
+        merged["providers"] = {
+            name: known.checked("provider", item, f"providers.{name}")
+            for name, item in named.items()
+        }
     for name in PLUGGABLE:
         value = merged.get(name)
         if isinstance(value, list):
@@ -287,6 +361,7 @@ def load_config(
         settings = Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
+    settings._home = resolved.home
     if warnings is not None:
         warnings.extend(unused)
     for warning in unused:
@@ -294,6 +369,38 @@ def load_config(
             _UNUSED_WARNED.add(warning)
             _log.warning("%s", warning)
     return settings
+
+
+def _check_types(profiles: dict[str, Any], types: _Types) -> None:
+    """Give each profile its agent ``type``, and check the options the profile gives it.
+
+    A type no plugin registered is left to fail when its profile is launched:
+    the profile may belong to a plugin another config loads.
+
+    Raises:
+        ConfigError: If an option is unknown to the type, or invalid.
+    """
+    registry = types.registry("agent")
+    if registry is None:
+        return
+    names = registry.names()
+    unknown: list[str] = []
+    for name, profile in profiles.items():
+        if not isinstance(profile, dict):
+            continue  # the wrong shape is pydantic's to report
+        kind = profile["type"] = profile_type(name, profile, names)
+        if kind not in registry:
+            continue
+        options = {k: v for k, v in profile.items() if k not in AgentConfig.model_fields}
+        own = list(registry.get(kind).Options.model_fields)
+        for key in options:
+            if key not in own:
+                match = difflib.get_close_matches(key, [*AgentConfig.model_fields, *own], n=1)
+                hint = f" (did you mean {match[0]!r}?)" if match else ""
+                unknown.append(f"{f'agents.{name}.{key}'!r}{hint} for agent type {kind!r}")
+        if not unknown:
+            registry.validate(kind, options, setting=f"agents.{name}")
+    _raise_unknown(unknown)
 
 
 def _apply_colon_inheritance(profiles: dict[str, Any]) -> None:
@@ -310,25 +417,6 @@ def _apply_colon_inheritance(profiles: dict[str, Any]) -> None:
         base = name.split(":", 1)[0]
         if base in profiles and not profile.get("extends"):
             profile["extends"] = base
-
-
-def _agent_layer(
-    data: dict[str, Any], agent: str | None, profile: dict[str, Any], types: _Types
-) -> dict[str, Any]:
-    if agent is None:
-        return data
-    overrides: dict[str, Any] = {}
-    provider = data.get("provider")
-    if isinstance(provider, dict) and "base_url" in provider and "upstream_url" not in data:
-        # In a run plan these name the same destination. A later file's common
-        # base URL must be able to override an earlier profile's upstream.
-        overrides["upstream_url"] = provider["base_url"]
-    if "provider" in profile:
-        overrides["provider"] = {"type": profile["provider"]}
-    if "upstream" in profile:
-        overrides["upstream_url"] = profile["upstream"]
-        overrides.setdefault("provider", {})["base_url"] = profile["upstream"]
-    return _deep_merge(data, overrides, types)
 
 
 def _record_sources(

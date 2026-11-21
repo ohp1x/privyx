@@ -40,7 +40,7 @@ def _check_overrides(profiles: dict[str, Any], types: _Types) -> None:
 
 #: What a preset cannot set: where requests go and with which credentials stays
 #: a profile's, and presets neither nest nor define profiles.
-_NOT_IN_PRESET = ("agents", "presets", "include", "upstream_url", "provider")
+_NOT_IN_PRESET = ("agents", "presets", "include", "upstream_url", "provider", "providers")
 
 
 def _check_presets(merged: dict[str, Any], chosen: Sequence[str], types: _Types) -> None:

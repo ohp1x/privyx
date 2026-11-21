@@ -13,7 +13,8 @@ The rules (see :class:`~privyx.config.schema.SessionConfig`):
 - an explicit ``x-privyx-session`` header always wins (``source="header"``);
 - ``ephemeral`` returns ``None`` — the engine mints a per-request id, unchanged;
 - ``client`` derives from the client credential;
-- ``conversation`` derives from the credential *and* the first user message.
+- ``conversation`` derives from the credential *and* the first user message,
+  which the dialect finds (:meth:`~privyx.dialects.Dialect.conversation_key`).
 
 A derived id has the same ``ses_<16 hex>`` shape as a minted one, so nothing
 downstream can tell them apart.  Deriving from the credential scopes a session to
@@ -25,10 +26,10 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-#: Wire schemas whose request body this module knows how to fingerprint.
-_CHAT_SCHEMAS = frozenset({"openai", "anthropic", "responses", "gemini", "ollama"})
+if TYPE_CHECKING:
+    from privyx.dialects import Dialect
 
 
 def resolve_session_id(
@@ -37,7 +38,7 @@ def resolve_session_id(
     header_value: str | None,
     headers: Mapping[str, str],
     payload: Any,
-    schema: str | None,
+    dialect: Dialect | None,
 ) -> tuple[str | None, str]:
     """Resolve the session id and its provenance for one request.
 
@@ -53,7 +54,11 @@ def resolve_session_id(
             return _derive(credential), "client"
     elif strategy == "conversation":
         credential = _credential(headers)
-        first = _first_user_message(payload, schema) if schema in _CHAT_SCHEMAS else ""
+        first = (
+            dialect.conversation_key(payload)
+            if dialect is not None and isinstance(payload, Mapping)
+            else ""
+        )
         if credential or first:
             return _derive(f"{credential}\x00{first}"), "conversation"
     return None, "ephemeral"
@@ -76,59 +81,4 @@ def _credential(headers: Mapping[str, str]) -> str:
     for key, value in headers.items():
         if key.lower() in wanted and value:
             return value
-    return ""
-
-
-def _first_user_message(payload: Any, schema: str | None = None) -> str:
-    """Text of the first ``user`` message, or ``""`` when there is none.
-
-    OpenAI Chat and Anthropic share the shape read here: ``messages`` is a list
-    of ``{"role", "content"}`` and ``content`` is a string or a list of text
-    parts.  The Responses API sends the same items as ``input`` (text parts typed
-    ``input_text``), or a bare string that *is* the user message.  The first user
-    message is immutable across a conversation's turns, so it is a stable
-    fingerprint — unless a Responses client chains turns with
-    ``previous_response_id`` and sends only the new turn, which then derives a
-    new session per turn.  Gemini sends ``contents``, whose ``parts`` hold text.
-    """
-    if not isinstance(payload, Mapping):
-        return ""
-    if schema == "gemini":
-        return _gemini_first_user_text(payload.get("contents"))
-    messages = payload.get("messages", payload.get("input"))
-    if isinstance(messages, str):
-        return messages
-    if not isinstance(messages, list):
-        return ""
-    for message in messages:
-        if isinstance(message, Mapping) and message.get("role") == "user":
-            return _content_text(message.get("content"))
-    return ""
-
-
-def _gemini_first_user_text(contents: Any) -> str:
-    """Text of the first ``user`` turn of Gemini ``contents`` (``role`` may be left out)."""
-    for content in contents if isinstance(contents, list) else []:
-        if isinstance(content, Mapping) and content.get("role", "user") == "user":
-            parts = content.get("parts")
-            return "".join(
-                part["text"]
-                for part in (parts if isinstance(parts, list) else [])
-                if isinstance(part, Mapping) and isinstance(part.get("text"), str)
-            )
-    return ""
-
-
-def _content_text(content: Any) -> str:
-    """Flatten a message ``content`` (string or list of text parts) to text."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "".join(
-            part["text"]
-            for part in content
-            if isinstance(part, Mapping)
-            and part.get("type") in ("text", "input_text")
-            and isinstance(part.get("text"), str)
-        )
     return ""

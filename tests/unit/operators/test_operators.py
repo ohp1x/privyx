@@ -220,13 +220,13 @@ async def test_hash_operator_leaves_unknown_tokens_alone() -> None:
 
 
 async def test_hash_operator_honours_its_configured_length() -> None:
-    operator = build_operator(load_config(extra={"operator": {"type": "hash", "length": 8}}))
+    operator = build_operator(load_config(extra={"operator": {"type": "hash", "id_length": 8}}))
     session = Session()
     detection = Detection(spans=[Span(0, 7, "EMAIL", "a@b.com")])
     result = await operator.pseudonymize("a@b.com", detection, session, Context())
     token = FormatCodec.default().parse(result.text)
     assert token is not None
-    assert len(token.identifier) == 8  # the digest was truncated to `length`
+    assert len(token.identifier) == 8  # the digest was truncated to `id_length`
     restored = await operator.deanonymize(result.text, session, Context())
     assert restored.text == "a@b.com"
 
@@ -234,11 +234,11 @@ async def test_hash_operator_honours_its_configured_length() -> None:
 @pytest.mark.parametrize("length", [-4, 0, 5, 65])
 def test_hash_length_outside_six_to_sixty_four_is_an_error(tmp_path: Path, length: int) -> None:
     config = tmp_path / "privyx.yaml"
-    config.write_text(f"operator:\n  type: hash\n  length: {length}\n")
-    with pytest.raises(ConfigError, match="invalid setting 'operator.length'"):
+    config.write_text(f"operator:\n  type: hash\n  id_length: {length}\n")
+    with pytest.raises(ConfigError, match="invalid setting 'operator.id_length'"):
         load_config(config)
     with pytest.raises(ValidationError):
-        HashOperator(length=length)
+        HashOperator(id_length=length)
 
 
 def test_a_plugin_operator_keeps_a_length_of_its_own(tmp_path: Path) -> None:
@@ -250,8 +250,33 @@ def test_a_plugin_operator_keeps_a_length_of_its_own(tmp_path: Path) -> None:
 @pytest.mark.parametrize("length", [6, 64])
 def test_hash_length_from_six_to_sixty_four_is_accepted(tmp_path: Path, length: int) -> None:
     config = tmp_path / "privyx.yaml"
-    config.write_text(f"operator:\n  type: hash\n  length: {length}\n")
-    assert load_config(config).operator.model_dump()["length"] == length
+    config.write_text(f"operator:\n  type: hash\n  id_length: {length}\n")
+    assert load_config(config).operator.model_dump()["id_length"] == length
+
+
+def test_the_old_hash_length_still_works_with_a_warning(tmp_path: Path) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text("operator:\n  type: hash\n  length: 8\n")
+    warnings: list[str] = []
+
+    settings = load_config(config, warnings=warnings)
+
+    assert settings.operator.model_dump()["id_length"] == 8
+    assert "'operator.length' is deprecated; write 'operator.id_length' (removed in 0.4.0)" in (
+        warnings
+    )
+    assert any("'operator.type' 'hash' is deprecated" in w for w in warnings)
+
+
+def test_the_old_redact_token_still_works_with_a_warning(tmp_path: Path) -> None:
+    config = tmp_path / "privyx.yaml"
+    config.write_text("operator:\n  type: redact\n  token: '[GONE]'\n")
+    warnings: list[str] = []
+
+    operator = build_operator(load_config(config, warnings=warnings))
+
+    assert operator.fixed_text == "[GONE]"
+    assert "'operator.token' is deprecated; write 'operator.text' (removed in 0.4.0)" in warnings
 
 
 # --- id collisions ----------------------------------------------------------

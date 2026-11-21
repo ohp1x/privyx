@@ -14,7 +14,7 @@ from privyx import PrivacyEngine
 from privyx.detectors import RegexDetector
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.streaming.adapters.generic import SSEStreamAdapter
+from privyx.streaming import SSEStreamAdapter
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 from privyx.streaming.sse import SSEEvent
 from privyx.vaults import MemoryVault

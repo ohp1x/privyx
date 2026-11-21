@@ -115,7 +115,8 @@ async def test_colliding_ids_grow_instead_of_overwriting() -> None:
     for value in values:
         spans.append(Span(start, start + len(value), "EMAIL", value))
         start += len(value) + 1
-    operator, session = await opened(_operator(), id_length=1), Session()
+    operator, session = await opened(_operator()), Session()
+    operator.options = operator.options.model_copy(update={"id_length": 1})  # ids collide
     masked = await operator.pseudonymize(text, Detection(spans=spans), session, Context())
     assert len(set(masked.text.split())) == 17
     assert (await operator.deanonymize(masked.text, session, Context())).text == text

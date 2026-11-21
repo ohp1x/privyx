@@ -115,20 +115,29 @@ def proxies(
     key = {"PRIVYX_API_KEY": "golden-privyx-key"}
     setups = {
         "transparent": (["--transparent", "-u", upstream.url], CONFIG, {}),
+        # The key's URL beside it: Privyx's key goes nowhere else.
         "gateway-openai": (
-            ["--gateway", "-u", upstream.url + "/v1/chat/completions"],
+            ["--gateway"],
             gateway,
-            {"PRIVYX_PROVIDER": "openai", **key},
+            {
+                "PRIVYX_PROVIDER": "openai",
+                **key,
+                "PRIVYX_UPSTREAM_URL": upstream.url + "/v1/chat/completions",
+            },
         ),
         "gateway-anthropic": (
-            ["--gateway", "-u", upstream.url + "/v1/messages"],
+            ["--gateway"],
             gateway,
-            {"PRIVYX_PROVIDER": "anthropic", **key},
+            {
+                "PRIVYX_PROVIDER": "anthropic",
+                **key,
+                "PRIVYX_UPSTREAM_URL": upstream.url + "/v1/messages",
+            },
         ),
         "gateway-google": (
-            ["--gateway", "-u", upstream.url],
+            ["--gateway"],
             gateway,
-            {"PRIVYX_PROVIDER": "google", **key},
+            {"PRIVYX_PROVIDER": "google", **key, "PRIVYX_UPSTREAM_URL": upstream.url},
         ),
     }
     started: dict[str, tuple[subprocess.Popen[bytes], str, Path]] = {}

@@ -57,8 +57,7 @@ def proxy(
     if port is not None:
         extra["port"] = port
     if upstream is not None:
-        extra["upstream_url"] = upstream
-        extra.setdefault("provider", {})["base_url"] = upstream
+        extra["upstream_url"] = upstream  # the base URL of the provider in use
     if transparent_mode is not None:
         extra["proxy"] = {"mode": "transparent" if transparent_mode else "gateway"}
     tls_extra: dict[str, Any] = {}

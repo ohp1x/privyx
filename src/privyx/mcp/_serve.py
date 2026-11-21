@@ -367,7 +367,7 @@ async def _call(name: str, args: dict[str, Any], app: Privyx, root: Path) -> dic
 async def _status(app: Privyx) -> str:
     from privyx.cli.commands.audit import _breakdown
     from privyx.cli.commands.session import _ts
-    from privyx.observability.metrics import AuditStats
+    from privyx.features import AuditStats
 
     lines = ["Privyx status, which never holds the masked values:", ""]
     vault = app.sessions.vault_type

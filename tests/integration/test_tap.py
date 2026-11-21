@@ -70,6 +70,7 @@ async def test_tap_records_both_sides_of_an_exchange(tmp_path: Path, stream: boo
     path = tmp_path / "tap" / "ses_tap.jsonl"
     request, response = (json.loads(line) for line in path.read_text().splitlines())
     assert request["stage"] == "request" and request["path"] == "/v1/chat/completions"
+    assert request["schema"] == "openai"  # the route's format, by name
     assert EMAIL in json.dumps(request["before"])
     assert EMAIL not in json.dumps(request["after"])
     assert response["stage"] == "response" and response["stream"] is stream

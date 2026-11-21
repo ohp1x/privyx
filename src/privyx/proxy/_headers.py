@@ -11,6 +11,10 @@ the client.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from privyx.dialects import Dialect
 
 #: Headers that describe a single transport hop and must never be forwarded.
 #: ``content-length`` is here because the proxy rewrites the body; the ASGI
@@ -51,7 +55,7 @@ _REQUEST_DROP_EXTRA: frozenset[str] = frozenset(
 def filter_request_headers(
     headers: Mapping[str, str],
     *,
-    schema: str | None = None,
+    dialect: Dialect | None = None,
     forward_client_auth: bool = True,
     api_key: str | None = None,
     extra: Mapping[str, str] | None = None,
@@ -60,9 +64,8 @@ def filter_request_headers(
 
     Args:
         headers: Incoming client headers (case-insensitive mapping).
-        schema: Wire schema for the target path (``openai``/``anthropic``/None).
-            Used to pick the right credential header and stamp
-            ``anthropic-version``.
+        dialect: The dialect of the target path, which names the credential
+            header and the headers its format needs (``anthropic-version``).
         forward_client_auth: When false, the client's ``Authorization`` /
             ``x-api-key`` / ``x-goog-api-key`` are dropped (rely on the
             configured ``api_key``).
@@ -87,17 +90,15 @@ def filter_request_headers(
             out[key.lower()] = value
 
     if api_key:
-        if schema == "anthropic":
-            out["x-api-key"] = api_key
-            out.pop("authorization", None)
-        elif schema == "gemini":
-            out["x-goog-api-key"] = api_key
-            out.pop("authorization", None)
-        else:
+        style = dialect.credential_header if dialect is not None else "bearer"
+        if style == "bearer":
             out["authorization"] = f"Bearer {api_key}"
+        else:
+            out[style] = api_key
+            out.pop("authorization", None)
 
-    if schema == "anthropic" and "anthropic-version" not in out:
-        out["anthropic-version"] = "2023-06-01"
+    for key, value in (dialect.request_headers if dialect is not None else {}).items():
+        out.setdefault(key, value)
 
     return out
 

@@ -177,7 +177,7 @@ def _config(
                 "agents": {
                     agent: {
                         "command": command,
-                        "adapter": "env",
+                        "type": "env",
                         "provider": "anthropic",
                         "base_path": "",
                         "env_vars": ["ANTHROPIC_BASE_URL"],

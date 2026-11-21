@@ -27,8 +27,7 @@ from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.providers import GenericProvider
 from privyx.proxy import Pipeline, Reply
-from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
-from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+from privyx.streaming import SSEStreamAdapter
 from privyx.streaming.sse import SSEDecoder
 from privyx.vaults import MemoryVault
 
@@ -128,6 +127,11 @@ def _anthropic_sse(deltas: Iterable[str]) -> str:
     return "".join(parts)
 
 
+#: Where each stream keeps its text: OpenAI's Chat Completions, Anthropic's ``text_delta``.
+OPENAI_TEXT = SSEStreamAdapter(data_path=["choices", "0", "delta", "content"])
+ANTHROPIC_TEXT = SSEStreamAdapter(data_path=["delta", "text"])
+
+
 def _collect_text(raw: str, adapter: Any) -> str:
     """Re-decode a proxy's output and concatenate its text deltas."""
     decoder = SSEDecoder()
@@ -179,7 +183,7 @@ async def test_stream_restores_pseudonym_at_any_framing(chunk_size: int | None) 
     out = await _run_stream(engine, FakeProvider(chunks), session_id)
 
     assert pseudonym not in out, "pseudonym leaked to the client"
-    text = _collect_text(out, OpenAIStreamAdapter())
+    text = _collect_text(out, OPENAI_TEXT)
     assert text == f"Sure, writing to {EMAIL} now."
     assert "data: [DONE]" in out
 
@@ -204,7 +208,7 @@ async def test_stream_pseudonym_split_across_events() -> None:
 
     out = await _run_stream(engine, FakeProvider([_openai_sse(deltas)]), session_id)
 
-    assert _collect_text(out, OpenAIStreamAdapter()) == f"Number: {PHONE} ok"
+    assert _collect_text(out, OPENAI_TEXT) == f"Number: {PHONE} ok"
 
 
 async def test_stream_flushes_held_text_before_done() -> None:
@@ -219,7 +223,7 @@ async def test_stream_flushes_held_text_before_done() -> None:
     body = _openai_sse(["done <PRIVYX_EMA"])
     out = await _run_stream(engine, FakeProvider([body]), session.session_id)
 
-    assert _collect_text(out, OpenAIStreamAdapter()) == "done <PRIVYX_EMA"
+    assert _collect_text(out, OPENAI_TEXT) == "done <PRIVYX_EMA"
 
 
 async def test_stream_preserves_non_text_events() -> None:
@@ -263,7 +267,7 @@ async def test_stream_anthropic_events() -> None:
     out = await _run_stream(engine, FakeProvider(_split(body, 11)), session_id, "/v1/messages")
 
     assert pseudonym not in out
-    assert _collect_text(out, AnthropicStreamAdapter()) == f"Sent to {EMAIL}."
+    assert _collect_text(out, ANTHROPIC_TEXT) == f"Sent to {EMAIL}."
     assert "message_stop" in out
 
 
@@ -274,7 +278,7 @@ async def test_stream_unterminated_final_event_is_emitted() -> None:
     body = _openai_event("hello ") + 'data: {"choices":[{"delta":{"content":"world"}}]}'
     out = await _run_stream(engine, FakeProvider([body]), session.session_id)
 
-    assert _collect_text(out, OpenAIStreamAdapter()) == "hello world"
+    assert _collect_text(out, OPENAI_TEXT) == "hello world"
 
 
 async def test_stream_with_unknown_session_passes_text_through() -> None:
@@ -284,7 +288,7 @@ async def test_stream_with_unknown_session_passes_text_through() -> None:
 
     out = await _run_stream(engine, provider, "ses_does_not_exist")
 
-    assert _collect_text(out, OpenAIStreamAdapter()) == "plain text"
+    assert _collect_text(out, OPENAI_TEXT) == "plain text"
 
 
 async def test_stream_bytes_chunks_are_decoded() -> None:
@@ -295,7 +299,7 @@ async def test_stream_bytes_chunks_are_decoded() -> None:
     chunks: list[Any] = [c.encode() for c in _split(body, 9)]
     out = await _run_stream(engine, FakeProvider(chunks), session.session_id)
 
-    assert _collect_text(out, OpenAIStreamAdapter()) == "héllo wörld"
+    assert _collect_text(out, OPENAI_TEXT) == "héllo wörld"
 
 
 @pytest.mark.parametrize("chunk_size", range(1, 12))
@@ -314,7 +318,7 @@ async def test_stream_multibyte_split_across_byte_chunks(chunk_size: int) -> Non
     chunks: list[Any] = [raw[i : i + chunk_size] for i in range(0, len(raw), chunk_size)]
     out = await _run_stream(engine, FakeProvider(chunks), session.session_id)
 
-    assert _collect_text(out, OpenAIStreamAdapter()) == text
+    assert _collect_text(out, OPENAI_TEXT) == text
     assert "�" not in out
 
 

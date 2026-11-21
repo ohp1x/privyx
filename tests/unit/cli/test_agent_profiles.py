@@ -18,6 +18,8 @@ def test_dry_run_is_side_effect_free(
     home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "custom.yaml"
+    plugin = tmp_path / "plugin.py"
+    plugin.write_text("def setup(app):\n    pass\n")
     config.write_text(
         yaml.safe_dump(
             {
@@ -30,8 +32,9 @@ def test_dry_run_is_side_effect_free(
                         "env_vars": ["WORK_BASE_URL"],
                     }
                 },
-                # A dry run must not import this, or open any of these paths.
-                "plugins": {"paths": ["/does-not-exist/plugin.py"]},
+                # A dry run sets up the plugins, as reading the config does,
+                # but opens none of these paths.
+                "plugins": {"paths": [str(plugin)]},
                 "log_file": str(tmp_path / "debug.log"),
                 "audit": {"path": str(tmp_path / "audit.log")},
                 "vault": {"type": "sqlite", "dsn": f"sqlite+aiosqlite:///{tmp_path}/vault.db"},
@@ -44,6 +47,7 @@ def test_dry_run_is_side_effect_free(
     monkeypatch.setattr(run_module, "_run_target", forbidden)
     monkeypatch.setattr(run_module, "_listen", forbidden)
     monkeypatch.setattr("privyx.security.keys.read_or_create_anchor_secret", forbidden)
+    monkeypatch.setattr("sys.dont_write_bytecode", True)  # importing the plugin writes nothing
     before = set(tmp_path.rglob("*")) | set(home.rglob("*"))
     result = CliRunner().invoke(
         cli, ["run", "-c", str(config), "--dry-run", "work", "--", "--flag", "value with spaces"]
@@ -76,7 +80,7 @@ def test_dry_run_preserves_builtin_wiring(name: str, override: str) -> None:
     assert "Source run.port: CLI" in result.output
 
 
-def test_profile_alias_keeps_command_adapter(tmp_path: Path) -> None:
+def test_profile_alias_keeps_command_type(tmp_path: Path) -> None:
     config = tmp_path / "custom.yaml"
     config.write_text(
         "agents:\n  work:\n    command: claude\n    provider: anthropic\n"
@@ -123,6 +127,8 @@ def test_cli_overrides_profile_and_environment(
 
 def test_dry_run_masks_credentials(tmp_path: Path) -> None:
     config = tmp_path / "custom.yaml"
+    plugin = tmp_path / "plugin.py"
+    plugin.write_text("def setup(app):\n    pass\n")
     config.write_text(
         yaml.safe_dump(
             {

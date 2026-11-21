@@ -29,19 +29,6 @@ class GenericProvider(Provider):
     #: Where requests go when ``base_url`` is empty.
     default_url: ClassVar[str] = DEFAULT_BASE_URLS["generic"]
 
-    class Options(Provider.Options):
-        """A key per built-in type, which every built-in type takes.
-
-        One environment can hold a key per type (``PRIVYX_OPENAI_API_KEY``,
-        ...); the one for the selected type wins over ``api_key``.
-        """
-
-        openai_api_key: str = ""
-        anthropic_api_key: str = ""
-        google_api_key: str = ""
-
-    options: Options
-
     @property
     def base_url(self) -> str:
         """``base_url``, or the type's default when it is empty, without a trailing ``/``."""

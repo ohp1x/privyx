@@ -147,31 +147,34 @@ def test_upstream_url_beats_config_base_url() -> None:
     )
 
 
-def test_per_provider_api_key_beats_the_generic_one() -> None:
-    settings = load_config(
-        extra={"provider": {"type": "openai", "api_key": "generic", "openai_api_key": "specific"}}
-    )
-
-    provider = build_provider(settings)
-
-    assert provider.options.api_key == "specific"
-
-
-def test_api_key_resolution_order(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Per-type key → ``provider.api_key`` → ``None``; ``generic`` has no per-type key."""
+def test_a_key_belongs_to_the_provider_it_is_written_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     for var in ("PRIVYX_API_KEY", "PRIVYX_OPENAI_API_KEY", "PRIVYX_ANTHROPIC_API_KEY"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("PRIVYX_OPENAI_API_KEY", "specific")
+    warnings: list[str] = []
 
-    def key(**provider: str) -> str | None:
-        return resolve_api_key(load_config(extra={"provider": provider}))
+    def key(provider: object) -> str | None:
+        return resolve_api_key(load_config(extra={"provider": provider}, warnings=warnings))
 
-    assert key(type="openai", api_key="generic", openai_api_key="specific") == "specific"
-    assert key(type="openai", api_key="generic") == "generic"
-    assert key(type="generic", openai_api_key="specific") is None
-    assert key(type="generic") is None
+    assert key("openai") == "specific"  # the built-in provider openai's own
+    assert key("xai") is None  # another host, of the same type
+    assert key({"type": "openai"}) is None  # a provider of its own
+    assert any("the key of provider 'openai' is not sent" in w for w in warnings)
+    assert key({"type": "openai", "api_key": "own"}) == "own"
 
+
+def test_privyx_api_key_belongs_to_the_provider_selected_at_the_top(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("PRIVYX_API_KEY", "from-env")
-    assert key(type="generic") == "from-env"
+
+    assert resolve_api_key(load_config()) == "from-env"
+    assert resolve_api_key(load_config(agent="grok")) is None  # its profile's provider
+    monkeypatch.setenv("PRIVYX_PROVIDER", "anthropic")
+    assert resolve_api_key(load_config()) == "from-env"
+    assert resolve_api_key(load_config(agent="codex")) is None
 
 
 def test_anthropic_provider_sets_the_version_header() -> None:

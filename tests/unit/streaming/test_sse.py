@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
-from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+from privyx.streaming import SSEStreamAdapter
 from privyx.streaming.sse import SSEDecoder, SSEEvent, parse_sse
 
 
@@ -31,8 +30,12 @@ def test_sse_roundtrip() -> None:
     assert parsed[0].id == "42"
 
 
-def test_openai_adapter_extracts_content() -> None:
-    adapter = OpenAIStreamAdapter()
+#: Where OpenAI's Chat Completions stream keeps its text.
+OPENAI_TEXT = ["choices", "0", "delta", "content"]
+
+
+def test_adapter_extracts_the_field_it_names() -> None:
+    adapter = SSEStreamAdapter(data_path=OPENAI_TEXT)
     event = SSEEvent(
         data='{"choices": [{"delta": {"content": "Hello"}}]}',
         event="chat.completion.chunk",
@@ -40,8 +43,8 @@ def test_openai_adapter_extracts_content() -> None:
     assert adapter.extract_delta(event) == "Hello"
 
 
-def test_openai_adapter_roundtrip() -> None:
-    adapter = OpenAIStreamAdapter()
+def test_adapter_roundtrip() -> None:
+    adapter = SSEStreamAdapter(data_path=OPENAI_TEXT)
     original = SSEEvent(
         data='{"choices": [{"delta": {"content": "x"}}]}',
         event="chat.completion.chunk",
@@ -49,23 +52,6 @@ def test_openai_adapter_roundtrip() -> None:
     wrapped = adapter.wrap_delta("Hello", original)
     parsed = parse_sse(wrapped.to_str())[0]
     assert adapter.extract_delta(parsed) == "Hello"
-
-
-def test_anthropic_adapter_ignores_thinking_delta() -> None:
-    adapter = AnthropicStreamAdapter()
-    payload = (
-        '{"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "..."}}'
-    )
-    event = SSEEvent(data=payload)
-    assert adapter.extract_delta(event) == ""
-
-
-def test_anthropic_adapter_extracts_text_delta() -> None:
-    adapter = AnthropicStreamAdapter()
-    event = SSEEvent(
-        data='{"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hi"}}'
-    )
-    assert adapter.extract_delta(event) == "Hi"
 
 
 def test_sse_decoder_incremental_chunks() -> None:
@@ -82,11 +68,14 @@ def test_sse_decoder_incremental_chunks() -> None:
 def test_utf8_multibyte_split_across_stream_chunks() -> None:
     import json
 
-    from privyx.proxy.stream_router import StreamRouter
-    from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+    from privyx.dialects import OpenAIDialect
+    from privyx.streaming import TokenStreamProcessor
     from privyx.token.codec import FormatCodec
 
-    router = StreamRouter(FormatCodec.default(), lambda tok: None, OpenAIStreamAdapter())
+    codec = FormatCodec.default()
+    router = OpenAIDialect().stream(
+        codec, lambda tok: None, lambda: TokenStreamProcessor(codec, lambda tok: None)
+    )
     # 4-byte UTF-8 character (emoji 🌟 \U0001F31F: bytes f0 9f 8c 9f)
     text = "Halo 🌟 dunia"
     payload = json.dumps({"choices": [{"delta": {"content": text}}]}, ensure_ascii=False)

@@ -13,12 +13,12 @@ from privyx.app._build import build_engine
 from privyx.config.schema import Settings
 from privyx.core import ConfigError, Context, Detection, Session
 from privyx.engine import PrivacyEngine
+from privyx.features import Directive
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.providers import GenericProvider
 from privyx.proxy import Pipeline
 from privyx.proxy._asgi import create_app
-from privyx.proxy.schemas import directive
-from privyx.testing import services
+from privyx.testing import listening, services
 from privyx.token.codec import LabelCodec
 
 pytest.importorskip("faker")
@@ -34,7 +34,6 @@ def _settings(**token: Any) -> Settings:
         token={"label_format": LABELED, **token},
         detector=TERMS,
         audit={"enabled": False},
-        proxy={"directive": True},
         anchor={"secret": ""},  # counter tokens, which the tests name
     )
 
@@ -75,12 +74,21 @@ async def test_without_label_format_nothing_changes() -> None:
     engine = await _engine(settings)
     masked = await engine.transform(f"{NAME} wrote to {EMAIL}")
     assert masked.text == "<PRIVYX_PERSON_1> wrote to <PRIVYX_EMAIL_2>"
-    assert "label" not in directive(engine.codec).casefold()
+    assert "label" not in (await _directive(engine)).text.casefold()
 
 
-def test_the_directive_shows_a_labeled_placeholder() -> None:
+async def _directive(engine: PrivacyEngine) -> Directive:
+    """The directive feature, opened with the engine's codec."""
+    directive = Directive()
+    await directive.open(services(codec=engine.codec))
+    return directive
+
+
+async def test_the_directive_shows_a_labeled_placeholder() -> None:
     codec = LabelCodec("<{namespace}_{type}_{id}>", LABELED)
-    text = directive(codec)
+    directive = Directive()
+    await directive.open(services(codec=codec))
+    text = directive.text
     assert "<PRIVYX_PERSON_1:Alice Johnson>" in text
     assert "never the name alone" in text
 
@@ -106,8 +114,8 @@ async def _labeled(
     codec: LabelCodec, labels: Any, anchor: HMACAnchor | None = None, id_length: int = 16
 ) -> PseudonymOperator:
     """A ``pseudonym`` operator writing ``codec``'s labels, which ``labels`` gives."""
-    operator = PseudonymOperator()
-    await operator.open(services(codec=codec, anchor=anchor, id_length=id_length))
+    operator = PseudonymOperator(id_length=id_length)
+    await operator.open(services(codec=codec, anchor=anchor))
     operator._labels = labels  # noqa: SLF001 - in place of Faker's
     return operator
 
@@ -229,10 +237,11 @@ async def _apps(seen: list[dict[str, Any]], **proxy: Any) -> list[Any]:
         token={"label_format": LABELED},
         detector=TERMS,
         audit={"enabled": False},
-        proxy={"directive": True, **proxy},
+        proxy=proxy,
     )
     engine = await _engine(settings)
-    transparent = Pipeline(engine, origin="https://up.test", client=_upstream(seen))
+    events = await listening(Directive(), codec=engine.codec)
+    transparent = Pipeline(engine, origin="https://up.test", client=_upstream(seen), events=events)
     gateway_settings = settings.model_copy(update={"proxy": settings.proxy.model_copy()})
     provider = GenericProvider(base_url="https://up.test/v1/chat/completions")
     return [
@@ -245,6 +254,7 @@ async def _apps(seen: list[dict[str, Any]], **proxy: Any) -> list[Any]:
                 routes=dict(gateway_settings.proxy.routes),
                 session_strategy=gateway_settings.session.strategy,
                 client=_upstream(seen),
+                events=events,
             ),
             gateway_settings,
         ),

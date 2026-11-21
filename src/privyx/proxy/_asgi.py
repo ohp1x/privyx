@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from privyx.config.schema import ProxyConfig, Settings
@@ -22,6 +22,7 @@ from privyx.core import Exchange
 from privyx.proxy._plugin_routes import include_router
 
 if TYPE_CHECKING:
+    from privyx.features import Metrics
     from privyx.proxy._pipeline import Pipeline
 
 _CATCH_ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
@@ -33,7 +34,9 @@ def create_app(
     router: APIRouter | None = None,
     *,
     served: dict[str, str] | None = None,
+    versionless: frozenset[str] | None = None,
     lifespan: Callable[[Any], Any] | None = None,
+    metrics: Metrics | None = None,
 ) -> FastAPI:
     """The FastAPI app serving ``pipeline``.
 
@@ -47,19 +50,27 @@ def create_app(
         served: The routes the gateway serves, by ``POST``; ``None`` serves
             every method and path, as the transparent proxy.  Taken from a
             gateway ``pipeline`` when not given.
+        versionless: The dialects whose paths may come without their API
+            version, which plugin routes must stay off too; by default the
+            ``pipeline``'s.
         lifespan: The app's lifespan, as FastAPI takes it.
+        metrics: The metrics feature ``GET /metrics`` serves, at
+            ``app.state.metrics``; without it, the route answers 404.
 
     Raises:
         ConfigError: If a plugin route overlaps a masking route.
     """
     if served is None and pipeline is not None and pipeline.gateway:
         served = pipeline.routes
+    if versionless is None:
+        versionless = pipeline.versionless if pipeline is not None else frozenset()
     # No Swagger UI or OpenAPI document: a privacy proxy has no API to browse,
     # and the transparent proxy's paths belong to the upstream.
     app = FastAPI(
         title="Privyx", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
     )
     app.state.settings = settings
+    app.state.metrics = metrics
     if pipeline is not None:
         app.state.pipeline = pipeline
         app.state.engine = pipeline.engine
@@ -70,11 +81,14 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/metrics", response_class=PlainTextResponse)
-    async def metrics(request: Request) -> str:
-        return str(request.app.state.pipeline.stats.prometheus())
+    async def serve_metrics(request: Request) -> str:
+        feature = request.app.state.metrics
+        if feature is None:
+            raise HTTPException(404, "the metrics feature is off")
+        return str(feature.stats.prometheus())
 
     routes = settings.proxy.routes if settings is not None else ProxyConfig().routes
-    include_router(app, router, dict(routes))
+    include_router(app, router, dict(routes), versionless)
     if served is None:
         app.api_route("/{path:path}", methods=_CATCH_ALL_METHODS)(_proxy)
     else:

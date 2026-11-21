@@ -37,11 +37,13 @@ agents:
       max_turns: 200
 
   # A wrapper script around Aider keeps following OPENAI_API_BASE, as aider
-  # does.  A tool of your own names the variable that holds its endpoint.
+  # does.  A tool of your own names the variable that holds its endpoint, an
+  # option of its type, env.
   aider:work:
     command: my-aider
   acme:
     command: acme
+    type: env
     provider: openai
     env_vars: [ACME_BASE_URL]
     endpoint_env: [ACME_BASE_URL]

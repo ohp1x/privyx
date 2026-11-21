@@ -17,7 +17,7 @@ import pytest
 
 from privyx.app._build import build_provider
 from privyx.config.schema import Settings
-from privyx.core import Exchange
+from privyx.core import EventBus, Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
@@ -154,7 +154,10 @@ async def test_transparent_batch_reply_is_restored() -> None:
 
 
 def _gateway_pipeline(
-    engine: PrivacyEngine, settings: Settings, client: httpx.AsyncClient | None = None
+    engine: PrivacyEngine,
+    settings: Settings,
+    client: httpx.AsyncClient | None = None,
+    events: EventBus | None = None,
 ) -> Pipeline:
     """The gateway of ``settings``, sending its requests with ``client``."""
     return Pipeline(
@@ -164,6 +167,7 @@ def _gateway_pipeline(
         routes=dict(settings.proxy.routes),
         session_strategy=settings.session.strategy,
         client=client,
+        events=events,
     )
 
 
@@ -255,16 +259,19 @@ async def test_gateway_serves_gemini_routes_only_with_the_google_provider() -> N
 @pytest.mark.parametrize("mode", ["transparent", "gateway"])
 async def test_directive_reaches_generate_but_not_count_tokens(mode: str) -> None:
     pytest.importorskip("fastapi")
+    from privyx.features import Directive
     from privyx.proxy._asgi import create_app
+    from privyx.testing import listening
 
     capture: list[httpx.Request] = []
     engine = _engine()
-    engine.directive = True
+    events = await listening(Directive())
     if mode == "gateway":
         settings = Settings(provider={"type": "google"})
-        app = create_app(_gateway_pipeline(engine, settings, _upstream(capture)), settings)
+        pipeline = _gateway_pipeline(engine, settings, _upstream(capture), events)
+        app = create_app(pipeline, settings)
     else:
-        proxy = Pipeline(engine, origin="https://g.test", client=_upstream(capture))
+        proxy = Pipeline(engine, origin="https://g.test", client=_upstream(capture), events=events)
         app = create_app(proxy)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://p"

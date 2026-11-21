@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from privyx.app import Privyx
-    from privyx.config.schema import Settings
+    from privyx.config.schema import PluginsConfig, Settings
 
 
 def load_plugins(settings: Settings, app: Privyx | None = None) -> Privyx:
@@ -48,7 +48,16 @@ def load_plugins(settings: Settings, app: Privyx | None = None) -> Privyx:
     from privyx.app._privyx import Privyx
 
     px = app if app is not None else Privyx()
-    plugins = settings.plugins
+    set_up_plugins(settings.plugins, px)
+    return px
+
+
+def set_up_plugins(plugins: PluginsConfig, px: Privyx) -> None:
+    """Set up the plugins of a ``plugins`` section in ``px``, each once.
+
+    Raises:
+        ConfigError: As :func:`load_plugins`.
+    """
     if plugins.enabled:
         for raw in plugins.paths:
             path = Path(raw).expanduser()
@@ -61,7 +70,6 @@ def load_plugins(settings: Settings, app: Privyx | None = None) -> Privyx:
                     px._files.add(resolved)
         for name in plugins.modules:
             px.use(name)
-    return px
 
 
 def set_up_module(name: str, px: Privyx) -> None:
@@ -83,12 +91,15 @@ def _set_up(module: ModuleType, what: str, px: Privyx) -> None:
     setup: Any = getattr(module, "setup", None)
     if not callable(setup):
         raise ConfigError(f"{what} has no setup(app) function")
+    px._setting_up, before = what, px._setting_up
     try:
         setup(px)
     except PrivyxError:
         raise
     except Exception as exc:
         raise ConfigError(f"setup of {what} failed: {exc}") from exc
+    finally:
+        px._setting_up = before
 
 
 def _files(path: Path) -> list[Path]:

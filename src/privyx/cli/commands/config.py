@@ -51,8 +51,8 @@ def config_cmd(
     else:
         click.echo(f"Privyx {__version__}")
         click.echo(f"  Host: {settings.host}:{settings.port}")
-        # The resolved URL, not the raw field: `upstream_url` is empty unless
-        # explicitly overridden, and printing it blank would be misleading.
+        # The resolved URL, not the raw field: an empty base_url means the
+        # type's default, and printing it blank would be misleading.
         click.echo(f"  Upstream: {redact(resolve_base_url(settings), 'url')}")
         click.echo(f"  Provider: {settings.provider.type}")
         click.echo(f"  Vault: {settings.vault.type}")

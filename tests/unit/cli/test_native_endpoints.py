@@ -9,11 +9,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from privyx.cli.commands.run import TARGETS
-from privyx.cli.launch import build_launch_plan
+from privyx.app._run import plan_launch as build_launch_plan
 from privyx.cli.main import cli
 from privyx.config.schema import Settings
 from privyx.core import ConfigError
+
+from ._launch import TARGETS
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +22,7 @@ def isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-    monkeypatch.setattr("privyx.cli.claude._managed_root", lambda: tmp_path / "managed")
+    monkeypatch.setattr("privyx.agents._claude._managed_root", lambda: tmp_path / "managed")
 
 
 def write_settings(path: Path, endpoint: str = "https://router.example.com") -> None:
@@ -33,19 +34,22 @@ def write_settings(path: Path, endpoint: str = "https://router.example.com") -> 
     "header", ["x-api-key", "Authorization", "X-Goog-Api-Key", "X-Router-Auth"]
 )
 @pytest.mark.parametrize("agent", ["claude", "codex"])
-def test_provider_headers_require_explicit_upstream(
+def test_provider_headers_are_not_sent_to_the_agent_endpoint(
     header: str, agent: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from privyx.providers import check_credential
+
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://router.example.com")
     target = TARGETS[agent]
     argv = [] if agent == "claude" else ["-c", 'openai_base_url="https://router.example.com/v1"']
     settings = Settings(provider={"headers": {header: "dummy-header-credential"}})
-    with pytest.raises(ConfigError, match="--upstream") as error:
+    with pytest.raises(ConfigError, match="define a provider for https://router") as error:
         build_launch_plan(target, argv, settings, 0, target.env_vars)
     assert "dummy-header-credential" not in str(error.value)
+    # Another upstream does not take them either: only the provider's own.
     settings.upstream_url = "https://confirmed.example.com"
-    plan = build_launch_plan(target, argv, settings, 0, target.env_vars)
-    assert plan.upstream == "https://confirmed.example.com"
+    with pytest.raises(ConfigError, match="would go to https://confirmed.example.com"):
+        check_credential(settings)
     assert settings.provider.headers[header] == "dummy-header-credential"
 
 
@@ -199,7 +203,8 @@ def test_a_wrapper_refuses_to_send_privyx_key_to_the_endpoint_it_follows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENAI_API_BASE", "https://router.example.com/v1")
-    monkeypatch.setenv("PRIVYX_API_KEY", "dummy-privyx-key")
+    # The key of provider openai, which the profile selects.
+    monkeypatch.setenv("PRIVYX_OPENAI_API_KEY", "dummy-privyx-key")
     config = tmp_path / "wrapper.yaml"
     config.write_text("agents:\n  wrapped:\n    extends: aider\n    command: aider-wrap\n")
     result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "wrapped"])

@@ -1,29 +1,151 @@
-"""``privyx run``: the proxy an agent is launched against, and what its traffic showed.
+"""``privyx run``: the launch of an agent, the proxy it runs against, and what its traffic showed.
+
+A target is a profile, a target an agent type spells its own way
+(``ollama:<model>``), or a command with no profile.  Where its requests go is
+resolved here, with the providers, and given to the plan
+(:func:`~privyx.agents._plan.build_launch_plan`), which keeps the agent's
+own endpoint from Privyx's credentials.
 
 The agent's requests reach the app ``privyx proxy`` serves, composed the same
-way, with two edge middlewares of the launch's own: :class:`RequestCounter`,
-which counts every HTTP request on every route, and the profile's budget.
+way, with an edge middleware of the launch's own, :class:`RequestCounter`,
+which counts every HTTP request on every route, and the profile's budget, a
+feature.
 """
 
 from __future__ import annotations
 
 import asyncio
 import socket
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from privyx.agents import Agent
+from privyx.agents._env import FALLBACK_ENV
+from privyx.agents._exec import can_exec_agent as can_exec_agent
+from privyx.agents._exec import exec_agent as exec_agent
+from privyx.agents._exec import wait_for_agent_exit as wait_for_agent_exit
+from privyx.agents._plan import LaunchPlan, Target, build_launch_plan, profile_target
+from privyx.config.agents import profile_type
+
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
-    from privyx.cli.budget import Budget
-    from privyx.cli.launch import LaunchPlan
     from privyx.config.schema import BudgetConfig, Settings
 
-#: Edge priorities: the counter outermost, so a request the budget refuses counts.
+#: The counter's edge priority: outermost, so a request refused anywhere counts.
 _COUNTER = 1000
-_BUDGET = 900
+
+
+def expand(app: Privyx, target: str, args: tuple[str, ...]) -> tuple[str, tuple[str, ...]] | None:
+    """A target an agent type spells its own way, as the profile and arguments it means.
+
+    Raises:
+        ConfigError: If the target is a type's own but malformed.
+    """
+    from pydantic import ValidationError
+
+    registry = app.registry(Agent)
+    for name in registry.names():
+        try:
+            agent = registry.get(name)()
+        except ValidationError:
+            continue  # a type whose options must be given has no syntax of its own
+        found = agent.expand(target, args)
+        if found is not None:
+            return found
+    return None
+
+
+def launch_target(
+    app: Privyx,
+    settings: Settings,
+    name: str,
+    *,
+    env_vars: tuple[str, ...] = (),
+    sources: dict[str, str] | None = None,
+) -> Target:
+    """The launch specification of profile ``name``, or of a command with no profile.
+
+    Its provider is the one in effect.  A command with no profile, given no
+    ``env_vars``, gets the base-URL variables most tools read for that
+    provider.
+
+    Raises:
+        ConfigError: If its type is unknown or an option invalid.
+    """
+    registry = app.registry(Agent)
+    profile = settings.agents.get(name)
+    if profile is not None:
+        kind = profile_type(name, profile.model_dump(), registry.names())
+        agent = registry.build(kind, profile.model_extra or {}, setting=f"agents.{name}")
+        return replace(profile_target(profile, agent), provider=settings.provider.type)
+    kind = profile_type(name, {"command": name}, registry.names())
+    spec = Target(
+        command=name,
+        provider=settings.provider.type,
+        env_vars=(),
+        agent=registry.build(kind, {}, setting=f"agents.{name}"),
+    )
+    if not env_vars and spec.provider in FALLBACK_ENV:
+        names, base_path = FALLBACK_ENV[spec.provider]
+        spec = replace(spec, env_vars=names, base_path=base_path)
+        if sources is not None:
+            sources[f"agents.{name}.env_vars"] = f"unknown command, provider {spec.provider}"
+    return spec
+
+
+def plan_launch(
+    spec: Target,
+    argv: list[str],
+    settings: Settings,
+    port: int,
+    env_vars: tuple[str, ...],
+    *,
+    name: str = "",
+    extra_env_vars: tuple[str, ...] = (),
+    sources: dict[str, str] | None = None,
+) -> LaunchPlan:
+    """The plan of launching ``spec``, with where its requests go resolved by the providers.
+
+    Raises:
+        ConfigError: As :func:`~privyx.agents._plan.build_launch_plan`, or if
+            the provider's credential would go to another origin than its own.
+    """
+    from privyx.providers import check_credential
+
+    check_credential(settings)
+    return build_launch_plan(
+        spec,
+        argv,
+        settings,
+        port,
+        env_vars,
+        upstream=_upstream,
+        credentials=_credentials(settings),
+        name=name,
+        extra_env_vars=extra_env_vars,
+        sources=sources,
+    )
+
+
+def _upstream(settings: Settings) -> tuple[str, str]:
+    """The upstream URL, and the route the proxy appends a request path to."""
+    from privyx.providers import resolve_base_url, resolve_transparent_upstream
+
+    url = resolve_base_url(settings)
+    if settings.proxy.mode == "gateway":
+        return url, url
+    return url, resolve_transparent_upstream(settings)
+
+
+def _credentials(settings: Settings) -> str | None:
+    """Which credentials of Privyx's own every upstream would receive, if any."""
+    from privyx.providers import held_credential
+
+    return held_credential(settings)
 
 
 class RequestCounter:
@@ -43,20 +165,6 @@ class RequestCounter:
             await app(scope, receive, send)
 
         return counted
-
-
-class _BudgetGuard:
-    """The budget middleware of one launch, kept for its totals after the run."""
-
-    def __init__(self, **options: Any) -> None:
-        self.options = options
-        self.budget: Budget | None = None
-
-    def __call__(self, app: Any) -> Budget:
-        from privyx.cli.budget import Budget
-
-        self.budget = Budget(app, **self.options)
-        return self.budget
 
 
 @dataclass(frozen=True)
@@ -97,27 +205,29 @@ async def run_agent(
     """
     import uvicorn
 
-    from privyx.app._build import build_audit_logger
     from privyx.app._serve import compose, running
-    from privyx.observability.audit import AuditEventType
+    from privyx.events import AuditEvent, AuditEventType, ProxyBlocked, ProxyError, ProxyPassthrough
 
     profile = Path(plan.profile).name  # the base name, so the trail holds no user paths
-    try:
-        audit = build_audit_logger(settings)
-    except BaseException:
-        sock.close()
-        raise
+    # What a request that never went upstream on a masking route came to.
+    seen: Counter[str] = Counter()
+
+    def tally(event: AuditEvent) -> None:
+        seen[event.name] += 1
+
+    for kind in (ProxyPassthrough, ProxyBlocked, ProxyError):
+        app._events.add(kind, tally)
+    features: dict[str, dict[str, Any]] = {}
+    if budget.max_turns or budget.max_tokens:
+        features["budget"] = {**budget.model_dump(), "profile": profile}
     try:
         counter = RequestCounter()
         app.add_middleware(counter, priority=_COUNTER)
-        guard = None
-        if budget.max_turns or budget.max_tokens:
-            guard = _BudgetGuard(
-                budget=budget, routes=settings.proxy.routes, audit=audit, profile=profile
-            )
-            app.add_middleware(guard, priority=_BUDGET)
         asgi, router = compose(app, settings, lifespan=False)
-        async with running(app, settings, router, audit=audit, run_token=plan.run_token):
+        async with running(
+            app, settings, router, features=features, run_token=plan.run_token
+        ) as pipeline:
+            audit = pipeline.audit
             server: Any = uvicorn.Server(
                 uvicorn.Config(
                     asgi,
@@ -142,11 +252,10 @@ async def run_agent(
                 if not audit.routed:
                     # What a tool that ignores the proxy URL looks like from here, or
                     # one whose model requests take a path outside proxy.routes.
-                    stats = audit.stats
                     unproxied = {
-                        "passthrough": stats.events[AuditEventType.PROXY_PASSTHROUGH],
-                        "blocked": stats.events[AuditEventType.PROXY_BLOCKED],
-                        "failed": sum(stats.errors.values()),
+                        "passthrough": seen[AuditEventType.PROXY_PASSTHROUGH],
+                        "blocked": seen[AuditEventType.PROXY_BLOCKED],
+                        "failed": seen[AuditEventType.PROXY_ERROR],
                     }
                     audit.emit(
                         AuditEventType.RUN_UNPROXIED,
@@ -154,7 +263,7 @@ async def run_agent(
                         requests=counter.requests,
                         **unproxied,
                     )
-                stopped = guard.budget if guard is not None else None
+                stopped: Any = app.features.get("budget")
                 return RunOutcome(
                     code=code,
                     requests=counter.requests,
@@ -169,7 +278,7 @@ async def run_agent(
                 await serve_task
     finally:
         sock.close()
-        audit.close()
+        app._events.remove(tally)
 
 
 async def _wait_until_started(server: Any, serve_task: asyncio.Task[Any]) -> None:

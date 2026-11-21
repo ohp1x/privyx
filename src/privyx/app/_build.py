@@ -17,10 +17,7 @@ Example::
 
 from __future__ import annotations
 
-import contextlib
-import os
 from collections.abc import Awaitable, Callable, Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from privyx.anchors import Anchor
@@ -31,7 +28,7 @@ from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.operators import Operator
 from privyx.policies import Policy
-from privyx.providers import Provider, resolve_api_key, resolve_base_url
+from privyx.providers import Provider, check_credential, resolve_api_key, resolve_base_url
 from privyx.token import FormatCodec
 from privyx.token import build_codec as _build_codec
 from privyx.vaults import Vault
@@ -182,8 +179,10 @@ def build_provider(settings: Settings, app: Privyx | None = None) -> Provider:
     :func:`~privyx.providers.resolve_api_key`.
 
     Raises:
-        ConfigError: If ``provider.type`` is unknown or its options invalid.
+        ConfigError: If ``provider.type`` is unknown or its options invalid,
+            or its credential would go to another origin than its own.
     """
+    check_credential(settings)
     section = settings.provider
     options = {
         **section.model_dump(exclude={"type"}),
@@ -206,34 +205,6 @@ async def open_provider(settings: Settings, app: Privyx | None = None) -> Provid
     return provider
 
 
-def build_audit_logger(settings: Settings) -> AuditLogger:
-    """Build the configured audit logger.
-
-    When ``audit.enabled`` is set, opens ``audit.path`` in append mode, creating
-    its directory, and hands the handle to an :class:`AuditLogger`; the caller
-    owns it and must call :meth:`AuditLogger.close` on shutdown.  When disabled,
-    returns a no-op logger (a ``None`` writer), so call sites need no
-    ``if audit:`` guards.
-
-    Raises:
-        ConfigError: If ``audit.path`` cannot be written.
-    """
-    if not settings.audit.enabled:
-        return AuditLogger(None)
-    path = Path(os.path.expanduser(settings.audit.path))
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Session ids and the upstream host: a new file is owner-only.
-        path.touch(mode=0o600)
-        if os.name == "posix":
-            with contextlib.suppress(OSError):
-                os.chmod(path, 0o600)
-        writer = open(path, "a", encoding="utf-8")
-    except OSError as exc:
-        raise ConfigError(f"cannot write audit.path {path}: {exc.strerror or exc}") from exc
-    return AuditLogger(writer)
-
-
 async def build_engine(
     settings: Settings, app: Privyx | None = None, *, audit: AuditLogger | None = None
 ) -> tuple[PrivacyEngine, Closer]:
@@ -245,7 +216,7 @@ async def build_engine(
             app with the built-ins and the plugins the config loads.
         audit: Optional audit logger the engine emits privacy events to.  When
             omitted the engine gets a no-op logger, so diagnostic callers (e.g.
-            ``privyx doctor``) do not open or write an audit file.
+            ``privyx doctor``) write no audit trail.
 
     Returns:
         ``(engine, close)``.  ``close`` closes the components in reverse order
@@ -283,8 +254,6 @@ async def build_engine(
         codec=codec,
         audit=audit,
         dlp_check=settings.proxy.dlp_check,
-        directive=settings.proxy.directive,
-        cache_control=settings.proxy.cache_control,
         underscore_separates_words=any(
             d.underscore_separates_words
             for d in (
@@ -335,9 +304,7 @@ def _services(
     settings: Settings, app: Privyx, codec: FormatCodec, anchor: Anchor | None
 ) -> Services:
     """What ``app`` shares with the components it opens."""
-    return Services(
-        codec=codec, anchor=anchor, events=app._events, id_length=settings.token.id_length
-    )
+    return Services(codec=codec, anchor=anchor, events=app._events)
 
 
 async def _close(components: list[Component]) -> None:

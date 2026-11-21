@@ -5,7 +5,6 @@
 #
 # `privyx run claude` needs no config for this: its profile picks Anthropic.
 
-provider:
-  type: anthropic          # https://api.anthropic.com; anthropic-version is added
-  # Optional: set PRIVYX_ANTHROPIC_API_KEY to send this key instead of the
-  # client's own.
+provider: anthropic        # the built-in provider: https://api.anthropic.com
+# anthropic-version is added.  Optional: set PRIVYX_ANTHROPIC_API_KEY to send
+# this key instead of the client's own; it goes to api.anthropic.com only.

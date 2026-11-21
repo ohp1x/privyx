@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from privyx.cli.launch import LaunchPlan, Target, build_launch_plan
-from privyx.cli.native import (
+from privyx.agents import LaunchPlan
+from privyx.agents._exec import (
     _serve_worker,
     _stop_worker,
     can_exec_agent,
@@ -42,7 +42,7 @@ def test_can_exec_agent_false_when_stdin_not_atty(monkeypatch: pytest.MonkeyPatc
 
 def test_can_exec_agent_true_when_foreground(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "name", "posix")
-    monkeypatch.setattr("privyx.cli.native.threading.active_count", lambda: 1)
+    monkeypatch.setattr("privyx.agents._exec.threading.active_count", lambda: 1)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdin, "fileno", lambda: 0)
     monkeypatch.setattr(os, "tcgetpgrp", lambda _fd: 42)
@@ -52,7 +52,7 @@ def test_can_exec_agent_true_when_foreground(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_can_exec_agent_false_when_background(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "name", "posix")
-    monkeypatch.setattr("privyx.cli.native.threading.active_count", lambda: 1)
+    monkeypatch.setattr("privyx.agents._exec.threading.active_count", lambda: 1)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdin, "fileno", lambda: 0)
     monkeypatch.setattr(os, "tcgetpgrp", lambda _fd: 42)
@@ -62,7 +62,7 @@ def test_can_exec_agent_false_when_background(monkeypatch: pytest.MonkeyPatch) -
 
 def test_can_exec_agent_false_on_tcgetpgrp_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "name", "posix")
-    monkeypatch.setattr("privyx.cli.native.threading.active_count", lambda: 1)
+    monkeypatch.setattr("privyx.agents._exec.threading.active_count", lambda: 1)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdin, "fileno", lambda: 0)
 
@@ -135,10 +135,12 @@ def test_stop_worker_handles_process_lookup_error(monkeypatch: pytest.MonkeyPatc
 
 
 def _make_plan(cmd: str = "agent") -> LaunchPlan:
+    from privyx.agents._plan import Target
+    from privyx.app._run import plan_launch
     from privyx.config.schema import Settings
 
-    target = Target(command=cmd, adapter="none", provider="openai", env_vars=())
-    return build_launch_plan(target, [], Settings(), 0, ())
+    target = Target(command=cmd, provider="openai", env_vars=())
+    return plan_launch(target, [], Settings(), 0, ())
 
 
 def test_exec_agent_raises_on_fork_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,7 +158,7 @@ def test_exec_agent_raises_privyx_error_when_worker_fails_startup(
     r_sock, w_sock = socket.socketpair()
     monkeypatch.setattr(socket, "socketpair", lambda: (r_sock, w_sock))
     monkeypatch.setattr(os, "fork", lambda: 99999)
-    monkeypatch.setattr("privyx.cli.native._stop_worker", lambda pid: None)
+    monkeypatch.setattr("privyx.agents._exec._stop_worker", lambda pid: None)
 
     # Worker writes error JSON
     w_sock.sendall(json.dumps({"error": "port already in use"}).encode() + b"\n")
@@ -174,7 +176,7 @@ def test_exec_agent_raises_privyx_error_when_worker_exits_early(
     r_sock, w_sock = socket.socketpair()
     monkeypatch.setattr(socket, "socketpair", lambda: (r_sock, w_sock))
     monkeypatch.setattr(os, "fork", lambda: 99999)
-    monkeypatch.setattr("privyx.cli.native._stop_worker", lambda pid: None)
+    monkeypatch.setattr("privyx.agents._exec._stop_worker", lambda pid: None)
 
     # Worker closes without writing anything
     w_sock.close()
@@ -191,7 +193,7 @@ def test_exec_agent_raises_privyx_error_on_execvpe_failure(
     r_sock, w_sock = socket.socketpair()
     monkeypatch.setattr(socket, "socketpair", lambda: (r_sock, w_sock))
     monkeypatch.setattr(os, "fork", lambda: 99999)
-    monkeypatch.setattr("privyx.cli.native._stop_worker", lambda pid: None)
+    monkeypatch.setattr("privyx.agents._exec._stop_worker", lambda pid: None)
 
     def mock_execvpe(cmd: str, argv: list[str], env: dict[str, str]) -> None:
         raise OSError(2, "No such file or directory")

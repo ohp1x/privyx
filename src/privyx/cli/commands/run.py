@@ -25,7 +25,6 @@ import shlex
 import shutil
 import socket
 import sys
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -34,28 +33,16 @@ import click
 from click.core import ParameterSource
 
 from privyx.cli.config import config_options
-from privyx.cli.launch import (
-    FALLBACK_ENV,
-    LaunchPlan,
-    Target,
-    build_launch_plan,
-    endpoint_env,
-    profile_target,
-)
-from privyx.cli.native import can_exec_agent, exec_agent, wait_for_agent_exit
-from privyx.config.defaults import DEFAULT_AGENTS
-from privyx.config.schema import AgentConfig
 
 if TYPE_CHECKING:
+    from privyx.agents import LaunchPlan
+    from privyx.agents._plan import Target
+    from privyx.app import Privyx
     from privyx.config.schema import Settings
-
-TARGETS: dict[str, Target] = {
-    name: profile_target(name, AgentConfig.model_validate(profile))
-    for name, profile in DEFAULT_AGENTS.items()
-}
 
 
 def _run_settings(
+    app: Privyx,
     config_path: str | None,
     provider: str | None,
     upstream: str | None,
@@ -66,14 +53,11 @@ def _run_settings(
     agent: str | None = None,
     sources: dict[str, str] | None = None,
 ) -> Settings:
-    from privyx.app import load_config
-
     extra: dict[str, Any] = {}
     if provider is not None:
-        extra["provider"] = {"type": provider}
+        extra["provider"] = provider  # a named provider, over the profile's
     if upstream is not None:
-        extra["upstream_url"] = upstream
-        extra.setdefault("provider", {})["base_url"] = upstream
+        extra["upstream_url"] = upstream  # the base URL of the provider in use
     base_extra: dict[str, Any] = {"session": {"strategy": "conversation"}}
     if session_strategy is not None:
         extra["session"] = {"strategy": session_strategy}
@@ -82,9 +66,7 @@ def _run_settings(
     if no_anchor:
         # Below the config: an anchor set there still applies.
         base_extra["anchor"] = {"secret": ""}
-    return load_config(
-        config_path, extra=extra, base_extra=base_extra, agent=agent, sources=sources
-    )
+    return app._load(config_path, extra=extra, base_extra=base_extra, agent=agent, sources=sources)
 
 
 @click.command(
@@ -93,7 +75,9 @@ def _run_settings(
 @click.argument("target", required=False)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @config_options
-@click.option("--provider", "-p", default=None, help="Override the upstream provider type")
+@click.option(
+    "--provider", "-p", default=None, help="Use this named provider (see `providers`)"
+)
 @click.option("--upstream", "-u", default=None, help="Override the upstream URL")
 @click.option(
     "--port",
@@ -149,14 +133,19 @@ def run(
       privyx run codex --provider openai
       privyx run --env-var MY_TOOL_BASE_URL -- my-tool --flag
     """
-    from privyx.core import PrivyxError
+    from privyx.agents import Agent
+    from privyx.app import Privyx
+    from privyx.app._run import can_exec_agent, exec_agent, expand, launch_target, plan_launch
+    from privyx.core import ConfigError, PrivyxError
 
     if not target and not list_targets:
         raise click.UsageError("missing TARGET (try `privyx run --list`)")
 
+    app = Privyx()
     sources: dict[str, str] = {}
     try:
         settings = _run_settings(
+            app,
             config_path,
             provider,
             upstream,
@@ -176,12 +165,16 @@ def run(
         return
 
     assert target is not None
-    ollama = _ollama_launch(target, args) if target not in settings.agents else None
-    if ollama is not None:
-        target, args = ollama
+    try:
+        expanded = expand(app, target, args) if target not in settings.agents else None
+    except ConfigError as exc:
+        raise click.UsageError(str(exc)) from exc
+    if expanded is not None:
+        target, args = expanded
         sources = {}
         try:
             settings = _run_settings(
+                app,
                 config_path,
                 provider,
                 upstream,
@@ -193,25 +186,13 @@ def run(
             )
         except PrivyxError as exc:
             raise click.ClickException(str(exc)) from exc
-    profile = settings.agents.get(target)
-    spec = (
-        profile_target(target, profile)
-        if profile
-        else Target(
-            command=target,
-            provider=settings.provider.type,
-            env_vars=(),
-            endpoint_env=endpoint_env(target),
-        )
-    )
-    spec = replace(spec, provider=settings.provider.type)
-    if not profile and not env_vars and spec.provider in FALLBACK_ENV:
-        # A tool Privyx has no profile for: the variables most tools read.
-        names, base_path = FALLBACK_ENV[spec.provider]
-        spec = replace(spec, env_vars=names, base_path=base_path)
-        sources[f"agents.{target}.env_vars"] = f"unknown command, provider {spec.provider}"
+    try:
+        spec = launch_target(app, settings, target, env_vars=env_vars, sources=sources)
+    except PrivyxError as exc:
+        raise click.ClickException(str(exc)) from exc
     all_env_vars = tuple(spec.env_vars) + tuple(env_vars)
-    if not all_env_vars and spec.args is None:
+    # No variable and no argument of its type's points the tool at the proxy.
+    if not all_env_vars and type(spec.agent).argv is Agent.argv:
         import difflib
         import re
 
@@ -235,7 +216,7 @@ def run(
         else "run defaults"
     )
     try:
-        plan = build_launch_plan(
+        plan = plan_launch(
             spec,
             list(args),
             settings,
@@ -265,8 +246,11 @@ def run(
     if shutil.which(plan.command, path=plan.environment.get("PATH")) is None:
         click.echo(f"Error: {spec.command!r} not found on PATH", err=True)
         sys.exit(127)
-    if "OLLAMA_HOST" in plan.target.endpoint_env:
-        _check_ollama(plan.upstream)
+    try:
+        spec.agent.check(plan.upstream)
+    except PrivyxError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
 
     target_run = partial(
         _run_target,
@@ -280,6 +264,7 @@ def run(
         no_anchor=no_anchor,
         settings=settings,
         plan=plan,
+        app=app,
     )
     try:
         if can_exec_agent():
@@ -293,45 +278,6 @@ def run(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     sys.exit(code)
-
-
-def _ollama_launch(
-    target: str,
-    args: tuple[str, ...],
-) -> tuple[str, tuple[str, ...]] | None:
-    """``ollama:<model>`` as ``ollama run <model>``, and the server it goes to.
-
-    Endpoint resolution happens later, using the child's environment.
-    """
-    expanded = target.startswith("ollama:")
-    if expanded:
-        model = target.removeprefix("ollama:")
-        if not model:
-            raise click.UsageError("name a model after ollama:, as in ollama:llama3.2")
-        target, args = "ollama", ("run", model, *args)
-    if not expanded:
-        return None
-    return target, args
-
-
-def _check_ollama(upstream: str) -> None:
-    """Exit with a hint when no Ollama server answers at ``upstream``.
-
-    Any HTTP answer will do: a server behind an authenticating proxy may
-    answer this one with a ``401`` and still serve the tool.
-    """
-    import httpx
-
-    url = upstream.rstrip("/") + "/api/version"
-    try:
-        httpx.get(url, timeout=3.0)
-    except (httpx.TransportError, httpx.InvalidURL) as exc:
-        click.echo(
-            f"Error: no Ollama server answers at {upstream} ({type(exc).__name__}); "
-            "start one with `ollama serve`, or name another with --upstream or OLLAMA_HOST",
-            err=True,
-        )
-        sys.exit(1)
 
 
 def _show_running(plan: LaunchPlan) -> None:
@@ -349,14 +295,14 @@ def _show_plan(plan: LaunchPlan) -> None:
     sources = plan.sources
     click.echo(f"Profile: {plan.profile}")
     click.echo(f"Command: {shlex.join(redact_argv([plan.command, *plan.argv]))}")
-    click.echo(f"Adapter: {plan.target.adapter}")
+    click.echo(f"Type: {plan.target.type}")
     click.echo(f"Proxy: {plan.base_url} ({plan.proxy_mode})")
     click.echo(f"Provider: {plan.provider} [{sources.get('provider.type', 'defaults')}]")
     click.echo(f"Upstream: {redact(plan.upstream, 'upstream_url')} [{sources['run.upstream']}]")
     if plan.native_endpoint:
-        endpoint, origin = plan.native_endpoint
-        action = "used" if sources["run.upstream"] == origin else "overridden"
-        click.echo(f"Native endpoint ({action}): {redact(endpoint, 'url')} [{origin}]")
+        endpoint = plan.native_endpoint
+        action = "used" if sources["run.upstream"] == endpoint.origin else "overridden"
+        click.echo(f"Native endpoint ({action}): {redact(endpoint.url, 'url')} [{endpoint.origin}]")
     click.echo(f"Routing: tool → {plan.base_url} → {redact(plan.route, 'upstream_url')}")
     click.echo(f"Session: {plan.session} [{sources.get('session.strategy', 'defaults')}]")
     click.echo(f"Anchor: {plan.anchor} [{sources.get('anchor.secret', 'defaults')}]")
@@ -365,7 +311,7 @@ def _show_plan(plan: LaunchPlan) -> None:
     limits += [f"{budget.max_tokens} tokens"] if budget.max_tokens else []
     click.echo(f"Budget: {', '.join(limits) or 'none'}")
     prefix = f"agents.{plan.profile}."
-    for field_name in ("command", "base_path", "adapter", "args"):
+    for field_name in ("command", "base_path", "type", "args"):
         fallback = "CLI" if field_name == "command" else "defaults"
         click.echo(f"Source {field_name}: {sources.get(prefix + field_name, fallback)}")
     for path in ("host", "proxy.mode", "run.port"):
@@ -427,6 +373,8 @@ async def _run_target(
     plan: LaunchPlan | None = None,
     ready: socket.socket | None = None,
     parent: int | None = None,
+    *,
+    app: Privyx | None = None,
 ) -> int:
     """Start the proxy, run the tool against it, and tear everything down.
 
@@ -441,13 +389,16 @@ async def _run_target(
         The tool's exit code.
     """
     from privyx.app import Privyx
-    from privyx.app._run import run_agent
+    from privyx.app._run import plan_launch, run_agent, wait_for_agent_exit
     from privyx.observability.logging import configure_logging
 
+    app = app or Privyx()
     if settings is None:
-        settings = _run_settings(config_path, spec.provider, upstream, session_strategy, no_anchor)
+        settings = _run_settings(
+            app, config_path, spec.provider, upstream, session_strategy, no_anchor
+        )
     if plan is None:
-        plan = build_launch_plan(spec, argv, settings, port, env_vars)
+        plan = plan_launch(spec, argv, settings, port, env_vars)
     # The child tool owns the terminal: log lines go to log_file if one is set,
     # else nowhere, and the audit trail still records every error.
     configure_logging(settings, console=False)
@@ -465,7 +416,7 @@ async def _run_target(
         return await _spawn(bound)
 
     outcome = await run_agent(
-        Privyx(),
+        app,
         settings,
         plan,
         sock,

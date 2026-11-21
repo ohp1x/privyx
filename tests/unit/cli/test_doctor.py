@@ -50,7 +50,7 @@ def _sessions(db: Path) -> list[tuple[str, str, float]]:
 def test_doctor_cleans_only_its_sessions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None
 ) -> None:
-    from privyx.proxy.stream_router import StreamRouter
+    from privyx.streaming import StreamRouter
     from privyx.vaults._sqlite import SQLiteVault
 
     config = tmp_path / "config.yaml"
@@ -78,7 +78,7 @@ def test_doctor_cleans_only_its_sessions(
         async def fail_request(*args, **kwargs):
             raise RuntimeError("probe request failed")
 
-        monkeypatch.setattr("privyx.proxy.schemas.transform_request", fail_request)
+        monkeypatch.setattr("privyx.proxy._mask.transform_request", fail_request)
     elif failure == "streaming":
 
         def fail_stream(*args, **kwargs):
@@ -134,7 +134,7 @@ def test_doctor_still_detects_a_broken_transform(
         payload["messages"][0]["content"] = prefix + payload["messages"][0]["content"]
         return payload
 
-    monkeypatch.setattr("privyx.proxy.schemas.transform_request", unchanged)
+    monkeypatch.setattr("privyx.proxy._mask.transform_request", unchanged)
     result = CliRunner().invoke(cli, ["doctor"])
 
     assert result.exit_code == 1
@@ -142,7 +142,7 @@ def test_doctor_still_detects_a_broken_transform(
 
 
 def test_doctor_still_detects_a_broken_stream(monkeypatch: pytest.MonkeyPatch) -> None:
-    from privyx.proxy.stream_router import StreamRouter
+    from privyx.streaming import StreamRouter
 
     monkeypatch.setattr(StreamRouter, "feed", lambda self, chunk: [chunk])
     result = CliRunner().invoke(cli, ["doctor"])

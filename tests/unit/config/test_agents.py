@@ -13,7 +13,7 @@ from privyx import load_config
 from privyx.config import trust
 from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.core import ConfigError
-from privyx.providers import resolve_api_key
+from privyx.providers import resolve_api_key, resolve_base_url
 
 
 def test_profile_layers_and_sources(
@@ -69,20 +69,17 @@ def test_profile_layers_and_sources(
     monkeypatch.setenv("PRIVYX_AGENTS", json.dumps({"codex": {"base_path": "/env"}}))
     settings = load_config(agent="codex", sources=sources)
     assert settings.upstream_url == "https://env.example"
-    assert settings.provider.type == "anthropic"
+    assert settings.provider.type == "openai"  # the profile's: PRIVYX_PROVIDER is the top's
     assert settings.agents["codex"].base_path == "/env"
     assert sources["upstream_url"] == "environment"
     settings = load_config(
         agent="codex",
         sources=sources,
-        extra={
-            "upstream_url": "https://cli.example",
-            "provider": {"type": "generic"},
-        },
+        extra={"upstream_url": "https://cli.example", "provider": "generic"},
     )
-    assert settings.upstream_url == "https://cli.example"
-    assert settings.provider.type == "generic"
-    assert sources["upstream_url"] == "CLI"
+    assert resolve_base_url(settings) == "https://cli.example"
+    assert settings.provider.type == "generic"  # --provider picks over the profile
+    assert sources["provider.base_url"] == "CLI"
 
 
 def test_profile_wins_within_layer_but_later_common_settings_win(
@@ -102,9 +99,11 @@ def test_profile_wins_within_layer_but_later_common_settings_win(
     assert settings.provider.type == "openai"
     assert settings.upstream_url == "https://agent.example"
     monkeypatch.setenv("PRIVYX_PROVIDER", "anthropic")
-    assert load_config(config, agent="claude").provider.type == "anthropic"
+    assert load_config(config, agent="claude").provider.type == "openai"
+    assert load_config(config).provider.type == "anthropic"
+    monkeypatch.delenv("PRIVYX_PROVIDER")
     # Other commands do not select or apply agent transport settings.
-    assert load_config(config).upstream_url == "https://common.example"
+    assert resolve_base_url(load_config(config)) == "https://common.example"
 
 
 def test_changed_project_profile_loses_trust(
@@ -139,7 +138,7 @@ def test_colon_profile_inherits_its_base(tmp_path: Path) -> None:
     # claude:work has neither command nor extends, yet becomes a claude variant.
     work = load_config(config, agent="claude:work").agents["claude:work"]
     assert work.command == "claude"
-    assert work.adapter == "claude"
+    assert work.type == "claude"
     assert work.upstream == "https://work.example"
     # An explicit extends is kept as written, including one naming a : profile.
     fast = load_config(config, agent="claude:work-fast").agents["claude:work-fast"]
@@ -236,7 +235,7 @@ def test_inheritance_resolves_final_parent_and_preserves_child_origins(
     settings = load_config(agent="work", sources=sources)
     profile = settings.agents["work"]
     assert profile.command == "company-wrapper"
-    assert profile.adapter == "claude"
+    assert profile.type == "claude"
     assert profile.provider == "anthropic"
     assert profile.env_vars == ["ANTHROPIC_BASE_URL"]
     assert profile.args == ["--verbose"]
@@ -248,7 +247,7 @@ def test_inheritance_resolves_final_parent_and_preserves_child_origins(
     monkeypatch.setenv("PRIVYX_UPSTREAM_URL", "https://environment.example")
     monkeypatch.setenv("PRIVYX_PROVIDER", "openai")
     assert load_config(agent="work").upstream_url == "https://environment.example"
-    assert load_config(agent="work").provider.type == "openai"
+    assert load_config(agent="work").provider.type == "anthropic"  # the profile's
 
 
 def test_child_replaces_lists_and_can_change_env_source(tmp_path: Path) -> None:
@@ -315,7 +314,7 @@ def test_deep_inheritance_chain_does_not_recurse(tmp_path: Path) -> None:
     profiles = {f"p{i}": {"extends": f"p{i - 1}"} for i in range(1, 1100)}
     config = tmp_path / "profiles.yaml"
     config.write_text(yaml.safe_dump({"agents": {"p0": {"extends": "claude"}, **profiles}}))
-    assert load_config(config).agents["p1099"].adapter == "claude"
+    assert load_config(config).agents["p1099"].type == "claude"
 
 
 def test_mapping_cannot_silently_override_argument_list_across_layers(
@@ -525,10 +524,13 @@ def test_a_profile_for_another_host_sends_no_key_of_privyx(
     assert resolve_api_key(load_config(agent=agent)) is None
 
 
-def test_a_profile_for_another_host_clears_every_key() -> None:
-    keys = dict.fromkeys(["api_key", "openai_api_key", "anthropic_api_key", "google_api_key"], "")
-    for agent in ("grok", "ollama"):
-        assert DEFAULT_AGENTS[agent]["privyx"] == {"provider": keys}
+def test_a_profile_for_another_host_uses_a_provider_of_its_own() -> None:
+    assert (DEFAULT_AGENTS["grok"]["provider"], DEFAULT_AGENTS["ollama"]["provider"]) == (
+        "xai",
+        "ollama",
+    )
+    settings = load_config(agent="grok")
+    assert (settings.provider.type, resolve_base_url(settings)) == ("openai", "https://api.x.ai/v1")
 
 
 def test_a_key_set_for_the_profile_still_reaches_its_host(tmp_path: Path) -> None:

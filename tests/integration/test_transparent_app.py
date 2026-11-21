@@ -23,11 +23,13 @@ import httpx  # noqa: E402
 from privyx.core import DetectorError, VaultError  # noqa: E402
 from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
+from privyx.features import Metrics  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.proxy import Pipeline  # noqa: E402
 from privyx.proxy._asgi import create_app  # noqa: E402
+from privyx.testing import listening  # noqa: E402
 from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "alice@example.com"
@@ -162,8 +164,16 @@ async def test_chat_paths_without_v1_are_masked() -> None:
         assert b"PRIVYX_EMAIL" in body
 
 
+async def _metrics(buf: io.StringIO | None = None) -> tuple[AuditLogger, Metrics]:
+    """An audit logger writing to ``buf``, and the metrics feature hearing it."""
+    metrics = Metrics()
+    return AuditLogger(buf, events=await listening(metrics)), metrics
+
+
 async def test_metrics_count_proxied_exchanges() -> None:
-    async with _client(_app()) as client:
+    audit, metrics = await _metrics()
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_upstream(), audit=audit)
+    async with _client(create_app(proxy, metrics=metrics)) as client:
         await client.post(
             "/v1/chat/completions",
             json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
@@ -184,7 +194,7 @@ class _BrokenDetector:
 async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
     seen: list[bytes] = []
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit, metrics = await _metrics(buf)
     vault = MemoryVault()
     engine = PrivacyEngine(
         detector=_BrokenDetector(),
@@ -194,12 +204,12 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
         audit=audit,
     )
     proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
-    async with _client(create_app(proxy)) as client:
+    async with _client(create_app(proxy, metrics=metrics)) as client:
         response = await client.post(
             "/v1/chat/completions",
             json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
         )
-        metrics = (await client.get("/metrics")).text
+        text = (await client.get("/metrics")).text
 
     assert response.status_code == 503
     assert response.json()["error"]["type"] == "privyx_scan_failed"
@@ -207,7 +217,7 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
     assert seen == []  # fail-closed: nothing reached the upstream
     errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
     assert [(e["phase"], e["error_type"]) for e in errors] == [("transform", "DetectorError")]
-    assert 'privyx_proxy_errors_total{phase="transform"} 1' in metrics
+    assert 'privyx_proxy_errors_total{phase="transform"} 1' in text
     assert await vault.list_sessions() == []  # the ephemeral session was cleaned up
 
 
@@ -250,10 +260,13 @@ async def test_dlp_check_forwards_a_copy_in_masked_text_masked() -> None:
 
 
 async def test_directive_reaches_the_upstream_in_the_system_prompt() -> None:
+    from privyx.features import Directive
+    from privyx.testing import listening
+
     seen: list[bytes] = []
     engine = _engine()
-    engine.directive = True
-    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen))
+    events = await listening(Directive())
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), events=events)
     async with _client(create_app(proxy)) as client:
         await client.post(
             "/v1/messages",
@@ -311,7 +324,7 @@ async def test_a_vault_failure_is_a_503_audited(
 ) -> None:
     seen: list[bytes] = []
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit, metrics = await _metrics(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -320,20 +333,20 @@ async def test_a_vault_failure_is_a_503_audited(
         audit=audit,
     )
     proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
-    async with _client(create_app(proxy)) as client:
+    async with _client(create_app(proxy, metrics=metrics)) as client:
         response = await client.post(
             "/v1/chat/completions",
             json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
             headers={"x-privyx-session": "ses_sticky"},  # an ephemeral one skips the vault
         )
-        metrics = (await client.get("/metrics")).text
+        text = (await client.get("/metrics")).text
 
     assert response.status_code == 503
     assert response.json()["error"]["type"] == "privyx_vault_unavailable"
     assert bool(seen) is forwarded
     errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
     assert [(e["phase"], e["error_type"]) for e in errors] == [("vault", "VaultError")]
-    assert 'privyx_proxy_errors_total{phase="vault"} 1' in metrics
+    assert 'privyx_proxy_errors_total{phase="vault"} 1' in text
     # One WARNING line; the traceback only at DEBUG.
     assert any("session vault" in r.getMessage() for r in caplog.records)
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING and r.exc_info]

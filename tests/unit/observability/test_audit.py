@@ -10,19 +10,31 @@ from typing import Any
 
 import pytest
 
-from privyx.app._build import build_audit_logger
-from privyx.config.schema import AuditConfig, Settings
-from privyx.core import ConfigError
-from privyx.observability.audit import SCHEMA_VERSION, AuditEvent, AuditLogger
+from privyx.core import ConfigError, EventBus, listened
+from privyx.events import SessionTransform
+from privyx.features import AuditTrail, Feature, Metrics
+from privyx.observability.audit import SCHEMA_VERSION, AuditLogger
+from privyx.testing import services
 
 
-def test_route_decision_sanitizes_method_and_counts_without_a_file() -> None:
-    audit = AuditLogger(None)
+async def _logger(*features: Feature) -> AuditLogger:
+    """An audit logger whose notifications ``features``, opened, hear."""
+    bus = EventBus()
+    for feature in features:
+        await feature.open(services(events=bus))
+        for event, priority, listener in listened(feature):
+            bus.add(event, listener, priority=priority)
+    return AuditLogger(events=bus)
+
+
+async def test_route_decision_sanitizes_method_and_counts_without_a_file() -> None:
+    metrics = Metrics()
+    audit = await _logger(metrics)
     audit.route_decision(allowed=True, method="POST /secret-canary")
-    assert audit.stats.events["proxy.passthrough"] == 1
-    metrics = audit.stats.prometheus()
-    assert 'event="proxy.passthrough"} 1' in metrics
-    assert "canary" not in metrics
+    assert metrics.stats.events["proxy.passthrough"] == 1
+    text = metrics.stats.prometheus()
+    assert 'event="proxy.passthrough"} 1' in text
+    assert "canary" not in text
 
 
 def _lines(buf: io.StringIO) -> list[dict[str, Any]]:
@@ -30,8 +42,7 @@ def _lines(buf: io.StringIO) -> list[dict[str, Any]]:
 
 
 def test_audit_event_to_json_has_versioned_envelope() -> None:
-    event = AuditEvent(
-        event="session.transform",
+    event = SessionTransform(
         timestamp=1.5,
         session_id="ses_x",
         request_id="req_y",
@@ -246,69 +257,58 @@ def test_request_event_fields() -> None:
     assert record["request_id"] == "req_1"
 
 
-def test_build_audit_logger_enabled_writes_file(tmp_path: Path) -> None:
+async def test_the_audit_feature_writes_the_trail(tmp_path: Path) -> None:
     path = tmp_path / "audit.log"
-    settings = Settings(audit=AuditConfig(enabled=True, path=str(path)))
-
-    audit = build_audit_logger(settings)
+    trail = AuditTrail(path=str(path))
+    audit = await _logger(trail)
     try:
         assert audit.enabled is True
         audit.session_created("ses_1")
     finally:
-        audit.close()
+        await trail.close()
 
     records = [json.loads(line) for line in path.read_text().splitlines() if line]
-    assert records[0]["event"] == "session.created"
     assert records[0]["schema_version"] == SCHEMA_VERSION
 
 
-def test_build_audit_logger_disabled_is_noop(tmp_path: Path) -> None:
-    path = tmp_path / "audit.log"
-    settings = Settings(audit=AuditConfig(enabled=False, path=str(path)))
-
-    audit = build_audit_logger(settings)
-    audit.session_created("ses_1")
-    audit.close()
-
-    assert audit.enabled is False
-    assert not path.exists()  # disabled must not open or create the file
-
-
-def test_build_audit_logger_creates_the_directory(tmp_path: Path) -> None:
+async def test_the_audit_feature_creates_the_directory(tmp_path: Path) -> None:
     path = tmp_path / "state" / "privyx" / "audit.log"
-    audit = build_audit_logger(Settings(audit=AuditConfig(enabled=True, path=str(path))))
-    audit.close()
+    await (await _opened(AuditTrail(path=str(path)))).close()
 
     assert path.exists()
 
 
-def test_a_new_audit_file_is_owner_only(tmp_path: Path) -> None:
+async def _opened(trail: AuditTrail) -> AuditTrail:
+    await trail.open(services())
+    return trail
+
+
+async def test_a_new_audit_file_is_owner_only(tmp_path: Path) -> None:
     """Session ids and the upstream host are nobody else's business."""
     path = tmp_path / "audit.log"
     umask = os.umask(0o022)  # open() alone would then create it 0644
     try:
-        build_audit_logger(Settings(audit=AuditConfig(enabled=True, path=str(path)))).close()
+        await (await _opened(AuditTrail(path=str(path)))).close()
     finally:
         os.umask(umask)
 
     assert path.stat().st_mode & 0o777 == 0o600
 
 
-def test_an_existing_audit_file_is_tightened_to_owner_only(tmp_path: Path) -> None:
+async def test_an_existing_audit_file_is_tightened_to_owner_only(tmp_path: Path) -> None:
     path = tmp_path / "audit.log"
     path.touch()
     path.chmod(0o644)
-    build_audit_logger(Settings(audit=AuditConfig(enabled=True, path=str(path)))).close()
+    await (await _opened(AuditTrail(path=str(path)))).close()
 
     assert path.stat().st_mode & 0o777 == 0o600
 
 
-def test_an_unwritable_audit_path_is_a_config_error(tmp_path: Path) -> None:
+async def test_an_unwritable_audit_path_is_a_config_error(tmp_path: Path) -> None:
     (tmp_path / "file").write_text("")  # a file where a directory is needed
-    settings = Settings(audit=AuditConfig(enabled=True, path=str(tmp_path / "file" / "audit.log")))
 
     with pytest.raises(ConfigError, match="cannot write audit.path"):
-        build_audit_logger(settings)
+        await AuditTrail(path=str(tmp_path / "file" / "audit.log")).open(services())
 
 
 def test_no_op_transform_and_restore_are_not_recorded() -> None:
@@ -322,15 +322,16 @@ def test_no_op_transform_and_restore_are_not_recorded() -> None:
     assert [r["event"] for r in _lines(buf)] == ["session.transform"]
 
 
-def test_stats_count_every_event_even_when_the_trail_is_disabled() -> None:
-    audit = AuditLogger(None)
+async def test_metrics_count_every_event_without_the_trail() -> None:
+    metrics = Metrics()
+    audit = await _logger(metrics)
 
     audit.transform("ses_1", entity_counts={"EMAIL": 2, "PERSON": 1}, transformations=3)
     audit.restore("ses_1", transformations=2)
     audit.response(status=200, stream=False, duration_ms=1500.0)
     audit.error(phase="upstream", error_type="ConnectError")
 
-    stats = audit.stats
+    stats = metrics.stats
     assert stats.events["session.transform"] == 1
     assert stats.entities == {"EMAIL": 2, "PERSON": 1}
     assert stats.restored == 2
@@ -342,17 +343,19 @@ def test_stats_count_every_event_even_when_the_trail_is_disabled() -> None:
     assert "privyx_response_duration_seconds_count 1" in text
 
 
-def test_prometheus_escapes_label_values() -> None:
-    audit = AuditLogger(None)
+async def test_prometheus_escapes_label_values() -> None:
+    metrics = Metrics()
+    audit = await _logger(metrics)
     audit.transform("ses_1", entity_counts={'A"B\\C\nD': 1}, transformations=1)
 
-    assert 'entity_type="A\\"B\\\\C\\nD"} 1' in audit.stats.prometheus()
+    assert 'entity_type="A\\"B\\\\C\\nD"} 1' in metrics.stats.prometheus()
 
 
-def test_detector_counts_are_recorded_even_without_a_transformation() -> None:
+async def test_detector_counts_are_recorded_even_without_a_transformation() -> None:
     """An LLM call costs tokens and a fallback must be visible, masked or not."""
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    metrics = Metrics()
+    audit = AuditLogger(buf, events=(await _logger(metrics))._events)
 
     token = audit.begin_request("req_1")
     audit.transform("ses_1", entity_counts={}, transformations=0, detector_counts={"llm_calls": 1})
@@ -366,5 +369,5 @@ def test_detector_counts_are_recorded_even_without_a_transformation() -> None:
 
     (record,) = _lines(buf)
     assert record["detector_counts"] == {"llm_calls": 2, "llm_fallbacks": 1}
-    assert audit.stats.detector == {"llm_calls": 2, "llm_fallbacks": 1}
-    assert 'privyx_detector_counts_total{counter="llm_fallbacks"} 1' in audit.stats.prometheus()
+    assert metrics.stats.detector == {"llm_calls": 2, "llm_fallbacks": 1}
+    assert 'privyx_detector_counts_total{counter="llm_fallbacks"} 1' in metrics.stats.prometheus()

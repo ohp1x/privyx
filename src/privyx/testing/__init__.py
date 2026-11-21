@@ -5,23 +5,35 @@ them; Privyx's own components pass the same suites.
 """
 
 from privyx.testing._suites import (
+    AgentSuite,
     AnchorSuite,
     DetectorSuite,
+    DialectSuite,
+    FeatureSuite,
     OperatorSuite,
     PolicySuite,
     ProviderSuite,
+    SecretResolverSuite,
     VaultSuite,
+    capture_events,
+    listening,
     opened,
     services,
 )
 
 __all__ = [
+    "AgentSuite",
     "AnchorSuite",
     "DetectorSuite",
+    "DialectSuite",
+    "FeatureSuite",
     "OperatorSuite",
     "PolicySuite",
     "ProviderSuite",
+    "SecretResolverSuite",
     "VaultSuite",
+    "capture_events",
+    "listening",
     "opened",
     "services",
 ]

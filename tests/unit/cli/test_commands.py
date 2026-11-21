@@ -19,6 +19,7 @@ from click.testing import CliRunner
 
 from privyx.app import Privyx
 from privyx.cli.main import cli
+from privyx.secrets import KeychainResolver, OnePasswordResolver
 
 EMAIL = "alice@example.com"
 
@@ -786,7 +787,7 @@ def test_doctor_resolves_secrets_once_per_invocation(
             raise ConfigError("password manager unavailable")
         return "example-credential"
 
-    monkeypatch.setattr("privyx.security.secrets._op_read", resolve)
+    monkeypatch.setattr(OnePasswordResolver, "resolve", staticmethod(resolve))
     config = tmp_path / "config.yaml"
     for item in ("first", "second"):
         reference = f"op://example/{item}/credential"
@@ -997,7 +998,7 @@ def test_run_gemini_points_every_endpoint_at_privyx_and_refuses_unrouted_paths(
     runner: CliRunner,
 ) -> None:
     from privyx import load_config
-    from privyx.proxy.schemas import detect_schema
+    from privyx.proxy._routing import detect_schema
 
     result = runner.invoke(cli, ["run", "--dry-run", "gemini"])
 
@@ -1016,7 +1017,7 @@ def test_run_gemini_points_every_endpoint_at_privyx_and_refuses_unrouted_paths(
         "/v1internal:streamGenerateContent",
         "/v1/projects/p/locations/l/publishers/google/models/m:generateContent",
     ):
-        assert detect_schema(path, settings.proxy.routes) is None
+        assert detect_schema(path, settings.proxy.routes, frozenset({"gemini"})) is None
     assert load_config(None, agent="claude").proxy.passthrough_unknown is True
 
 
@@ -1034,7 +1035,7 @@ def test_run_gemini_points_every_endpoint_at_privyx_and_refuses_unrouted_paths(
     ],
 )
 def test_ollama_host_is_read_as_ollama_reads_it(host: str, url: str) -> None:
-    from privyx.cli.launch import ollama_url
+    from privyx.agents._ollama import ollama_url
 
     assert ollama_url(host) == url
 
@@ -1128,7 +1129,9 @@ def test_run_an_ollama_wrapper_checks_the_server_too(
     config = tmp_path / "privyx.yaml"
     config.write_text(f"agents:\n  wrapped:\n    extends: ollama\n    command: {tool}\n")
     checked: list[str] = []
-    monkeypatch.setattr("privyx.cli.commands.run._check_ollama", checked.append)
+    monkeypatch.setattr(
+        "privyx.agents._ollama.OllamaAgent.check", lambda self, upstream: checked.append(upstream)
+    )
     monkeypatch.setattr("privyx.cli.commands.run._run_target", lambda **kw: None)
     monkeypatch.setenv("OLLAMA_HOST", "gpu.example.test")
 
@@ -1150,18 +1153,18 @@ def test_run_ollama_sends_no_key_of_privyx_to_the_server(
 
 
 def test_check_ollama_reports_an_address_httpx_cannot_use(runner: CliRunner) -> None:
-    from privyx.cli.commands.run import _check_ollama
+    from privyx.agents import OllamaAgent
+    from privyx.core import PrivyxError
 
-    with pytest.raises(SystemExit) as exit_:
-        _check_ollama("http://bad host:11434")
-    assert exit_.value.code == 1
+    with pytest.raises(PrivyxError, match="no Ollama server answers"):
+        OllamaAgent().check("http://bad host:11434")
 
 
 def test_check_ollama_passes_when_the_server_answers() -> None:
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-    from privyx.cli.commands.run import _check_ollama
+    from privyx.agents import OllamaAgent
 
     class Server(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -1177,7 +1180,8 @@ def test_check_ollama_passes_when_the_server_answers() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 0), Server)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        _check_ollama(f"http://127.0.0.1:{server.server_address[1]}")  # any answer will do
+        # Any answer will do.
+        OllamaAgent().check(f"http://127.0.0.1:{server.server_address[1]}")
     finally:
         server.shutdown()
         server.server_close()
@@ -1321,7 +1325,8 @@ async def test_run_spawns_target_against_a_live_proxy(
     # test does not drop a privyx-audit.log in the repo root.
     monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
 
-    from privyx.cli.commands.run import Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
 
     result_file = tmp_path / "result.json"
     probe = tmp_path / "probe.py"
@@ -1370,7 +1375,8 @@ async def test_run_provisions_anchor_secret_by_default(
     else:
         monkeypatch.setenv("PRIVYX_ANCHOR_SECRET", anchor_env)
 
-    from privyx.cli.commands.run import Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1496,7 +1502,10 @@ async def test_run_relays_the_tools_own_credential(
         monkeypatch.delenv(name, raising=False)
     url, seen = upstream
 
-    from privyx.cli.commands.run import TARGETS, Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
+
+    from ._launch import TARGETS
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1531,10 +1540,11 @@ async def test_run_relays_the_tools_own_credential(
 async def test_run_serves_the_gateway_from_the_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, upstream: tuple[str, Seen]
 ) -> None:
-    """``proxy.mode: gateway`` posts to the upstream URL as written, with Privyx's key.
+    """``proxy.mode: gateway`` posts to the provider's URL as written, with its key.
 
     That is what an upstream behind a base path needs; the transparent proxy
-    would keep only its origin.
+    would keep only its origin.  The key goes there because its provider points
+    there.
     """
     import sys
 
@@ -1546,9 +1556,14 @@ async def test_run_serves_the_gateway_from_the_config(
     monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
     url, seen = upstream
     config = tmp_path / "gateway.yaml"
-    config.write_text(f"proxy:\n  mode: gateway\nupstream_url: {url}/base/v1/messages\n")
+    config.write_text(
+        f"proxy:\n  mode: gateway\nproviders:\n  anthropic:\n    base_url: {url}/base/v1/messages\n"
+    )
 
-    from privyx.cli.commands.run import TARGETS, Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
+
+    from ._launch import TARGETS
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1643,7 +1658,9 @@ async def test_run_points_each_known_target_at_the_proxy(
     monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
     url, seen = upstream
 
-    from privyx.cli.commands.run import TARGETS, _run_target
+    from privyx.cli.commands.run import _run_target
+
+    from ._launch import TARGETS
 
     tool = tmp_path / name
     tool.write_text(
@@ -1671,7 +1688,7 @@ async def test_run_points_each_known_target_at_the_proxy(
 
 
 def test_run_repeats_the_codex_override_only_after_a_config_flag_of_the_users() -> None:
-    from privyx.cli.launch import codex_args as _codex_args
+    from privyx.agents._codex import codex_args as _codex_args
 
     override = ["-c", 'openai_base_url="http://proxy/v1"']
 
@@ -1739,7 +1756,8 @@ async def test_run_warns_when_no_request_took_a_masking_route(
         monkeypatch.setattr("privyx.proxy._pipeline.transform_request", broken)
     url, _ = upstream
 
-    from privyx.cli.commands.run import Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1787,6 +1805,62 @@ async def test_run_warns_when_no_request_took_a_masking_route(
     assert "messages" not in json.dumps(event)
 
 
+async def test_run_stops_the_tool_at_its_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    upstream: tuple[str, Seen],
+) -> None:
+    """The profile's budget refuses the turns after its limit, and the trail says why."""
+    import sys
+
+    from privyx.config.schema import BudgetConfig
+
+    pytest.importorskip("uvicorn")
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
+    monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
+    url, seen = upstream
+
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
+
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import os, urllib.request, urllib.error\n"
+        "for _ in range(3):\n"
+        "    try:\n"
+        "        urllib.request.urlopen(urllib.request.Request(\n"
+        "            os.environ['ANTHROPIC_BASE_URL'] + '/v1/messages',\n"
+        "            data=b'{\"messages\": []}',\n"
+        "            headers={'content-type': 'application/json'},\n"
+        "        ), timeout=5).read()\n"
+        "    except urllib.error.HTTPError as exc:\n"
+        "        print(exc.code)\n",
+        encoding="utf-8",
+    )
+    spec = Target(
+        command=sys.executable,
+        provider="anthropic",
+        env_vars=("ANTHROPIC_BASE_URL",),
+        budget=BudgetConfig(max_turns=2),
+    )
+    code = await _run_target(
+        spec=spec,
+        argv=[str(probe)],
+        config_path=None,
+        upstream=url,
+        port=0,
+        env_vars=spec.env_vars,
+        session_strategy="ephemeral",
+        no_anchor=True,
+    )
+
+    assert code == 0
+    assert len(seen) == 2
+    assert "the turn budget (2 turns) is reached, after 2 turn(s)" in capsys.readouterr().err
+    assert '"event": "run.budget_exceeded"' in (tmp_path / "audit.log").read_text()
+
+
 async def test_run_counts_a_masked_request_still_awaiting_its_response(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1818,7 +1892,8 @@ async def test_run_counts_a_masked_request_still_awaiting_its_response(
     server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
-    from privyx.cli.commands.run import Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1878,7 +1953,8 @@ async def test_run_counts_a_request_still_being_masked_when_the_tool_exits(
     monkeypatch.setattr(transparent, "transform_request", slow)
     url, seen = upstream
 
-    from privyx.cli.commands.run import Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1923,7 +1999,8 @@ async def test_run_keeps_the_audit_trail_out_of_the_working_directory(
     project.mkdir()
     monkeypatch.chdir(project)
 
-    from privyx.cli.commands.run import Target, _run_target
+    from privyx.agents._plan import Target
+    from privyx.cli.commands.run import _run_target
 
     spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
     code = await _run_target(
@@ -2212,7 +2289,7 @@ def test_config_sources_masks_resolved_secrets(
         calls.append(path)
         return secret
 
-    monkeypatch.setattr("privyx.security.secrets._op_read", resolve)
+    monkeypatch.setattr(OnePasswordResolver, "resolve", staticmethod(resolve))
     config = tmp_path / "config.yaml"
     config.write_text("provider:\n  api_key: op://example/item/credential\n", encoding="utf-8")
 
@@ -2266,8 +2343,8 @@ def test_config_path_does_not_resolve_secrets(
     def unavailable(reference: str, path: str) -> str:
         raise ConfigError("password manager unavailable")
 
-    monkeypatch.setattr("privyx.security.secrets._op_read", unavailable)
-    monkeypatch.setattr("privyx.security.secrets._keychain", unavailable)
+    monkeypatch.setattr(OnePasswordResolver, "resolve", staticmethod(unavailable))
+    monkeypatch.setattr(KeychainResolver, "resolve", staticmethod(unavailable))
     included = tmp_path / "credentials.yaml"
     included.write_text(f"provider:\n  api_key: {reference}\n", encoding="utf-8")
     config = tmp_path / "config.yaml"
@@ -2353,13 +2430,13 @@ def test_config_show_masks_secrets(
     shown = json.loads(result.output)
     if flag == "--sources":
         assert shown["vault.redis_url"]["value"] == "redis://:***@cache:6379/0"
-        assert shown["provider.openai_api_key"] == {"value": "***", "source": "environment"}
+        assert shown["providers.openai.api_key"] == {"value": "***", "source": "environment"}
         assert shown["provider.api_key"] == {"value": "", "source": "defaults"}
         assert shown["detector.0.patterns.CODENAME"]["value"] == "***"
         assert shown["detector.0.terms.PERSON"]["value"] == ["***"]
         return
     assert shown["vault"]["redis_url"] == "redis://:***@cache:6379/0"
-    assert shown["provider"]["openai_api_key"] == "***"
+    assert shown["providers"]["openai"]["api_key"] == "***"
     assert shown["provider"]["api_key"] == ""  # unset stays visible as unset
     assert shown["detector"][0]["patterns"] == {"CODENAME": "***"}  # names stay
     assert shown["detector"][0]["terms"] == {"PERSON": ["***"]}
@@ -2703,8 +2780,11 @@ async def test_the_transparent_pipeline_follows_the_proxy_settings() -> None:
 
     settings = load_config(
         extra={
-            "proxy": {"passthrough_unknown": False, "timeout": 42, "max_connections": 7},
-            "provider": {"type": "openai", "openai_api_key": "sk-per-type"},
+            "proxy": {"passthrough_unknown": False},
+            "provider": "openai",
+            "providers": {
+                "openai": {"api_key": "sk-per-type", "timeout": 42, "max_connections": 7}
+            },
         }
     )
     engine, close_vault = await build_engine(settings)
@@ -2818,8 +2898,8 @@ def test_an_unused_profile_reference_is_never_resolved(
     import subprocess
 
     calls: list[str] = []
-    monkeypatch.setattr("privyx.security.secrets._op_read", lambda ref, path: calls.append(ref))
-    monkeypatch.setattr("privyx.security.secrets._keychain", lambda ref, path: calls.append(ref))
+    monkeypatch.setattr(OnePasswordResolver, "resolve", staticmethod(lambda r, p: calls.append(r)))
+    monkeypatch.setattr(KeychainResolver, "resolve", staticmethod(lambda r, p: calls.append(r)))
     monkeypatch.delenv("TEST_UNSET_PROFILE", raising=False)
     config = tmp_path / "config.yaml"
     config.write_text(

@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -43,14 +43,27 @@ from urllib.parse import urlsplit
 import httpx
 
 from privyx.config.schema import ProxyConfig
-from privyx.core import Exchange, LeakError, Session, VaultError
+from privyx.core import (
+    ConfigError,
+    EventBus,
+    Exchange,
+    LeakError,
+    ListenerError,
+    Rejected,
+    Responded,
+    Session,
+    Stop,
+    VaultError,
+)
 from privyx.core import request_id as new_request_id
 from privyx.engine import PrivacyEngine
+from privyx.events import Headers, RequestMasked, RequestReceived
 from privyx.observability import tracing
 from privyx.observability.audit import AuditLogger
-from privyx.observability.metrics import AuditStats
 from privyx.observability.usage import UsageMeter
 from privyx.proxy._headers import filter_request_headers, filter_response_headers
+from privyx.proxy._mask import AUTH_QUERY_PARAMS, restore_response, transform_request
+from privyx.proxy._routing import detect_schema
 from privyx.proxy._session import resolve_session_id
 from privyx.proxy._streaming import AuditedStream
 from privyx.proxy._tap import Tap
@@ -61,31 +74,21 @@ from privyx.proxy._upstream import (
     served_routes,
     upstream_client,
     upstream_failure,
-    wants_stream,
 )
-from privyx.proxy.schemas import (
-    AUTH_QUERY_PARAMS,
-    MASKED_HEADERS,
-    detect_schema,
-    has_token_ids,
-    restore_response,
-    transform_request,
-)
-from privyx.proxy.stream_router import (
+from privyx.streaming import (
     LineRouter,
     StreamRouter,
     resolver_for,
     restore_chunks,
     select_processor_factory,
 )
-from privyx.streaming.adapters.registry import build_stream_adapter
 
 if TYPE_CHECKING:
+    from privyx.dialects import Dialect
     from privyx.providers import Provider
 
 _JSON = "application/json"
 _SSE = "text/event-stream"
-_NDJSON = "application/x-ndjson"  # Ollama's stream: one JSON object per line
 _log = logging.getLogger("privyx.proxy")
 
 #: Body of the 503 returned when a request cannot be masked (a detector failed
@@ -119,15 +122,11 @@ INVALID_BODY = {
     }
 }
 
-#: Body of the 400 returned when a routed request sends token ids instead of
-#: text (embeddings, legacy completions): Privyx cannot scan them.
-TOKEN_IDS_BODY = {
-    "error": {
-        "type": "privyx_invalid_request",
-        "message": "the request sends token ids instead of text, so privyx could not "
-        "mask it and did not forward it; send the text instead",
-    }
-}
+#: Body of the 500 returned when a listener of a request event fails: the
+#: exchange is refused, fail-closed.  No exception text: it could quote the request.
+LISTENER_FAILED_MESSAGE = (
+    "a privyx feature failed on this request, so it was not forwarded; see the privyx logs"
+)
 
 #: Body of the 503 returned when the session vault fails (Redis down or not
 #: answering, a SQLite error).  Fail-closed like a scan failure: without the
@@ -192,9 +191,11 @@ class Pipeline:
         strip_prefix: When set (``""`` included), the request path must lie
             under this prefix, which is removed before the rest is appended to
             ``origin``.  Paths outside it, or that could leave it, are refused.
-            ``None`` appends the whole path (``proxy.path_mapping.mode: origin``).
-        routes: Path → dialect map (defaults to ``proxy.routes``' default:
+            ``None`` appends the whole path (``provider.path_mapping.mode: origin``).
+        routes: Path → dialect name map (defaults to ``proxy.routes``' default:
             OpenAI Chat and Responses, Anthropic Messages and token counting).
+        dialects: The dialect of each name ``routes`` uses; by default, a new
+            one of each built-in.
         passthrough_unknown: Forward paths missing from ``routes`` verbatim.  When
             false they are refused with 403, so nothing reaches the upstream
             unmasked.
@@ -211,6 +212,12 @@ class Pipeline:
             ``conversation``.  See :func:`privyx.proxy._session.resolve_session_id`.
         tap: Optional developer tap that records each masked exchange before
             and after masking (``audit.tap``; see :mod:`privyx.proxy._tap`).
+        events: The bus the request events go to, the app's: a listener may
+            change a request, refuse it, or answer it.
+        metadata_keys, masked_headers: The request keys and headers in which
+            clients describe the machine they run on, masked whole: the union
+            of every agent type's (:class:`~privyx.agents.Agent`); by
+            default, the built-in types'.
         run_token: Set by ``privyx run pi``, whose requests each name their
             upstreams in :data:`~privyx.proxy._headers.UPSTREAMS_HEADER`, with
             this secret in :data:`~privyx.proxy._headers.RUN_TOKEN_HEADER`.  The
@@ -238,7 +245,13 @@ class Pipeline:
         session_strategy: str = "ephemeral",
         tap: Tap | None = None,
         run_token: str | None = None,
+        metadata_keys: frozenset[str] | None = None,
+        masked_headers: frozenset[str] | None = None,
+        dialects: Mapping[str, Dialect] | None = None,
+        events: EventBus | None = None,
     ) -> None:
+        from privyx.dialects import builtins
+
         if gateway and provider is None:
             raise ValueError("the gateway needs a provider")
         self._engine = engine
@@ -247,14 +260,30 @@ class Pipeline:
         self._origin = origin.rstrip("/")
         self._strip_prefix = strip_prefix
         self._run_token = run_token
+        if metadata_keys is None or masked_headers is None:
+            from privyx.agents import builtin_metadata
+
+            keys, names = builtin_metadata()
+            metadata_keys = keys if metadata_keys is None else metadata_keys
+            masked_headers = names if masked_headers is None else masked_headers
+        self._metadata_keys = metadata_keys
+        self._masked_headers = masked_headers
+        self._events = events or EventBus()
         self._tap = tap
         self._audit = audit or AuditLogger(None)
         self._session_strategy = session_strategy
         routes = routes if routes is not None else ProxyConfig().routes
+        self._dialects = dict(dialects) if dialects is not None else builtins()
+        unknown = sorted(set(routes.values()) - self._dialects.keys())
+        if unknown:
+            raise ConfigError(f"proxy.routes names unknown dialect(s): {', '.join(unknown)}")
+        # Whose paths may come without their API version.
+        self._versionless = frozenset(n for n, d in self._dialects.items() if d.versionless)
         if gateway:
             from privyx.providers import GoogleProvider
 
-            routes = served_routes(routes, google=isinstance(provider, GoogleProvider))
+            google = isinstance(provider, GoogleProvider)
+            routes = served_routes(routes, self._dialects, google=google)
         self._routes = routes
         self._passthrough_unknown = passthrough_unknown and not gateway
         self._forward_client_auth = forward_client_auth and not gateway
@@ -273,14 +302,19 @@ class Pipeline:
         return self._gateway
 
     @property
+    def audit(self) -> AuditLogger:
+        """The audit logger the pipeline emits its notifications with."""
+        return self._audit
+
+    @property
+    def versionless(self) -> frozenset[str]:
+        """The dialects whose paths may come without their API version."""
+        return self._versionless
+
+    @property
     def routes(self) -> dict[str, str]:
         """The masking routes, path → dialect: for the gateway, the ones it serves."""
         return dict(self._routes)
-
-    @property
-    def stats(self) -> AuditStats:
-        """Totals of the audit events emitted so far, served at ``GET /metrics``."""
-        return self._audit.stats
 
     async def close(self) -> None:
         """Release the httpx client if this pipeline created it."""
@@ -330,9 +364,10 @@ class Pipeline:
             base = self._base(exchange)
             if isinstance(base, Reply):
                 return base
-            exchange.dialect = dialect = detect_schema(path, self._routes)
+            name = detect_schema(path, self._routes, self._versionless)
+            exchange.dialect = dialect = self._dialects[name] if name is not None else None
             if dialect is not None:
-                tracing.annotate(span, **{"http.route": path, "privyx.schema": dialect})
+                tracing.annotate(span, **{"http.route": path, "privyx.schema": name})
             else:
                 self._audit.route_decision(allowed=self._passthrough_unknown, method=method)
                 if not self._passthrough_unknown:
@@ -358,8 +393,9 @@ class Pipeline:
                 payload = _loads(body) if body else None
                 if (body or self._gateway) and not isinstance(payload, dict):
                     return _error(400, INVALID_BODY)
-                if isinstance(payload, dict) and has_token_ids(payload):
-                    return _error(400, TOKEN_IDS_BODY)
+                refused = dialect.refuse(payload) if isinstance(payload, dict) else None
+                if refused is not None:
+                    return _error(400, dialect.error_body(400, "privyx_invalid_request", refused))
                 exchange.body = payload
             elif not isinstance(body, bytes) and not (
                 header(headers, "content-length") or header(headers, "transfer-encoding")
@@ -371,7 +407,7 @@ class Pipeline:
                 header_value=header(headers, "x-privyx-session") or None,
                 headers=headers,
                 payload=payload,
-                schema=dialect,
+                dialect=dialect,
             )
             if source == "ephemeral":
                 # It lives for this request only, so it never touches the vault.
@@ -380,8 +416,17 @@ class Pipeline:
                 session = await self._engine.get_or_create_session(resolved_id, source=source)
             exchange.session_id = sid = session.session_id
             self._audit.set_session(sid)
+            if dialect is not None and isinstance(payload, dict):
+                answered = await self._received(exchange, payload, req_id, start)
+                if answered is not None:
+                    return answered
+                headers, payload = exchange.headers, exchange.body
 
-            stream = self._gateway and wants_stream(dialect, path, payload, exchange.query)
+            stream = (
+                self._gateway
+                and dialect is not None
+                and dialect.wants_stream(path, payload, exchange.query)
+            )
             out_headers, params, auth = self._outgoing(exchange, stream)
             out_body: Any = body
             transform_ms: float | None = None
@@ -389,7 +434,7 @@ class Pipeline:
             # paths.
             if (
                 isinstance(payload, dict)
-                or not MASKED_HEADERS.isdisjoint(out_headers)
+                or not self._masked_headers.isdisjoint(out_headers)
                 or params is not None
             ):
                 transform_start = time.perf_counter()
@@ -407,7 +452,7 @@ class Pipeline:
                             req_id,
                             "request",
                             path=path,
-                            schema=dialect,
+                            schema=name,
                             before=payload,
                             after=masked,
                         )
@@ -448,8 +493,9 @@ class Pipeline:
             resp_headers = filter_response_headers(response.headers)
             resp_headers["x-privyx-session"] = sid
 
-            # Restored as it streams: SSE, and the JSON lines of an Ollama route.
-            lines = dialect == "ollama" and _NDJSON in resp_content_type
+            # Restored as it streams: SSE, and the JSON lines of a format that streams them.
+            line_type = dialect.line_stream if dialect is not None else None
+            lines = line_type is not None and line_type in resp_content_type
             is_stream = (_SSE in resp_content_type or lines) and method.upper() != "HEAD"
             tracing.annotate(span, **{"privyx.stream": is_stream})
             self._audit.request(
@@ -457,7 +503,7 @@ class Pipeline:
                 # An unmatched URL may itself contain PII. The route-decision
                 # event exposes the gap without copying a client-supplied path.
                 path=path if dialect is not None else "[unmatched]",
-                schema=dialect,
+                schema=name,
                 status=response.status_code,
                 session_id=sid,
                 stream=is_stream,
@@ -485,7 +531,7 @@ class Pipeline:
                 mapping = stored.mapping if stored is not None else {}
                 return self._stream_reply(
                     response, resp_headers, dialect, sid, mapping, req_id, start, ephemeral, span,
-                    lines=lines,
+                    lines=line_type if lines else None,
                 )  # fmt: skip
             if dialect and _JSON in resp_content_type:
                 return await self._batch_reply(
@@ -524,7 +570,9 @@ class Pipeline:
             return None
         origin, prefix = self._origin, self._strip_prefix
         if self._run_token is not None:
-            named = named_upstream(exchange.headers, exchange.path, self._routes, self._run_token)
+            named = named_upstream(
+                exchange.headers, exchange.path, self._routes, self._run_token, self._versionless
+            )
             if named is None:
                 self._audit.route_decision(
                     allowed=False, method=exchange.method, reason="no_upstream"
@@ -538,7 +586,7 @@ class Pipeline:
             )
             return _refusal(
                 404,
-                f"privyx: the path is outside proxy.path_mapping.strip_prefix "
+                f"privyx: the path is outside provider.path_mapping.strip_prefix "
                 f"{prefix or '/'!r} or could leave it",
             )
         return origin + joined
@@ -572,7 +620,7 @@ class Pipeline:
         extra = self._provider.options.headers if self._provider is not None else None
         out_headers = filter_request_headers(
             exchange.headers,
-            schema=exchange.dialect,
+            dialect=exchange.dialect,
             forward_client_auth=self._forward_client_auth,
             api_key=key,
             extra=extra,
@@ -585,6 +633,55 @@ class Pipeline:
         # A key is written into the headers above; another credential is applied
         # as the request goes out, over the body actually sent.
         return out_headers, params, None if key is not None else auth
+
+    async def _received(
+        self, exchange: Exchange, payload: dict[str, Any], request_id: str, start: float
+    ) -> Reply | None:
+        """Emit :class:`~privyx.events.RequestReceived`; the reply when a listener ends it.
+
+        A listener may change the body and the headers in place; the exchange
+        takes them.
+        """
+        if not self._events.wants(RequestReceived):
+            return None
+        dialect, sid = exchange.dialect, exchange.session_id
+        assert dialect is not None and sid is not None
+        headers = {key.lower(): value for key, value in exchange.headers.items()}
+        event = RequestReceived(
+            exchange.method, exchange.path, Headers(headers), payload, dialect, sid, request_id
+        )
+        try:
+            await self._events.emit(event)
+        except Stop as stop:
+            return self._stopped(stop, dialect)
+        except ListenerError as exc:
+            return self._listener_failed(exc, sid, request_id, start)
+        exchange.headers, exchange.body = headers, event.body
+        return None
+
+    def _stopped(self, stop: Stop, dialect: Dialect) -> Reply:
+        """The reply of a listener that refused the exchange, or answered it as it is."""
+        if isinstance(stop, Rejected):
+            return _error(stop.status, dialect.error_body(stop.status, stop.code, stop.message))
+        assert isinstance(stop, Responded)
+        return Reply(stop.status, stop.headers, _JSON, json.dumps(stop.body).encode())
+
+    def _listener_failed(
+        self, exc: ListenerError, session_id: str, request_id: str, start: float
+    ) -> Reply:
+        """Refuse an exchange whose listener failed: fail-closed, the listener named."""
+        self._audit.error(
+            phase="listener",
+            error_type=type(exc.__cause__ or exc).__name__,
+            session_id=session_id,
+            request_id=request_id,
+            duration_ms=_elapsed_ms(start),
+            listener=exc.listener,
+        )
+        _log.warning("request not forwarded: %s failed", exc.listener)
+        return _error(
+            500, {"error": {"type": "privyx_listener_failed", "message": LISTENER_FAILED_MESSAGE}}
+        )
 
     async def _mask(
         self,
@@ -603,6 +700,17 @@ class Pipeline:
         """
         sid = exchange.session_id
         assert sid is not None
+        dialect = exchange.dialect
+        hook = None
+        if dialect is not None and isinstance(payload, dict) and self._events.wants(RequestMasked):
+
+            async def hook(body: dict[str, Any]) -> None:
+                assert dialect is not None and sid is not None
+                event = RequestMasked(
+                    exchange.method, exchange.path, Headers(headers), body, dialect, sid, request_id
+                )
+                await self._events.emit(event)
+
         transform_span = tracing.start("privyx.transform", span)
         try:
             transformed = await transform_request(
@@ -612,12 +720,27 @@ class Pipeline:
                 session=ephemeral,
                 headers=headers,
                 params=params,
-                schema=exchange.dialect,
+                dialect=exchange.dialect,
                 path=exchange.path,
+                metadata_keys=self._metadata_keys,
+                masked_headers=self._masked_headers,
+                masked=hook,
             )
         except VaultError as exc:
             tracing.end(transform_span, error=exc)
             raise  # not a scan failure: answered by the caller
+        except Stop as stop:
+            tracing.end(transform_span)
+            assert dialect is not None
+            if isinstance(stop, Responded) and isinstance(stop.body, dict):
+                # Answered after masking: restored as an upstream reply is.
+                stop.body = await restore_response(
+                    stop.body, self._engine, sid, session=ephemeral, dialect=dialect
+                )
+            return self._stopped(stop, dialect)
+        except ListenerError as exc:
+            tracing.end(transform_span, error=exc)
+            return self._listener_failed(exc, sid, request_id, start)
         except Exception as exc:
             tracing.end(transform_span, error=exc)
             self._audit.error(
@@ -639,7 +762,7 @@ class Pipeline:
         self,
         response: httpx.Response,
         headers: dict[str, str],
-        dialect: str | None,
+        dialect: Dialect | None,
         session_id: str,
         mapping: dict[str, str],
         request_id: str,
@@ -647,8 +770,9 @@ class Pipeline:
         ephemeral: Session | None,
         span: Any = None,
         *,
-        lines: bool = False,
+        lines: str | None = None,
     ) -> Reply:
+        """A streamed reply, restored as it arrives: SSE, or JSON lines of the type ``lines``."""
         headers.pop("content-type", None)  # media_type carries it, avoid duplicate
         headers.setdefault("cache-control", "no-cache")
         stream_iter = self._stream(
@@ -657,7 +781,7 @@ class Pipeline:
         return Reply(
             status_code=response.status_code,
             headers=headers,
-            media_type=_NDJSON if lines else _SSE,
+            media_type=lines or _SSE,
             stream=AuditedStream(
                 stream_iter,
                 response=response,
@@ -668,7 +792,7 @@ class Pipeline:
     async def _stream(
         self,
         response: httpx.Response,
-        dialect: str | None,
+        dialect: Dialect | None,
         session_id: str,
         mapping: dict[str, str],
         request_id: str,
@@ -676,7 +800,7 @@ class Pipeline:
         ephemeral: Session | None,
         span: Any = None,
         *,
-        lines: bool = False,
+        lines: str | None = None,
     ) -> AsyncIterator[str]:
         """Restore a streamed reply: SSE events, or with ``lines`` JSON lines."""
         restore_span = tracing.start("privyx.restore", span)
@@ -689,7 +813,6 @@ class Pipeline:
         tapped: tuple[list[bytes], list[str]] | None = ([], []) if self._tap and dialect else None
         completed = aborted = False
         try:
-            adapter = build_stream_adapter(dialect or "generic")
             # Count restores by wrapping the resolver: a non-None lookup is one
             # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
             # faker's literal trie restore does not consult ``resolve``.)
@@ -702,14 +825,15 @@ class Pipeline:
                     restored += 1
                 return original
 
-            make = select_processor_factory(
-                self._engine.operator, self._engine.codec, resolve, mapping
-            )
-            router: StreamRouter | LineRouter = (
-                LineRouter(self._engine.codec, resolve, make)
-                if lines
-                else StreamRouter(self._engine.codec, resolve, adapter, make_processor=make)
-            )
+            codec = self._engine.codec
+            make = select_processor_factory(self._engine.operator, codec, resolve, mapping)
+            router: StreamRouter | LineRouter
+            if lines and dialect is not None:
+                router = LineRouter(_objects(dialect, make))
+            elif dialect is not None:
+                router = dialect.stream(codec, resolve, make)
+            else:
+                router = StreamRouter(codec, resolve, make)
             async for raw in response.aiter_bytes():
                 if lines:
                     meter.feed_lines(raw)
@@ -882,7 +1006,7 @@ class Pipeline:
         ephemeral: Session | None,
         request_id: str,
         start: float,
-        dialect: str | None = None,
+        dialect: Dialect | None = None,
         span: Any = None,
     ) -> Reply:
         data = await response.aread()
@@ -892,20 +1016,21 @@ class Pipeline:
         upstream_data = data
         payload = _loads(data)
         meter.feed_json(payload)  # embeddings report usage too
-        chunks = dialect == "gemini" and isinstance(payload, list)
-        if dialect != "embeddings" and (isinstance(payload, dict) or chunks):
+        if dialect is not None and dialect.restores_reply and isinstance(payload, dict | list):
             try:
                 restored: Any
-                if chunks:
-                    restored = await self._restore_chunks(payload, session_id, ephemeral)
+                if isinstance(payload, list):
+                    # A stream sent as one JSON array of chunks (Gemini's without SSE).
+                    restored = await self._restore_chunks(payload, dialect, session_id, ephemeral)
                 else:
                     restored = await restore_response(
-                        payload, self._engine, session_id, session=ephemeral, schema=dialect
+                        payload, self._engine, session_id, session=ephemeral, dialect=dialect
                     )
             except BaseException as exc:  # the vault failed: answered with 503
                 tracing.end(restore_span, error=exc)
                 raise
-            data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
+            if restored is not None:
+                data = json.dumps(restored, ensure_ascii=False).encode("utf-8")
         restored_n = self._audit.flush_restore()
         tracing.annotate(restore_span, **{"privyx.restored": restored_n})
         tracing.end(restore_span)
@@ -933,21 +1058,44 @@ class Pipeline:
         return Reply(response.status_code, headers, content_type or None, data)
 
     async def _restore_chunks(
-        self, chunks: list[Any], session_id: str, ephemeral: Session | None
-    ) -> list[Any]:
-        """Restore a Gemini stream sent as one JSON array, counted in the audit.
+        self, chunks: list[Any], dialect: Dialect, session_id: str, ephemeral: Session | None
+    ) -> list[Any] | None:
+        """Restore a stream sent as one JSON array (Gemini's), counted in the audit.
 
         The array is read whole first: the client gets it at the end, not as it
-        is generated.
+        is generated.  ``None`` for a format that sends no such stream: the body
+        is relayed as it came.
         """
         stored = ephemeral or await self._engine.vault.get(session_id)
+        operator, mapping = self._engine.operator, stored.mapping if stored is not None else {}
+        base_resolve = resolver_for(operator, mapping)
+        count = 0
+
+        def resolve(token: str) -> str | None:
+            nonlocal count
+            original = base_resolve(token)
+            count += original is not None
+            return original
+
+        make = select_processor_factory(operator, self._engine.codec, resolve, mapping)
+        full = make()
+        objects = dialect.objects(make, lambda text: full.feed(text) + full.flush())
+        if objects is None:
+            return None
         if stored is None:
             return chunks
-        restored, count = restore_chunks(
-            chunks, self._engine.operator, self._engine.codec, stored.mapping
-        )
+        restored = restore_chunks(chunks, objects)
         self._audit.restore(session_id, transformations=count)
         return restored
+
+
+def _objects(dialect: Dialect, make: Any) -> Any:
+    """``dialect``'s restorer of whole JSON objects, restoring whole strings with ``make``'s."""
+    full = make()
+    objects = dialect.objects(make, lambda text: full.feed(text) + full.flush())
+    if objects is None:
+        raise TypeError(f"dialect {dialect.name!r} streams objects it cannot restore")
+    return objects
 
 
 def scan_failure(exc: Exception) -> tuple[int, dict[str, Any]]:

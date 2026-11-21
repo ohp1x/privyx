@@ -2,27 +2,35 @@
 
 from __future__ import annotations
 
-#: Every key of Privyx's own, each meant for its provider type's host.  A
-#: profile whose upstream is another host clears them all: whichever type is
-#: in effect, the tool's own credentials reach that host instead.
-_NO_KEYS = {"api_key": "", "openai_api_key": "", "anthropic_api_key": "", "google_api_key": ""}
+#: The built-in named providers: one per built-in type, and the two
+#: OpenAI-compatible and generic hosts the built-in profiles use.  A key
+#: written for one is sent to its host only.
+DEFAULT_PROVIDERS: dict[str, dict[str, object]] = {
+    "generic": {"type": "generic"},
+    "openai": {"type": "openai"},
+    "anthropic": {"type": "anthropic"},
+    "google": {"type": "google"},
+    "xai": {"type": "openai", "base_url": "https://api.x.ai/v1"},
+    "ollama": {"type": "generic", "base_url": "http://127.0.0.1:11434"},
+}
 
 DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     "claude": {
         "command": "claude",
-        "adapter": "claude",
+        "type": "claude",
         "provider": "anthropic",
         "env_vars": ["ANTHROPIC_BASE_URL"],
     },
     "codex": {
         "command": "codex",
-        "adapter": "codex",
+        "type": "codex",
         "provider": "openai",
         "env_vars": ["OPENAI_BASE_URL"],
         "base_path": "/v1",
     },
     "openai": {
         "command": "openai",
+        "type": "env",
         "provider": "openai",
         "env_vars": ["OPENAI_BASE_URL"],
         "endpoint_env": ["OPENAI_BASE_URL"],
@@ -30,6 +38,7 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     },
     "aider": {
         "command": "aider",
+        "type": "env",
         "provider": "openai",
         "env_vars": ["OPENAI_API_BASE", "OPENAI_BASE_URL"],
         "endpoint_env": ["OPENAI_API_BASE", "OPENAI_BASE_URL"],
@@ -37,7 +46,7 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     },
     "pi": {
         "command": "pi",
-        "adapter": "pi",
+        "type": "pi",
         "provider": "anthropic",
         "env_vars": ["PRIVYX_PI_BASE_URL"],
     },
@@ -45,6 +54,7 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     # pick the upstream of the model's provider with --provider.
     "opencode": {
         "command": "opencode",
+        "type": "env",
         "provider": "anthropic",
         "env_vars": ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"],
         "base_path": "/v1",
@@ -54,31 +64,29 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     # rather than reach Google unmasked; they are never read as its endpoint.
     "gemini": {
         "command": "gemini",
+        "type": "env",
         "provider": "google",
         "env_vars": ["GOOGLE_GEMINI_BASE_URL", "CODE_ASSIST_ENDPOINT", "GOOGLE_VERTEX_BASE_URL"],
         "endpoint_env": ["GOOGLE_GEMINI_BASE_URL"],
         "privyx": {"proxy": {"passthrough_unknown": False}},
     },
     # `ollama:<model>` runs `ollama run <model>`; the upstream is the local
-    # server, or the one OLLAMA_HOST names (see privyx.cli.launch.ollama_url).
-    # Ollama takes no key, so none of Privyx's own is sent to that server.
+    # server, or the one OLLAMA_HOST names (see privyx.agents.OllamaAgent).
     "ollama": {
         "command": "ollama",
-        "upstream": "http://127.0.0.1:11434",
+        "type": "ollama",
+        "provider": "ollama",
         "env_vars": ["OLLAMA_HOST"],
-        "endpoint_env": ["OLLAMA_HOST"],
-        "privyx": {"provider": dict(_NO_KEYS)},
     },
     # xAI's API is OpenAI-compatible, but not OpenAI's: Grok Build sends its
-    # own xAI key.
+    # own xAI key, and an OpenAI key of Privyx's stays with provider openai.
     "grok": {
         "command": "grok",
-        "provider": "openai",
-        "upstream": "https://api.x.ai/v1",
+        "type": "env",
+        "provider": "xai",
         "env_vars": ["GROK_XAI_API_BASE_URL"],
         "endpoint_env": ["GROK_XAI_API_BASE_URL"],
         "base_path": "/v1",
-        "privyx": {"provider": dict(_NO_KEYS)},
     },
 }
 
@@ -89,9 +97,6 @@ DEFAULTS: dict[str, object] = {
     "log_level": "info",
     "logging": "text",
     "log_file": "",
-    # Empty on purpose: this is the explicit override, and a value here would
-    # make `provider.base_url` and the per-provider defaults unreachable.
-    "upstream_url": "",
     # A pluggable section names its type only: a field set here would count
     # as set in the config, and reach a plugin's Config in place of its own
     # default.  The fields' defaults are in privyx.config.schema.
@@ -109,6 +114,7 @@ DEFAULTS: dict[str, object] = {
     # An unset base_url resolves to the provider type's own default (see
     # privyx.providers.DEFAULT_BASE_URLS).
     "provider": {"type": "generic"},
+    "providers": DEFAULT_PROVIDERS,
     "audit": {
         "enabled": True,
         "path": "~/.privyx/audit.log",

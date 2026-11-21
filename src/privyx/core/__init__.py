@@ -20,7 +20,18 @@ from privyx.core._errors import (
     StreamError,
     VaultError,
 )
-from privyx.core._events import Event, EventBus, Interceptable, ListenerError, Notification
+from privyx.core._events import (
+    Event,
+    EventBus,
+    Interceptable,
+    ListenerError,
+    Notification,
+    Rejected,
+    Responded,
+    Stop,
+    listen,
+)
+from privyx.core._events import listened as listened
 from privyx.core._exchange import Exchange
 from privyx.core._ids import request_id as request_id
 from privyx.core._json import leaf_text as leaf_text
@@ -34,6 +45,14 @@ from privyx.core._registry import lazy_attribute as lazy_attribute
 from privyx.core._results import Detection, Span, Transformation, TransformResult
 from privyx.core._session import Session
 from privyx.core._text import apply_replacements as apply_replacements
+from privyx.core._walk import DOCUMENT_KEYS as DOCUMENT_KEYS
+from privyx.core._walk import Keyed as Keyed
+from privyx.core._walk import Walk as Walk
+from privyx.core._walk import drive as drive
+from privyx.core._walk import opaque as opaque
+from privyx.core._walk import walk as walk
+from privyx.core._walk import walk_async as walk_async
+from privyx.core._walk import walk_sync as walk_sync
 
 __all__ = [
     "Component",
@@ -54,12 +73,16 @@ __all__ = [
     "PrivyxError",
     "ProviderError",
     "Registry",
+    "Rejected",
+    "Responded",
     "Services",
     "Session",
     "SessionNotFoundError",
     "Span",
+    "Stop",
     "StreamError",
     "TransformResult",
     "Transformation",
     "VaultError",
+    "listen",
 ]

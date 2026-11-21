@@ -264,9 +264,11 @@ def _check_provider(settings: Settings, app: Privyx) -> tuple[bool, str]:
 
 def _check_proxy(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """A request payload survives the proxy with no PII left in it."""
+    from privyx.agents import Agent, client_metadata
     from privyx.app._build import build_engine
     from privyx.core import Session
-    from privyx.proxy.schemas import transform_request
+    from privyx.dialects import Dialect
+    from privyx.proxy import transform_request
 
     async def _probe() -> tuple[bool, str]:
         engine, close = await build_engine(settings, app)
@@ -280,7 +282,8 @@ def _check_proxy(settings: Settings, app: Privyx) -> tuple[bool, str]:
                 {"messages": [{"role": "user", "content": text}]},
                 engine,
                 session.session_id,
-                schema="openai",
+                dialect=app.registry(Dialect).get("openai")(),
+                metadata_keys=client_metadata(app.registry(Agent))[0],
             )
             stored = await engine.vault.get(session.session_id)
             transformed = payload["messages"][0]["content"]
@@ -314,8 +317,8 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
 
     from privyx.app._build import build_engine
     from privyx.core import Session
-    from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
-    from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+    from privyx.dialects import Dialect
+    from privyx.streaming import SSEStreamAdapter, resolver_for, select_processor_factory
     from privyx.streaming.sse import parse_sse
 
     async def _probe() -> tuple[bool, str]:
@@ -342,17 +345,18 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
             body = f"data: {json.dumps(payload)}\n\n"
             encoded = json.dumps(pseudonym)[1:-1]
             midpoint = body.index(encoded) + len(encoded) // 2
-            adapter = OpenAIStreamAdapter()
+            adapter = SSEStreamAdapter(data_path=["choices", "0", "delta", "content"])
             stored = await engine.vault.get(session.session_id)
             mapping = stored.mapping if stored is not None else {}
             resolve = resolver_for(engine.operator, mapping)
-            router = StreamRouter(
-                engine.codec,
-                resolve,
-                adapter,
-                make_processor=select_processor_factory(
-                    engine.operator, engine.codec, resolve, mapping
-                ),
+            router = (
+                app.registry(Dialect)
+                .get("openai")()
+                .stream(
+                    engine.codec,
+                    resolve,
+                    select_processor_factory(engine.operator, engine.codec, resolve, mapping),
+                )
             )
             out = "".join(
                 [*router.feed(body[:midpoint]), *router.feed(body[midpoint:]), *router.flush()]
@@ -375,16 +379,17 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
 def _check_routes(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """Describe effective masking coverage and expose unmasked forwarding."""
     from privyx.config.schema import ProxyConfig
-    from privyx.proxy.schemas import KNOWN_SCHEMAS
+    from privyx.dialects import Dialect
 
     proxy = settings.proxy
+    registry = app.registry(Dialect)
     invalid = [
         path
         for path, schema in proxy.routes.items()
         if not path.startswith("/")
         or path.startswith("//")
         or any(c.isspace() or c in "?#\x00" for c in path)
-        or schema not in KNOWN_SCHEMAS
+        or schema not in registry
     ]
     if invalid:
         return False, "invalid path or unsupported schema in proxy.routes: " + ", ".join(invalid)
@@ -395,7 +400,8 @@ def _check_routes(settings: Settings, app: Privyx) -> tuple[bool, str]:
     if proxy.mode == "gateway":
         from privyx.proxy import served_routes
 
-        routes = served_routes(routes, google=settings.provider.type == "google")
+        kinds = {name: registry.get(name) for name in set(routes.values())}
+        routes = served_routes(routes, kinds, google=settings.provider.type == "google")
         disposition = "unlisted paths return 404; auxiliary routes are not served"
     elif proxy.passthrough_unknown:
         disposition = (

@@ -7,17 +7,21 @@ from typing import Any
 
 from privyx.config.schema import ProxyConfig
 from privyx.detectors import RegexDetector
+from privyx.dialects import GeminiDialect, OpenAIDialect
 from privyx.engine import PrivacyEngine
 from privyx.observability.usage import UsageMeter
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
+from privyx.proxy._mask import restore_response, transform_request
+from privyx.proxy._routing import detect_schema
 from privyx.proxy._session import resolve_session_id
-from privyx.proxy.schemas import detect_schema, restore_response, transform_request
-from privyx.proxy.stream_router import StreamRouter, restore_chunks
-from privyx.streaming.adapters.registry import build_stream_adapter
+from privyx.streaming import TokenStreamProcessor, restore_chunks, select_processor_factory
 from privyx.streaming.sse import SSEDecoder
 from privyx.token.codec import FormatCodec
 from privyx.vaults import MemoryVault
+
+#: The dialects whose paths may come without their API version.
+VERSIONLESS = frozenset({"gemini"})
 
 EMAIL = "alice@example.com"
 TOKEN = "<PRIVYX_EMAIL_1>"
@@ -36,7 +40,7 @@ def _engine() -> PrivacyEngine:
 async def _mask(payload: dict[str, Any]) -> tuple[dict[str, Any], PrivacyEngine, str]:
     engine = _engine()
     sid = (await engine.get_or_create_session()).session_id
-    return await transform_request(payload, engine, sid, schema="gemini"), engine, sid
+    return await transform_request(payload, engine, sid, dialect=GeminiDialect()), engine, sid
 
 
 # -- routes ----------------------------------------------------------------
@@ -58,10 +62,10 @@ def test_default_routes_match_gemini_paths_with_any_model() -> None:
         "/tunedModels/my-model-123:generateContent",
         "/cachedContents",
     ):
-        assert detect_schema(path, ROUTES) == "gemini"
+        assert detect_schema(path, ROUTES, VERSIONLESS) == "gemini"
     custom = {"/v1beta/models/*:generateContent": "gemini", "/v1/models/*:embed": "embeddings"}
-    assert detect_schema("/models/m:generateContent", custom) == "gemini"
-    assert detect_schema("/models/m:embed", custom) is None  # only Gemini routes
+    assert detect_schema("/models/m:generateContent", custom, VERSIONLESS) == "gemini"
+    assert detect_schema("/models/m:embed", custom, VERSIONLESS) is None  # only Gemini routes
     for path in ("/models", "/models/gemini-2.5-flash"):
         assert detect_schema(path, ROUTES) is None
     for path in (
@@ -163,7 +167,7 @@ async def test_request_masks_conversation_and_keeps_wire_structure() -> None:
     assert out["generationConfig"] == payload["generationConfig"]
     assert sent.count(EMAIL) == 4  # inline data, file uri, enum, stop sequence
     # The tokens restore to the original.
-    restored = await restore_response(out, engine, sid, schema="gemini")
+    restored = await restore_response(out, engine, sid, dialect=GeminiDialect())
     assert restored["contents"][1]["parts"][0]["functionCall"]["args"]["type"] == EMAIL
     assert restored["contents"] == {**payload}["contents"]
 
@@ -223,7 +227,7 @@ async def test_other_schemas_keep_their_document_and_opaque_keys() -> None:
     sid = (await engine.get_or_create_session()).session_id
     payload = {"messages": [{"role": "user", "content": [{"args": {"name": EMAIL}}]}]}
 
-    out = await transform_request(payload, engine, sid, schema="openai")
+    out = await transform_request(payload, engine, sid, dialect=OpenAIDialect())
 
     assert out == payload  # `name` is opaque outside a tool-argument document
 
@@ -258,7 +262,7 @@ def test_conversation_session_reads_gemini_key_and_first_user_turn() -> None:
             header_value=None,
             headers={"x-goog-api-key": key},
             payload=payload,
-            schema="gemini",
+            dialect=GeminiDialect(),
         )
 
     first = {"contents": [{"role": "user", "parts": [{"text": "plan "}, {"text": "a trip"}]}]}
@@ -294,9 +298,8 @@ def _sse(*chunks: dict[str, Any]) -> str:
 
 
 def _run(body: str, mapping: dict[str, str] | None = None) -> list[dict[str, Any]]:
-    router = StreamRouter(
-        FormatCodec.default(), (mapping or {TOKEN: EMAIL}).get, build_stream_adapter("gemini")
-    )
+    codec, resolve = FormatCodec.default(), (mapping or {TOKEN: EMAIL}).get
+    router = GeminiDialect().stream(codec, resolve, lambda: TokenStreamProcessor(codec, resolve))
     out = "".join(router.feed(body.encode()) + router.flush())
     decoder = SSEDecoder()
     return [json.loads(e.data) for e in decoder.feed(out) + decoder.flush()]
@@ -461,10 +464,20 @@ def test_json_array_stream_is_restored_in_order() -> None:
     ]
     mapping = {TOKEN: EMAIL}
 
-    restored, count = restore_chunks(chunks, PseudonymOperator(), FormatCodec.default(), mapping)
+    codec, found = FormatCodec.default(), []
+
+    def resolve(token: str) -> str | None:
+        found.append(token)
+        return mapping.get(token)
+
+    make = select_processor_factory(PseudonymOperator(), codec, resolve, mapping)
+    full = make()
+    objects = GeminiDialect().objects(make, lambda text: full.feed(text) + full.flush())
+    assert objects is not None
+    restored = restore_chunks(chunks, objects)
 
     assert "".join(t for t, _ in _texts(restored)) == f"Hi {EMAIL}"
-    assert count == 1
+    assert found == [TOKEN]
 
 
 def test_usage_metadata_is_read() -> None:
@@ -495,16 +508,23 @@ def test_usage_metadata_is_read() -> None:
 
 
 async def _directed(payload: dict[str, Any], path: str) -> dict[str, Any]:
+    from privyx.events import Headers, RequestMasked
+    from privyx.features import Directive
+
     engine = _engine()
-    engine.directive = True
     sid = (await engine.get_or_create_session()).session_id
-    return await transform_request(payload, engine, sid, schema="gemini", path=path)
+    dialect = GeminiDialect()
+
+    async def masked(body: dict[str, Any]) -> None:
+        Directive().add(RequestMasked("POST", path, Headers({}), body, dialect, sid, "req"))
+
+    return await transform_request(payload, engine, sid, dialect=dialect, path=path, masked=masked)
 
 
 async def test_directive_goes_last_in_the_system_instruction() -> None:
-    from privyx.proxy.schemas import directive
+    from privyx.features import Directive
 
-    text = directive(FormatCodec.default())
+    text = Directive().text
     contents = [{"role": "user", "parts": [{"text": "hi"}]}]
     generate = "/v1beta/models/m:generateContent"
 

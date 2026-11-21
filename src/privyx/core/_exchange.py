@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # types only: core imports no other Privyx package at run time
+    from privyx.dialects import Dialect
 
 
 @dataclass(slots=True)
@@ -25,7 +28,6 @@ class Exchange:
     query: list[tuple[str, str]] = field(default_factory=list)
     #: The path as sent, before percent-decoding, when the server has it.
     raw_path: str | None = None
-    #: The API format of the route (``openai``, ``anthropic``, ...); ``None``
-    #: outside the masking routes.
-    dialect: str | None = None
+    #: The API format of the route; ``None`` outside the masking routes.
+    dialect: Dialect | None = None
     session_id: str | None = None

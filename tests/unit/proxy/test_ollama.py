@@ -7,12 +7,14 @@ from typing import Any
 
 from privyx.config.schema import ProxyConfig
 from privyx.detectors import RegexDetector
+from privyx.dialects import OllamaDialect
 from privyx.engine import PrivacyEngine
 from privyx.observability.usage import UsageMeter
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.schemas import detect_schema, restore_response, transform_request
-from privyx.proxy.stream_router import LineRouter
+from privyx.proxy._mask import restore_response, transform_request
+from privyx.proxy._routing import detect_schema
+from privyx.streaming import LineRouter, TokenStreamProcessor
 from privyx.token.codec import FormatCodec
 from privyx.vaults import MemoryVault
 
@@ -59,7 +61,7 @@ async def test_chat_request_masks_messages_but_not_images_or_tool_names() -> Non
         "options": {"stop": [EMAIL]},
     }
 
-    out = await transform_request(payload, engine, sid, schema="ollama")
+    out = await transform_request(payload, engine, sid, dialect=OllamaDialect())
 
     messages = out["messages"]
     assert messages[0]["content"] == f"owner {TOKEN}"
@@ -72,7 +74,7 @@ async def test_chat_request_masks_messages_but_not_images_or_tool_names() -> Non
     assert messages[3] == {"role": "tool", "content": f"sent to {TOKEN}", "tool_name": "send"}
     assert out["format"] == payload["format"]
     assert out["options"] == payload["options"]
-    assert await restore_response(out, engine, sid, schema="ollama") == payload
+    assert await restore_response(out, engine, sid, dialect=OllamaDialect()) == payload
 
 
 async def test_generate_request_masks_prompt_system_and_suffix() -> None:
@@ -87,7 +89,7 @@ async def test_generate_request_masks_prompt_system_and_suffix() -> None:
         "context": [1, 2, 3],
     }
 
-    out = await transform_request(payload, engine, sid, schema="ollama")
+    out = await transform_request(payload, engine, sid, dialect=OllamaDialect())
 
     assert EMAIL not in json.dumps({k: out[k] for k in ("prompt", "suffix", "system")})
     assert out["images"] == [EMAIL]
@@ -109,9 +111,18 @@ def _chat(content: str = "", *, done: bool = False, **message: Any) -> dict[str,
     return line
 
 
+def _router() -> LineRouter:
+    codec, resolve = FormatCodec.default(), {TOKEN: EMAIL}.get
+    make = lambda: TokenStreamProcessor(codec, resolve)  # noqa: E731
+    full = make()
+    objects = OllamaDialect().objects(make, lambda text: full.feed(text) + full.flush())
+    assert objects is not None
+    return LineRouter(objects)
+
+
 def _run(*objects: dict[str, Any], split: int = 7, tail: str = "\n") -> list[dict[str, Any]]:
     raw = "".join(json.dumps(o) + "\n" for o in objects).rstrip("\n") + tail
-    router = LineRouter(FormatCodec.default(), {TOKEN: EMAIL}.get)
+    router = _router()
     data = raw.encode()
     out = []
     for i in range(0, len(data), split):
@@ -202,7 +213,7 @@ def test_stream_cut_off_ends_with_the_held_text_and_last_line_without_newline() 
 
 
 def test_error_and_non_json_lines_come_after_the_held_text() -> None:
-    router = LineRouter(FormatCodec.default(), {TOKEN: EMAIL}.get)
+    router = _router()
     first = json.dumps(_chat("a <PRIV"))
     out = router.feed(f'{first}\nnot json\n{{"error":"failed for {TOKEN}"}}\n')
     out += router.flush()

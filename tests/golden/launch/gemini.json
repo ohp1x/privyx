@@ -5,7 +5,7 @@
     "output": [
       "Profile: gemini",
       "Command: gemini",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [defaults]",
       "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
@@ -15,7 +15,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -43,7 +43,7 @@
     "output": [
       "Profile: gemini",
       "Command: gemini -c model=acme 'two words'",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [defaults]",
       "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
@@ -53,7 +53,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -84,7 +84,7 @@
     "output": [
       "Profile: gemini",
       "Command: gemini",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [defaults]",
       "Upstream: https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
@@ -95,7 +95,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -123,7 +123,7 @@
     "output": [
       "Profile: gemini",
       "Command: gemini",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [defaults]",
       "Upstream: https://upstream.example.com/v1 [CLI]",
@@ -134,7 +134,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -162,7 +162,7 @@
     "output": [
       "Profile: gemini",
       "Command: gemini",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [CLI]",
       "Upstream: https://generativelanguage.googleapis.com [provider default (CLI)]",
@@ -172,7 +172,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -196,9 +196,48 @@
   },
   "privyx-key": {
     "run": "privyx run --dry-run gemini",
+    "exit_code": 0,
+    "output": [
+      "Profile: gemini",
+      "Command: gemini",
+      "Type: env",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: google [defaults]",
+      "Upstream: https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Native endpoint (used): https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://gemini.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source type: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  CODE_ASSIST_ENDPOINT=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:<auto> [defaults]",
+      "  GOOGLE_VERTEX_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "gemini"
+      ],
+      "env": {
+        "GOOGLE_GEMINI_BASE_URL": "http://127.0.0.1:<auto>",
+        "CODE_ASSIST_ENDPOINT": "http://127.0.0.1:<auto>",
+        "GOOGLE_VERTEX_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "provider-key": {
+    "run": "privyx run --dry-run gemini",
     "exit_code": 1,
     "output": [
-      "Error: agent endpoint would receive Privyx's own API key; pass its URL as --upstream to confirm"
+      "Error: agent endpoint would receive Privyx's own API key; define a provider for https://gemini.example.com under 'providers', with a key of its own, and select it, or select a provider without a key of Privyx's"
     ]
   },
   "gateway": {
@@ -207,7 +246,7 @@
     "output": [
       "Profile: gemini",
       "Command: gemini",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (gateway)",
       "Provider: google [defaults]",
       "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
@@ -218,7 +257,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: <tmp>/config.yaml",
@@ -246,7 +285,7 @@
     "output": [
       "Profile: wrap",
       "Command: /opt/acme/bin/wrap",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [defaults]",
       "Upstream: https://gemini.example.com [environment GOOGLE_GEMINI_BASE_URL]",
@@ -257,7 +296,7 @@
       "Budget: none",
       "Source command: <tmp>/config.yaml",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -285,7 +324,7 @@
     "output": [
       "Profile: gemini:work",
       "Command: gemini",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [defaults]",
       "Upstream: https://generativelanguage.googleapis.com [provider default (defaults)]",
@@ -295,7 +334,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",

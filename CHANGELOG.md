@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Config:** named upstream connections under `providers`, picked with `provider: NAME` or an agent profile's `provider`; `generic`, `openai`, `anthropic`, `google`, `xai`, and `ollama` are built in. A provider also takes `forward_client_auth`, `path_mapping`, `timeout`, `connect_timeout`, and `max_connections`
+- **Config:** `operator.id_length` sets how many hex characters the id of an anchored `pseudonym`, an `encrypt`, or a `hash` token keeps, and `operator.text` what `redact` writes
+- **CLI:** `privyx features list` shows the optional features (`audit`, `metrics`, `tracing`, `directive`, `cache_control`, `budget`) and whether the config switches each on; `--events` adds the events each one listens to
+- **Plugins:** (experimental) a plugin can add agent types, secret resolvers (`secrets`), API dialects, and features. A feature hears a request before and after it is masked, and may change it, refuse it, or answer it there; it cannot write a credential header, and one that fails refuses the request. `privyx.testing` has a conformance suite for each
+
+### Changed
+
+- **Config:** `PRIVYX_PROVIDER` and `--provider` pick a named provider. `PRIVYX_PROVIDER`, and the `provider` a config file picks, no longer change the provider of a `privyx run` profile that names its own; `--provider` still does
+- **CLI:** `privyx run --dry-run` prints the profile's `Type:` where it printed `Adapter:`
+
+### Deprecated
+
+- **Config:** `upstream_url` (write `provider.base_url`), `provider.openai_api_key`, `anthropic_api_key`, and `google_api_key` (write `providers.<name>.api_key`), `proxy.forward_client_auth`, `path_mapping`, `timeout`, `connect_timeout`, and `max_connections` (write them under `provider`), `token.id_length` and `operator.length` (write `operator.id_length`), `operator.token` (write `operator.text`), operator type `hash` (use `pseudonym` with `anchor.secret`), and an agent profile's `adapter` (write `type`) still work with a warning, and are removed in 0.4.0
+
 ### Fixed
 
 - **Detection:** a URL password with a symbol in it, such as `p!ss` in `https://alice:p!ss@db.example.com`, is masked as the password alone; before, the host after it was masked with it, as an email address
@@ -13,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Security
 
+- **Proxy:** a key or header Privyx sends upstream goes only to the `base_url` of the provider it is written for, or to its type's default host; a profile's `upstream`, `--upstream`, a followed agent endpoint, or a later config file that would send it elsewhere stops Privyx at startup, with a hint. `PRIVYX_API_KEY` belongs to the provider picked above the profiles, and `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`, and `PRIVYX_GOOGLE_API_KEY` to the built-in provider of that name. Before, a profile's `upstream`, such as a router, received the key of the provider type in effect
 - **Detection:** a card number written in groups right after another number, such as `4111-1111-1111-1111` in `row 7 4111-1111-1111-1111` or a card number after a phone number, is masked; before, all of it or its last groups reached the provider unmasked
 - **Detection:** a secret assigned inside a value Privyx leaves as it is, such as `client_secret=…` in `TOKEN_URL=https://auth.example.com/cb?client_secret=…`, is masked; before, the whole value reached the provider unmasked
 - **Detection:** a phone number written in groups right after another number, such as `0812 3456 7890` in `ref 2026 0812 3456 7890`, is masked whole, together with the numbers before it; before, its last group reached the provider unmasked

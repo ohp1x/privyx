@@ -26,13 +26,14 @@ class RedactOperator(Operator):
     uses_anchor = False
 
     class Options(Operator.Options):
-        token: str = "[REDACTED]"
+        #: What every value is replaced with.
+        text: str = "[REDACTED]"
 
     options: Options
 
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
-        self._token = self.options.token
+        self._token = self.options.text
         self.fixed_text = self._token
 
     async def pseudonymize(
