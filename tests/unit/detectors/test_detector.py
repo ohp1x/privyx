@@ -138,10 +138,28 @@ def test_credit_card_still_finds_every_network(card: str) -> None:
         ("+20260927,15912", []),
         # The seconds and milliseconds of a timestamp.
         ("2026-10-08T09:49:08.123+08:00", []),
+        # A number that ends where the match around it ends adds nothing.
+        ("ref 2026 0812 3456", ["2026 0812 3456"]),
     ],
 )
 def test_phone_numbers_and_what_only_looks_like_one(text: str, phones: list[str]) -> None:
     detection = RegexDetector().detect_sync(text, Context())
+    assert [s.text for s in detection.spans if s.entity_type == "PHONE"] == phones
+
+
+@pytest.mark.parametrize(
+    ("text", "phones"),
+    [
+        # Bare groups before the number start a match that ends a group short of it.
+        ("ref 2026 0812 3456 7890", ["2026 0812 3456 7890"]),
+        ("ref 2026 202 555 0143", ["2026 202 555 0143"]),
+        ("1920 1080 0812 3456 7890", ["1920 1080 0812 3456 7890"]),
+        # A leading 0 marks where a number starts: the next one is a number of its own.
+        ("0812 3456 7890 0813 4567 8901", ["0812 3456 7890", "0813 4567 8901"]),
+    ],
+)
+def test_phone_number_after_another_digit_group(text: str, phones: list[str]) -> None:
+    detection = RegexDetector().detect_sync(text, Context()).merged(text)
     assert [s.text for s in detection.spans if s.entity_type == "PHONE"] == phones
 
 
