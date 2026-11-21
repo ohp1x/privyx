@@ -1,4 +1,4 @@
-"""``proxy.path_mapping``: an upstream URL with a path of its own."""
+"""``provider.path_mapping``: an upstream URL with a path of its own."""
 
 from __future__ import annotations
 
@@ -16,8 +16,10 @@ import httpx  # noqa: E402
 from click.testing import CliRunner  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
-from privyx.cli.commands.run import TARGETS  # noqa: E402
-from privyx.cli.launch import build_launch_plan  # noqa: E402
+from privyx.agents import Agent  # noqa: E402
+from privyx.agents._plan import Target, profile_target  # noqa: E402
+from privyx.app import Privyx  # noqa: E402
+from privyx.app._run import plan_launch as build_launch_plan  # noqa: E402
 from privyx.cli.main import cli  # noqa: E402
 from privyx.config.schema import Settings  # noqa: E402
 from privyx.core import ConfigError  # noqa: E402
@@ -34,6 +36,13 @@ from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "ana@example.com"
 ROUTER = "https://router.example.com/api/v1"
+
+
+def _target(name: str) -> Target:
+    """A built-in profile's launch specification."""
+    profile = Settings().agents[name]
+    agent = Privyx().registry(Agent).build(profile.type, profile.model_extra or {})
+    return profile_target(profile, agent)
 
 
 def _proxy(
@@ -193,8 +202,8 @@ async def test_pi_routing_needs_no_fixed_upstream_with_prefix_mapping() -> None:
     from privyx.app._serve import build_pipeline
     from privyx.providers import GenericProvider
 
-    settings = Settings(proxy={"path_mapping": {"mode": "prefix"}})
-    pi = TARGETS["pi"]
+    settings = Settings(provider={"path_mapping": {"mode": "prefix"}})
+    pi = _target("pi")
     plan = build_launch_plan(pi, [], settings, 0, pi.env_vars)
     engine = _proxy([])._engine
     with pytest.raises(ConfigError, match="prefix needs an upstream"):
@@ -246,30 +255,31 @@ async def test_origin_mode_is_unchanged() -> None:
 
 
 def test_config_validation() -> None:
-    assert Settings().proxy.path_mapping.mode == "origin"
-    mapping = Settings(proxy={"path_mapping": {"mode": "prefix", "strip_prefix": "/v1/"}})
-    assert mapping.proxy.path_mapping.strip_prefix == "/v1"
+    assert Settings().provider.path_mapping.mode == "origin"
+    mapping = Settings(provider={"path_mapping": {"mode": "prefix", "strip_prefix": "/v1/"}})
+    assert mapping.provider.path_mapping.strip_prefix == "/v1"
+    with pytest.raises(ValidationError, match="transparent mode only"):
+        Settings(proxy={"mode": "gateway"}, provider={"path_mapping": {"mode": "prefix"}})
     for bad in (
-        {"mode": "gateway", "path_mapping": {"mode": "prefix"}},
-        {"path_mapping": {"strip_prefix": "/v1"}},  # needs mode: prefix
-        {"path_mapping": {"mode": "prefix", "strip_prefix": "v1"}},
-        {"path_mapping": {"mode": "prefix", "strip_prefix": "/v1/../x"}},
-        {"path_mapping": {"mode": "prefix", "strip_prefix": "/v1?x=1"}},
-        {"path_mapping": {"mode": "path"}},
+        {"strip_prefix": "/v1"},  # needs mode: prefix
+        {"mode": "prefix", "strip_prefix": "v1"},
+        {"mode": "prefix", "strip_prefix": "/v1/../x"},
+        {"mode": "prefix", "strip_prefix": "/v1?x=1"},
+        {"mode": "path"},
     ):
         with pytest.raises(ValidationError):
-            Settings(proxy=bad)
+            Settings(provider={"path_mapping": bad})
 
 
 def test_prefix_needs_explicit_upstream_without_query_or_credentials() -> None:
     prefix = {"path_mapping": {"mode": "prefix"}}
     with pytest.raises(ConfigError, match="needs an upstream URL"):
-        resolve_transparent_upstream(Settings(proxy=prefix, provider={"type": "openai"}))
+        resolve_transparent_upstream(Settings(provider={**prefix, "type": "openai"}))
     for url in ("https://router.example.com/api?x=1", "https://ana:pw@router.example.com/api"):
         with pytest.raises(ConfigError, match="without query") as error:
-            resolve_transparent_upstream(Settings(proxy=prefix, upstream_url=url))
+            resolve_transparent_upstream(Settings(provider=prefix, upstream_url=url))
         assert "pw" not in str(error.value)
-    settings = Settings(proxy=prefix, provider={"base_url": ROUTER + "/"})
+    settings = Settings(provider={**prefix, "base_url": ROUTER + "/"})
     assert resolve_transparent_upstream(settings) == ROUTER
     assert (
         resolve_transparent_upstream(Settings(upstream_url=ROUTER)) == "https://router.example.com"
@@ -280,24 +290,24 @@ def test_run_strips_base_path_and_follows_endpoint_with_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("privyx.cli.claude._managed_root", lambda: tmp_path / "managed")
+    monkeypatch.setattr("privyx.agents._claude._managed_root", lambda: tmp_path / "managed")
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://router.example.com/api/anthropic")
-    claude = TARGETS["claude"]
+    claude = _target("claude")
     with pytest.raises(ConfigError, match="path_mapping"):
         build_launch_plan(claude, [], Settings(), 0, claude.env_vars)
-    settings = Settings(proxy={"path_mapping": {"mode": "prefix"}})
+    settings = Settings(provider={"path_mapping": {"mode": "prefix"}})
     plan = build_launch_plan(claude, [], settings, 0, claude.env_vars)
     assert plan.route == "https://router.example.com/api/anthropic"
-    assert settings.proxy.path_mapping.strip_prefix == ""
+    assert settings.provider.path_mapping.strip_prefix == ""
 
-    codex = TARGETS["codex"]
-    settings = Settings(proxy={"path_mapping": {"mode": "prefix"}}, upstream_url=ROUTER)
+    codex = _target("codex")
+    settings = Settings(provider={"path_mapping": {"mode": "prefix"}}, upstream_url=ROUTER)
     build_launch_plan(codex, [], settings, 0, codex.env_vars)
-    assert settings.proxy.path_mapping.strip_prefix == "/v1"
+    assert settings.provider.path_mapping.strip_prefix == "/v1"
     conflict = {"path_mapping": {"mode": "prefix", "strip_prefix": "/api"}}
     with pytest.raises(ConfigError, match="base_path"):
-        build_launch_plan(codex, [], Settings(proxy=conflict, upstream_url=ROUTER), 0, ())
+        build_launch_plan(codex, [], Settings(provider=conflict, upstream_url=ROUTER), 0, ())
 
 
 def test_run_dry_run_routes_grok_with_and_without_prefix(tmp_path: Path) -> None:
@@ -308,5 +318,5 @@ def test_run_dry_run_routes_grok_with_and_without_prefix(tmp_path: Path) -> None
 
     assert route().endswith("/v1 → https://api.x.ai")
     config = tmp_path / "prefix.yaml"
-    config.write_text("proxy: {path_mapping: {mode: prefix}}")
+    config.write_text("provider: {path_mapping: {mode: prefix}}")
     assert route("-c", str(config)).endswith("/v1 → https://api.x.ai/v1")

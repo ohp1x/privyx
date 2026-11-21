@@ -1,23 +1,14 @@
-"""PII-safe audit trail.
+"""PII-safe audit notifications, emitted as an exchange goes.
 
-Records security-relevant events — session creation, transform, restore, and
-proxy request/response/error — as one JSON object per line in a dedicated
-append-only file (see :func:`privyx.app._build.build_audit_logger`).
+Security-relevant facts — session creation, transform, restore, and proxy
+request/response/error — become notifications on the app's event bus
+(:mod:`privyx.events`), each one record of the audit trail: the ``audit``
+feature writes them as JSON lines, and the ``metrics`` feature counts them.
 
-Every record shares a **versioned envelope** so the format can evolve without
-breaking a downstream reader::
-
-    {"schema_version": 1, "time": "2026-09-18T03:11:18.737Z", "ts": 1789696678.737,
-     "event": "session.transform", "request_id": "req_9c1e2f3a4b5c",
-     "session_id": "ses_ab", "entity_counts": {"EMAIL": 1}, "transformations": 1}
-
-- ``schema_version`` — bumped on a backward-incompatible change (:data:`SCHEMA_VERSION`).
-- ``time`` — human-readable ISO-8601 UTC; ``ts`` is the epoch float kept for cheap
-  ordering / range queries.
-- ``request_id`` — correlates every event of one proxied exchange; ``null`` for
+- ``request_id`` correlates every event of one proxied exchange; ``null`` for
   standalone library / CLI calls that run outside a request scope.
-- ``event`` — one of :class:`AuditEventType`, the single source of truth for the
-  vocabulary (so names never drift the way a scatter of string literals would).
+- ``event`` is one of :class:`~privyx.events.AuditEventType`, the single source
+  of truth for the vocabulary.
 
 The trail is **PII-safe by construction**: the typed helpers accept only entity
 *types*, *counts*, and non-PII scalars.  Raw detected text, original values, and
@@ -34,58 +25,26 @@ transform/restore calls *accumulate* and flush a single ``session.transform`` an
 ``session.restore`` per exchange.  Outside a scope the calls emit immediately, so
 library and ``privyx mask`` use is unchanged.
 
-Writing is resilient: a failed write is logged to the ``privyx`` application
-logger and swallowed, so an audit failure can never break a request.
+A listener that fails is logged and the others still run, so an audit
+failure can never break a request.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
 from collections.abc import Mapping
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any, TextIO
 
-from privyx.observability.metrics import AuditStats
+from privyx.core import EventBus
+from privyx.events import AUDIT_EVENTS, SCHEMA_VERSION, AuditEvent, AuditEventType
+
+__all__ = ["SCHEMA_VERSION", "AuditEvent", "AuditEventType", "AuditLogger"]
 
 _log = logging.getLogger("privyx")
-
-#: On-disk record schema version.  Bump on any backward-incompatible change to the
-#: envelope or the event vocabulary so a reader can branch on it.
-SCHEMA_VERSION = 1
-
-
-class AuditEventType(StrEnum):
-    """The audit event vocabulary — declared once so names never drift.
-
-    Consistent ``<domain>.<action>`` naming: ``session.*`` for privacy-pipeline
-    events tied to a session, ``proxy.*`` for one HTTP exchange, ``run.*`` for
-    one ``privyx run`` launch.
-    """
-
-    SESSION_CREATED = "session.created"
-    SESSION_TRANSFORM = "session.transform"
-    SESSION_RESTORE = "session.restore"
-    SESSION_DELETED = "session.deleted"
-    PROXY_REQUEST = "proxy.request"
-    PROXY_RESPONSE = "proxy.response"
-    PROXY_ERROR = "proxy.error"
-    PROXY_PASSTHROUGH = "proxy.passthrough"
-    PROXY_BLOCKED = "proxy.blocked"
-    RUN_UNPROXIED = "run.unproxied"
-    RUN_BUDGET_EXCEEDED = "run.budget_exceeded"
-
-
-def _iso(ts: float) -> str:
-    """Format an epoch timestamp as an ISO-8601 UTC millisecond string."""
-    return (
-        datetime.fromtimestamp(ts, tz=UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    )
 
 
 @dataclass(slots=True)
@@ -108,50 +67,21 @@ class _RequestScope:
 _scope: ContextVar[_RequestScope | None] = ContextVar("privyx_audit_scope", default=None)
 
 
-@dataclass(slots=True, frozen=True)
-class AuditEvent:
-    """One audit record.
-
-    ``fields`` carries the event-specific, PII-safe metadata; it is flattened
-    into the serialized object alongside the envelope so the JSONL stays easy to
-    query with ``jq`` or a SQL column.
-    """
-
-    event: str
-    timestamp: float
-    session_id: str | None = None
-    request_id: str | None = None
-    fields: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "time": _iso(self.timestamp),
-            "ts": self.timestamp,
-            "event": self.event,
-            "request_id": self.request_id,
-            "session_id": self.session_id,
-            **self.fields,
-        }
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
-
-
 class AuditLogger:
-    """Append PII-safe audit events to a writer as JSON lines.
+    """Emit PII-safe audit notifications to an event bus.
 
     Args:
-        writer: An open text stream to append to — a file in production, a
-            ``StringIO`` in tests.  ``None`` disables the logger: every method
-            becomes a no-op, so callers need no ``if audit:`` guards.
+        writer: Also append each record to this open text stream as a JSON
+            line, as the ``audit`` feature does: a ``StringIO`` in a test.
+        events: The bus the notifications go to, the app's.  Without it nor a
+            writer, every method is a no-op, so callers need no ``if audit:``
+            guards.
     """
 
-    def __init__(self, writer: TextIO | None = None) -> None:
+    def __init__(self, writer: TextIO | None = None, *, events: EventBus | None = None) -> None:
         self._writer = writer
+        self._events = events
         self._lock = threading.Lock()
-        #: In-memory totals of every event emitted, served at ``GET /metrics``.
-        self.stats = AuditStats()
         #: Requests sent upstream on a masking route, counted as they go out,
         #: so one still awaiting its response counts too.
         self.routed = 0
@@ -160,7 +90,7 @@ class AuditLogger:
 
     @property
     def enabled(self) -> bool:
-        return self._writer is not None
+        return self._writer is not None or self._events is not None
 
     def emit(
         self,
@@ -170,35 +100,33 @@ class AuditLogger:
         request_id: str | None = None,
         **fields: Any,
     ) -> None:
-        """Write one event as a JSON line.  Never raises into the caller.
+        """Emit one event.  Never raises into the caller.
 
         ``request_id`` / ``session_id`` fall back to the active request scope when
         not given, so an event emitted deep in the engine still correlates.
-        Every event also updates :attr:`stats`, even when the trail is disabled,
-        so ``GET /metrics`` does not depend on an audit file.
         """
+        cls = AUDIT_EVENTS[event]
+        if self._writer is None and (self._events is None or not self._events.wants(cls)):
+            return  # nobody hears it: no record is built
         scope = _scope.get()
         if scope is not None:
             if request_id is None:
                 request_id = scope.request_id
             if session_id is None:
                 session_id = scope.session_id
-        record = AuditEvent(
-            event=event,
-            timestamp=time.time(),
-            session_id=session_id,
-            request_id=request_id,
-            fields=fields,
+        record = cls(
+            timestamp=time.time(), session_id=session_id, request_id=request_id, fields=fields
         )
-        try:
-            with self._lock:
-                self.stats.add(record.to_dict())
-                writer = self._writer
-                if writer is not None:
+        if self._events is not None:
+            self._events.notify(record)
+        writer = self._writer
+        if writer is not None:
+            try:
+                with self._lock:
                     writer.write(record.to_json() + "\n")
                     writer.flush()
-        except Exception:  # audit must never break the request path
-            _log.exception("audit write failed")
+            except Exception:  # audit must never break the request path
+                _log.exception("audit write failed")
 
     # -- request correlation / aggregation --------------------------------
 
@@ -483,6 +411,7 @@ class AuditLogger:
         request_id: str | None = None,
         status: int | None = None,
         duration_ms: float | None = None,
+        listener: str | None = None,
     ) -> None:
         """A proxied exchange failed.
 
@@ -495,6 +424,8 @@ class AuditLogger:
             fields["status"] = status
         if duration_ms is not None:
             fields["duration_ms"] = duration_ms
+        if listener is not None:
+            fields["listener"] = listener  # the feature's listener that failed: no value
         self.emit(
             AuditEventType.PROXY_ERROR,
             session_id=session_id,

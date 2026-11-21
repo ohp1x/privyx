@@ -68,8 +68,18 @@ def test_default_yaml_sets_nothing() -> None:
     assert yaml.safe_load(DEFAULT.read_text(encoding="utf-8")) is None
 
 
+#: Settings the loader sets, which a file does not: ``upstream_url`` is where a
+#: profile's ``upstream`` sends requests (in a file, the old name of
+#: ``provider.base_url``).
+INTERNAL = {("upstream_url",)}
+
+
 def test_default_yaml_lists_every_setting_with_its_default() -> None:
-    defaults = _defaults(Settings()) | _type_options()
+    defaults = {
+        path: value
+        for path, value in (_defaults(Settings()) | _type_options()).items()
+        if path not in INTERNAL
+    }
     documented = _documented()
     sections = {path[:i] for path in defaults for i in range(1, len(path))}
 

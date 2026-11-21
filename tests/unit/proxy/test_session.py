@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from privyx.dialects import AnthropicDialect, OpenAIDialect, ResponsesDialect
 from privyx.proxy._session import resolve_session_id
 
 _SES = re.compile(r"^ses_[0-9a-f]{16}$")
@@ -26,7 +27,7 @@ def test_explicit_header_beats_every_strategy() -> None:
             header_value="ses_fromclient",
             headers=BEARER,
             payload=_convo("user", "mail a@b.com"),
-            schema="openai",
+            dialect=OpenAIDialect(),
         )
         assert sid == "ses_fromclient"
         assert source == "header"
@@ -41,7 +42,7 @@ def test_ephemeral_returns_none() -> None:
         header_value=None,
         headers=BEARER,
         payload=_convo("user", "hi"),
-        schema="openai",
+        dialect=OpenAIDialect(),
     )
     assert sid is None
     assert source == "ephemeral"
@@ -51,7 +52,7 @@ def test_ephemeral_returns_none() -> None:
 
 
 def test_client_is_stable_and_credential_shaped() -> None:
-    kwargs = dict(header_value=None, headers=BEARER, payload=None, schema=None)
+    kwargs = dict(header_value=None, headers=BEARER, payload=None, dialect=None)
     a, source = resolve_session_id("client", **kwargs)
     b, _ = resolve_session_id("client", **kwargs)
     assert source == "client"
@@ -60,15 +61,15 @@ def test_client_is_stable_and_credential_shaped() -> None:
 
 def test_client_differs_by_credential() -> None:
     a, _ = resolve_session_id(
-        "client", header_value=None, headers=BEARER, payload=None, schema=None
+        "client", header_value=None, headers=BEARER, payload=None, dialect=None
     )
-    b, _ = resolve_session_id("client", header_value=None, headers=XKEY, payload=None, schema=None)
+    b, _ = resolve_session_id("client", header_value=None, headers=XKEY, payload=None, dialect=None)
     assert a != b
 
 
 def test_client_without_credential_falls_back_to_ephemeral() -> None:
     sid, source = resolve_session_id(
-        "client", header_value=None, headers={}, payload=None, schema=None
+        "client", header_value=None, headers={}, payload=None, dialect=None
     )
     assert sid is None
     assert source == "ephemeral"
@@ -88,10 +89,10 @@ def test_conversation_stable_as_history_grows() -> None:
         ]
     }
     a, source = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER, payload=turn1, schema="openai"
+        "conversation", header_value=None, headers=BEARER, payload=turn1, dialect=OpenAIDialect()
     )
     b, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER, payload=turn2, schema="openai"
+        "conversation", header_value=None, headers=BEARER, payload=turn2, dialect=OpenAIDialect()
     )
     assert source == "conversation"
     assert a == b and _SES.match(a)
@@ -103,14 +104,14 @@ def test_conversation_isolates_distinct_conversations() -> None:
         header_value=None,
         headers=BEARER,
         payload=_convo("user", "topic one"),
-        schema="openai",
+        dialect=OpenAIDialect(),
     )
     b, _ = resolve_session_id(
         "conversation",
         header_value=None,
         headers=BEARER,
         payload=_convo("user", "topic two"),
-        schema="openai",
+        dialect=OpenAIDialect(),
     )
     assert a != b
 
@@ -119,17 +120,17 @@ def test_conversation_no_cross_user_collision() -> None:
     """Same first message, different credential → different session (no shared map)."""
     same = _convo("user", "identical opening line")
     a, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER, payload=same, schema="openai"
+        "conversation", header_value=None, headers=BEARER, payload=same, dialect=OpenAIDialect()
     )
     b, _ = resolve_session_id(
-        "conversation", header_value=None, headers=XKEY, payload=same, schema="openai"
+        "conversation", header_value=None, headers=XKEY, payload=same, dialect=OpenAIDialect()
     )
     assert a != b
 
 
 def test_conversation_without_any_signal_is_ephemeral() -> None:
     sid, source = resolve_session_id(
-        "conversation", header_value=None, headers={}, payload=None, schema=None
+        "conversation", header_value=None, headers={}, payload=None, dialect=None
     )
     assert sid is None
     assert source == "ephemeral"
@@ -142,10 +143,10 @@ def test_conversation_ignores_body_on_unknown_schema() -> None:
         header_value=None,
         headers=BEARER,
         payload=_convo("user", "hi"),
-        schema=None,
+        dialect=None,
     )
     no_body, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER, payload=None, schema=None
+        "conversation", header_value=None, headers=BEARER, payload=None, dialect=None
     )
     assert with_body == no_body  # body ignored → credential-only fingerprint
 
@@ -162,7 +163,7 @@ def test_first_user_message_prefers_first_user_over_system() -> None:
         ]
     }
     keyed_on_first, _ = resolve_session_id(
-        "conversation", header_value=None, headers=BEARER, payload=payload, schema="openai"
+        "conversation", header_value=None, headers=BEARER, payload=payload, dialect=OpenAIDialect()
     )
     same_first_different_tail = {
         "messages": [
@@ -175,7 +176,7 @@ def test_first_user_message_prefers_first_user_over_system() -> None:
         header_value=None,
         headers=BEARER,
         payload=same_first_different_tail,
-        schema="openai",
+        dialect=OpenAIDialect(),
     )
     assert keyed_on_first == b
 
@@ -185,10 +186,10 @@ def test_first_user_message_handles_content_block_lists() -> None:
     blocks = {"messages": [{"role": "user", "content": [{"type": "text", "text": "hello world"}]}]}
     plain = _convo("user", "hello world")
     a, _ = resolve_session_id(
-        "conversation", header_value=None, headers=XKEY, payload=blocks, schema="anthropic"
+        "conversation", header_value=None, headers=XKEY, payload=blocks, dialect=AnthropicDialect()
     )
     b, _ = resolve_session_id(
-        "conversation", header_value=None, headers=XKEY, payload=plain, schema="anthropic"
+        "conversation", header_value=None, headers=XKEY, payload=plain, dialect=AnthropicDialect()
     )
     assert a == b
 
@@ -205,7 +206,11 @@ def test_first_user_message_reads_responses_input() -> None:
 
     def sid(payload: object) -> str | None:
         return resolve_session_id(
-            "conversation", header_value=None, headers=BEARER, payload=payload, schema="responses"
+            "conversation",
+            header_value=None,
+            headers=BEARER,
+            payload=payload,
+            dialect=ResponsesDialect(),
         )[0]
 
     assert sid(items) == sid(later) == sid({"input": "hi Alice"})

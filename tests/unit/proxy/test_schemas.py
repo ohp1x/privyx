@@ -9,18 +9,32 @@ from typing import Any
 
 import pytest
 
+from privyx.app import Privyx
+from privyx.app._serve import metadata
 from privyx.core import LeakError, Session
 from privyx.detectors import RegexDetector, YamlDetector
+from privyx.dialects import AnthropicDialect, Dialect, _anthropic, builtins
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy import schemas
-from privyx.proxy.schemas import detect_schema, restore_response, transform_request
+from privyx.proxy import _dlp
+from privyx.proxy._mask import restore_response, transform_request
+from privyx.proxy._routing import detect_schema
 from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 PHONE = "+1-555-0142"
 ROUTES = {"/v1/chat/completions": "openai", "/v1/messages": "anthropic"}
+
+#: The request keys and headers in which the built-in agents' clients describe their machine.
+AGENTS = dict(zip(("metadata_keys", "masked_headers"), metadata(Privyx()), strict=True))
+#: A new instance of each built-in dialect, by name.
+DIALECTS: dict[str, Dialect] = builtins()
+
+
+def _dialect(name: str | None) -> Dialect | None:
+    """The dialect named ``name``, a new one: a dialect keeps state (thinking)."""
+    return builtins()[name] if name is not None else None
 
 
 def _engine() -> PrivacyEngine:
@@ -470,7 +484,7 @@ async def test_transform_numbers_the_cache_prefix_first() -> None:
     outs = []
     for payload in (turn1, turn2):
         engine = _engine()
-        outs.append(await transform_request(payload, engine, await _session(engine)))
+        outs.append(await transform_request(payload, engine, await _session(engine), **AGENTS))
 
     assert outs[0]["system"] == outs[1]["system"]
     assert list(outs[1]) == ["messages", "system"]  # key order kept
@@ -510,7 +524,7 @@ async def test_a_tool_loaded_by_tool_search_does_not_renumber_the_conversation()
     outs = []
     for payload in turns:
         engine = _engine()
-        outs.append(await transform_request(payload, engine, await _session(engine)))
+        outs.append(await transform_request(payload, engine, await _session(engine), **AGENTS))
 
     assert outs[0]["system"] == outs[1]["system"] == outs[2]["system"]
     assert outs[0]["messages"][0] == outs[1]["messages"][0] == outs[2]["messages"][0]
@@ -530,7 +544,7 @@ async def test_a_deferred_tool_not_loaded_yet_is_masked_last() -> None:
     outs = []
     for payload in ({"tools": [tool], **conversation}, conversation):
         engine = _engine()
-        outs.append(await transform_request(payload, engine, await _session(engine)))
+        outs.append(await transform_request(payload, engine, await _session(engine), **AGENTS))
 
     assert outs[0]["system"] == outs[1]["system"]
     assert outs[0]["tools"][0]["description"].startswith("Look up <PRIVYX_EMAIL_")
@@ -556,7 +570,7 @@ async def test_transform_masks_what_the_client_reports_about_its_machine() -> No
     }
     original = json.dumps(payload)
 
-    out = await transform_request(payload, engine, sid)
+    out = await transform_request(payload, engine, sid, **AGENTS)
 
     assert EMAIL not in json.dumps(out)
     assert json.dumps(payload) == original  # caller payload untouched
@@ -579,7 +593,7 @@ async def test_machine_metadata_does_not_renumber_the_conversation() -> None:
     outs = []
     for payload in (first, conversation):
         engine = _engine()
-        outs.append(await transform_request(payload, engine, await _session(engine)))
+        outs.append(await transform_request(payload, engine, await _session(engine), **AGENTS))
 
     assert outs[0]["system"] == outs[1]["system"]
     assert outs[0]["messages"] == outs[1]["messages"]
@@ -610,7 +624,7 @@ async def test_transform_masks_codex_turn_metadata_in_body_and_header() -> None:
     headers = {"x-codex-turn-metadata": metadata, "authorization": "Bearer key"}
     vault.gets = vault.saves = 0
 
-    out = await transform_request(payload, engine, sid, headers=headers)
+    out = await transform_request(payload, engine, sid, headers=headers, **AGENTS)
 
     assert (vault.gets, vault.saves) == (1, 1)  # one session scope for body and header
     token = out["input"].removeprefix("mail ")
@@ -635,7 +649,7 @@ async def test_metadata_json_escapes_are_decoded_before_masking() -> None:
     headers = {"x-codex-turn-metadata": metadata}
     payload = {"client_metadata": {"x-codex-turn-metadata": metadata}}
 
-    out = await transform_request(payload, engine, sid, headers=headers)
+    out = await transform_request(payload, engine, sid, headers=headers, **AGENTS)
 
     header = headers["x-codex-turn-metadata"]
     for masked in (header, out["client_metadata"]["x-codex-turn-metadata"]):
@@ -648,40 +662,40 @@ async def test_metadata_json_escapes_are_decoded_before_masking() -> None:
 async def test_echoed_thinking_gets_the_signed_text_back(dlp_check: bool) -> None:
     engine = _engine()
     engine.dlp_check = dlp_check
+    anthropic = AnthropicDialect()
     sid = await _session(engine)
-    request = await transform_request(_mail_request(), engine, sid)
+    request = await transform_request(_mail_request(), engine, sid, dialect=anthropic)
     token = request["messages"][0]["content"].removeprefix("mail ")
     signed = f"mail {token}; vendor is ops@vendor.test"  # the model's own email
     response = {"content": [{"type": "thinking", "thinking": signed, "signature": "sig-b-1"}]}
 
-    restored = await restore_response(response, engine, sid)
+    restored = await restore_response(response, engine, sid, dialect=anthropic)
     block = restored["content"][0]
     assert block["thinking"] == f"mail {EMAIL}; vendor is ops@vendor.test"
 
     echo = {"messages": [*_mail_request()["messages"], {"role": "assistant", "content": [block]}]}
-    out = await transform_request(echo, engine, sid)
+    out = await transform_request(echo, engine, sid, dialect=anthropic)
 
     assert out["messages"][1]["content"][0]["thinking"] == signed
     assert echo["messages"][1]["content"][0]["thinking"] == block["thinking"]  # no mutation
 
 
 def test_thinking_store_is_bounded_by_characters(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(schemas, "_THINKING", {})
-    monkeypatch.setattr(schemas, "_THINKING_MAX_CHARS", 1000)
+    monkeypatch.setattr(_anthropic, "_THINKING_MAX_CHARS", 1000)
+    anthropic = AnthropicDialect()
     for i in range(10):
-        schemas.remember_thinking(f"sig-{i}", "t" * 300)  # 305 characters each
+        anthropic.remember_thinking(f"sig-{i}", "t" * 300)  # 305 characters each
 
-    assert list(schemas._THINKING) == ["sig-7", "sig-8", "sig-9"]  # the oldest go first
+    assert list(anthropic._thinking) == ["sig-7", "sig-8", "sig-9"]  # the oldest go first
 
 
-def test_remember_thinking_updates_existing_signature(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(schemas, "_THINKING", {})
-    monkeypatch.setattr(schemas, "_THINKING_CHARS", 0)
-    schemas.remember_thinking("sig-x", "text1")
-    assert schemas._THINKING["sig-x"] == "text1"
-    schemas.remember_thinking("sig-x", "updated text")
-    assert schemas._THINKING["sig-x"] == "updated text"
-    assert schemas._THINKING_CHARS == len("sig-x") + len("updated text")
+def test_remember_thinking_updates_existing_signature() -> None:
+    anthropic = AnthropicDialect()
+    anthropic.remember_thinking("sig-x", "text1")
+    assert anthropic._thinking["sig-x"] == "text1"
+    anthropic.remember_thinking("sig-x", "updated text")
+    assert anthropic._thinking["sig-x"] == "updated text"
+    assert anthropic._thinking_chars == len("sig-x") + len("updated text")
 
 
 async def test_transform_openai_chat_gaps() -> None:
@@ -983,11 +997,13 @@ async def test_dlp_check_masks_a_copy_walked_before_the_value_is_masked() -> Non
     }
     sid = await _session(engine)
 
-    out = await transform_request(payload, engine, sid, schema="anthropic")
+    out = await transform_request(payload, engine, sid, dialect=_dialect("anthropic"))
     assert "hunter2-x9" not in json.dumps(out)
     assert len(set(re.findall(r"<PRIVYX_SECRET_\w+>", json.dumps(out)))) == 1
     with pytest.raises(LeakError):  # not walked: still refused
-        await transform_request({**payload, "user": "hunter2-x9"}, engine, sid, schema="anthropic")
+        await transform_request(
+            {**payload, "user": "hunter2-x9"}, engine, sid, dialect=_dialect("anthropic")
+        )
 
 
 async def test_dlp_check_masks_a_copy_but_not_the_same_word_in_a_token() -> None:
@@ -1011,7 +1027,7 @@ async def test_dlp_check_counts_the_fixed_text_it_writes_for_a_copy() -> None:
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
-        operator=RedactOperator(token="[TED-HIDDEN]"),  # `TED` is in its text: counted, not a leak
+        operator=RedactOperator(text="[TED-HIDDEN]"),  # `TED` is in its text: counted, not a leak
         vault=MemoryVault(),
         dlp_check=True,
     )
@@ -1060,12 +1076,12 @@ async def test_dlp_check_refuses_a_glued_credential_where_it_does_not_mask() -> 
 
 
 def test_only_a_long_credential_with_a_digit_or_symbol_counts_glued() -> None:
-    assert schemas._glued("hunter2-x9", "SECRET")
-    assert schemas._glued("/home/alice/apollo", "SECRET")
-    assert not schemas._glued("postgres", "SECRET")  # letters only: a word of its own
-    assert not schemas._glued("pass-x9", "SECRET")  # shorter than 8
-    assert not schemas._glued("alice-2024", "PERSON")  # not a credential
-    assert not schemas._glued("hunter2-x9", None)  # an operator that names no type
+    assert _dlp._glued("hunter2-x9", "SECRET")
+    assert _dlp._glued("/home/alice/apollo", "SECRET")
+    assert not _dlp._glued("postgres", "SECRET")  # letters only: a word of its own
+    assert not _dlp._glued("pass-x9", "SECRET")  # shorter than 8
+    assert not _dlp._glued("alice-2024", "PERSON")  # not a credential
+    assert not _dlp._glued("hunter2-x9", None)  # an operator that names no type
 
 
 async def test_dlp_check_masks_a_copy_in_headers_and_params_as_they_were_masked() -> None:
@@ -1086,7 +1102,7 @@ async def test_dlp_check_masks_a_copy_in_headers_and_params_as_they_were_masked(
     }
 
     out = await transform_request(
-        payload, engine, await _session(engine), headers=headers, params=params
+        payload, engine, await _session(engine), headers=headers, params=params, **AGENTS
     )
     fake = out["messages"][0]["content"].split()[-1]
     assert fake != EMAIL
@@ -1096,31 +1112,31 @@ async def test_dlp_check_masks_a_copy_in_headers_and_params_as_they_were_masked(
 
 def test_find_leaks_counts_whole_words_only() -> None:
     sent = {"a": ["Bobby", "x Bob y"], "Bob": "z"}
-    assert schemas.find_leaks(sent, {"Bob"}) == {"Bob"}
-    assert schemas.find_leaks("Bobby", {"Bob"}) == set()
-    assert schemas.find_leaks("+1-555-0142x", {"+1-555-0142"}) == set()
+    assert _dlp.find_leaks(sent, {"Bob"}) == {"Bob"}
+    assert _dlp.find_leaks("Bobby", {"Bob"}) == set()
+    assert _dlp.find_leaks("+1-555-0142x", {"+1-555-0142"}) == set()
     # A masked tool-argument number sent elsewhere as a number.
-    assert schemas.find_leaks({"a": 4111111111111111, "b": True}, {"4111111111111111"}) == {
+    assert _dlp.find_leaks({"a": 4111111111111111, "b": True}, {"4111111111111111"}) == {
         "4111111111111111"
     }
-    assert schemas.find_leaks({"a": True}, {"True"}) == set()
+    assert _dlp.find_leaks({"a": True}, {"True"}) == set()
     # As the detector has it: with `_` separating words, `Bob` is in `DB_BOB`.
-    assert schemas.find_leaks("DB_Bob", {"Bob"}) == set()
-    assert schemas.find_leaks("DB_Bob", {"Bob"}, underscore=True) == {"Bob"}
-    assert schemas.find_leaks("Bobby", {"Bob"}, underscore=True) == set()
+    assert _dlp.find_leaks("DB_Bob", {"Bob"}) == set()
+    assert _dlp.find_leaks("DB_Bob", {"Bob"}, underscore=True) == {"Bob"}
+    assert _dlp.find_leaks("Bobby", {"Bob"}, underscore=True) == set()
 
 
 def test_find_leaks_searches_every_string_that_holds_a_value_in_full() -> None:
-    assert schemas.find_leaks(["Bobby", "x", "to Bob", "Bob."], {"Bob"}) == {"Bob"}
-    assert schemas.find_leaks(["Bobby", "x", "Bobbie"], {"Bob"}) == set()
+    assert _dlp.find_leaks(["Bobby", "x", "to Bob", "Bob."], {"Bob"}) == {"Bob"}
+    assert _dlp.find_leaks(["Bobby", "x", "Bobbie"], {"Bob"}) == set()
     # A value that holds the \0 the strings are joined with is searched in all of them.
-    assert schemas.find_leaks(["x", "Bob\0Smith"], {"Bob\0Smith"}) == {"Bob\0Smith"}
+    assert _dlp.find_leaks(["x", "Bob\0Smith"], {"Bob\0Smith"}) == {"Bob\0Smith"}
 
 
 def test_find_leaks_finds_a_glued_value_inside_a_word() -> None:
     sent = "mysql -phunter2-x9"
-    assert schemas.find_leaks(sent, {"hunter2-x9"}) == set()
-    assert schemas.find_leaks(sent, {"hunter2-x9"}, glued={"hunter2-x9"}) == {"hunter2-x9"}
+    assert _dlp.find_leaks(sent, {"hunter2-x9"}) == set()
+    assert _dlp.find_leaks(sent, {"hunter2-x9"}, glued={"hunter2-x9"}) == {"hunter2-x9"}
 
 
 def test_find_leaks_skips_the_tokens_that_replaced_the_values() -> None:
@@ -1128,10 +1144,10 @@ def test_find_leaks_skips_the_tokens_that_replaced_the_values() -> None:
 
     sent = "ask <PRIVYX_PERSON_1> or [TED-HIDDEN]"
     codec = FormatCodec.default()
-    assert schemas.find_leaks(sent, {"PERSON", "TED"}, underscore=True) == {"PERSON", "TED"}
-    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=codec) == set()
-    assert schemas.find_leaks(sent, {"TED"}, fixed="[TED-HIDDEN]") == set()
-    assert schemas.find_leaks(sent + " TED", {"TED"}, fixed="[TED-HIDDEN]") == {"TED"}
+    assert _dlp.find_leaks(sent, {"PERSON", "TED"}, underscore=True) == {"PERSON", "TED"}
+    assert _dlp.find_leaks(sent, {"PERSON"}, underscore=True, codec=codec) == set()
+    assert _dlp.find_leaks(sent, {"TED"}, fixed="[TED-HIDDEN]") == set()
+    assert _dlp.find_leaks(sent + " TED", {"TED"}, fixed="[TED-HIDDEN]") == {"TED"}
 
 
 def test_find_leaks_still_searches_text_derived_from_a_value() -> None:
@@ -1140,37 +1156,35 @@ def test_find_leaks_still_searches_text_derived_from_a_value() -> None:
     # A `partial` mask keeps the domain, and a label is a fake value.
     sent = "mail b****@acme.example, ask <PRIVYX_PERSON_1:James Wilson>"
     masked = {"bob@acme.example", "acme.example", "James"}
-    assert schemas.find_leaks(sent, masked, codec=FormatCodec.default()) == {
+    assert _dlp.find_leaks(sent, masked, codec=FormatCodec.default()) == {
         "acme.example",
         "James",
     }
     labels = LabelCodec("<{namespace}_{type}_{id}>", "<{namespace}_{type}_{id}:{label}>")
-    assert schemas.find_leaks(sent, masked, codec=labels) == {"acme.example", "James"}
-    assert schemas.find_leaks(sent, {"PERSON"}, underscore=True, codec=labels) == set()
+    assert _dlp.find_leaks(sent, masked, codec=labels) == {"acme.example", "James"}
+    assert _dlp.find_leaks(sent, {"PERSON"}, underscore=True, codec=labels) == set()
 
 
 def test_find_leaks_looks_past_fixed_text_only_where_it_stands_as_a_word() -> None:
     # A one-letter redaction marker must not cut a leaked value apart.
-    assert schemas.find_leaks("mail x, cc alex@example.com", {"alex@example.com"}, fixed="x") == {
+    assert _dlp.find_leaks("mail x, cc alex@example.com", {"alex@example.com"}, fixed="x") == {
         "alex@example.com"
     }
-    assert schemas.find_leaks("mail x", {"x"}, fixed="x") == set()
+    assert _dlp.find_leaks("mail x", {"x"}, fixed="x") == set()
     # Nor a leaked value that holds it.
-    assert schemas.find_leaks("hdr: john x smith", {"john x smith"}, fixed="x") == {"john x smith"}
+    assert _dlp.find_leaks("hdr: john x smith", {"john x smith"}, fixed="x") == {"john x smith"}
     # Nor more copies of it than the operator wrote: one is the raw value.
-    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=2) == set()
-    assert schemas.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=1) == {"Bob"}
+    assert _dlp.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=2) == set()
+    assert _dlp.find_leaks("Bob, hdr: Bob", {"Bob"}, fixed="Bob", written=1) == {"Bob"}
 
 
 def test_find_leaks_skips_declared_tool_names_only() -> None:
     tools = frozenset({"mcp__acme__search"})
     sent = {"tools": [{"name": "mcp__acme__search"}], "content": [{"name": "mcp__acme__search"}]}
-    assert schemas.find_leaks(sent, {"acme"}, underscore=True) == {"acme"}
-    assert schemas.find_leaks(sent, {"acme"}, underscore=True, tools=tools) == set()
+    assert _dlp.find_leaks(sent, {"acme"}, underscore=True) == {"acme"}
+    assert _dlp.find_leaks(sent, {"acme"}, underscore=True, tools=tools) == set()
     # Another `name`, such as a message's, is still searched.
-    assert schemas.find_leaks({"name": "acme_bot"}, {"acme"}, underscore=True, tools=tools) == {
-        "acme"
-    }
+    assert _dlp.find_leaks({"name": "acme_bot"}, {"acme"}, underscore=True, tools=tools) == {"acme"}
 
 
 @pytest.mark.parametrize(
@@ -1226,7 +1240,7 @@ async def test_dlp_check_does_not_refuse_a_tool_name_of_a_wrapped_gemini_request
         "tools": [{"functionDeclarations": [{"name": "mcp__acme__search"}]}],
     }
     payload = {"generateContentRequest": request}
-    masked = await transform_request(payload, engine, sid, schema="gemini")
+    masked = await transform_request(payload, engine, sid, dialect=_dialect("gemini"))
     assert masked["generateContentRequest"]["contents"][1]["parts"][0] == call
 
 
@@ -1260,7 +1274,7 @@ async def test_dlp_check_does_not_refuse_a_value_inside_the_redaction_text() -> 
     engine = PrivacyEngine(
         detector=YamlDetector(patterns={"PERSON": r"\bTED\b"}, underscore_separates_words=False),
         policy=DefaultPolicy(),
-        operator=RedactOperator(token="[TED-HIDDEN]"),
+        operator=RedactOperator(text="[TED-HIDDEN]"),
         vault=MemoryVault(),
     )
     engine.dlp_check = True
@@ -1287,9 +1301,8 @@ async def test_dlp_check_exempts_only_remembered_thinking_text(
     monkeypatch: pytest.MonkeyPatch,
     elsewhere: str | None,
 ) -> None:
-    monkeypatch.setattr(schemas, "_THINKING", {})
-    monkeypatch.setattr(schemas, "_THINKING_CHARS", 0)
-    schemas.remember_thinking("sig-1", f"the user is {EMAIL}")
+    anthropic = AnthropicDialect()
+    anthropic.remember_thinking("sig-1", f"the user is {EMAIL}")
     payload = {
         "messages": [
             {
@@ -1316,9 +1329,11 @@ async def test_dlp_check_exempts_only_remembered_thinking_text(
     sid = await _session(engine)
     if elsewhere is not None:
         with pytest.raises(LeakError):
-            await transform_request(payload, engine, sid, headers=headers, params=params)
+            await transform_request(
+                payload, engine, sid, headers=headers, params=params, dialect=anthropic
+            )
     else:
-        out = await transform_request(payload, engine, sid)
+        out = await transform_request(payload, engine, sid, dialect=anthropic)
         assert out["messages"][0]["content"][0]["thinking"] == f"the user is {EMAIL}"
         assert EMAIL not in out["messages"][1]["content"]
         assert block["thinking"] == "client changed this"  # no mutation or client text forwarded
@@ -1328,23 +1343,22 @@ async def test_dlp_check_exempts_only_remembered_thinking_text(
 async def test_dlp_check_does_not_exempt_unknown_thinking(
     monkeypatch: pytest.MonkeyPatch, evicted: bool
 ) -> None:
-    monkeypatch.setattr(schemas, "_THINKING", {})
-    monkeypatch.setattr(schemas, "_THINKING_CHARS", 0)
-    monkeypatch.setattr(schemas, "_THINKING_MAX", 1)
+    monkeypatch.setattr(_anthropic, "_THINKING_MAX", 1)
+    anthropic = AnthropicDialect()
     if evicted:
-        schemas.remember_thinking("unknown", f"the user is {EMAIL}")
-        schemas.remember_thinking("newer", "newer thinking")
+        anthropic.remember_thinking("unknown", f"the user is {EMAIL}")
+        anthropic.remember_thinking("newer", "newer thinking")
     engine = _dlp_engine()
     sid = await _session(engine)
     block = {"type": "thinking", "thinking": f"the user is {EMAIL}", "signature": "unknown"}
     payload = {"messages": [{"role": "assistant", "content": [block]}]}
 
-    out = await transform_request(payload, engine, sid)
+    out = await transform_request(payload, engine, sid, dialect=anthropic)
     assert EMAIL not in out["messages"][0]["content"][0]["thinking"]
 
     block["signature"] = EMAIL  # unknown signatures remain part of the DLP scan
     with pytest.raises(LeakError):
-        await transform_request(payload, engine, sid)
+        await transform_request(payload, engine, sid, dialect=anthropic)
 
 
 async def test_dlp_check_looks_in_query_parameter_names() -> None:
@@ -1355,162 +1369,20 @@ async def test_dlp_check_looks_in_query_parameter_names() -> None:
         await transform_request(_mail_request(), engine, await _session(engine), params=params)
 
 
-# --- directive -----------------------------------------------------------------
+async def test_the_builtin_agents_metadata_is_masked_without_an_app() -> None:
+    """A proxy built directly masks what the built-in agents describe their machine in."""
+    from privyx.proxy import Pipeline
 
-
-def _directive_engine() -> PrivacyEngine:
     engine = _engine()
-    engine.directive = True
-    return engine
+    payload = {**_mail_request(), "safeguards": {"cwd": f"/home/{EMAIL}/work"}}
+    headers = {"x-codex-turn-metadata": json.dumps({"cwd": f"/home/{EMAIL}/work"})}
 
-
-DIRECTIVE = schemas.directive(_engine().codec)
-
-
-async def test_directive_is_off_by_default() -> None:
-    engine = _engine()
-    payload = {"system": "be brief", **_mail_request()}
-
-    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
-
-    assert out["system"] == "be brief"
-    assert "<PRIVYX_EMAIL_1>" in DIRECTIVE
-
-
-@pytest.mark.parametrize(
-    ("system", "expected"),
-    [
-        (None, DIRECTIVE),
-        ("be brief", f"be brief\n\n{DIRECTIVE}"),
-        (
-            [{"type": "text", "text": "first"}],
-            [{"type": "text", "text": "first"}, {"type": "text", "text": DIRECTIVE}],
-        ),
-    ],
-)
-async def test_directive_goes_after_the_anthropic_system_prompt(system: Any, expected: Any) -> None:
-    engine = _directive_engine()
-    payload = {**({"system": system} if system else {}), **_mail_request()}
-
-    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
-
-    assert out["system"] == expected
-    assert EMAIL not in json.dumps(out)
-    assert "system" not in payload or payload["system"] == system  # not mutated
-
-
-async def test_directive_goes_after_the_leading_chat_system_messages() -> None:
-    engine = _directive_engine()
-    payload = {
-        "messages": [
-            {"role": "system", "content": "a"},
-            {"role": "developer", "content": "b"},
-            {"role": "user", "content": f"mail {EMAIL}"},
-            {"role": "system", "content": "late"},
-        ]
-    }
-
-    out = await transform_request(payload, engine, await _session(engine), schema="openai")
-
-    roles = [(m["role"], m["content"]) for m in out["messages"]]
-    assert roles[2] == ("system", DIRECTIVE)
-    assert [r for r, _ in roles] == ["system", "developer", "system", "user", "system"]
-    assert len(payload["messages"]) == 4
-
-
-async def test_directive_comes_first_in_a_responses_input() -> None:
-    engine = _directive_engine()
-    sid = await _session(engine)
-
-    out = await transform_request({"input": "hi"}, engine, sid, schema="responses")
-    resumed = await transform_request(
-        {"input": "hi", "previous_response_id": "resp_1", "instructions": "x"},
-        engine,
-        sid,
-        schema="responses",
+    out = await transform_request(
+        payload, engine, await _session(engine), headers=headers, dialect=_dialect("anthropic")
     )
 
-    assert out["input"][0]["role"] == "developer"
-    assert out["input"][0]["content"][0]["text"] == DIRECTIVE
-    assert out["input"][1] == {"role": "user", "content": "hi"}
-    assert resumed["input"] == "hi"
-    assert resumed["instructions"] == f"x\n\n{DIRECTIVE}"
-
-
-@pytest.mark.parametrize(
-    ("schema", "payload"),
-    [
-        ("embeddings", {"input": "hi"}),
-        ("openai", {"prompt": "hi"}),  # legacy completions
-        (None, _mail_request()),
-    ],
-)
-async def test_directive_skips_requests_without_a_chat(schema: Any, payload: Any) -> None:
-    engine = _directive_engine()
-
-    out = await transform_request(payload, engine, await _session(engine), schema=schema)
-
-    assert DIRECTIVE not in json.dumps(out)
-
-
-# --------------------------------------------------------------------------
-# proxy.cache_control
-
-BIG = "x" * schemas.CACHE_MIN_CHARS
-EPHEMERAL = {"type": "ephemeral"}
-
-
-def _cache_engine() -> PrivacyEngine:
-    engine = _engine()
-    engine.cache_control = True
-    return engine
-
-
-async def test_cache_control_is_off_by_default() -> None:
-    engine = _engine()
-    payload = {"system": BIG, **_mail_request()}
-
-    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
-
-    assert out["system"] == BIG
-
-
-async def test_cache_control_marks_a_large_system_and_tools_prefix() -> None:
-    engine = _cache_engine()
-    tools = [{"name": "a", "input_schema": {}}, {"name": "b", "description": BIG}]
-    payload = {"tools": tools, "system": "be brief", **_mail_request()}
-
-    out = await transform_request(payload, engine, await _session(engine), schema="anthropic")
-
-    assert out["tools"][-1]["cache_control"] == EPHEMERAL
-    assert "cache_control" not in out["tools"][0]
-    assert out["system"] == [{"type": "text", "text": "be brief", "cache_control": EPHEMERAL}]
-    assert EMAIL not in json.dumps(out)
-    assert "cache_control" not in tools[-1] and payload["system"] == "be brief"  # not mutated
-
-
-@pytest.mark.parametrize(
-    ("payload", "schema"),
-    [
-        ({"system": "short", **_mail_request()}, "anthropic"),  # too small to cache
-        ({"system": BIG, **_mail_request()}, "openai"),  # not Anthropic
-        (  # the client already caches
-            {
-                "system": BIG,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": "hi", "cache_control": EPHEMERAL}],
-                    }
-                ],
-            },
-            "anthropic",
-        ),
-    ],
-)
-async def test_cache_control_leaves_a_request_alone(payload: dict[str, Any], schema: str) -> None:
-    engine = _cache_engine()
-
-    out = await transform_request(payload, engine, await _session(engine), schema=schema)
-
-    assert out.get("system") == payload["system"]
+    assert EMAIL not in json.dumps(out) + headers["x-codex-turn-metadata"]
+    proxy = Pipeline(engine)
+    assert {"safeguards", "client_metadata"} <= proxy._metadata_keys  # noqa: SLF001
+    assert "x-codex-turn-metadata" in proxy._masked_headers  # noqa: SLF001
+    await proxy.close()

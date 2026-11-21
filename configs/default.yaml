@@ -27,25 +27,21 @@
 # with no permissions beyond 0600, or startup fails (fix with chmod 600).
 # log_file: ""
 
-# --- Upstream ---
-# Explicit upstream, the same as --upstream or PRIVYX_UPSTREAM_URL.  Empty
-# uses provider.base_url, then the default for provider.type.  In transparent
-# `privyx run`, a native agent endpoint comes before that default.
-# upstream_url: ""
-
 # --- Agent launch profiles (`privyx run NAME`) ---
 # Built-in profiles: claude, codex, openai, aider, pi, opencode, gemini, ollama,
 # and grok.  Override them field by field, add your own with `extends`, or add
 # a variant named base:variant (claude:work inherits claude).  Each profile
-# can set command, provider, upstream, env_vars, endpoint_env, base_path,
-# extends, adapter, args, env, env_from, budget (max_turns, max_tokens),
-# presets (names from presets below), and privyx (settings for that profile
-# only).  See configs/examples/agents.yaml.
+# can set command, type, provider, upstream, env_vars, base_path, extends,
+# args, env, env_from, budget (max_turns, max_tokens), presets (names from
+# presets below), privyx (settings for that profile only), and the options of
+# its type: env takes endpoint_env.  Without type, a profile has the one it
+# extends, else the one named like it or its command, else env.  See
+# configs/examples/agents.yaml.
 # agents:
 #
 # Named sets of Privyx settings, applied by an agent profile's presets list or
 # by --preset NAME on any command.  A preset takes any setting but agents,
-# presets, include, upstream_url, and provider.  Example:
+# presets, include, provider, and providers.  Example:
 # {strict: {proxy: {passthrough_unknown: false}}}
 # presets: {}
 #
@@ -55,21 +51,40 @@
 # harvest: false
 
 # --- Provider ---
-# Where requests go and which key they carry.  Leave type unset for
-# `privyx run`: each agent profile picks its own provider.
-#   URL  upstream_url, then provider.base_url, then the default for the type
-#        (generic http://localhost:20128, openai api.openai.com,
+# Where requests go and which key they carry.  `provider` names one of
+# `providers` below, or is a provider of its own (a mapping, as here).  A
+# `privyx run` profile uses its own (agents.<name>.provider) instead, unless
+# --provider picks one; PRIVYX_PROVIDER picks a name here.
+#   URL  base_url (or PRIVYX_UPSTREAM_URL, --upstream), else the default for
+#        the type (generic http://localhost:20128, openai api.openai.com,
 #        anthropic api.anthropic.com, google generativelanguage.googleapis.com)
-#   key  provider.<type>_api_key, then provider.api_key (or PRIVYX_<TYPE>_API_KEY,
-#        PRIVYX_API_KEY); with neither the transparent proxy relays the client's own
+#   key  api_key (or PRIVYX_API_KEY); with none the transparent proxy relays
+#        the client's own.  A key, or a header, goes only to the base_url of
+#        the provider it is written for: Privyx refuses to start otherwise.
 # provider:
 #   type: generic          # generic | openai | anthropic | google
 #   base_url: ""
 #   api_key: ""
-#   openai_api_key: ""
-#   anthropic_api_key: ""
-#   google_api_key: ""
 #   headers: {}            # extra headers on every upstream request
+#   forward_client_auth: true   # false: drop the client's key, send only the provider's
+#   # Transparent mode: origin sends a request path to the upstream's host,
+#   # dropping the upstream URL's own path.  prefix keeps that path and appends
+#   # the request path minus strip_prefix (`privyx run` strips the agent's
+#   # base_path); other paths get 404.  prefix needs an explicit upstream URL.
+#   path_mapping:
+#     mode: origin         # origin | prefix
+#     strip_prefix: ""     # e.g. /v1: /v1/chat/completions -> <upstream>/chat/completions
+#   timeout: 300           # seconds between bytes, read or write
+#   connect_timeout: 10
+#   max_connections: null  # null: no limit
+#
+# Named providers, each with the settings above.  Built in: generic, openai,
+# anthropic, google (each of its type), xai (openai, https://api.x.ai/v1), and
+# ollama (generic, http://127.0.0.1:11434).  PRIVYX_OPENAI_API_KEY,
+# PRIVYX_ANTHROPIC_API_KEY, and PRIVYX_GOOGLE_API_KEY are the keys of the
+# built-in provider of that name.  Example:
+# {work: {type: anthropic, base_url: https://router.example.com, api_key: "${WORK_TOKEN}"}}
+# providers:
 
 # --- Proxy ---
 # proxy:
@@ -78,17 +93,6 @@
 #   # replaces the 27 default paths (see docs/guide/proxy.md#routes).
 #   routes:
 #   passthrough_unknown: true   # false: paths not in routes get 403
-#   # Transparent mode: origin sends a request path to the upstream's host,
-#   # dropping the upstream URL's own path.  prefix keeps that path and appends
-#   # the request path minus strip_prefix (`privyx run` strips the agent's
-#   # base_path); other paths get 404.  prefix needs an explicit upstream URL.
-#   path_mapping:
-#     mode: origin         # origin | prefix
-#     strip_prefix: ""     # e.g. /v1: /v1/chat/completions -> <upstream>/chat/completions
-#   forward_client_auth: true   # false: drop the client's key, send only provider's
-#   timeout: 300           # seconds between bytes, read or write
-#   connect_timeout: 10
-#   max_connections: null  # null: no limit
 #   dlp_check: true        # mask copies of masked values, refuse if one is left
 #                          # exact signed thinking remembered from upstream is exempt
 #   directive: false       # tell the model to keep placeholders as written
@@ -174,8 +178,9 @@
 # What a detected value becomes.  Every type but redact is restored in replies.
 # operator:
 #   type: pseudonym        # pseudonym | hash | encrypt | faker | fpe | partial | redact
-#   token: "[REDACTED]"    # redact: replacement text
-#   length: 12             # hash: digest characters kept, 6 to 64
+#   text: "[REDACTED]"     # redact: replacement text
+#   id_length: 16          # pseudonym (anchored), encrypt, hash (default 12): id
+#                          # hex characters, 6 to 64
 #   locale: ""             # faker, pseudonym labels: Faker locale, such as en_US
 #   seed: null             # faker, fpe: same value, same fake across runs; varies labels
 #   key: ""                # encrypt: 64 hex chars (privyx[crypto]), or PRIVYX_ENCRYPT_KEY
@@ -195,7 +200,6 @@
 #   namespace: PRIVYX
 #   format: "<{namespace}_{type}_{id}>"
 #   compact: false         # short tokens such as <E~1>; format tokens still restore
-#   id_length: 16          # anchored pseudonym and encrypt ids, 6 to 64 hex characters
 #   # pseudonym only, privyx[faker]: also a fake value for the model, such as
 #   # <PRIVYX_PERSON_A81B3C9AEE08DE11:Alice Johnson>; restored by the id, never by the label.
 #   label_format: ""       # needs {id} and {label}; empty is off
@@ -222,3 +226,8 @@
 #   enabled: true
 #   paths: []
 #   modules: []            # or PRIVYX_PLUGIN_MODULES, comma-separated
+#
+# Options of each secret resolver, by scheme: op:// and keychain:// take none,
+# a plugin's may (secrets: {doppler: {project: acme}}).  A reference here or
+# under plugins is not resolved: use ${NAME}.
+# secrets: {}

@@ -16,7 +16,9 @@ import httpx
 import pytest
 
 from privyx import load_config
+from privyx.app import Privyx
 from privyx.app._build import build_engine
+from privyx.app._serve import metadata
 from privyx.observability.audit import AuditLogger
 from privyx.proxy import Pipeline
 from privyx.proxy._asgi import create_app
@@ -310,6 +312,7 @@ async def test_agent_content_is_masked_and_restored(
         seen.append(body)
         return _reply(schema, tokens, stream)
 
+    keys, headers = metadata(Privyx())
     try:
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as provider:
             proxy = Pipeline(
@@ -318,6 +321,8 @@ async def test_agent_content_is_masked_and_restored(
                 client=provider,
                 audit=audit,
                 session_strategy=strategy,
+                metadata_keys=keys,
+                masked_headers=headers,
             )
             app = create_app(proxy)
             async with httpx.AsyncClient(

@@ -15,6 +15,8 @@ from collections.abc import Callable
 from functools import lru_cache, partial
 from typing import Any
 
+from pydantic import Field
+
 from privyx.core import (
     Context,
     Detection,
@@ -24,7 +26,7 @@ from privyx.core import (
     TransformResult,
     apply_replacements,
 )
-from privyx.operators._base import Operator
+from privyx.operators._base import ID_LENGTH, Operator
 from privyx.operators._restore import free_token, restore
 from privyx.token.codec import LabelCodec
 from privyx.token.model import LogicalToken
@@ -42,7 +44,7 @@ class PseudonymOperator(Operator):
     pseudonyms deterministic across sessions.  The vault is still the source
     of truth for restoring them — an anchor is one-way — so it changes how
     pseudonyms are *named*, not how they are reversed.  An anchor digest
-    keeps ``token.id_length`` hex characters in the id; a collision makes it
+    keeps ``id_length`` hex characters in the id; a collision makes it
     longer.
 
     With a :class:`~privyx.token.codec.LabelCodec` (``token.label_format``),
@@ -55,6 +57,8 @@ class PseudonymOperator(Operator):
     name = "pseudonym"
 
     class Options(Operator.Options):
+        #: Hex characters of an anchored token's id; a counter is unaffected.
+        id_length: int = Field(default=ID_LENGTH, ge=6, le=64)
         seed: int | None = None  # determinism salt of the labels
         locale: str = ""  # Faker locale of the labels (empty → Faker's default)
 
@@ -142,7 +146,7 @@ class PseudonymOperator(Operator):
                 session,
                 original,
                 self._digest(anchored),
-                self._id_length,
+                self.options.id_length,
                 partial(self._encode, entity_type),
                 used.__contains__ if used else None,
             )

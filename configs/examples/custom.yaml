@@ -1,13 +1,18 @@
 # Example: a router or other OpenAI/Anthropic-compatible endpoint
 #
 #   privyx proxy -c configs/examples/custom.yaml
-#   privyx run -c configs/examples/custom.yaml claude
+#   privyx run -c configs/examples/custom.yaml --provider router claude
 #
 # The transparent proxy forwards to the origin of `base_url` and keeps the
 # client's own path.  Requests on the paths in `proxy.routes` are masked.
-# For one agent only, set `upstream` in its profile instead (agents.yaml).
+# A `privyx run` profile uses its own provider unless --provider picks one;
+# to send one profile there every time, set its `provider: router`
+# (agents.yaml).
 
-provider:
-  base_url: https://router.example.com
-  headers:
-    x-custom-header: "value"   # sent with every upstream request
+providers:
+  router:
+    base_url: https://router.example.com
+    headers:
+      x-custom-header: "value"   # sent with every request to the router, and nowhere else
+
+provider: router

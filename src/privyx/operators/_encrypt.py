@@ -30,6 +30,8 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
+from pydantic import Field
+
 from privyx.core import (
     ConfigError,
     Context,
@@ -39,7 +41,7 @@ from privyx.core import (
     TransformResult,
     apply_replacements,
 )
-from privyx.operators._base import Operator
+from privyx.operators._base import ID_LENGTH, Operator
 from privyx.operators._restore import free_token, restore
 from privyx.security.keys import derive, load_key
 from privyx.token.model import LogicalToken
@@ -49,7 +51,7 @@ class EncryptOperator(Operator):
     """Replace sensitive spans with tokens whose mapping value is ciphertext.
 
     ``key`` is the AES-256 key as 64 hex characters (``openssl rand -hex 32``).  The token
-    keeps ``token.id_length`` hex characters of the keyed identifier digest; a
+    keeps ``id_length`` hex characters of the keyed identifier digest; a
     collision makes it longer.
 
     Raises:
@@ -62,6 +64,7 @@ class EncryptOperator(Operator):
 
     class Options(Operator.Options):
         key: str = ""  # 64 hex chars (`openssl rand -hex 32`)
+        id_length: int = Field(default=ID_LENGTH, ge=6, le=64)
 
     options: Options
 
@@ -92,7 +95,7 @@ class EncryptOperator(Operator):
                 session,
                 ciphertext,
                 derive(self._key, "id", f"{span.entity_type}:{span.text}").hex().upper(),
-                self._id_length,
+                self.options.id_length,
                 partial(self._encode, span.entity_type),
             )
             session.put(token, ciphertext)

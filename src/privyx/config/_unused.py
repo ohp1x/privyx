@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from pydantic import BaseModel
 
-from privyx.config.schema import PLUGGABLE, PluggableConfig
+from privyx.config.schema import PLUGGABLE, AgentConfig, PluggableConfig
 from privyx.core import ConfigError
 
 if TYPE_CHECKING:
@@ -144,6 +144,8 @@ def _unknown_keys(model: type[BaseModel], data: Any, types: _Types, path: str = 
     unknown = []
     for key, value in data.items():
         name = str(key)
+        if model is AgentConfig and name not in known:
+            continue  # an option of the profile's type, checked once profiles are resolved
         if name not in known:
             match = difflib.get_close_matches(name, list(known), n=1)
             hint = f" (did you mean {match[0]!r}?)" if match else ""

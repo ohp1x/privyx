@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Collection, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from privyx.config.schema import AgentConfig
 from privyx.core import ConfigError
 
 if TYPE_CHECKING:
@@ -52,6 +55,9 @@ def resolve_profiles(
             parent = resolved.get(parent_name, {}) if isinstance(parent_name, str) else {}
             if not isinstance(parent, dict):
                 parent = {}  # The parent's schema error is reported by Settings.
+            if child.get("type", parent.get("type")) != parent.get("type"):
+                # Another type: the parent's options are its type's, not this one's.
+                parent = {k: v for k, v in parent.items() if k in AgentConfig.model_fields}
             effective = {**parent, **child}
             for section in ("budget", "privyx"):
                 own, inherited = child.get(section), parent.get(section)
@@ -88,3 +94,58 @@ def resolve_profiles(
             profile_origins[child_name] = own_origins
             origins.update({prefix + path: source for path, source in own_origins.items()})
     return resolved, origins
+
+
+def profile_type(name: str, profile: Mapping[str, Any], types: Collection[str]) -> str:
+    """The agent type of profile ``name``: its ``type``, or one of ``types`` it is named like.
+
+    Unset, it is the type named like the profile, else like its command's
+    file, else ``env``.  ``extends`` has already given a profile its parent's.
+    """
+    kind = profile.get("type")
+    if isinstance(kind, str) and kind:
+        return kind
+    command = profile.get("command")
+    for candidate in (name, Path(command).name if isinstance(command, str) else ""):
+        if candidate in types:
+            return candidate
+    return "env"
+
+
+#: The values the deprecated ``adapter`` took.
+_ADAPTERS = ("auto", "env", "claude", "codex", "pi")
+
+
+def translate_adapters(layer: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    """``layer`` with each profile's deprecated ``adapter`` written as ``type``.
+
+    Done to each layer before the layers are merged, so a profile's ``adapter``
+    in a file still wins over the ``type`` of the profile it overrides.
+    ``auto`` is a ``type`` left out.  A warning naming the key path, never a
+    value, is added to ``warnings``.
+
+    Raises:
+        ConfigError: If an ``adapter`` is not one it took.
+    """
+    profiles = layer.get("agents")
+    if not isinstance(profiles, dict) or not any(
+        isinstance(profile, dict) and "adapter" in profile for profile in profiles.values()
+    ):
+        return layer
+    translated: dict[str, Any] = {}
+    for name, profile in profiles.items():
+        if isinstance(profile, dict) and "adapter" in profile:
+            profile = dict(profile)  # the layer's own dict is left as it is
+            adapter = profile.pop("adapter")
+            if adapter not in _ADAPTERS:
+                raise ConfigError(
+                    f"{f'agents.{name}.adapter'!r} must be one of {', '.join(_ADAPTERS)}"
+                )
+            if adapter != "auto":
+                profile.setdefault("type", adapter)
+            write = f"write 'type: {adapter}'" if adapter != "auto" else "leave out 'type'"
+            warnings.append(
+                f"{f'agents.{name}.adapter'!r} is deprecated; {write} (removed in 0.4.0)"
+            )
+        translated[name] = profile
+    return {**layer, "agents": translated}

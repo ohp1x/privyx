@@ -107,6 +107,10 @@ def setup(app):
 """
 
 
+#: The dialects whose paths may come without their API version.
+VERSIONLESS = frozenset({"gemini"})
+
+
 def _write(directory: Path, name: str, source: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / name).write_text(source, encoding="utf-8")
@@ -380,11 +384,10 @@ async def test_an_operator_is_opened_with_what_the_app_shares(tmp_path: Path) ->
     app = _loaded(tmp_path)
     codec = FormatCodec.default()
     operator = build_operator(Settings(operator={"type": "seen"}), app)
-    await operator.open(services(codec=codec, id_length=20))
+    await operator.open(services(codec=codec))
 
     assert operator.services.codec is codec  # type: ignore[attr-defined]
     assert operator.services.anchor is None  # type: ignore[attr-defined]
-    assert operator.services.id_length == 20  # type: ignore[attr-defined]
 
 
 async def test_a_plugin_vault_gets_none_of_the_builtin_options(
@@ -572,13 +575,13 @@ def test_config_schema_asks_no_password_manager(
 ) -> None:
     from click.testing import CliRunner
 
-    import privyx.config._layers as loader
+    from privyx.app import Privyx
     from privyx.cli.main import cli
 
     def refuse(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("a secret was resolved")
 
-    monkeypatch.setattr(loader, "resolve_secrets", refuse)
+    monkeypatch.setattr(Privyx, "_resolve", refuse)
     paths = [str(_write(tmp_path, "p.py", CONFIGURED))]
     config = _config(
         tmp_path, {"plugins": {"paths": paths}, "provider": {"api_key": "op://vault/item/key"}}
@@ -669,6 +672,9 @@ def test_a_module_is_set_up_once_per_privyx(bundle: str) -> None:
 def test_modules_come_from_the_environment_beside_paths(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    for name in ("acme_one", "acme_two"):
+        _write(tmp_path / "modules", f"{name}.py", "def setup(app):\n    pass\n")
+    monkeypatch.syspath_prepend(str(tmp_path / "modules"))
     monkeypatch.setenv("PRIVYX_PLUGIN_PATHS", str(tmp_path))
     monkeypatch.setenv("PRIVYX_PLUGIN_MODULES", "acme_one, acme_two")
 
@@ -739,19 +745,19 @@ def _router(path: str) -> APIRouter:
 )
 def test_a_route_over_a_masking_route_stops_startup(path: str) -> None:
     with pytest.raises(ConfigError, match="overlaps a masking route"):
-        include_router(FastAPI(), _router(path), Settings().proxy.routes)
+        include_router(FastAPI(), _router(path), Settings().proxy.routes, VERSIONLESS)
 
 
 def test_a_nested_router_is_checked_and_later_routes_are_not_served() -> None:
     outer = APIRouter()
     outer.include_router(_router("/models/{name}"), prefix="/v1beta")
     with pytest.raises(ConfigError, match="overlaps a masking route"):
-        include_router(FastAPI(), outer, Settings().proxy.routes)
+        include_router(FastAPI(), outer, Settings().proxy.routes, VERSIONLESS)
 
 
 async def test_a_route_added_after_the_check_is_not_served() -> None:
     app, router = FastAPI(), _router("/acme/items/{item}")
-    include_router(app, router, Settings().proxy.routes)
+    include_router(app, router, Settings().proxy.routes, VERSIONLESS)
     router.add_api_route("/v1/messages", lambda: {"ok": True}, methods=["POST"])
     assert (await _get(app, "/acme/items/1")).status_code == 200
     transport = httpx.ASGITransport(app=app)
@@ -761,7 +767,7 @@ async def test_a_route_added_after_the_check_is_not_served() -> None:
 
 async def test_a_route_beside_the_masking_routes_is_served() -> None:
     app = FastAPI()
-    include_router(app, _router("/acme/items/{item}"), Settings().proxy.routes)
+    include_router(app, _router("/acme/items/{item}"), Settings().proxy.routes, VERSIONLESS)
     assert (await _get(app, "/acme/items/1")).json() == {"ok": True}
 
 
@@ -783,7 +789,7 @@ def test_the_route_check_stays_fast_for_a_large_router() -> None:
     for i in range(200):
         router.add_api_route(f"/acme{i}/part{i}/{{item}}/more{i}", lambda: {"ok": True})
     start = time.perf_counter()
-    include_router(FastAPI(), router, Settings().proxy.routes)
+    include_router(FastAPI(), router, Settings().proxy.routes, VERSIONLESS)
     assert time.perf_counter() - start < 5
 
 
@@ -899,3 +905,85 @@ def test_a_starting_listener_that_fails_stops_the_server(
         px.serve()
     assert served == []
     assert stopped == []
+
+
+# --- defaults from plugins ----------------------------------------------------
+
+DEFAULTS_PLUGIN = """
+def setup(app):
+    app.defaults(
+        agents={"goose": {"command": "goose", "provider": "openai", "env_vars": ["OPENAI_HOST"]}},
+        presets={"quiet": {"log_level": "warning"}},
+    )
+"""
+
+
+def test_plugin_defaults_sit_below_every_config_file(tmp_path: Path) -> None:
+    plugins = _write(tmp_path / "plugins", "goose.py", DEFAULTS_PLUGIN)
+    config = _config(
+        tmp_path, {"plugins": {"paths": [str(plugins)]}, "agents": {"goose": {"command": "g2"}}}
+    )
+
+    settings = load_config(config, agent="goose", presets=["quiet"])
+
+    goose = settings.agents["goose"]
+    assert (goose.command, goose.provider, goose.env_vars) == ("g2", "openai", ["OPENAI_HOST"])
+    assert settings.log_level == "warning"
+
+
+def test_plugin_defaults_cannot_take_a_built_in_profile(tmp_path: Path) -> None:
+    from privyx.app import Privyx
+
+    app = Privyx()
+    with pytest.raises(ConfigError, match="agent profile 'claude' is built in"):
+        app.defaults(agents={"claude": {"command": "x"}})
+    app.defaults(presets={"quiet": {}})
+    with pytest.raises(ConfigError, match="two plugins add presets.quiet"):
+        app.defaults(presets={"quiet": {}})
+
+
+# --- dialects from plugins ----------------------------------------------------
+
+CONVERSE = """
+from privyx.dialects import Dialect
+
+
+class ConverseDialect(Dialect):
+    name = "acme-converse"
+    content_keys = frozenset({"messages", "system"})
+    default_routes = ("/model/*/converse",)
+
+
+def setup(app):
+    app.add(ConverseDialect)
+"""
+
+
+def test_a_plugin_dialect_adds_its_routes_to_the_default_map(tmp_path: Path) -> None:
+    from privyx.app import Privyx
+    from privyx.app._serve import add_default_routes
+
+    plugins = _write(tmp_path / "plugins", "converse.py", CONVERSE)
+    app = Privyx(_config(tmp_path, {"plugins": {"paths": [str(plugins)]}}))
+    settings = app.settings
+    add_default_routes(app, settings)
+
+    assert settings.proxy.routes["/model/*/converse"] == "acme-converse"
+    assert settings.proxy.routes["/v1/messages"] == "anthropic"  # the default ones stay
+
+    written = {"plugins": {"paths": [str(plugins)]}, "proxy": {"routes": {"/v1/x": "openai"}}}
+    app = Privyx(_config(tmp_path, written))
+    settings = app.settings
+    add_default_routes(app, settings)
+    assert settings.proxy.routes == {"/v1/x": "openai"}  # a written map is taken as written
+
+
+def test_a_plugin_dialect_cannot_take_a_default_route(tmp_path: Path) -> None:
+    from privyx.app import Privyx
+    from privyx.app._serve import add_default_routes
+
+    source = CONVERSE.replace('("/model/*/converse",)', '("/v1/messages",)')
+    plugins = _write(tmp_path / "plugins", "converse.py", source)
+    app = Privyx(_config(tmp_path, {"plugins": {"paths": [str(plugins)]}}))
+    with pytest.raises(ConfigError, match="brings route /v1/messages, which is 'anthropic'"):
+        add_default_routes(app, app.settings)

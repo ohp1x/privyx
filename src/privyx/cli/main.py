@@ -38,6 +38,7 @@ from privyx.cli.commands.audit import audit
 from privyx.cli.commands.config import config_cmd
 from privyx.cli.commands.detect import detect
 from privyx.cli.commands.doctor import doctor
+from privyx.cli.commands.features import features
 from privyx.cli.commands.hook import hook, install_hook
 from privyx.cli.commands.inspect import inspect
 from privyx.cli.commands.lint import lint
@@ -110,6 +111,7 @@ cli.add_command(inspect)
 cli.add_command(session)
 cli.add_command(audit)
 cli.add_command(doctor)
+cli.add_command(features)
 cli.add_command(config_cmd, name="config")
 cli.add_command(trust)
 cli.add_command(scan)

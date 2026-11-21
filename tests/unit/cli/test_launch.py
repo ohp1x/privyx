@@ -12,17 +12,20 @@ import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
+from privyx.app._run import plan_launch as build_launch_plan
 from privyx.cli.commands.run import (
-    TARGETS,
     _set_terminal_title,
     _show_plan,
     _show_running,
     _spawn,
 )
-from privyx.cli.launch import PI_UPSTREAMS, build_launch_plan, profile_target
 from privyx.cli.main import cli
 from privyx.config.schema import AgentConfig, Settings
 from privyx.core import ConfigError
+
+from ._launch import TARGETS, build_target
+
+PI_UPSTREAMS = "the provider of each pi model"
 
 
 @pytest.mark.parametrize("agent", [*TARGETS, "work"])
@@ -30,7 +33,7 @@ async def test_announcement_sets_agent_title_before_launch_and_allows_child_upda
     monkeypatch: pytest.MonkeyPatch, agent: str
 ) -> None:
     # A custom profile may run a Python wrapper; its title should name the profile.
-    target = TARGETS.get(agent) or profile_target(agent, AgentConfig(command="python3"))
+    target = TARGETS.get(agent) or build_target(AgentConfig(command="python3"))
     plan = build_launch_plan(target, [], Settings(), 1234, target.env_vars, name=agent)
     terminal = io.StringIO()
     monkeypatch.setattr(terminal, "isatty", lambda: True)
@@ -86,13 +89,13 @@ def test_terminal_title_strips_path_and_control_characters(
     assert terminal.getvalue() == "\033]0;codex\007"
 
 
-def test_explicit_adapter_supports_wrapper_and_env_can_disable_it() -> None:
-    profile = AgentConfig(command="company-wrapper", adapter="claude")
-    target = profile_target("work", profile)
+def test_explicit_type_supports_wrapper_and_env_can_disable_it() -> None:
+    profile = AgentConfig(command="company-wrapper", type="claude")
+    target = build_target(profile)
     plan = build_launch_plan(target, ["--continue"], Settings(), 1234, ())
     assert plan.argv[:1] == ["--settings"]
     assert "http://127.0.0.1:1234" in plan.argv[1]
-    env_only = profile_target("claude", AgentConfig(command="claude", adapter="env"))
+    env_only = build_target(AgentConfig(command="claude", type="env"))
     assert build_launch_plan(env_only, ["--continue"], Settings(), 1234, ()).argv == ["--continue"]
 
 
@@ -104,7 +107,7 @@ async def test_preview_and_spawn_share_argv_env_snapshot_and_port_binding(
     monkeypatch.setenv("SOURCE_TOKEN", "private-reference-value")
     profile = AgentConfig(
         command="wrapper",
-        adapter="codex",
+        type="codex",
         args=["exec", "-c", "model=work"],
         env={"FLAG": "profile-flag", "BASE_URL": "https://bypass.example"},
         env_from={"AUTH_TOKEN": "SOURCE_TOKEN"},
@@ -112,7 +115,7 @@ async def test_preview_and_spawn_share_argv_env_snapshot_and_port_binding(
         base_path="/v1",
     )
     plan = build_launch_plan(
-        profile_target("work", profile),
+        build_target(profile),
         ["--", "prompt with spaces"],
         Settings(),
         0,
@@ -198,7 +201,7 @@ def test_inherited_sources_are_visible_in_preview(tmp_path: Path) -> None:
     sources: dict[str, str] = {}
     settings = load_config(config, agent="work", sources=sources)
     plan = build_launch_plan(
-        profile_target("work", settings.agents["work"]),
+        build_target(settings.agents["work"]),
         [],
         settings,
         1234,
@@ -223,7 +226,7 @@ def test_reference_reads_shell_only_and_accepts_an_existing_empty_value(
     profile = AgentConfig(
         command="tool", env={"SOURCE": "profile-value"}, env_from={"DEST": "SOURCE"}
     )
-    target = profile_target("work", profile)
+    target = build_target(profile)
     monkeypatch.delenv("SOURCE", raising=False)
     with pytest.raises(ConfigError, match="requires environment variable SOURCE"):
         build_launch_plan(target, [], Settings(), 1234, ())
@@ -254,24 +257,24 @@ def test_cli_finds_command_using_profile_path(tmp_path: Path) -> None:
     assert result.exit_code == 9, result.output
 
 
-def test_pi_adapter_loads_the_shipped_extension_before_user_args() -> None:
-    target = profile_target("pi", AgentConfig(command="pi", adapter="pi"))
+def test_pi_type_loads_the_shipped_extension_before_user_args() -> None:
+    target = build_target(AgentConfig(command="pi", type="pi"))
     plan = build_launch_plan(target, ["--model", "x"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
     assert plan.argv[0] == "-e" and Path(plan.argv[1]).is_file()
     assert plan.argv[2:] == ["--model", "x"]
     assert plan.environment["PRIVYX_PI_BASE_URL"] == "http://127.0.0.1:1234"
 
 
-def test_pi_adapter_passes_a_subcommand_first() -> None:
+def test_pi_type_passes_a_subcommand_first() -> None:
     """pi reads a subcommand only as its first argument; behind -e it is a prompt."""
-    target = profile_target("pi", AgentConfig(command="pi", adapter="pi"))
+    target = build_target(AgentConfig(command="pi", type="pi"))
     plan = build_launch_plan(target, ["list"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
     assert plan.argv == ["list"]
 
 
 def test_pi_follows_each_provider_unless_one_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PRIVYX_PI_PROVIDER", "openai")  # from an outer run, say
-    target = profile_target("pi", Settings().agents["pi"])
+    target = build_target(Settings().agents["pi"])
     plan = build_launch_plan(target, ["--model", "x"], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
     assert plan.run_token and plan.environment["PRIVYX_PI_TOKEN"] == plan.run_token
     assert "PRIVYX_PI_PROVIDER" not in plan.environment
@@ -291,7 +294,7 @@ def test_pi_follows_each_provider_unless_one_is_named(monkeypatch: pytest.Monkey
     ],
 )
 def test_pi_serves_one_provider_with_an_upstream_or_own_credentials(settings: Settings) -> None:
-    target = profile_target("pi", AgentConfig(command="pi", adapter="pi", provider="openai"))
+    target = build_target(AgentConfig(command="pi", type="pi", provider="openai"))
     plan = build_launch_plan(
         target,
         ["--model", "x"],
@@ -308,21 +311,19 @@ def test_pi_serves_one_provider_with_an_upstream_or_own_credentials(settings: Se
 def test_pi_provider_from_env_from_serves_that_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MY_PI_PROVIDER", "deepseek")
     profile = AgentConfig(
-        command="pi", adapter="pi", env_from={"PRIVYX_PI_PROVIDER": "MY_PI_PROVIDER"}
+        command="pi", type="pi", env_from={"PRIVYX_PI_PROVIDER": "MY_PI_PROVIDER"}
     )
     plan = build_launch_plan(
-        profile_target("pi:x", profile), [], Settings(), 1234, ("PRIVYX_PI_BASE_URL",)
+        build_target(profile), [], Settings(), 1234, ("PRIVYX_PI_BASE_URL",)
     )
     assert plan.environment["PRIVYX_PI_PROVIDER"] == "deepseek"
     assert plan.run_token is None and "PRIVYX_PI_TOKEN" not in plan.environment
 
 
 def test_pi_provider_preserves_explicit_environment_override() -> None:
-    target = profile_target(
-        "pi:deepseek",
-        AgentConfig(
+    target = build_target(AgentConfig(
             command="pi",
-            adapter="pi",
+            type="pi",
             provider="openai",
             env={"PRIVYX_PI_PROVIDER": "deepseek"},
         ),
@@ -416,7 +417,7 @@ def _pi_extension(tmp_path: Path, script: str, models: list[dict], **env: str) -
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
-    extension = profile_target("pi", AgentConfig(command="pi", adapter="pi"))
+    extension = build_target(AgentConfig(command="pi", type="pi"))
     path = build_launch_plan(extension, [], Settings(), 1, ()).argv[1]
     return subprocess.run(
         [

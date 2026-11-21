@@ -32,9 +32,6 @@ class Services:
     anchor: Anchor | None
     #: The app's event bus, to emit notifications, which never carry values.
     events: EventBus
-    #: ``token.id_length``: hex characters in the id of an anchored or
-    #: encrypted token, until operators take it as an option of their own.
-    id_length: int = 16
 
 
 #: A type name: lowercase words joined by ``-`` or ``_``.

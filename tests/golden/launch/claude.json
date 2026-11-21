@@ -5,7 +5,7 @@
     "output": [
       "Profile: claude",
       "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: anthropic [defaults]",
       "Upstream: https://api.anthropic.com/v1/messages [provider default (defaults)]",
@@ -15,7 +15,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -41,7 +41,7 @@
     "output": [
       "Profile: claude",
       "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}' -c model=acme 'two words'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: anthropic [defaults]",
       "Upstream: https://api.anthropic.com/v1/messages [provider default (defaults)]",
@@ -51,7 +51,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -80,7 +80,7 @@
     "output": [
       "Profile: claude",
       "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: anthropic [defaults]",
       "Upstream: https://anthropic.example.com [environment ANTHROPIC_BASE_URL]",
@@ -91,7 +91,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -117,7 +117,7 @@
     "output": [
       "Profile: claude",
       "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: anthropic [defaults]",
       "Upstream: https://upstream.example.com/v1 [CLI]",
@@ -128,7 +128,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -154,7 +154,7 @@
     "output": [
       "Profile: claude",
       "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: google [CLI]",
       "Upstream: https://generativelanguage.googleapis.com [provider default (CLI)]",
@@ -164,7 +164,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -186,9 +186,46 @@
   },
   "privyx-key": {
     "run": "privyx run --dry-run claude",
+    "exit_code": 0,
+    "output": [
+      "Profile: claude",
+      "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
+      "Type: claude",
+      "Proxy: http://127.0.0.1:<auto> (transparent)",
+      "Provider: anthropic [defaults]",
+      "Upstream: https://anthropic.example.com [environment ANTHROPIC_BASE_URL]",
+      "Native endpoint (used): https://anthropic.example.com [environment ANTHROPIC_BASE_URL]",
+      "Routing: tool → http://127.0.0.1:<auto> → https://anthropic.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source type: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  ANTHROPIC_BASE_URL=http://127.0.0.1:<auto> [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "claude",
+        "--settings",
+        "{\"env\": {\"ANTHROPIC_BASE_URL\": \"http://127.0.0.1:<auto>\"}}"
+      ],
+      "env": {
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:<auto>"
+      }
+    }
+  },
+  "provider-key": {
+    "run": "privyx run --dry-run claude",
     "exit_code": 1,
     "output": [
-      "Error: agent endpoint would receive Privyx's own API key; pass its URL as --upstream to confirm"
+      "Error: agent endpoint would receive Privyx's own API key; define a provider for https://anthropic.example.com under 'providers', with a key of its own, and select it, or select a provider without a key of Privyx's"
     ]
   },
   "gateway": {
@@ -197,7 +234,7 @@
     "output": [
       "Profile: claude",
       "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (gateway)",
       "Provider: anthropic [defaults]",
       "Upstream: https://api.anthropic.com/v1/messages [provider default (defaults)]",
@@ -208,7 +245,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: <tmp>/config.yaml",
@@ -234,7 +271,7 @@
     "output": [
       "Profile: wrap",
       "Command: /opt/acme/bin/wrap --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: anthropic [defaults]",
       "Upstream: https://anthropic.example.com [environment ANTHROPIC_BASE_URL]",
@@ -245,7 +282,7 @@
       "Budget: none",
       "Source command: <tmp>/config.yaml",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -271,7 +308,7 @@
     "output": [
       "Profile: claude:work",
       "Command: claude --settings '{\"env\": {\"ANTHROPIC_BASE_URL\": \"***\"}}'",
-      "Adapter: claude",
+      "Type: claude",
       "Proxy: http://127.0.0.1:<auto> (transparent)",
       "Provider: anthropic [defaults]",
       "Upstream: https://api.anthropic.com/v1/messages [provider default (defaults)]",
@@ -281,7 +318,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",

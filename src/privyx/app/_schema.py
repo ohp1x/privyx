@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 from privyx.config._presets import _NOT_IN_PRESET
-from privyx.config.schema import PLUGGABLE, PluggableConfig, Settings
+from privyx.config.schema import PLUGGABLE, AgentConfig, PluggableConfig, Settings
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
@@ -14,6 +16,23 @@ if TYPE_CHECKING:
 
 #: Where the published copy of :func:`json_schema` is served (``docs/schema.json``).
 SCHEMA_URL = "https://ohp1x.github.io/privyx/schema.json"
+
+_LENGTH = {"type": "integer", "minimum": 6, "maximum": 64}
+
+#: The settings renamed in 0.3.0, still read with a warning until 0.4.0: an
+#: editor shows them struck through.  By section, then by type (``*``: any).
+_DEPRECATED_OPTIONS: dict[str, dict[str, dict[str, Any]]] = {
+    "provider": {
+        "*": {
+            f"{name}_api_key": {"type": "string", "description": f"Write providers.{name}.api_key."}
+            for name in ("openai", "anthropic", "google")
+        }
+    },
+    "operator": {
+        "hash": {"length": {**_LENGTH, "description": "Write id_length."}},
+        "redact": {"token": {"type": "string", "description": "Write text."}},
+    },
+}
 
 
 def json_schema(app: Privyx | None = None) -> dict[str, Any]:
@@ -33,7 +52,7 @@ def json_schema(app: Privyx | None = None) -> dict[str, Any]:
     registries = (app or Privyx())._registries
     closed = app is not None and any(
         not registries[name].is_builtin(kind)
-        for name in PLUGGABLE
+        for name in (*PLUGGABLE, "agent")
         for kind in registries[name].names()
     )
     schema = Settings.model_json_schema()
@@ -46,8 +65,18 @@ def json_schema(app: Privyx | None = None) -> dict[str, Any]:
     # A profile may take its command from the profile it extends.
     schema["$defs"]["AgentConfig"].pop("required", None)
     _allow_references(schema)
+    _deprecated(schema)
     for name, model in PLUGGABLE.items():
         _by_type(schema["$defs"], name, model, registries[name], closed=closed)
+    # `provider` names one of `providers`, or is a definition of its own.
+    schema["properties"]["provider"] = {
+        "title": "Provider",
+        "anyOf": [
+            {"type": "string", "description": "The name of one of providers."},
+            {"$ref": "#/$defs/ProviderConfig"},
+        ],
+    }
+    _by_type(schema["$defs"], "agents", AgentConfig, registries["agent"], closed=closed)
     # A profile's settings and a preset are partial config files, less the
     # keys the loader refuses there; `include` is a file's own.
     for name, refused in (
@@ -66,7 +95,7 @@ def json_schema(app: Privyx | None = None) -> dict[str, Any]:
 def _by_type(
     defs: dict[str, Any],
     section: str,
-    model: type[PluggableConfig],
+    model: type[BaseModel],
     registry: Registry[Any],
     *,
     closed: bool,
@@ -88,7 +117,12 @@ def _by_type(
     else:  # suggest the built-in names, take any other
         kind["anyOf"] = [{"enum": names}, {"type": "string"}]
     props = node["properties"]
-    shared = model.shared_fields()
+    # An agent profile's own fields apply whatever its type, as a section's shared ones do.
+    shared = (
+        model.shared_fields()
+        if issubclass(model, PluggableConfig)
+        else [name for name in model.model_fields if name != "type"]
+    )
     # Only `type` and the shared fields apply whatever the type; each type adds
     # its own below, so an editor offers only those.
     node["properties"] = {"type": kind, **{k: props[k] for k in props if k in shared}}
@@ -122,7 +156,35 @@ def _by_type(
                 },
             }
         )
+    for owner, options in _DEPRECATED_OPTIONS.get(section, {}).items():
+        marked = {key: {**value, "deprecated": True} for key, value in options.items()}
+        _allow_references(marked)
+        if owner == "*":
+            node["properties"].update(marked)
+        for check in checks:
+            if owner == "*" or owner in check["if"]["properties"]["type"].get("enum", ()):
+                check["then"]["properties"].update(marked)
     node["allOf"] = checks
+
+
+def _deprecated(schema: dict[str, Any]) -> None:
+    """Add the keys of the sections that are not by type, renamed in 0.3.0, as deprecated."""
+    defs = schema["$defs"]
+    upstream = schema["properties"]["upstream_url"]
+    upstream.update(deprecated=True, description="Write provider.base_url.")
+    proxy = defs["ProxyConfig"]["properties"]
+    for key in (
+        "forward_client_auth",
+        "path_mapping",
+        "timeout",
+        "connect_timeout",
+        "max_connections",
+    ):
+        moved = defs["ProviderConfig"]["properties"][key]
+        proxy[key] = {**moved, "deprecated": True, "description": f"Write provider.{key}."}
+    token = defs["TokenConfig"]["properties"]
+    token["id_length"] = {**_LENGTH, "deprecated": True, "description": "Write operator.id_length."}
+    _allow_references(token["id_length"])
 
 
 def _own(schema: dict[str, Any], shared: list[str]) -> dict[str, Any]:

@@ -22,10 +22,11 @@ from privyx.anchors import HMACAnchor
 from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
+from privyx.features import Directive
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline
-from privyx.testing import opened
+from privyx.testing import listening, opened
 from privyx.vaults import MemoryVault
 
 USERS = [
@@ -70,13 +71,13 @@ async def test_echoed_turns_are_byte_identical(
             PseudonymOperator(), anchor=HMACAnchor(secret="s" * 32) if anchored else None
         ),
         vault=MemoryVault(),
-        directive=directive,
     )
     proxy = Pipeline(
         engine,
         origin="https://up.test",
         client=httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
         session_strategy="conversation" if strategy == "conversation" else "ephemeral",
+        events=await listening(*([Directive()] if directive else [])),
     )
     headers = {"authorization": "Bearer k"}
     if strategy == "header":

@@ -17,13 +17,16 @@ import hmac
 import json
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import httpx
 
 from privyx.proxy._headers import RUN_TOKEN_HEADER, UPSTREAMS_HEADER
-from privyx.proxy.schemas import detect_schema
+from privyx.proxy._routing import detect_schema
+
+if TYPE_CHECKING:
+    from privyx.dialects import Dialect
 
 _log = logging.getLogger("privyx.proxy")
 
@@ -45,28 +48,25 @@ _AUXILIARY_ROUTES = frozenset(
 )
 
 
-def served_routes(routes: dict[str, str], *, google: bool) -> dict[str, str]:
+def served_routes(
+    routes: dict[str, str], dialects: Mapping[str, Dialect | type[Dialect]], *, google: bool
+) -> dict[str, str]:
     """The ``routes`` the gateway serves, with or without the Google provider.
 
-    Not the auxiliary ones, nor Ollama's API, which the transparent proxy
-    serves: its streams are JSON lines, and an Ollama server has no base path
-    or key to hold.  Gemini's only with the Google provider (``google``): it
-    alone posts each request to its own model and method, and posted to one
-    fixed endpoint, a ``countTokens`` call could become a billed reply.
+    Not the auxiliary ones, nor those of a dialect it does not serve, such as
+    Ollama's API, which the transparent proxy serves: its streams are JSON
+    lines, and an Ollama server has no base path or key to hold.  A dialect
+    whose requests each name their endpoint (Gemini's model and method) only
+    with the Google provider (``google``): it alone posts each request to the
+    path called, and posted to one fixed endpoint, a ``countTokens`` call could
+    become a billed reply.
     """
-    unserved = {"ollama"} if google else {"ollama", "gemini"}
-    return {p: s for p, s in routes.items() if p not in _AUXILIARY_ROUTES and s not in unserved}
 
+    def served(name: str) -> bool:
+        dialect = dialects.get(name)
+        return dialect is not None and dialect.gateway and (google or not dialect.own_endpoint)
 
-def wants_stream(dialect: str | None, path: str, payload: Any, query: Any) -> bool:
-    """Whether a gateway request asks for its reply as SSE.
-
-    Gemini streams on its own method, as SSE only with ``alt=sse`` (what its
-    SDKs send); without it the reply is a JSON array, relayed as one body.
-    """
-    if dialect == "gemini":
-        return path.endswith(":streamGenerateContent") and dict(query).get("alt") == "sse"
-    return isinstance(payload, dict) and bool(payload.get("stream", False))
+    return {p: s for p, s in routes.items() if p not in _AUXILIARY_ROUTES and served(s)}
 
 
 def joined_path(path: str, raw_path: str | None, prefix: str | None) -> str | None:
@@ -93,7 +93,11 @@ def joined_path(path: str, raw_path: str | None, prefix: str | None) -> str | No
 
 
 def named_upstream(
-    headers: Mapping[str, str], path: str, routes: dict[str, str], token: str
+    headers: Mapping[str, str],
+    path: str,
+    routes: dict[str, str],
+    token: str,
+    versionless: frozenset[str] = frozenset(),
 ) -> str | None:
     """The base URL a ``privyx run pi`` request names for its route.
 
@@ -108,7 +112,7 @@ def named_upstream(
         bases = json.loads(header(headers, UPSTREAMS_HEADER))
     except ValueError:
         return None
-    schema = detect_schema(path, routes)
+    schema = detect_schema(path, routes, versionless)
     if not (schema and isinstance(bases, dict) and isinstance(bases.get(schema), str)):
         return None
     try:
@@ -183,7 +187,7 @@ def upstream_failure(exc: BaseException) -> tuple[int, dict[str, str], dict[str,
     _log.debug("upstream request failed", exc_info=exc)
     headers: dict[str, str] = {}
     if isinstance(exc, httpx.PoolTimeout):
-        status, kind, message = 503, "busy", "privyx is at proxy.max_connections; retry later"
+        status, kind, message = 503, "busy", "privyx is at provider.max_connections; retry later"
         headers["retry-after"] = "10"  # the time it already waited for a free connection
     elif isinstance(exc, httpx.TimeoutException):
         status, kind, message = 504, "timeout", "the upstream did not respond in time"

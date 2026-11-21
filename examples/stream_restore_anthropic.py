@@ -1,8 +1,8 @@
 """Restore an Anthropic-style stream by hand, without the proxy or a provider.
 
 Anthropic emits ``content_block_delta`` SSE events with ``delta.text``.  This
-low-level adapter extracts text deltas only and leaves ``thinking`` deltas
-alone; the proxy restores those too, through its stream router.
+low-level adapter reads that field only, so a ``thinking`` delta has no text
+for it; the proxy restores those too, through the Anthropic dialect's stream.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from privyx import PrivacyEngine
 from privyx.detectors import RegexDetector
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
+from privyx.streaming import SSEStreamAdapter
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 from privyx.streaming.sse import SSEEvent
 from privyx.vaults import MemoryVault
@@ -32,7 +32,7 @@ async def main() -> None:
     transformed = await engine.transform("My phone is +1 (555) 123-4567", session=session)
     pseudo = transformed.text.split("My phone is ")[1]
 
-    adapter = AnthropicStreamAdapter()
+    adapter = SSEStreamAdapter(data_path=["delta", "text"])
     deanonymizer = StreamingDeanonymizer(session.mapping)
 
     # 1. A thinking delta — passed through untouched.

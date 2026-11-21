@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from privyx.dialects import AnthropicDialect, OpenAIDialect, ResponsesDialect
 from privyx.proxy._headers import filter_request_headers, filter_response_headers
 
 
@@ -37,9 +38,9 @@ def test_drops_client_auth_when_disabled() -> None:
 
 
 def test_api_key_override_openai_uses_bearer() -> None:
-    for schema in ("openai", "responses"):
+    for dialect in (OpenAIDialect(), ResponsesDialect()):
         out = filter_request_headers(
-            {"Authorization": "Bearer client"}, schema=schema, api_key="server"
+            {"Authorization": "Bearer client"}, dialect=dialect, api_key="server"
         )
         assert out["authorization"] == "Bearer server"
         assert "anthropic-version" not in out
@@ -47,15 +48,17 @@ def test_api_key_override_openai_uses_bearer() -> None:
 
 def test_api_key_override_anthropic_uses_x_api_key() -> None:
     out = filter_request_headers(
-        {"Authorization": "Bearer client"}, schema="anthropic", api_key="server"
+        {"Authorization": "Bearer client"}, dialect=AnthropicDialect(), api_key="server"
     )
     assert out["x-api-key"] == "server"
     assert "authorization" not in out
 
 
 def test_anthropic_version_added_when_missing_and_preserved_otherwise() -> None:
-    assert filter_request_headers({}, schema="anthropic")["anthropic-version"] == "2023-06-01"
-    kept = filter_request_headers({"anthropic-version": "2024-01-01"}, schema="anthropic")
+    assert (
+        filter_request_headers({}, dialect=AnthropicDialect())["anthropic-version"] == "2023-06-01"
+    )
+    kept = filter_request_headers({"anthropic-version": "2024-01-01"}, dialect=AnthropicDialect())
     assert kept["anthropic-version"] == "2024-01-01"
 
 

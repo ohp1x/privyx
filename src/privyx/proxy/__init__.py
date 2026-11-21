@@ -1,7 +1,7 @@
 """The privacy proxy: the exchange flow, its routing, and its ASGI adapter.
 
-Loaded on first use (PEP 562), so the formats in :mod:`privyx.proxy.schemas`
-can be read without the HTTP stack.
+Loaded on first use (PEP 562), so the routing helpers can be read without the
+HTTP stack.
 """
 
 from __future__ import annotations
@@ -11,17 +11,18 @@ from typing import TYPE_CHECKING, Any
 from privyx.core import lazy_attribute
 
 if TYPE_CHECKING:
+    from privyx.proxy._mask import transform_request as transform_request
     from privyx.proxy._pipeline import Pipeline, Reply
     from privyx.proxy._upstream import served_routes
-    from privyx.proxy.stream_router import StreamRouter
 
-__all__ = ["Pipeline", "Reply", "StreamRouter", "served_routes"]
+__all__ = ["Pipeline", "Reply", "served_routes"]
 
 _LAZY = {
     "Pipeline": "privyx.proxy._pipeline:Pipeline",
     "Reply": "privyx.proxy._pipeline:Reply",
     "served_routes": "privyx.proxy._upstream:served_routes",
-    "StreamRouter": "privyx.proxy.stream_router:StreamRouter",
+    # Outside __all__: the request transform alone, which ``privyx doctor`` probes.
+    "transform_request": "privyx.proxy._mask:transform_request",
 }
 
 

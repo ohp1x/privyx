@@ -20,7 +20,7 @@ import yaml
 from click.testing import CliRunner
 
 import privyx
-import privyx.cli.commands.run as run_command
+import privyx.app._run as run_module
 from privyx.cli.main import cli
 
 PROFILES = ("aider", "claude", "codex", "gemini", "grok", "ollama", "openai", "opencode", "pi")
@@ -59,7 +59,19 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "options": ["--upstream", "https://upstream.example.com/v1"],
     },
     "provider": {"options": ["--provider", "google"]},
+    # The top-level provider's key: a profile's own provider does not take it.
     "privyx-key": {"env": {**ENDPOINTS, "PRIVYX_API_KEY": "golden-privyx-key"}, "codex": True},
+    # A key of each built-in provider: the profile's is not sent where the tool points.
+    "provider-key": {
+        "env": {
+            **ENDPOINTS,
+            **{
+                f"PRIVYX_{name}_API_KEY": "golden-provider-key"
+                for name in ("OPENAI", "ANTHROPIC", "GOOGLE")
+            },
+        },
+        "codex": True,
+    },
     "gateway": {"env": ENDPOINTS, "codex": True, "config": {"proxy": {"mode": "gateway"}}},
     "wrapper": {
         "env": ENDPOINTS,
@@ -101,13 +113,13 @@ def test_launch_plan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plans: list[Any] = []
-    build = run_command.build_launch_plan
+    build = run_module.build_launch_plan
 
     def capture(*args: Any, **kwargs: Any) -> Any:
         plans.append(build(*args, **kwargs))
         return plans[-1]
 
-    monkeypatch.setattr(run_command, "build_launch_plan", capture)
+    monkeypatch.setattr(run_module, "build_launch_plan", capture)
     paths = {
         str(tmp_path): "<tmp>",
         str(home): "<home>",

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
-    from privyx.observability.metrics import AuditStats
+    from privyx.features import AuditStats
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class Audit:
         Raises:
             OSError: If the trail cannot be read.
         """
-        from privyx.observability.metrics import AuditStats
+        from privyx.features import AuditStats
 
         cutoff = time.time() - since if since else None
         stats, skipped = AuditStats(), 0

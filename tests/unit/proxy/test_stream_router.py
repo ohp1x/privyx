@@ -7,23 +7,55 @@ from typing import Any
 
 import pytest
 
+from privyx.dialects import AnthropicDialect, Dialect, OpenAIDialect, ResponsesDialect
 from privyx.operators import FPEOperator, PseudonymOperator
-from privyx.proxy import schemas
-from privyx.proxy.stream_router import StreamRouter, select_processor_factory
-from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
-from privyx.streaming.adapters.generic import SSEStreamAdapter
-from privyx.streaming.adapters.openai import OpenAIStreamAdapter
-from privyx.streaming.adapters.registry import build_stream_adapter
+from privyx.streaming import SSEStreamAdapter, StreamRouter, select_processor_factory
 from privyx.streaming.deanonymizer import StreamingDeanonymizer, TokenStreamProcessor
-from privyx.streaming.sse import SSEDecoder
+from privyx.streaming.sse import SSEDecoder, SSEEvent
 from privyx.token.codec import FormatCodec
 
 TOKEN = "<PRIVYX_EMAIL_1>"
 ORIG = "alice@example.com"
 
 
-def _router(adapter: SSEStreamAdapter, mapping: dict[str, str]) -> StreamRouter:
-    return StreamRouter(FormatCodec.default(), mapping.get, adapter)
+class _Format:
+    """A dialect, and where the text of its stream is, to read it back."""
+
+    def __init__(self, dialect: Dialect, extract: Any) -> None:
+        self.dialect = dialect
+        self.extract_delta = extract
+
+
+def _anthropic_text(event: SSEEvent) -> str:
+    try:
+        payload = json.loads(event.data)
+    except json.JSONDecodeError:
+        return ""
+    delta = payload.get("delta", {}) if payload.get("type") == "content_block_delta" else {}
+    text = delta.get("text", "") if delta.get("type") == "text_delta" else ""
+    return text if isinstance(text, str) else ""
+
+
+def OpenAIStreamAdapter() -> _Format:  # noqa: N802 - stands in for a class
+    text = SSEStreamAdapter(data_path=["choices", "0", "delta", "content"])
+    return _Format(OpenAIDialect(), text.extract_delta)
+
+
+def AnthropicStreamAdapter() -> _Format:  # noqa: N802 - stands in for a class
+    return _Format(AnthropicDialect(), _anthropic_text)
+
+
+def _responses() -> _Format:
+    return _Format(ResponsesDialect(), SSEStreamAdapter().extract_delta)
+
+
+def _stream(fmt: _Format, codec: FormatCodec, resolve: Any, make: Any = None) -> StreamRouter:
+    make = make or (lambda: TokenStreamProcessor(codec, resolve))
+    return fmt.dialect.stream(codec, resolve, make)
+
+
+def _router(fmt: _Format, mapping: dict[str, str]) -> StreamRouter:
+    return _stream(fmt, FormatCodec.default(), mapping.get)
 
 
 def _run(router: StreamRouter, body: str) -> str:
@@ -37,7 +69,7 @@ def _events(raw: str) -> list[Any]:
     ]
 
 
-def _collect_text(raw: str, adapter: SSEStreamAdapter) -> str:
+def _collect_text(raw: str, adapter: _Format) -> str:
     decoder = SSEDecoder()
     return "".join(adapter.extract_delta(ev) for ev in decoder.feed(raw) + decoder.flush())
 
@@ -399,7 +431,8 @@ def test_anthropic_text_deanon_and_message_stop_last() -> None:
 
 
 def test_anthropic_thinking_remembered_as_sent_by_signature() -> None:
-    router = _router(AnthropicStreamAdapter(), {TOKEN: ORIG})
+    fmt = AnthropicStreamAdapter()
+    router = _router(fmt, {TOKEN: ORIG})
 
     def delta(payload: dict[str, Any]) -> str:
         return _anthropic(
@@ -421,7 +454,7 @@ def test_anthropic_thinking_remembered_as_sent_by_signature() -> None:
 
     assert TOKEN not in out  # the client sees it restored...
     # ...while the upstream's own text is kept for when the client echoes it back.
-    assert schemas._THINKING["sig-stream-1"] == f"mail {TOKEN} or ops@vendor.test"
+    assert fmt.dialect._thinking["sig-stream-1"] == f"mail {TOKEN} or ops@vendor.test"
 
 
 @pytest.mark.parametrize("written", [TOKEN, TOKEN.strip("<>")], ids=["full", "bare"])
@@ -472,13 +505,11 @@ def test_anthropic_restores_a_token_id_written_on_its_own() -> None:
     token, ident, name = "<PRIVYX_PERSON_9F3A1C2B7D4E5F60>", "9F3A1C2B7D4E5F60", "Alice Example"
     mapping = {token: name}
     codec, adapter = FormatCodec.default(), AnthropicStreamAdapter()
-    router = StreamRouter(
+    router = _stream(
+        adapter,
         codec,
         mapping.get,
-        adapter,
-        make_processor=select_processor_factory(
-            PseudonymOperator(), codec, mapping.get, mapping
-        ),
+        select_processor_factory(PseudonymOperator(), codec, mapping.get, mapping),
     )
 
     def delta(index: int, payload: dict[str, Any]) -> str:
@@ -549,7 +580,7 @@ def _rs(payload: dict[str, Any]) -> str:
 
 
 def test_responses_split_text_done_and_completed_restored() -> None:
-    router = _router(build_stream_adapter("responses"), {TOKEN: ORIG})
+    router = _router(_responses(), {TOKEN: ORIG})
     ids = {"item_id": "msg_1", "output_index": 0, "content_index": 0}
     text = f"Hi {TOKEN}!"
     part = {"type": "output_text", "text": text, "annotations": []}
@@ -622,7 +653,7 @@ def test_responses_split_text_done_and_completed_restored() -> None:
 
 
 def test_responses_function_call_arguments_buffered_until_done() -> None:
-    router = _router(build_stream_adapter("responses"), {TOKEN: ORIG})
+    router = _router(_responses(), {TOKEN: ORIG})
     ids = {"item_id": "fc_1", "output_index": 1}
     args = json.dumps({"to": TOKEN})
     body = "".join(
@@ -675,11 +706,8 @@ def test_literal_factory_restores_substituted_values_across_chunks() -> None:
     """A trie factory restores plain fake values even when split across deltas."""
     adapter = OpenAIStreamAdapter()
     mapping = {"Jane Fake": "Alice Real"}
-    router = StreamRouter(
-        FormatCodec.default(),
-        mapping.get,
-        adapter,
-        make_processor=lambda: StreamingDeanonymizer(mapping),
+    router = _stream(
+        adapter, FormatCodec.default(), mapping.get, lambda: StreamingDeanonymizer(mapping)
     )
     body = (
         "".join(

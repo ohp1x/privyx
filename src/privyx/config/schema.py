@@ -6,7 +6,15 @@ import re
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 class PluggableConfig(BaseModel):
@@ -118,33 +126,10 @@ class TokenConfig(BaseModel):
     format: str = "<{namespace}_{type}_{id}>"
     #: Issue short ``<E~1>`` tokens instead; ``format`` tokens still restore.
     compact: bool = False
-    #: Hex characters in the id of an anchored ``pseudonym`` or ``encrypt``
-    #: token; counters and ``hash`` (``operator.length``) are unaffected.
-    id_length: int = Field(default=16, ge=6, le=64)
     #: Write ``pseudonym`` tokens with a fake value the model reads, such as
     #: ``<PRIVYX_PERSON_1:Alice Johnson>``; empty is off.  Needs ``{id}`` and
     #: ``{label}``.  Restored by the id; ``format`` tokens still restore.
     label_format: str = ""
-
-
-class SharedProviderOptions(BaseModel):
-    """The settings every provider takes, whatever its type."""
-
-    base_url: str = ""
-    api_key: str = ""
-    headers: dict[str, str] = Field(default_factory=dict)
-
-
-class ProviderConfig(SharedProviderOptions, PluggableConfig):
-    """Provider transport settings.
-
-    ``base_url`` defaults to empty rather than to a URL: an empty value lets
-    the provider registry fall back to the endpoint that provider type is
-    documented to use (``api.openai.com`` for ``openai``, and so on).  A
-    non-empty default here would silently override every such fallback.
-    """
-
-    type: str = "generic"
 
 
 def _default_routes() -> dict[str, str]:
@@ -216,6 +201,38 @@ class PathMappingConfig(BaseModel):
         return self
 
 
+class SharedProviderOptions(BaseModel):
+    """The settings every provider takes, whatever its type: where requests go, and how.
+
+    A credential, ``api_key`` or a header, is sent only to the origin of the
+    ``base_url`` of the definition it is written in, or to its type's default
+    URL when the definition writes none.
+    """
+
+    base_url: str = ""
+    api_key: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
+    #: In transparent mode, relay the client's own key when Privyx holds none.
+    forward_client_auth: bool = True
+    path_mapping: PathMappingConfig = Field(default_factory=PathMappingConfig)
+    # The upstream client, in both modes; see privyx.proxy._upstream.upstream_client.
+    timeout: float = Field(default=300.0, gt=0)  # seconds between bytes, read or write
+    connect_timeout: float = Field(default=10.0, gt=0)
+    max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
+
+
+class ProviderConfig(SharedProviderOptions, PluggableConfig):
+    """An upstream connection: the top-level ``provider``, or one of ``providers``.
+
+    ``base_url`` defaults to empty rather than to a URL: an empty value lets
+    the provider registry fall back to the endpoint that provider type is
+    documented to use (``api.openai.com`` for ``openai``, and so on).  A
+    non-empty default here would silently override every such fallback.
+    """
+
+    type: str = "generic"
+
+
 class ProxyConfig(BaseModel):
     """Proxy serving mode.
 
@@ -228,8 +245,8 @@ class ProxyConfig(BaseModel):
     - ``transparent`` — a drop-in reverse proxy.  Point a client's
       ``OPENAI_BASE_URL`` / ``ANTHROPIC_BASE_URL`` at Privyx and every path is
       forwarded to the upstream; configured masking routes are pseudonymized
-      on the way out and restored on the way back. ``path_mapping`` can keep
-      an upstream path prefix.
+      on the way out and restored on the way back. The provider's
+      ``path_mapping`` can keep an upstream path prefix.
 
     ``routes`` maps a request path to the wire schema used to transform it.
     In transparent mode, paths not listed are forwarded verbatim when
@@ -239,13 +256,7 @@ class ProxyConfig(BaseModel):
 
     mode: Literal["gateway", "transparent"] = "transparent"
     routes: dict[str, str] = Field(default_factory=_default_routes)
-    path_mapping: PathMappingConfig = Field(default_factory=PathMappingConfig)
-    forward_client_auth: bool = True
     passthrough_unknown: bool = True
-    # The upstream client, in both modes; see privyx.proxy._upstream.upstream_client.
-    timeout: float = Field(default=300.0, gt=0)  # seconds between bytes, read or write
-    connect_timeout: float = Field(default=10.0, gt=0)
-    max_connections: int | None = Field(default=None, gt=0)  # unset: no limit
     #: Mask each copy of a value a request masked, and refuse the request if
     #: one is still where Privyx does not mask.
     dlp_check: bool = True
@@ -254,13 +265,6 @@ class ProxyConfig(BaseModel):
     #: Mark a large Anthropic ``tools`` / ``system`` prefix for prompt caching
     #: when the request marks nothing itself.
     cache_control: bool = False
-
-    @model_validator(mode="after")
-    def _transparent_mapping(self) -> ProxyConfig:
-        # The gateway calls a provider endpoint, not a joined path.
-        if self.mode == "gateway" and self.path_mapping.mode != "origin":
-            raise ValueError("path_mapping applies to transparent mode only")
-        return self
 
 
 class ModelPrice(BaseModel):
@@ -337,18 +341,24 @@ class BudgetConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """How to launch a tool and point it at the local proxy; never a shell command."""
+    """How to launch a tool and point it at the local proxy; never a shell command.
+
+    Every key but these is an option of the profile's agent ``type``, which
+    its ``Options`` check.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     command: str = Field(min_length=1)
+    #: The agent type that knows the tool; unset, the one the profile
+    #: extends, else the type named like the profile or its command's file,
+    #: else ``env``.
+    type: str = ""
     provider: str = Field(default="generic", min_length=1)
     upstream: str = ""
     env_vars: list[str] = Field(default_factory=list)
-    #: Variables that may hold the tool's own endpoint, in order; empty means
-    #: those of the built-in profile named like the command's file.
-    endpoint_env: list[str] = Field(default_factory=list)
     base_path: str = ""
     extends: str | None = None
-    adapter: Literal["auto", "env", "claude", "codex", "pi"] = "auto"
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     env_from: dict[str, str] = Field(default_factory=dict)
@@ -397,7 +407,7 @@ class AgentConfig(BaseModel):
             raise ValueError("must be non-blank and contain no NUL")
         return value
 
-    @field_validator("env_vars", "endpoint_env")
+    @field_validator("env_vars")
     @classmethod
     def _env_names(cls, values: list[str]) -> list[str]:
         if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in values):
@@ -435,6 +445,12 @@ def _default_agents() -> dict[str, AgentConfig]:
     return {name: AgentConfig.model_validate(spec) for name, spec in DEFAULT_AGENTS.items()}
 
 
+def _default_providers() -> dict[str, ProviderConfig]:
+    from privyx.config.defaults import DEFAULT_PROVIDERS
+
+    return {name: ProviderConfig.model_validate(spec) for name, spec in DEFAULT_PROVIDERS.items()}
+
+
 class Settings(BaseModel):
     """Top-level Privyx settings."""
 
@@ -445,9 +461,11 @@ class Settings(BaseModel):
     log_level: str = "info"
     logging: str = "text"
     log_file: str = ""
-    #: Explicit upstream override (``--upstream`` / ``PRIVYX_UPSTREAM_URL``).
-    #: Empty means "use whatever the configured provider resolves to"; see
-    #: :func:`privyx.providers.resolve_base_url` for the precedence.
+    #: Where requests go when that is not the provider's own ``base_url``: a
+    #: profile's ``upstream``, or the agent endpoint ``privyx run`` follows.
+    #: Set by the loader, not written in a file (where ``upstream_url`` is the
+    #: deprecated name of ``provider.base_url``); empty means the provider's
+    #: own.  See :func:`privyx.providers.resolve_base_url`.
     upstream_url: str = ""
     vault: VaultConfig = Field(default_factory=VaultConfig)
     #: One detector, or a list of them run together (their spans are pooled).
@@ -457,11 +475,17 @@ class Settings(BaseModel):
     anchor: AnchorConfig = Field(default_factory=AnchorConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     token: TokenConfig = Field(default_factory=TokenConfig)
+    #: The provider in use: in a file, the name of one of ``providers``, or a
+    #: definition of its own; the loader puts the one selected here.
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
+    #: The named providers, the built-in ones among them (``openai``, ``xai``, ...).
+    providers: dict[str, ProviderConfig] = Field(default_factory=_default_providers)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     audit: AuditConfig = Field(default_factory=AuditConfig)
     tracing: TracingConfig = Field(default_factory=TracingConfig)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+    #: The options of each secret resolver, by scheme (``op``, a plugin's).
+    secrets: dict[str, dict[str, Any]] = Field(default_factory=dict)
     tls: TLSConfig = Field(default_factory=TLSConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=_default_agents)
     #: Named sets of settings that a ``privyx run`` profile or ``--preset`` applies.
@@ -469,6 +493,17 @@ class Settings(BaseModel):
     #: ``privyx run``: also mask the workspace's git authors, remote owners and
     #: names, and ``.env`` values, read at launch and kept in memory only.
     harvest: bool = False
+    #: The ``base_url`` and ``type`` the provider's credential was written
+    #: with, when the loader read one: the only origin it is sent to (see
+    #: :func:`privyx.providers.check_credential`).  ``None``: the provider's own.
+    _home: tuple[str, str] | None = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _transparent_mapping(self) -> Settings:
+        # The gateway calls a provider endpoint, not a joined path.
+        if self.proxy.mode == "gateway" and self.provider.path_mapping.mode != "origin":
+            raise ValueError("provider.path_mapping applies to transparent mode only")
+        return self
 
     @property
     def is_tls(self) -> bool:

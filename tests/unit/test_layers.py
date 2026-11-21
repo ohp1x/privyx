@@ -1,8 +1,7 @@
 """Each module imports only its own layer and those below, as the 0.3.0 layout has it.
 
 A module is placed in the package it belongs to in that layout, wherever it
-lives today: ``privyx.cli.launch`` is agent code, ``privyx.cli.budget`` a
-feature's.  The layers, lowest first:
+lives today: ``privyx.observability.usage`` is a dialect's.  The layers, lowest first:
 
 0. ``core``
 1. ``events``, ``token``, ``security``, ``streaming``
@@ -63,24 +62,21 @@ LAYERS: dict[str, int] = {
 #: The package each module belongs to, by its longest dotted prefix here.
 #: ``privyx`` itself, the public API, is placed with ``app``.
 PLACES: dict[str, str] = {
+    "privyx.agents": "agents",
     "privyx.anchors": "anchors",
     "privyx.app": "app",
     "privyx.cli": "cli",
-    "privyx.cli.budget": "features",
-    "privyx.cli.claude": "agents",
-    "privyx.cli.codex": "agents",
-    "privyx.cli.launch": "agents",
-    "privyx.cli.native": "agents",
     "privyx.config": "config",
     "privyx.core": "core",
     "privyx.detectors": "detectors",
+    "privyx.dialects": "dialects",
     "privyx.engine": "engine",
     "privyx.events": "events",
+    "privyx.features": "features",
     # The package only re-exports; its modules go their own ways.
     "privyx.observability": "app",
-    "privyx.observability.audit": "features",
+    "privyx.observability.audit": "events",
     "privyx.observability.logging": "app",
-    "privyx.observability.metrics": "features",
     "privyx.observability.tracing": "features",
     "privyx.observability.usage": "dialects",
     "privyx.mcp": "mcp",
@@ -88,14 +84,9 @@ PLACES: dict[str, str] = {
     "privyx.policies": "policies",
     "privyx.providers": "providers",
     "privyx.proxy": "proxy",
-    "privyx.proxy.object_stream": "dialects",
-    "privyx.proxy.stream_router": "streaming",
+    "privyx.secrets": "secrets",
     "privyx.security": "security",
-    "privyx.security.secrets": "secrets",
     "privyx.streaming": "streaming",
-    "privyx.streaming.adapters.anthropic": "dialects",
-    "privyx.streaming.adapters.gemini": "dialects",
-    "privyx.streaming.adapters.openai": "dialects",
     "privyx.testing": "testing",
     "privyx.token": "token",
     "privyx.vaults": "vaults",
@@ -107,22 +98,8 @@ PLACES: dict[str, str] = {
 #: (importer, imported) pairs that break the layers today.
 ALLOWED: frozenset[tuple[str, str]] = frozenset(
     {
-        # The budget parses usage from response bytes; it moves onto events.
-        ("privyx.cli.budget", "privyx.observability.usage"),
-        ("privyx.cli.budget", "privyx.proxy.schemas"),
-        # Planning a launch resolves upstream URLs with the providers' helpers.
-        ("privyx.cli.launch", "privyx.providers"),
-        # Loading config resolves secret references: resolving moves into app.
-        ("privyx.config._layers", "privyx.security.secrets"),
         # Telling a model name from PII goes with the cost report into app.
         ("privyx.observability.usage", "privyx.detectors"),
-        # The JSON walk moves into core, and each format's stream into its dialect.
-        ("privyx.proxy.object_stream", "privyx.proxy.schemas"),
-        ("privyx.proxy.stream_router", "privyx.proxy.object_stream"),
-        ("privyx.proxy.stream_router", "privyx.proxy.schemas"),
-        ("privyx.streaming.adapters.registry", "privyx.streaming.adapters.anthropic"),
-        ("privyx.streaming.adapters.registry", "privyx.streaming.adapters.gemini"),
-        ("privyx.streaming.adapters.registry", "privyx.streaming.adapters.openai"),
     }
 )
 

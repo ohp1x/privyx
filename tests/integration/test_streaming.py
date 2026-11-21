@@ -10,7 +10,7 @@ from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.streaming.adapters.openai import OpenAIStreamAdapter
+from privyx.streaming import SSEStreamAdapter
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 from privyx.streaming.sse import SSEEvent
 from privyx.vaults import MemoryVault
@@ -36,7 +36,7 @@ async def test_request_pseudonymize_response_deanonymize() -> None:
 
     # Simulate the provider echoing back the pseudonym in an SSE stream.
     pseudo = transformed.text.split("My email is ")[1]
-    adapter = OpenAIStreamAdapter()
+    adapter = SSEStreamAdapter(data_path=["choices", "0", "delta", "content"])
     deanonymizer = StreamingDeanonymizer(session.mapping)
 
     chunks = [pseudo[:5], pseudo[5:]]

@@ -19,6 +19,8 @@ import httpx
 import pytest
 
 from privyx.anchors import HMACAnchor
+from privyx.app import Privyx
+from privyx.app._serve import metadata
 from privyx.core import DetectorError, Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
@@ -29,6 +31,10 @@ from privyx.providers import GenericProvider
 from privyx.proxy import Pipeline
 from privyx.testing import opened
 from privyx.vaults import MemoryVault
+
+#: The request keys and headers in which the built-in agents' clients describe their machine.
+AGENTS = dict(zip(("metadata_keys", "masked_headers"), metadata(Privyx()), strict=True))
+
 
 EMAIL = "alice@example.com"
 EMAIL2 = "bob@example.org"
@@ -353,7 +359,7 @@ def _codex_metadata() -> str:
 
 async def test_codex_turn_metadata_header_is_masked_with_the_body() -> None:
     capture: list[httpx.Request] = []
-    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture), **AGENTS)
     metadata = _codex_metadata()
     payload = {"input": f"mail {EMAIL}", "client_metadata": {"x-codex-turn-metadata": metadata}}
 
@@ -381,7 +387,7 @@ async def test_codex_turn_metadata_header_is_masked_with_the_body() -> None:
 async def test_codex_turn_metadata_header_is_masked_without_a_body(path: str) -> None:
     # A request without a body carries the header too.
     capture: list[httpx.Request] = []
-    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_mock_client(capture), **AGENTS)
 
     await proxy.handle(
         Exchange(
@@ -505,7 +511,7 @@ async def test_a_header_that_cannot_be_masked_is_never_forwarded() -> None:
         operator=PseudonymOperator(),
         vault=MemoryVault(),
     )
-    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(capture))
+    proxy = Pipeline(engine, origin="https://up.test", client=_mock_client(capture), **AGENTS)
 
     result = await proxy.handle(
         Exchange(

@@ -31,8 +31,8 @@ class HashOperator(Operator):
     The hash is deterministic (same input → same identifier), so it can act as a
     pseudonym across sessions, but it is **not** reversible in the general case.
     Deanonymization looks up the original text in the session mapping (which must
-    have been populated during pseudonymization).  ``length`` hex characters of
-    the SHA-256 digest are kept; a collision with another value of the session
+    have been populated during pseudonymization).  ``id_length`` hex characters
+    of the SHA-256 digest are kept; a collision with another value of the session
     lengthens the id.  Tokens are written in the one configured token syntax.
     """
 
@@ -40,13 +40,13 @@ class HashOperator(Operator):
     uses_anchor = False
 
     class Options(Operator.Options):
-        length: int = Field(default=12, ge=6, le=64)  # digest length
+        id_length: int = Field(default=12, ge=6, le=64)  # hex characters of the digest kept
 
     options: Options
 
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
-        self._length = self.options.length
+        self._length = self.options.id_length
 
     async def pseudonymize(
         self,

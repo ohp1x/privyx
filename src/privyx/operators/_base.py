@@ -13,17 +13,16 @@ if TYPE_CHECKING:
     from privyx.anchors import Anchor
 
 #: Hex characters of a digest kept in an anchored or encrypted token's id
-#: (``token.id_length``).  16 hex chars = 64 bits, far beyond collision range
-#: for a single conversation while staying short enough to read in a log.
+#: (``operator.id_length``).  16 hex chars = 64 bits, far beyond collision
+#: range for a single conversation while staying short enough to read in a log.
 ID_LENGTH = 16
 
 
 class Operator(Component, kind="operator"):
     """Replace detected spans with substitutes, and restore them from a session.
 
-    The token codec, the anchor, and ``token.id_length`` come from
-    :meth:`open`; built directly, an operator writes the built-in token
-    syntax, without an anchor.
+    The token codec and the anchor come from :meth:`open`; built directly, an
+    operator writes the built-in token syntax, without an anchor.
     """
 
     #: How a stream of this operator's output is restored: codec tokens,
@@ -41,13 +40,11 @@ class Operator(Component, kind="operator"):
         super().__init__(**options)
         self._codec: FormatCodec = FormatCodec.default()
         self._anchor: Anchor | None = None
-        self._id_length = ID_LENGTH
 
     async def open(self, services: Services) -> None:
-        """Take the app's token codec, its anchor, and ``token.id_length``."""
+        """Take the app's token codec and its anchor."""
         self._codec = services.codec
         self._anchor = services.anchor
-        self._id_length = services.id_length
 
     @abstractmethod
     async def pseudonymize(

@@ -5,7 +5,7 @@
     "output": [
       "Profile: aider",
       "Command: aider",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
       "Provider: openai [defaults]",
       "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
@@ -15,7 +15,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -41,7 +41,7 @@
     "output": [
       "Profile: aider",
       "Command: aider -c model=acme 'two words'",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
       "Provider: openai [defaults]",
       "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
@@ -51,7 +51,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -80,7 +80,7 @@
     "output": [
       "Profile: aider",
       "Command: aider",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
       "Provider: openai [defaults]",
       "Upstream: https://aider.example.com/v1 [environment OPENAI_API_BASE]",
@@ -91,7 +91,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -117,7 +117,7 @@
     "output": [
       "Profile: aider",
       "Command: aider",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
       "Provider: openai [defaults]",
       "Upstream: https://upstream.example.com/v1 [CLI]",
@@ -128,7 +128,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -154,7 +154,7 @@
     "output": [
       "Profile: aider",
       "Command: aider",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
       "Provider: google [CLI]",
       "Upstream: https://generativelanguage.googleapis.com [provider default (CLI)]",
@@ -164,7 +164,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -186,9 +186,46 @@
   },
   "privyx-key": {
     "run": "privyx run --dry-run aider",
+    "exit_code": 0,
+    "output": [
+      "Profile: aider",
+      "Command: aider",
+      "Type: env",
+      "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
+      "Provider: openai [defaults]",
+      "Upstream: https://aider.example.com/v1 [environment OPENAI_API_BASE]",
+      "Native endpoint (used): https://aider.example.com/v1 [environment OPENAI_API_BASE]",
+      "Routing: tool → http://127.0.0.1:<auto>/v1 → https://aider.example.com",
+      "Session: conversation [run defaults]",
+      "Anchor: auto-provision on launch [defaults]",
+      "Budget: none",
+      "Source command: defaults",
+      "Source base_path: defaults",
+      "Source type: defaults",
+      "Source args: defaults",
+      "Source host: defaults",
+      "Source proxy.mode: defaults",
+      "Source run.port: run defaults",
+      "Source arguments: CLI",
+      "Environment injected:",
+      "  OPENAI_API_BASE=http://127.0.0.1:<auto>/v1 [defaults]",
+      "  OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]"
+    ],
+    "launch": {
+      "argv": [
+        "aider"
+      ],
+      "env": {
+        "OPENAI_API_BASE": "http://127.0.0.1:<auto>/v1",
+        "OPENAI_BASE_URL": "http://127.0.0.1:<auto>/v1"
+      }
+    }
+  },
+  "provider-key": {
+    "run": "privyx run --dry-run aider",
     "exit_code": 1,
     "output": [
-      "Error: agent endpoint would receive Privyx's own API key; pass its URL as --upstream to confirm"
+      "Error: agent endpoint would receive Privyx's own API key; define a provider for https://aider.example.com/v1 under 'providers', with a key of its own, and select it, or select a provider without a key of Privyx's"
     ]
   },
   "gateway": {
@@ -197,7 +234,7 @@
     "output": [
       "Profile: aider",
       "Command: aider",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (gateway)",
       "Provider: openai [defaults]",
       "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
@@ -208,7 +245,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: <tmp>/config.yaml",
@@ -234,7 +271,7 @@
     "output": [
       "Profile: wrap",
       "Command: /opt/acme/bin/wrap",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
       "Provider: openai [defaults]",
       "Upstream: https://aider.example.com/v1 [environment OPENAI_API_BASE]",
@@ -245,7 +282,7 @@
       "Budget: none",
       "Source command: <tmp>/config.yaml",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",
@@ -271,7 +308,7 @@
     "output": [
       "Profile: aider:work",
       "Command: aider",
-      "Adapter: env",
+      "Type: env",
       "Proxy: http://127.0.0.1:<auto>/v1 (transparent)",
       "Provider: openai [defaults]",
       "Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]",
@@ -281,7 +318,7 @@
       "Budget: none",
       "Source command: defaults",
       "Source base_path: defaults",
-      "Source adapter: defaults",
+      "Source type: defaults",
       "Source args: defaults",
       "Source host: defaults",
       "Source proxy.mode: defaults",

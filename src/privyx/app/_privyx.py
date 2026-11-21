@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from fastapi import APIRouter
 
     from privyx.app._services._audit import Audit
+    from privyx.app._services._features import Features
     from privyx.app._services._masking import Masking
     from privyx.app._services._sessions import Sessions
     from privyx.app._services._workspace import Workspace
@@ -62,6 +63,10 @@ _KINDS = (
     "privyx.providers",
     "privyx.detectors",
     "privyx.operators",
+    "privyx.secrets",
+    "privyx.agents",
+    "privyx.dialects",
+    "privyx.features",
 )
 
 
@@ -90,8 +95,14 @@ class Privyx:
         self._workspace: Workspace | None = None
         self._sessions: Sessions | None = None
         self._audit_service: Audit | None = None
+        self._features: Features | None = None
         self._modules: set[str] = set()
         self._files: set[Path] = set()
+        #: What ``defaults()`` added, by section and name, and who added each.
+        self._defaults: dict[str, dict[str, Any]] = {}
+        self._defaults_from: dict[tuple[str, str], str] = {}
+        #: The plugin being set up, named in errors.
+        self._setting_up = "the app"
         for package in _KINDS:
             importlib.import_module(package).setup(self)
 
@@ -155,6 +166,38 @@ class Privyx:
 
         return add
 
+    def defaults(
+        self,
+        *,
+        agents: Mapping[str, Mapping[str, Any]] | None = None,
+        presets: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> None:
+        """Add agent profiles and presets, as if written just above Privyx's own defaults.
+
+        Every config file still overrides them, field by field.  Call it in
+        ``setup(app)``, or before the settings are read.
+
+        Raises:
+            ConfigError: If a name is a built-in profile's, or another plugin
+                added it already.
+        """
+        from privyx.config.defaults import DEFAULT_AGENTS
+
+        for section, entries in (("agents", agents), ("presets", presets)):
+            for name, value in (entries or {}).items():
+                if section == "agents" and name in DEFAULT_AGENTS:
+                    raise ConfigError(
+                        f"agent profile {name!r} is built in; {self._setting_up} "
+                        "must give its own a name of its own"
+                    )
+                other = self._defaults_from.get((section, name))
+                if other is not None:
+                    raise ConfigError(
+                        f"two plugins add {section}.{name}: {other} and {self._setting_up}"
+                    )
+                self._defaults_from[(section, name)] = self._setting_up
+                self._defaults.setdefault(section, {})[name] = dict(value)
+
     @property
     def router(self) -> APIRouter:
         """Routes served beside the proxy's, by ``privyx proxy`` and ``privyx run``.
@@ -188,11 +231,64 @@ class Privyx:
             self._loaded = self._load(self._config, extra=self._overrides or None)
         return self._loaded
 
-    def _load(self, path: str | Path | None = None, **options: Any) -> Settings:
-        """:func:`privyx.config.load_config` with this app's types checked."""
+    def _load(
+        self, path: str | Path | None = None, *, secrets: bool = True, **options: Any
+    ) -> Settings:
+        """:func:`privyx.config.load_config` with this app's types and plugins.
+
+        The plugins the config names are set up first, then the defaults they
+        add are merged below the config files, then the secret references
+        are resolved, with the plugins' resolvers too; with ``secrets=False``
+        they are left as written.
+        """
         from privyx.config import load_config
 
-        return load_config(path, types=self._registries, **options)
+        return load_config(
+            path,
+            types=self._registries,
+            setup=self._set_up,
+            secrets=self._resolve if secrets else None,
+            **options,
+        )
+
+    def _set_up(self, merged: dict[str, Any]) -> dict[str, Any]:
+        """Set up the plugins a merged config names; the defaults they added."""
+        from pydantic import ValidationError
+
+        from privyx.app._plugins import set_up_plugins
+        from privyx.config.schema import PluginsConfig
+
+        try:
+            plugins = PluginsConfig.model_validate(merged.get("plugins") or {})
+        except ValidationError:
+            return {}  # reported with the rest of the settings
+        set_up_plugins(plugins, self)
+        return self._defaults
+
+    def _resolve(self, merged: dict[str, Any]) -> dict[str, Any]:
+        """``merged`` with each secret reference replaced by the secret it names.
+
+        Raises:
+            ConfigError: If a ``secrets`` entry names no resolver or has an
+                invalid option, or a reference cannot be resolved.
+        """
+        from privyx.secrets import SecretResolver, resolve_references
+
+        registry = self.registry(SecretResolver)
+        options = merged.get("secrets")
+        configured = options if isinstance(options, dict) else {}
+        built = {
+            scheme: registry.build(scheme, value or {}, setting=f"secrets.{scheme}")
+            for scheme, value in configured.items()
+        }
+
+        def resolver(scheme: str) -> SecretResolver | None:
+            if scheme not in built and scheme in registry:
+                built[scheme] = registry.build(scheme, {}, setting=f"secrets.{scheme}")
+            return built.get(scheme)
+
+        resolved: dict[str, Any] = resolve_references(merged, resolver)
+        return resolved
 
     def asgi(self) -> Any:
         """The app as ASGI: its middleware around its routes and the proxy's.
@@ -271,6 +367,15 @@ class Privyx:
 
             self._sessions = Sessions(self)
         return self._sessions
+
+    @property
+    def features(self) -> Features:
+        """The features: which the settings switch on, those running, and their listeners."""
+        if self._features is None:
+            from privyx.app._services._features import Features
+
+            self._features = Features(self)
+        return self._features
 
     @property
     def audit(self) -> Audit:

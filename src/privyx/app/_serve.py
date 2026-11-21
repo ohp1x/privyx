@@ -2,7 +2,7 @@
 
 :func:`compose` builds the stack :meth:`Privyx.asgi <privyx.app.Privyx.asgi>`
 returns, the edge middleware around the router; :func:`running` opens the
-audit trail, the components, the provider, and the pipeline for it, and closes
+features, the components, the provider, and the pipeline for it, and closes
 them again.  An outside server runs :func:`running` as the app's lifespan;
 :func:`serve`, behind ``privyx proxy`` and :meth:`Privyx.serve`, runs it before
 uvicorn starts, so a config that cannot be built fails as an error, not as a
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
     from privyx.app._privyx import Privyx
     from privyx.config.schema import Settings
+    from privyx.core import EventBus
+    from privyx.dialects import Dialect
     from privyx.engine import PrivacyEngine
     from privyx.observability.audit import AuditLogger
     from privyx.providers import Provider
@@ -56,11 +58,13 @@ def compose(
     from privyx.proxy._asgi import create_app
 
     load_plugins(settings, app)
+    add_default_routes(app, settings)
+    kinds = dialect_types(app, settings.proxy.routes)
     served = None
     if settings.proxy.mode == "gateway":
         provider = app.registry(Provider).get(settings.provider.type)
         served = served_routes(
-            dict(settings.proxy.routes), google=issubclass(provider, GoogleProvider)
+            dict(settings.proxy.routes), kinds, google=issubclass(provider, GoogleProvider)
         )
 
     @asynccontextmanager
@@ -73,6 +77,7 @@ def compose(
         settings=settings,
         router=app._router,
         served=served,
+        versionless=frozenset(name for name, kind in kinds.items() if kind.versionless),
         lifespan=opened if lifespan else None,
     )
     stack: Any = router
@@ -88,37 +93,45 @@ async def running(
     settings: Settings,
     router: FastAPI,
     *,
-    audit: AuditLogger | None = None,
+    features: Mapping[str, Mapping[str, Any]] | None = None,
     run_token: str | None = None,
 ) -> AsyncIterator[Pipeline]:
     """Open what ``router`` serves with, and close it on exit, in reverse order.
 
-    The audit trail, the engine's components, the provider, and the pipeline
-    are opened, in ``router.state`` for its routes, and then
+    The features the settings switch on, and ``features``, the engine's
+    components, the provider, and the pipeline are opened, in
+    ``router.state`` for its routes, and then
     :class:`~privyx.events.AppStarting` is emitted; on exit
-    :class:`~privyx.events.AppStopping`, then the rest is closed.  An
-    ``audit`` logger given is the caller's to close.
+    :class:`~privyx.events.AppStopping`, then the rest is closed.
 
     Raises:
-        ConfigError: If a component cannot be built or opened, or a listener
-            of :class:`~privyx.events.AppStarting` fails.
+        ConfigError: If a component or a feature cannot be built or opened, or
+            a listener of :class:`~privyx.events.AppStarting` fails.
     """
-    from privyx.app._build import build_audit_logger, build_engine, open_provider
-    from privyx.observability import tracing
+    from privyx.app._build import build_engine, open_provider
 
     async with AsyncExitStack() as stack:
-        if audit is None:
-            audit = build_audit_logger(settings)
-            stack.callback(audit.close)
-        tracing.configure(settings.tracing.enabled)
+        audit = await stack.enter_async_context(app.features.running(settings, extra=features))
         engine, close_engine = await build_engine(settings, app, audit=audit)
         stack.push_async_callback(close_engine)
         provider = await open_provider(settings, app)
         stack.push_async_callback(provider.close)
-        pipeline = build_pipeline(settings, engine, provider, audit, run_token=run_token)
+        pipeline = build_pipeline(
+            settings,
+            engine,
+            provider,
+            audit,
+            events=app._events,
+            run_token=run_token,
+            agents=metadata(app),
+            dialects={
+                name: kind() for name, kind in dialect_types(app, settings.proxy.routes).items()
+            },
+        )
         stack.push_async_callback(pipeline.close)
         router.state.pipeline = pipeline
         router.state.engine = engine
+        router.state.metrics = app.features.get("metrics")
         await app._events.emit(AppStarting())
         stack.push_async_callback(app._events.emit, AppStopping())
         yield pipeline
@@ -130,22 +143,29 @@ def build_pipeline(
     provider: Provider,
     audit: AuditLogger | None = None,
     *,
+    events: EventBus | None = None,
     run_token: str | None = None,
+    agents: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset()),
+    dialects: Mapping[str, Dialect] | None = None,
 ) -> Pipeline:
     """The pipeline ``settings`` describe, for both proxy modes.
 
     ``run_token`` is ``privyx run pi``'s: each request names its own upstream.
+    ``events`` is the bus the request events go to, the app's.  ``agents``
+    holds the request keys and headers clients describe their machine in
+    (:func:`metadata`), and ``dialects`` the dialect of each route
+    (:func:`dialect_types`); by default, the built-ins.
 
     Raises:
-        ConfigError: If ``proxy.path_mapping`` cannot join a path to the upstream.
+        ConfigError: If ``provider.path_mapping`` cannot join a path to the upstream.
     """
     from privyx.providers import resolve_transparent_upstream
     from privyx.proxy import Pipeline
     from privyx.proxy._tap import Tap
 
-    proxy = settings.proxy
+    proxy, upstream = settings.proxy, settings.provider
     gateway = proxy.mode == "gateway"
-    mapping = proxy.path_mapping
+    mapping = upstream.path_mapping
     return Pipeline(
         engine,
         provider,
@@ -155,15 +175,64 @@ def build_pipeline(
         strip_prefix=mapping.strip_prefix if mapping.mode == "prefix" else None,
         routes=dict(proxy.routes),
         passthrough_unknown=proxy.passthrough_unknown,
-        forward_client_auth=proxy.forward_client_auth,
-        timeout=proxy.timeout,
-        connect_timeout=proxy.connect_timeout,
-        max_connections=proxy.max_connections,
+        forward_client_auth=upstream.forward_client_auth,
+        timeout=upstream.timeout,
+        connect_timeout=upstream.connect_timeout,
+        max_connections=upstream.max_connections,
         audit=audit,
         session_strategy=settings.session.strategy,
         tap=Tap(settings.audit.tap_dir) if settings.audit.tap else None,
         run_token=run_token,
+        metadata_keys=agents[0],
+        masked_headers=agents[1],
+        dialects=dialects,
+        events=events,
     )
+
+
+def add_default_routes(app: Privyx, settings: Settings) -> None:
+    """Add the routes each plugin's dialect brings to the default route map, in place.
+
+    A route map written in the config replaces the default one, and is taken
+    as written.
+
+    Raises:
+        ConfigError: If a dialect's route is a path the map has already.
+    """
+    from privyx.config.schema import ProxyConfig
+    from privyx.core import ConfigError
+    from privyx.dialects import Dialect
+
+    routes = settings.proxy.routes
+    if routes != ProxyConfig().routes:
+        return
+    registry = app.registry(Dialect)
+    for name in registry.names():
+        for path in [] if registry.is_builtin(name) else registry.get(name).default_routes:
+            if path in routes:
+                raise ConfigError(
+                    f"dialect {name!r} brings route {path}, which is {routes[path]!r}'s"
+                )
+            routes[path] = name
+
+
+def dialect_types(app: Privyx, routes: Mapping[str, str]) -> dict[str, type[Dialect]]:
+    """The dialect type each route of ``routes`` names, by name.
+
+    Raises:
+        ConfigError: If a route names no dialect ``app`` has.
+    """
+    from privyx.dialects import Dialect
+
+    registry = app.registry(Dialect)
+    return {name: registry.get(name) for name in dict.fromkeys(routes.values())}
+
+
+def metadata(app: Privyx) -> tuple[frozenset[str], frozenset[str]]:
+    """The request keys and headers the clients of ``app``'s agents describe their machine in."""
+    from privyx.agents import Agent, client_metadata
+
+    return client_metadata(app.registry(Agent))
 
 
 async def serve(app: Privyx, watch: Sequence[Path] = ()) -> bool:
@@ -225,7 +294,7 @@ def _banner(settings: Settings, pipeline: Pipeline) -> list[str]:
     else:
         routes = dict(settings.proxy.routes)
         origin = redact(resolve_transparent_upstream(settings), "url")
-        mapping = settings.proxy.path_mapping
+        mapping = settings.provider.path_mapping
         lines = [
             f"Privyx transparent proxy listening on {where}",
             f"Upstream: {origin} (path mapping: prefix, strip {mapping.strip_prefix or 'nothing'})"

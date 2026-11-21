@@ -83,9 +83,13 @@ def test_references_fit_non_string_and_enum_settings() -> None:
     assert not validator.is_valid({"proxy": {"mode": "sideways"}})
 
 
-def test_hash_length_has_the_bounds_the_loader_checks() -> None:
+def test_id_length_has_the_bounds_the_loader_checks() -> None:
     validator = _validator()
-    for length, valid in ((5, False), (6, True), (64, True), (65, False), ("${N}", True)):
-        config = {"operator": {"type": "hash", "length": length}}
-        assert validator.is_valid(config) is valid, length
+    for kind in ("hash", "pseudonym", "encrypt"):
+        for length, valid in ((5, False), (6, True), (64, True), (65, False), ("${N}", True)):
+            config = {"operator": {"type": kind, "id_length": length}}
+            assert validator.is_valid(config) is valid, (kind, length)
     assert validator.is_valid({"operator": {"type": "my_plugin", "length": 3}})
+    # Renamed, and still read with a warning.
+    assert validator.is_valid({"operator": {"type": "hash", "length": "${N}"}})
+    assert not validator.is_valid({"operator": {"type": "pseudonym", "length": 8}})

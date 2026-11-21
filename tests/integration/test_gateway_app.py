@@ -22,15 +22,17 @@ pytest.importorskip("fastapi")
 import httpx  # noqa: E402
 
 from privyx.config.schema import Settings  # noqa: E402
-from privyx.core import DetectorError, VaultError  # noqa: E402
+from privyx.core import DetectorError, EventBus, VaultError  # noqa: E402
 from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
+from privyx.features import Metrics  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.providers import GenericProvider  # noqa: E402
 from privyx.proxy import Pipeline  # noqa: E402
 from privyx.proxy._asgi import create_app  # noqa: E402
+from privyx.testing import listening  # noqa: E402
 from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "alice@example.com"
@@ -54,6 +56,8 @@ def _gateway(
     settings: Settings | None = None,
     audit: AuditLogger | None = None,
     client: httpx.AsyncClient | None = None,
+    events: EventBus | None = None,
+    metrics: Metrics | None = None,
 ) -> tuple[Any, Pipeline]:
     """The gateway app of ``settings``, sending its requests with ``client``."""
     settings = settings or Settings()
@@ -65,8 +69,9 @@ def _gateway(
         session_strategy=settings.session.strategy,
         audit=audit,
         client=client,
+        events=events,
     )
-    return create_app(pipeline, settings), pipeline
+    return create_app(pipeline, settings, metrics=metrics), pipeline
 
 
 def _upstream_client() -> httpx.AsyncClient:
@@ -102,12 +107,21 @@ def _upstream_client() -> httpx.AsyncClient:
 
 
 def _client(
-    engine: PrivacyEngine, audit: AuditLogger | None = None
+    engine: PrivacyEngine,
+    audit: AuditLogger | None = None,
+    events: EventBus | None = None,
+    metrics: Metrics | None = None,
 ) -> tuple[httpx.AsyncClient, Any]:
     provider = GenericProvider(base_url=UPSTREAM, headers={"x-api-key": "sk-test"})
     settings = Settings(provider={"type": "anthropic", "base_url": UPSTREAM})
     app, gateway = _gateway(
-        engine=engine, provider=provider, settings=settings, audit=audit, client=_upstream_client()
+        engine=engine,
+        provider=provider,
+        settings=settings,
+        audit=audit,
+        client=_upstream_client(),
+        events=events,
+        metrics=metrics,
     )
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -195,7 +209,8 @@ async def test_messages_route_masks_and_restores() -> None:
 @pytest.mark.asyncio
 async def test_metrics_count_masked_entities() -> None:
     """``GET /metrics`` serves the totals of the engine's and gateway's shared audit logger."""
-    audit = AuditLogger(None)
+    metrics = Metrics()
+    audit = AuditLogger(events=await listening(metrics))
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -203,7 +218,7 @@ async def test_metrics_count_masked_entities() -> None:
         vault=MemoryVault(),
         audit=audit,  # `privyx proxy` builds the engine and gateway around one logger
     )
-    client, _ = _client(engine, audit)
+    client, _ = _client(engine, audit, metrics=metrics)
     async with client:
         await client.post(
             "/v1/messages", json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
@@ -705,10 +720,11 @@ async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
 
 async def test_directive_follows_each_route_schema() -> None:
     """An Anthropic route gets it in ``system``, a Responses route first in ``input``."""
+    from privyx.features import Directive
+    from privyx.testing import listening
+
     seen.clear()
-    engine = _engine()
-    engine.directive = True
-    client, _ = _client(engine)
+    client, _ = _client(_engine(), events=await listening(Directive()))
     async with client:
         await client.post(
             "/v1/messages",

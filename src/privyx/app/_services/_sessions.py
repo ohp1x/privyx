@@ -119,7 +119,7 @@ class Sessions:
         return self._archive(session_id, None if record is None else len(record.mapping), output)
 
     def _archive(self, session_id: str, mappings: int | None, output: Path) -> Exported | None:
-        from privyx.observability.metrics import AuditStats
+        from privyx.features import AuditStats
         from privyx.proxy._tap import tap_file
         from privyx.version import __version__
 
@@ -171,24 +171,21 @@ class Sessions:
         Each deletion is written to the audit trail as ``session.deleted``
         with ``reason: prune``, after it succeeded.
         """
-        from privyx.app._build import build_audit_logger
-        from privyx.observability.audit import AuditLogger
-
         cutoff = time.time() - older_than
         async with self._vault() as vault:
             stale = [s for s in await vault.list_sessions() if s.updated_at < cutoff]
-            audit = AuditLogger(None) if dry_run else build_audit_logger(self._app.settings)
-            try:
+            if dry_run:
+                return Pruned(stale, cutoff)
+            # The audit trail alone, for the deletions.
+            features = self._app.features.running(self._app.settings, only={"audit"})
+            async with features as audit:
                 for s in stale:
-                    if not dry_run:
-                        await vault.delete(s.session_id)
-                        # After the delete succeeds, so the trail never claims a
-                        # deletion that failed (same contract as the proxy).
-                        audit.session_deleted(
-                            s.session_id, reason="prune", mapping_count=len(s.mapping)
-                        )
-            finally:
-                audit.close()
+                    await vault.delete(s.session_id)
+                    # After the delete succeeds, so the trail never claims a
+                    # deletion that failed (same contract as the proxy).
+                    audit.session_deleted(
+                        s.session_id, reason="prune", mapping_count=len(s.mapping)
+                    )
         return Pruned(stale, cutoff)
 
     @asynccontextmanager
