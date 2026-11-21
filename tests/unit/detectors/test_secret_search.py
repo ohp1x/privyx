@@ -27,7 +27,9 @@ def _captures(
 
 
 def _assert_equivalent(text: str) -> None:
-    assert _captures(_secret_matches(PATTERN, text)) == _captures(PATTERN.finditer(text))
+    # Every match kept: a rejected one is also searched inside its value.
+    found = _secret_matches(PATTERN, text, lambda match: True)
+    assert _captures(found) == _captures(PATTERN.finditer(text))
 
 
 @pytest.mark.parametrize("path", sorted(CORPUS.glob("*.txt")), ids=lambda p: p.name)

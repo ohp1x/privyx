@@ -320,20 +320,28 @@ _SECRET_START = re.compile(
 )
 
 
-def _secret_matches(pattern: re.Pattern[str], text: str) -> Iterator[re.Match[str]]:
-    """Run the unchanged SECRET regex only at possible match starts.
+def _secret_matches(pattern: re.Pattern[str], text: str, check: Check) -> Iterator[re.Match[str]]:
+    """The SECRET matches that pass ``check``, the regex tried only where one can start.
 
-    Advance past a full match even when its value check will reject it, just
-    as finditer does. On failure advance only one character: a valid name can
-    start inside a failed candidate (``passpassword=...``).
+    On failure advance only one character: a valid name can start inside a
+    failed candidate (``passpassword=...``).  A rejected match is searched
+    again from the start of its value, as a secret can be assigned inside it
+    (``TOKEN_URL=https://…?client_secret=…``), but only once: a match found
+    there and rejected too is skipped whole.  The values inside an unquoted
+    value end where it ends, so searching each of them again would rescan the
+    rest of it once per name, quadratic in the length of ``TOKEN_URL=TOKEN_URL=…``.
     """
-    pos = 0
+    pos = searched = 0
     while (candidate := _SECRET_START.search(text, pos)) is not None:
         match = pattern.match(text, candidate.start())
         if match is None:
             pos = candidate.start() + 1
-        else:
+        elif check(match):
             yield match
+            pos = match.end()
+        elif match.start() >= searched:
+            searched, pos = match.end(), match.start("value")
+        else:
             pos = match.end()
 
 
@@ -431,8 +439,9 @@ def _detect(
     detection = Detection()
     for entity, pattern, check, context in compiled:
         has_value = "value" in pattern.groupindex
-        if entity == "SECRET" and pattern.pattern == SECRET_PATTERN:
-            matches = _secret_matches(pattern, text)
+        if check is not None and entity == "SECRET" and pattern.pattern == SECRET_PATTERN:
+            matches = _secret_matches(pattern, text, check)
+            check = None  # already applied
         elif check is not None and entity in _SEARCH_INSIDE_REJECTED:
             matches = _checked_matches(pattern, text, check)
             check = None  # already applied
