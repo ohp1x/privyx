@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from privyx.app import Privyx
 from privyx.cli.main import cli
 
 EMAIL = "alice@example.com"
@@ -1735,7 +1736,7 @@ async def test_run_warns_when_no_request_took_a_masking_route(
         async def broken(*args: object, **kwargs: object) -> None:
             raise RuntimeError("detector crashed")
 
-        monkeypatch.setattr("privyx.proxy.transparent.transform_request", broken)
+        monkeypatch.setattr("privyx.proxy._pipeline.transform_request", broken)
     url, _ = upstream
 
     from privyx.cli.commands.run import Target, _run_target
@@ -1866,7 +1867,7 @@ async def test_run_counts_a_request_still_being_masked_when_the_tool_exits(
 
     monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
     monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
-    import privyx.proxy.transparent as transparent
+    import privyx.proxy._pipeline as transparent
 
     original = transparent.transform_request
 
@@ -2598,15 +2599,15 @@ def test_proxy_reload_restarts_and_rereads_config(
     config.write_text("port: 9001\n", encoding="utf-8")
     ports: list[int] = []
 
-    async def fake_run_server(settings: object, watch_paths: list[Path] | None = None) -> bool:
-        assert watch_paths == [config]
-        ports.append(settings.port)  # type: ignore[attr-defined]
+    def fake_serve(app: Privyx, *, watch: list[Path] | None = None) -> bool:
+        assert watch == [config]
+        ports.append(app.settings.port)
         if len(ports) == 1:
             config.write_text("port: 9002\n", encoding="utf-8")
             return True  # as if the watcher had fired
         return False
 
-    monkeypatch.setattr("privyx.cli.commands.proxy._run_server", fake_run_server)
+    monkeypatch.setattr("privyx.app.Privyx.serve", fake_serve)
 
     result = runner.invoke(cli, ["proxy", "--reload", "-c", str(config)])
 
@@ -2626,11 +2627,11 @@ def test_proxy_reload_watches_every_config_file_in_use(
     assert runner.invoke(cli, ["trust"]).exit_code == 0
     watched: list[list[Path] | None] = []
 
-    async def fake_run_server(settings: object, watch_paths: list[Path] | None = None) -> bool:
-        watched.append(watch_paths)
+    def fake_serve(app: Privyx, *, watch: list[Path] | None = None) -> bool:
+        watched.append(watch)
         return False
 
-    monkeypatch.setattr("privyx.cli.commands.proxy._run_server", fake_run_server)
+    monkeypatch.setattr("privyx.app.Privyx.serve", fake_serve)
 
     result = runner.invoke(cli, ["proxy", "--reload"])
 
@@ -2656,11 +2657,11 @@ def test_reload_notices_a_change_to_any_watched_file(tmp_path: Path) -> None:
 def test_proxy_ssl_options_applied(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     captured_settings: list[object] = []
 
-    async def fake_run_server(settings: object, watch_paths: list[Path] | None = None) -> bool:
-        captured_settings.append(settings)
+    def fake_serve(app: Privyx, *, watch: list[Path] | None = None) -> bool:
+        captured_settings.append(app.settings)
         return False
 
-    monkeypatch.setattr("privyx.cli.commands.proxy._run_server", fake_run_server)
+    monkeypatch.setattr("privyx.app.Privyx.serve", fake_serve)
 
     result = runner.invoke(
         cli,
@@ -2692,46 +2693,42 @@ def test_proxy_ssl_requires_both_cert_and_key(runner: CliRunner) -> None:
     assert "Both --ssl-certfile and --ssl-keyfile are required" in result.output
 
 
-async def test_serve_transparent_wires_proxy_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    pytest.importorskip("uvicorn")
+async def test_the_transparent_pipeline_follows_the_proxy_settings() -> None:
+    import httpx
+
     from privyx import load_config
-    from privyx.cli.commands.proxy import _serve_transparent
+    from privyx.app._build import build_engine, build_provider
+    from privyx.app._serve import build_pipeline
+    from privyx.providers import ApiKey
 
-    captured: dict[str, object] = {}
-
-    class Built(Exception):
-        pass
-
-    def fake_proxy(engine: object, **kwargs: object) -> None:
-        captured.update(kwargs)
-        raise Built  # stop before uvicorn starts
-
-    monkeypatch.setattr("privyx.proxy.transparent.TransparentProxy", fake_proxy)
     settings = load_config(
         extra={
             "proxy": {"passthrough_unknown": False, "timeout": 42, "max_connections": 7},
             "provider": {"type": "openai", "openai_api_key": "sk-per-type"},
         }
     )
+    engine, close_vault = await build_engine(settings)
+    provider = build_provider(settings)
+    pipeline = build_pipeline(settings, engine, provider)
+    try:
+        assert not pipeline.gateway
+        assert pipeline._passthrough_unknown is False  # noqa: SLF001
+        auth = provider.auth()
+        assert isinstance(auth, ApiKey) and auth.key == "sk-per-type"  # as in the gateway
+        client = pipeline._client  # noqa: SLF001
+        assert client.timeout == httpx.Timeout(connect=10.0, read=42.0, write=42.0, pool=10.0)
+        assert client._transport._pool._max_connections == 7  # type: ignore[attr-defined]  # noqa: SLF001
+    finally:
+        await pipeline.close()
+        await close_vault()
 
-    with pytest.raises(Built):
-        await _serve_transparent(settings, engine=None, audit=None)
 
-    assert captured["passthrough_unknown"] is False
-    assert captured["api_key"] == "sk-per-type"  # same resolution as the gateway
-    assert captured["timeout"] == 42
-    assert captured["connect_timeout"] == 10
-    assert captured["max_connections"] == 7
-
-
-@pytest.mark.parametrize("serve", ["_serve_transparent", "_serve_gateway"])
+@pytest.mark.parametrize("mode", ["transparent", "gateway"])
 async def test_proxy_gives_running_requests_a_grace_period(
-    serve: str, monkeypatch: pytest.MonkeyPatch
+    mode: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pytest.importorskip("uvicorn")
-    from privyx import load_config
-    from privyx.app._build import build_engine
-    from privyx.cli.commands import proxy as proxy_command
+    from privyx.app import _serve
 
     captured: dict[str, object] = {}
 
@@ -2743,15 +2740,11 @@ async def test_proxy_gives_running_requests_a_grace_period(
         raise Built  # stop before uvicorn starts
 
     monkeypatch.setattr("uvicorn.Config", fake_config)
-    settings = load_config()
-    engine, close_vault = await build_engine(settings)
-    try:
-        with pytest.raises(Built):
-            await getattr(proxy_command, serve)(settings, engine, audit=None)
-    finally:
-        await close_vault()
 
-    assert captured["timeout_graceful_shutdown"] == proxy_command.SHUTDOWN_GRACE_SECONDS
+    with pytest.raises(Built):
+        await _serve.serve(Privyx(proxy={"mode": mode}, audit={"enabled": False}))
+
+    assert captured["timeout_graceful_shutdown"] == _serve.SHUTDOWN_GRACE_SECONDS
 
 
 async def test_a_signal_stop_lets_cut_requests_clean_up_first() -> None:
@@ -2764,7 +2757,7 @@ async def test_a_signal_stop_lets_cut_requests_clean_up_first() -> None:
     import httpx
 
     uvicorn = pytest.importorskip("uvicorn")
-    from privyx.cli.commands.proxy import _serve_until_reload
+    from privyx.app._serve import serve_until
 
     started, cleaned = asyncio.Event(), asyncio.Event()
 
@@ -2785,7 +2778,7 @@ async def test_a_signal_stop_lets_cut_requests_clean_up_first() -> None:
         )
     )
     try:
-        serving = asyncio.create_task(_serve_until_reload(server, None))
+        serving = asyncio.create_task(serve_until(server, None))
         while not server.started:
             assert not serving.done()  # it failed to start
             await asyncio.sleep(0.01)
@@ -2800,7 +2793,7 @@ async def test_a_signal_stop_lets_cut_requests_clean_up_first() -> None:
     finally:
         signal.signal(signal.SIGTERM, previous)
 
-    assert cleaned.is_set()  # before _serve_until_reload returned
+    assert cleaned.is_set()  # before serve_until returned
     assert not killed
 
 

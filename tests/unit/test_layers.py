@@ -1,8 +1,8 @@
 """Each module imports only its own layer and those below, as the 0.3.0 layout has it.
 
 A module is placed in the package it belongs to in that layout, wherever it
-lives today: ``privyx.cli.launch`` is agent code, ``privyx.gateway`` is the
-proxy's.  The layers, lowest first:
+lives today: ``privyx.cli.launch`` is agent code, ``privyx.cli.budget`` a
+feature's.  The layers, lowest first:
 
 0. ``core``
 1. ``events``, ``token``, ``security``, ``streaming``
@@ -19,6 +19,10 @@ proxy's.  The layers, lowest first:
 Imports under ``if TYPE_CHECKING:`` do not count, imports inside functions do.
 The imports that break the layers today are in :data:`ALLOWED`, each with its
 reason.  The list only shrinks: an entry no longer needed fails the test too.
+
+A module whose name starts with ``_`` is private to its package: another
+package imports what the package's ``__init__`` exports, except ``app``, which
+assembles them all.  The exceptions today are in :data:`ALLOWED_PRIVATE`.
 """
 
 from __future__ import annotations
@@ -65,26 +69,21 @@ PLACES: dict[str, str] = {
     "privyx.cli.budget": "features",
     "privyx.cli.claude": "agents",
     "privyx.cli.codex": "agents",
-    "privyx.cli.commands.mcp": "mcp",
-    "privyx.cli.commands.mcp_serve": "mcp",
     "privyx.cli.launch": "agents",
     "privyx.cli.native": "agents",
-    "privyx.cli.workspace": "workspace",
     "privyx.config": "config",
-    "privyx.config.redact": "security",
     "privyx.core": "core",
     "privyx.detectors": "detectors",
     "privyx.engine": "engine",
     "privyx.events": "events",
-    "privyx.gateway": "proxy",
     # The package only re-exports; its modules go their own ways.
     "privyx.observability": "app",
     "privyx.observability.audit": "features",
     "privyx.observability.logging": "app",
     "privyx.observability.metrics": "features",
-    "privyx.observability.tap": "proxy",
     "privyx.observability.tracing": "features",
     "privyx.observability.usage": "dialects",
+    "privyx.mcp": "mcp",
     "privyx.operators": "operators",
     "privyx.policies": "policies",
     "privyx.providers": "providers",
@@ -100,6 +99,7 @@ PLACES: dict[str, str] = {
     "privyx.testing": "testing",
     "privyx.token": "token",
     "privyx.vaults": "vaults",
+    "privyx.workspace": "workspace",
     # A leaf, importable from every layer.
     "privyx.version": "core",
 }
@@ -107,15 +107,13 @@ PLACES: dict[str, str] = {
 #: (importer, imported) pairs that break the layers today.
 ALLOWED: frozenset[tuple[str, str]] = frozenset(
     {
-        # Privyx.run serves with the CLI's server loop: serving moves into app.
-        ("privyx.app._privyx", "privyx.cli.commands.proxy"),
         # The budget parses usage from response bytes; it moves onto events.
         ("privyx.cli.budget", "privyx.observability.usage"),
         ("privyx.cli.budget", "privyx.proxy.schemas"),
         # Planning a launch resolves upstream URLs with the providers' helpers.
         ("privyx.cli.launch", "privyx.providers"),
         # Loading config resolves secret references: resolving moves into app.
-        ("privyx.config.loader", "privyx.security.secrets"),
+        ("privyx.config._layers", "privyx.security.secrets"),
         # Telling a model name from PII goes with the cost report into app.
         ("privyx.observability.usage", "privyx.detectors"),
         # The JSON walk moves into core, and each format's stream into its dialect.
@@ -125,6 +123,38 @@ ALLOWED: frozenset[tuple[str, str]] = frozenset(
         ("privyx.streaming.adapters.registry", "privyx.streaming.adapters.anthropic"),
         ("privyx.streaming.adapters.registry", "privyx.streaming.adapters.gemini"),
         ("privyx.streaming.adapters.registry", "privyx.streaming.adapters.openai"),
+    }
+)
+
+
+#: (importer, imported) pairs where a module imports a private module of another package.
+ALLOWED_PRIVATE: frozenset[tuple[str, str]] = frozenset(
+    {
+        # `config` loads plugins and builds the schema itself, until a config
+        # service serves `config get` and `set`.
+        ("privyx.cli.commands.config", "privyx.app._plugins"),
+        ("privyx.cli.commands.config", "privyx.app._schema"),
+        # `detect` builds its detector and policy itself, until the masking
+        # service explains a detection and checks a pattern.
+        ("privyx.cli.commands.detect", "privyx.app._build"),
+        ("privyx.cli.commands.detect", "privyx.app._plugins"),
+        ("privyx.cli.commands.detect", "privyx.detectors._pattern"),
+        # `doctor` and `lint` run their checks themselves, until a diagnostics
+        # service does.
+        ("privyx.cli.commands.doctor", "privyx.app._build"),
+        ("privyx.cli.commands.doctor", "privyx.app._plugins"),
+        ("privyx.cli.commands.doctor", "privyx.vaults._sqlite"),
+        ("privyx.cli.commands.lint", "privyx.app._build"),
+        ("privyx.cli.commands.lint", "privyx.app._plugins"),
+        # `inspect` reads the pattern engine and the codec, until its commands
+        # move under `config`, `detect`, and `session`.
+        ("privyx.cli.commands.inspect", "privyx.app._build"),
+        ("privyx.cli.commands.inspect", "privyx.detectors._pattern"),
+        # `run` serves through the launch module, until an agents service runs it.
+        ("privyx.cli.commands.run", "privyx.app._run"),
+        # The git hooks build a detector of the built-in credential patterns,
+        # until `detectors` exports its pattern catalog.
+        ("privyx.workspace._githook", "privyx.detectors._pattern"),
     }
 )
 
@@ -209,3 +239,29 @@ def test_imports_follow_the_layers() -> None:
     assert new == [], "imports against the layers:\n" + "\n".join(new)
     fixed = sorted(ALLOWED - found.keys())
     assert fixed == [], "no longer needed in ALLOWED: " + ", ".join(map(str, fixed))
+
+
+def _package(module: str) -> str:
+    """The package a module is in on disk: ``privyx.cli.commands.run`` is in ``cli``."""
+    return module.split(".")[1] if "." in module else ""
+
+
+def _private(module: str) -> bool:
+    return any(part.startswith("_") for part in module.split(".")[1:])
+
+
+def test_private_modules_stay_in_their_package() -> None:
+    found: dict[tuple[str, str], list[str]] = {}
+    for module, path in MODULES.items():
+        if _package(module) == "app":
+            continue  # it assembles every package
+        for line, target in _imports(ast.parse(path.read_text(), str(path))):
+            if _private(target) and _package(target) != _package(module):
+                where = f"{path.relative_to(SRC.parent)}:{line} ({module} -> {target})"
+                found.setdefault((module, target), []).append(where)
+    new = [
+        where for pair, places in found.items() if pair not in ALLOWED_PRIVATE for where in places
+    ]
+    assert new == [], "private modules imported from another package:\n" + "\n".join(new)
+    fixed = sorted(ALLOWED_PRIVATE - found.keys())
+    assert fixed == [], "no longer needed in ALLOWED_PRIVATE: " + ", ".join(map(str, fixed))

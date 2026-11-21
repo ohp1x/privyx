@@ -238,7 +238,7 @@ def test_every_command_that_reads_a_config_file_takes_a_preset() -> None:
 
 
 def test_a_preset_applies_to_any_command_and_ends_with_it(tmp_path: Path) -> None:
-    from privyx.config.loader import CHOSEN_PRESETS
+    from privyx.config import CHOSEN_PRESETS
 
     config = _config(tmp_path, {"presets": {"redacting": {"operator": {"type": "redact"}}}})
     text = "mail ana@example.com"

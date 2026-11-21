@@ -8,10 +8,11 @@ import pytest
 from privyx import load_config
 from privyx.app import Privyx
 from privyx.app._build import build_provider
+from privyx.app._serve import build_pipeline
 from privyx.core import ConfigError
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.gateway.server import Gateway
+from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.providers import (
@@ -21,7 +22,7 @@ from privyx.providers import (
     resolve_api_key,
     resolve_base_url,
 )
-from privyx.proxy.http import upstream_client
+from privyx.proxy._upstream import upstream_client
 from privyx.vaults import MemoryVault
 
 
@@ -47,7 +48,8 @@ def _engine() -> PrivacyEngine:
 async def test_the_gateway_client_follows_the_proxy_settings(ptype: str) -> None:
     proxy = {"mode": "gateway", "timeout": 42, "connect_timeout": 3, "max_connections": 7}
     settings = load_config(extra={"provider": {"type": ptype}, "proxy": proxy})
-    gateway = Gateway(_engine(), build_provider(settings), settings)
+    gateway = build_pipeline(settings, _engine(), build_provider(settings), AuditLogger(None))
+    assert gateway.gateway
     client = gateway._client  # noqa: SLF001
     assert client.timeout == httpx.Timeout(connect=3.0, read=42.0, write=42.0, pool=10.0)
     assert client._transport._pool._max_connections == 7  # noqa: SLF001
@@ -70,7 +72,7 @@ async def test_upstream_client_retries_only_a_connection_that_did_not_open(
     outcome: object,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("privyx.proxy.http._CONNECT_RETRY_DELAYS", (0.0, 0.0))
+    monkeypatch.setattr("privyx.proxy._upstream._CONNECT_RETRY_DELAYS", (0.0, 0.0))
     sent: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:

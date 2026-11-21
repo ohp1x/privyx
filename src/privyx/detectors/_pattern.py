@@ -129,8 +129,6 @@ SECRET_PATTERN = (
 """
 )
 
-#: Built-in entities that are credentials, not personal data.
-SECRET_TYPES = ("API_KEY", "PRIVATE_KEY", "JWT", "AUTH_TOKEN", "URL_CREDENTIAL", "SECRET")
 
 #: Built-in entity patterns.  A ``regex`` detector layers its own patterns over
 #: these.

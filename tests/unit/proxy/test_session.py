@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from privyx.proxy.session import resolve_session_id
+from privyx.proxy._session import resolve_session_id
 
 _SES = re.compile(r"^ses_[0-9a-f]{16}$")
 

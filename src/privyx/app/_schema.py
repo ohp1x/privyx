@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from privyx.config.loader import _NOT_IN_PRESET
+from privyx.config._presets import _NOT_IN_PRESET
 from privyx.config.schema import PLUGGABLE, PluggableConfig, Settings
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ def json_schema(app: Privyx | None = None) -> dict[str, Any]:
     """The JSON Schema of a config file, for editors that complete and check YAML.
 
     A section without a ``type`` takes no other keys, as in
-    :func:`~privyx.config.loader.load_config`.  One with a ``type`` takes,
+    :func:`~privyx.config.load_config`.  One with a ``type`` takes,
     under a built-in type, only that type's options and the shared ones, and
     any key under another.
 

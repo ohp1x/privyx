@@ -1,4 +1,4 @@
-"""Config precedence, focused on ``base_extra`` (:func:`privyx.config.loader.load_config`).
+"""Config precedence, focused on ``base_extra`` (:func:`privyx.config.load_config`).
 
 Precedence, low → high: defaults < base_extra < YAML < env < extra.  ``base_extra``
 is the channel ``privyx run`` uses for defaults the user must still be able to
@@ -14,7 +14,7 @@ import pytest
 
 from privyx import load_config
 from privyx.app._build import build_detector_from
-from privyx.config.loader import active_config_paths, find_local_configs, is_trusted, trust
+from privyx.config import active_config_paths, find_local_configs, is_trusted, trust
 from privyx.core import ConfigError, Context
 
 _CONVO = {"session": {"strategy": "conversation"}}

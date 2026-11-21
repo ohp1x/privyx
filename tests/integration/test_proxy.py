@@ -1,4 +1,4 @@
-"""Integration tests through :class:`HTTPProxy` — the transport seam.
+"""Integration tests through the gateway pipeline — the transport seam.
 
 These tests exist because of a real regression: the proxy fed newline-stripped
 provider lines to a *stateless* SSE parser, which never saw the ``\\n\\n``
@@ -7,7 +7,7 @@ passthrough branch and pseudonyms reached the client verbatim.  Nothing caught
 it, because the streaming tests hand-assembled :class:`SSEEvent` objects and
 never crossed the provider → proxy boundary.
 
-So: drive everything through ``HTTPProxy.process_stream`` with a fake upstream
+So: drive everything through :meth:`Pipeline.handle` with a fake upstream
 whose framing we control, and assert on the bytes a client would actually see.
 """
 
@@ -20,13 +20,13 @@ from typing import Any
 import httpx
 import pytest
 
-from privyx.core import ProviderError
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.providers import GenericProvider
-from privyx.proxy.http import HTTPProxy as _HTTPProxy
+from privyx.proxy import Pipeline, Reply
 from privyx.streaming.adapters.anthropic import AnthropicStreamAdapter
 from privyx.streaming.adapters.openai import OpenAIStreamAdapter
 from privyx.streaming.sse import SSEDecoder
@@ -34,6 +34,7 @@ from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
 PHONE = "+1-555-0142"
+CHAT = "/v1/chat/completions"
 
 
 class FakeProvider(GenericProvider):
@@ -56,7 +57,8 @@ class FakeProvider(GenericProvider):
         self.sent.append(json.loads(request.content))
         self.paths.append(request.url.path)
         if "text/event-stream" in request.headers.get("accept", ""):
-            return httpx.Response(self.status, stream=_Chunks(self.chunks))
+            sse = {"content-type": "text/event-stream"}
+            return httpx.Response(self.status, headers=sse, stream=_Chunks(self.chunks))
         return httpx.Response(self.status, json=self.batch)
 
 
@@ -69,19 +71,27 @@ class _Chunks(httpx.AsyncByteStream):
             yield chunk if isinstance(chunk, bytes) else chunk.encode()
 
 
-def HTTPProxy(  # noqa: N802 - stands in for the class, with the fake's client
+async def _send(
     engine: PrivacyEngine,
     provider: FakeProvider,
-    stream_adapter: Any = None,
-    schema: str = "openai",
-) -> _HTTPProxy:
-    return _HTTPProxy(
-        engine=engine,
-        provider=provider,
-        client=provider.client,
-        stream_adapter=stream_adapter,
-        schema=schema,
-    )
+    payload: dict[str, Any],
+    session_id: str = "ses_proxy",
+    path: str = CHAT,
+) -> Reply:
+    """``payload`` through the gateway to ``provider``, in session ``session_id``."""
+    pipeline = Pipeline(engine, provider, gateway=True, client=provider.client)
+    headers = {"x-privyx-session": session_id}
+    return await pipeline.handle(Exchange("POST", path, headers, json.dumps(payload).encode()))
+
+
+async def _mask(
+    engine: PrivacyEngine, payload: dict[str, Any], path: str = CHAT
+) -> tuple[dict[str, Any], str]:
+    """``payload`` as the upstream receives it, and the session it was masked in."""
+    provider = FakeProvider([], batch={})
+    reply = await _send(engine, provider, payload, path=path)
+    assert reply.status_code == 200
+    return provider.sent[-1], reply.headers["x-privyx-session"]
 
 
 def _engine() -> PrivacyEngine:
@@ -129,8 +139,13 @@ def _split(text: str, size: int) -> list[str]:
     return [text[i : i + size] for i in range(0, len(text), size)] or [""]
 
 
-async def _run_stream(proxy: HTTPProxy, payload: dict[str, Any], session_id: str) -> str:
-    return "".join([chunk async for chunk in proxy.process_stream(payload, session_id)])
+async def _run_stream(
+    engine: PrivacyEngine, provider: FakeProvider, session_id: str, path: str = CHAT
+) -> str:
+    """The stream a client gets when ``provider`` replays its chunks in ``session_id``."""
+    reply = await _send(engine, provider, {"stream": True}, session_id, path)
+    assert reply.stream is not None
+    return "".join([c if isinstance(c, str) else c.decode() async for c in reply.stream])
 
 
 # --------------------------------------------------------------------------
@@ -149,9 +164,9 @@ async def test_stream_restores_pseudonym_at_any_framing(chunk_size: int | None) 
     body blind, so events and pseudonyms are split at arbitrary offsets.
     """
     engine = _engine()
-    proxy_payload, session_id = await HTTPProxy(
-        engine=engine, provider=FakeProvider([]), stream_adapter=OpenAIStreamAdapter()
-    ).process_request({"messages": [{"role": "user", "content": f"Email {EMAIL} please"}]})
+    _, session_id = await _mask(
+        engine, {"messages": [{"role": "user", "content": f"Email {EMAIL} please"}]}
+    )
 
     session = await engine.vault.get(session_id)
     assert session is not None
@@ -160,10 +175,8 @@ async def test_stream_restores_pseudonym_at_any_framing(chunk_size: int | None) 
 
     body = _openai_sse(["Sure, ", "writing to ", pseudonym, " now."])
     chunks = [body] if chunk_size is None else _split(body, chunk_size)
-    provider = FakeProvider(chunks)
-    proxy = HTTPProxy(engine=engine, provider=provider, stream_adapter=OpenAIStreamAdapter())
 
-    out = await _run_stream(proxy, proxy_payload, session_id)
+    out = await _run_stream(engine, FakeProvider(chunks), session_id)
 
     assert pseudonym not in out, "pseudonym leaked to the client"
     text = _collect_text(out, OpenAIStreamAdapter())
@@ -178,9 +191,9 @@ async def test_stream_pseudonym_split_across_events() -> None:
     independent; this is the case where both are mid-flight at once.
     """
     engine = _engine()
-    proxy_payload, session_id = await HTTPProxy(
-        engine=engine, provider=FakeProvider([]), stream_adapter=OpenAIStreamAdapter()
-    ).process_request({"messages": [{"role": "user", "content": f"Call {PHONE}"}]})
+    _, session_id = await _mask(
+        engine, {"messages": [{"role": "user", "content": f"Call {PHONE}"}]}
+    )
 
     session = await engine.vault.get(session_id)
     assert session is not None
@@ -188,10 +201,8 @@ async def test_stream_pseudonym_split_across_events() -> None:
 
     # One character per event — the pathological case.
     deltas = ["Number: ", *pseudonym, " ok"]
-    provider = FakeProvider([_openai_sse(deltas)])
-    proxy = HTTPProxy(engine=engine, provider=provider, stream_adapter=OpenAIStreamAdapter())
 
-    out = await _run_stream(proxy, proxy_payload, session_id)
+    out = await _run_stream(engine, FakeProvider([_openai_sse(deltas)]), session_id)
 
     assert _collect_text(out, OpenAIStreamAdapter()) == f"Number: {PHONE} ok"
 
@@ -206,11 +217,7 @@ async def test_stream_flushes_held_text_before_done() -> None:
     session = await engine.get_or_create_session()
     # A prefix that looks like a pseudonym start but never completes.
     body = _openai_sse(["done <PRIVYX_EMA"])
-    proxy = HTTPProxy(
-        engine=engine, provider=FakeProvider([body]), stream_adapter=OpenAIStreamAdapter()
-    )
-
-    out = await _run_stream(proxy, {}, session.session_id)
+    out = await _run_stream(engine, FakeProvider([body]), session.session_id)
 
     assert _collect_text(out, OpenAIStreamAdapter()) == "done <PRIVYX_EMA"
 
@@ -225,11 +232,7 @@ async def test_stream_preserves_non_text_events() -> None:
         + 'data: {"usage":{"total_tokens":7}}\n\n'
         + "data: [DONE]\n\n"
     )
-    proxy = HTTPProxy(
-        engine=engine, provider=FakeProvider([body]), stream_adapter=OpenAIStreamAdapter()
-    )
-
-    out = await _run_stream(proxy, {}, session.session_id)
+    out = await _run_stream(engine, FakeProvider([body]), session.session_id)
 
     decoder = SSEDecoder()
     events = decoder.feed(out) + decoder.flush()
@@ -241,25 +244,23 @@ async def test_stream_preserves_non_text_events() -> None:
 async def test_stream_anthropic_events() -> None:
     """The Anthropic adapter round-trips through the same proxy path."""
     engine = _engine()
-    proxy_payload, session_id = await HTTPProxy(
-        engine=engine, provider=FakeProvider([]), stream_adapter=AnthropicStreamAdapter()
-    ).process_request(
+    sent, session_id = await _mask(
+        engine,
         {
             "system": f"Reply to {EMAIL}",
             "messages": [{"role": "user", "content": "hi"}],
-        }
+        },
+        "/v1/messages",
     )
-    assert EMAIL not in json.dumps(proxy_payload)
+    assert EMAIL not in json.dumps(sent)
 
     session = await engine.vault.get(session_id)
     assert session is not None
     (pseudonym,) = session.mapping.keys()
 
     body = _anthropic_sse(["Sent to ", pseudonym[:6], pseudonym[6:], "."])
-    provider = FakeProvider(_split(body, 11))
-    proxy = HTTPProxy(engine=engine, provider=provider, stream_adapter=AnthropicStreamAdapter())
 
-    out = await _run_stream(proxy, proxy_payload, session_id)
+    out = await _run_stream(engine, FakeProvider(_split(body, 11)), session_id, "/v1/messages")
 
     assert pseudonym not in out
     assert _collect_text(out, AnthropicStreamAdapter()) == f"Sent to {EMAIL}."
@@ -271,11 +272,7 @@ async def test_stream_unterminated_final_event_is_emitted() -> None:
     engine = _engine()
     session = await engine.get_or_create_session()
     body = _openai_event("hello ") + 'data: {"choices":[{"delta":{"content":"world"}}]}'
-    proxy = HTTPProxy(
-        engine=engine, provider=FakeProvider([body]), stream_adapter=OpenAIStreamAdapter()
-    )
-
-    out = await _run_stream(proxy, {}, session.session_id)
+    out = await _run_stream(engine, FakeProvider([body]), session.session_id)
 
     assert _collect_text(out, OpenAIStreamAdapter()) == "hello world"
 
@@ -283,13 +280,9 @@ async def test_stream_unterminated_final_event_is_emitted() -> None:
 async def test_stream_with_unknown_session_passes_text_through() -> None:
     """An unknown session must not raise — it has no mapping, so text is verbatim."""
     engine = _engine()
-    proxy = HTTPProxy(
-        engine=engine,
-        provider=FakeProvider([_openai_sse(["plain text"])]),
-        stream_adapter=OpenAIStreamAdapter(),
-    )
+    provider = FakeProvider([_openai_sse(["plain text"])])
 
-    out = await _run_stream(proxy, {}, "ses_does_not_exist")
+    out = await _run_stream(engine, provider, "ses_does_not_exist")
 
     assert _collect_text(out, OpenAIStreamAdapter()) == "plain text"
 
@@ -300,11 +293,7 @@ async def test_stream_bytes_chunks_are_decoded() -> None:
     session = await engine.get_or_create_session()
     body = _openai_sse(["héllo ", "wörld"])
     chunks: list[Any] = [c.encode() for c in _split(body, 9)]
-    proxy = HTTPProxy(
-        engine=engine, provider=FakeProvider(chunks), stream_adapter=OpenAIStreamAdapter()
-    )
-
-    out = await _run_stream(proxy, {}, session.session_id)
+    out = await _run_stream(engine, FakeProvider(chunks), session.session_id)
 
     assert _collect_text(out, OpenAIStreamAdapter()) == "héllo wörld"
 
@@ -323,11 +312,7 @@ async def test_stream_multibyte_split_across_byte_chunks(chunk_size: int) -> Non
     payload = {"choices": [{"delta": {"content": text}}]}
     raw = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
     chunks: list[Any] = [raw[i : i + chunk_size] for i in range(0, len(raw), chunk_size)]
-    proxy = HTTPProxy(
-        engine=engine, provider=FakeProvider(chunks), stream_adapter=OpenAIStreamAdapter()
-    )
-
-    out = await _run_stream(proxy, {}, session.session_id)
+    out = await _run_stream(engine, FakeProvider(chunks), session.session_id)
 
     assert _collect_text(out, OpenAIStreamAdapter()) == text
     assert "�" not in out
@@ -337,10 +322,9 @@ async def test_stream_multibyte_split_across_byte_chunks(chunk_size: int) -> Non
 # Request / batch response
 
 
-async def test_process_request_pseudonymizes_all_text_fields() -> None:
+async def test_a_request_is_pseudonymized_in_all_text_fields() -> None:
     """Message strings, content parts and the system prompt are all covered."""
     engine = _engine()
-    proxy = HTTPProxy(engine=engine, provider=FakeProvider([]))
     payload = {
         "system": f"Operator is {EMAIL}",
         "messages": [
@@ -356,7 +340,7 @@ async def test_process_request_pseudonymizes_all_text_fields() -> None:
     }
     original = json.dumps(payload)
 
-    transformed, session_id = await proxy.process_request(payload)
+    transformed, session_id = await _mask(engine, payload)
 
     serialized = json.dumps(transformed)
     assert EMAIL not in serialized
@@ -374,55 +358,54 @@ async def test_process_request_pseudonymizes_all_text_fields() -> None:
     assert transformed["system"] == f"Operator is {email_pseudonym}"
 
 
-async def test_process_response_restores_batch_content() -> None:
-    """A non-streaming response is deanonymized in place."""
+async def test_a_batch_reply_is_restored() -> None:
+    """A non-streaming response is deanonymized."""
     engine = _engine()
-    proxy = HTTPProxy(engine=engine, provider=FakeProvider([]))
-    transformed, session_id = await proxy.process_request(
-        {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+    _, session_id = await _mask(
+        engine, {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
     )
     session = await engine.vault.get(session_id)
     assert session is not None
     pseudonym = session.pseudonym_for(EMAIL)
 
     response = {"choices": [{"message": {"role": "assistant", "content": f"ok, {pseudonym}"}}]}
-    restored = await proxy.process_response(response, session_id)
+    reply = await _send(engine, FakeProvider([], batch=response), {}, session_id)
 
-    assert restored["choices"][0]["message"]["content"] == f"ok, {EMAIL}"
+    assert reply.body is not None
+    assert json.loads(reply.body)["choices"][0]["message"]["content"] == f"ok, {EMAIL}"
 
 
-async def test_process_response_unknown_session_is_not_an_error() -> None:
-    """A missing session leaves the response untouched rather than raising."""
-    proxy = HTTPProxy(engine=_engine(), provider=FakeProvider([]))
+async def test_a_reply_in_an_unknown_session_is_not_an_error() -> None:
+    """A session with no mapping leaves the response untouched rather than raising."""
     response = {"choices": [{"message": {"content": "<PRIVYX_EMAIL_1>"}}]}
 
-    restored = await proxy.process_response(response, "ses_missing")
+    reply = await _send(_engine(), FakeProvider([], batch=response), {}, "ses_missing")
 
-    assert restored["choices"][0]["message"]["content"] == "<PRIVYX_EMAIL_1>"
+    assert reply.body is not None
+    assert json.loads(reply.body)["choices"][0]["message"]["content"] == "<PRIVYX_EMAIL_1>"
 
 
-async def test_send_batch_forwards_payload() -> None:
+async def test_a_batch_request_is_forwarded() -> None:
     provider = FakeProvider([], batch={"ok": True})
-    proxy = HTTPProxy(engine=_engine(), provider=provider)
 
-    result = await proxy.send_batch({"model": "x"})
+    reply = await _send(_engine(), provider, {"model": "x"})
 
-    assert result == {"ok": True}
+    assert reply.body is not None and json.loads(reply.body) == {"ok": True}
     assert provider.sent == [{"model": "x"}]
 
 
 async def test_the_provider_decides_where_a_batch_goes() -> None:
     provider = FakeProvider([], batch={"ok": True})
-    await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/embeddings")
-    await HTTPProxy(_engine(), provider).send_batch({}, path="/v1/chat/completions")
+    await _send(_engine(), provider, {}, path="/v1/embeddings")
+    await _send(_engine(), provider, {}, path="/v1/chat/completions")
 
     assert provider.paths == ["/v1/embeddings", "/v1/chat/completions"]
 
 
 async def test_an_upstream_error_keeps_its_status_and_body() -> None:
     provider = FakeProvider([], batch={"error": "quota"}, status=429)
-    with pytest.raises(ProviderError) as caught:
-        await HTTPProxy(_engine(), provider).send_batch({})
 
-    assert caught.value.status_code == 429
-    assert json.loads(caught.value.body) == {"error": "quota"}
+    reply = await _send(_engine(), provider, {})
+
+    assert reply.status_code == 429
+    assert reply.body is not None and json.loads(reply.body) == {"error": "quota"}

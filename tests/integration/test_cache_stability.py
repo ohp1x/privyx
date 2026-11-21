@@ -19,11 +19,12 @@ import httpx
 import pytest
 
 from privyx.anchors import HMACAnchor
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
 from privyx.testing import opened
 from privyx.vaults import MemoryVault
 
@@ -71,7 +72,7 @@ async def test_echoed_turns_are_byte_identical(
         vault=MemoryVault(),
         directive=directive,
     )
-    proxy = TransparentProxy(
+    proxy = Pipeline(
         engine,
         origin="https://up.test",
         client=httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
@@ -92,7 +93,7 @@ async def test_echoed_turns_are_byte_identical(
     for text in USERS:
         request["messages"].append({"role": "user", "content": text})
         result = await proxy.handle(
-            method="POST", path=path, headers=headers, body=json.dumps(request).encode()
+            Exchange(method="POST", path=path, headers=headers, body=json.dumps(request).encode())
         )
         assert result.status_code == 200
         request["messages"].append(_assistant(json.loads(result.body), schema))

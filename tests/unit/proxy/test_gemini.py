@@ -11,8 +11,8 @@ from privyx.engine import PrivacyEngine
 from privyx.observability.usage import UsageMeter
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
+from privyx.proxy._session import resolve_session_id
 from privyx.proxy.schemas import detect_schema, restore_response, transform_request
-from privyx.proxy.session import resolve_session_id
 from privyx.proxy.stream_router import StreamRouter, restore_chunks
 from privyx.streaming.adapters.registry import build_stream_adapter
 from privyx.streaming.sse import SSEDecoder

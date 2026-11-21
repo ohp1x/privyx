@@ -30,9 +30,8 @@ from privyx.config.schema import Settings
 from privyx.core import ConfigError, Context, ListenerError
 from privyx.detectors import Detector
 from privyx.events import AppStarting, AppStopping
-from privyx.gateway.server import Gateway
-from privyx.gateway.transparent import create_transparent_app
 from privyx.providers import GenericProvider
+from privyx.proxy._asgi import create_app
 from privyx.proxy._plugin_routes import include_router
 from privyx.testing import services
 from privyx.token.codec import FormatCodec
@@ -573,7 +572,7 @@ def test_config_schema_asks_no_password_manager(
 ) -> None:
     from click.testing import CliRunner
 
-    import privyx.config.loader as loader
+    import privyx.config._layers as loader
     from privyx.cli.main import cli
 
     def refuse(*args: Any, **kwargs: Any) -> Any:
@@ -795,7 +794,7 @@ async def _get(app: Any, path: str) -> httpx.Response:
 
 
 async def test_both_apps_serve_plugin_routes_before_their_own() -> None:
-    from privyx.cli.commands.proxy import build_transparent_proxy
+    from privyx.app._serve import build_pipeline
 
     router = APIRouter()
 
@@ -808,12 +807,12 @@ async def test_both_apps_serve_plugin_routes_before_their_own() -> None:
 
     settings = Settings(audit={"enabled": False})
     engine, close = await build_engine(settings)
-    proxy = build_transparent_proxy(settings, engine, None)
-    transparent = create_transparent_app(engine, proxy, settings, router)
+    proxy = build_pipeline(settings, engine, GenericProvider())
+    transparent = create_app(proxy, settings, router)
     gateway_settings = Settings(proxy={"mode": "gateway"}, audit={"enabled": False})
     provider = GenericProvider(base_url="https://up.test/v1/chat/completions")
-    gateway_app = Gateway(engine, provider, gateway_settings, router=router)
-    gateway = gateway_app.app
+    gateway_pipeline = build_pipeline(gateway_settings, engine, provider)
+    gateway = create_app(gateway_pipeline, gateway_settings, router)
     try:
         assert (await _get(transparent, "/acme/status")).json() == {"mode": "transparent"}
         assert (await _get(gateway, "/acme/status")).json() == {"mode": "gateway"}
@@ -821,7 +820,7 @@ async def test_both_apps_serve_plugin_routes_before_their_own() -> None:
         assert transparent.state.engine is engine and gateway.state.engine is engine
     finally:
         await proxy.close()
-        await gateway_app.close()
+        await gateway_pipeline.close()
         await close()
 
 
@@ -855,24 +854,22 @@ async def test_engine_uses_the_components_added_in_code(tmp_path: Path) -> None:
 
 def test_overrides_win_over_the_config_file(tmp_path: Path) -> None:
     px = Privyx(_config(tmp_path, {"port": 9001, "log_level": "debug"}), port=9002)
-    settings = px._settings()
+    settings = px.settings
     assert (settings.port, settings.log_level) == (9002, "debug")
 
 
-def test_run_serves_the_proxy_with_routes_and_listeners(
+def test_serve_serves_the_proxy_with_routes_and_listeners(
     bundle: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import privyx.cli.commands.proxy as proxy_cmd
-
     answers: list[Any] = []
 
     async def serve(server: Any, event: Any) -> None:
         answers.append((await _get(server.config.app, "/acme/ping")).json())
 
-    monkeypatch.setattr(proxy_cmd, "_serve_until_reload", serve)
+    monkeypatch.setattr("privyx.app._serve.serve_until", serve)
     config = _config(tmp_path, {"plugins": {"modules": [bundle]}, "audit": {"enabled": False}})
 
-    Privyx(config).run()
+    Privyx(config).serve()
 
     assert answers == [{"engine": "PrivacyEngine"}]
     assert sys.modules[bundle].EVENTS == ["app.starting", "app.stopping"]
@@ -881,14 +878,12 @@ def test_run_serves_the_proxy_with_routes_and_listeners(
 def test_a_starting_listener_that_fails_stops_the_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import privyx.cli.commands.proxy as proxy_cmd
-
     served: list[bool] = []
 
     async def serve(server: Any, event: Any) -> None:
         served.append(True)
 
-    monkeypatch.setattr(proxy_cmd, "_serve_until_reload", serve)
+    monkeypatch.setattr("privyx.app._serve.serve_until", serve)
     px = Privyx(_config(tmp_path, {"audit": {"enabled": False}}))
     stopped: list[str] = []
 
@@ -901,6 +896,6 @@ def test_a_starting_listener_that_fails_stops_the_server(
         stopped.append(event.name)
 
     with pytest.raises(ListenerError, match="refuse failed on app.starting: no license"):
-        px.run()
+        px.serve()
     assert served == []
     assert stopped == []

@@ -11,7 +11,7 @@ import yaml
 from click.testing import CliRunner
 
 from privyx.cli.main import cli
-from privyx.config.redact import redact_argv
+from privyx.security import redact_argv
 
 
 def test_dry_run_is_side_effect_free(

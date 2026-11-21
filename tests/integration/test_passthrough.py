@@ -22,13 +22,14 @@ import uvicorn
 from privyx import load_config
 from privyx.app._build import build_engine
 from privyx.config.schema import VaultConfig
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.gateway.transparent import create_transparent_app
 from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
+from privyx.proxy._asgi import create_app
 from privyx.vaults import MemoryVault
 
 CHUNK = b"x" * 65536
@@ -50,7 +51,7 @@ async def test_unknown_route_audit_never_records_client_content(
         return httpx.Response(200, content=b"ok")
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        proxy = TransparentProxy(
+        proxy = Pipeline(
             _engine(),
             origin="https://up.test",
             client=client,
@@ -58,11 +59,13 @@ async def test_unknown_route_audit_never_records_client_content(
             passthrough_unknown=allowed,
         )
         result = await proxy.handle(
-            method="POST",
-            path="files/path-canary@example.test",
-            headers={"authorization": "Bearer credential-canary", "x-secret": "header-canary"},
-            body=b"payload-canary",
-            query_params={"secret": "query-canary"},
+            Exchange(
+                method="POST",
+                path="files/path-canary@example.test",
+                headers={"authorization": "Bearer credential-canary", "x-secret": "header-canary"},
+                body=b"payload-canary",
+                query=[("secret", "query-canary")],
+            )
         )
         if result.stream is not None:
             assert b"".join([chunk async for chunk in result.stream]) == b"ok"
@@ -96,7 +99,7 @@ async def test_strict_preset_blocks_unknown_body_without_reading_or_forwarding()
 
     try:
         async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-            proxy = TransparentProxy(
+            proxy = Pipeline(
                 engine,
                 origin="https://up.test",
                 client=client,
@@ -104,7 +107,7 @@ async def test_strict_preset_blocks_unknown_body_without_reading_or_forwarding()
                 passthrough_unknown=settings.proxy.passthrough_unknown,
             )
             result = await proxy.handle(
-                method="POST", path="v1/files", headers={}, body=unread_body()
+                Exchange(method="POST", path="v1/files", headers={}, body=unread_body())
             )
             assert result.status_code == 403
     finally:
@@ -131,10 +134,10 @@ async def test_a_download_reaches_the_client_as_it_arrives() -> None:
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _: httpx.Response(200, content=download()))
     )
-    proxy = TransparentProxy(_engine(), origin="https://up.test", client=client)
+    proxy = Pipeline(_engine(), origin="https://up.test", client=client)
 
     result = await asyncio.wait_for(
-        proxy.handle(method="GET", path="v1/files/f/content", headers={}, body=b""), 5
+        proxy.handle(Exchange(method="GET", path="v1/files/f/content", headers={}, body=b"")), 5
     )
     assert result.stream is not None
     chunks = aiter(result.stream)
@@ -174,8 +177,8 @@ async def test_an_upload_goes_upstream_as_it_arrives_with_its_length() -> None:
     sock = socket.create_server(("127.0.0.1", 0))
     server = uvicorn.Server(uvicorn.Config(upstream, log_level="warning", lifespan="off"))
     serving = asyncio.create_task(server.serve(sockets=[sock]))
-    proxy = TransparentProxy(_engine(), origin=f"http://127.0.0.1:{sock.getsockname()[1]}")
-    app = create_transparent_app(_engine(), proxy)
+    proxy = Pipeline(_engine(), origin=f"http://127.0.0.1:{sock.getsockname()[1]}")
+    app = create_app(proxy)
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"

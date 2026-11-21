@@ -17,12 +17,13 @@ import pytest
 
 from privyx.app._build import build_provider
 from privyx.config.schema import Settings
+from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.providers import GoogleProvider
-from privyx.proxy.transparent import TransparentProxy
+from privyx.providers import GenericProvider, GoogleProvider
+from privyx.proxy import Pipeline
 from privyx.streaming.sse import SSEDecoder
 from privyx.vaults import MemoryVault
 
@@ -95,15 +96,20 @@ def _parts(chunks: list[dict[str, Any]]) -> tuple[str, list[Any]]:
 
 async def _transparent(path: str, query: list[tuple[str, str]] | None = None) -> Any:
     capture: list[httpx.Request] = []
-    proxy = TransparentProxy(
-        _engine(), origin="https://gemini.test", client=_upstream(capture), api_key=KEY
+    proxy = Pipeline(
+        _engine(),
+        GenericProvider(api_key=KEY),
+        origin="https://gemini.test",
+        client=_upstream(capture),
     )
     response = await proxy.handle(
-        method="POST",
-        path=path,
-        headers={"content-type": "application/json", "x-goog-api-key": "client-key"},
-        body=_request(),
-        query_params=query,
+        Exchange(
+            method="POST",
+            path=path,
+            headers={"content-type": "application/json", "x-goog-api-key": "client-key"},
+            body=_request(),
+            query=query or [],
+        )
     )
     body = response.body
     if body is None:
@@ -147,17 +153,29 @@ async def test_transparent_batch_reply_is_restored() -> None:
 # -- gateway ----------------------------------------------------------------
 
 
+def _gateway_pipeline(
+    engine: PrivacyEngine, settings: Settings, client: httpx.AsyncClient | None = None
+) -> Pipeline:
+    """The gateway of ``settings``, sending its requests with ``client``."""
+    return Pipeline(
+        engine,
+        build_provider(settings),
+        gateway=True,
+        routes=dict(settings.proxy.routes),
+        session_strategy=settings.session.strategy,
+        client=client,
+    )
+
+
 def _gateway(capture: list[httpx.Request], base_url: str = "") -> httpx.AsyncClient:
     pytest.importorskip("fastapi")
-    from privyx.gateway.server import Gateway
+    from privyx.proxy._asgi import create_app
 
     settings = Settings(provider={"type": "google", "base_url": base_url, "api_key": KEY})
-    provider = build_provider(settings)
-    assert isinstance(provider, GoogleProvider)
-    gateway = Gateway(
-        engine=_engine(), provider=provider, settings=settings, client=_upstream(capture)
-    )
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=gateway.app), base_url="http://p")
+    assert isinstance(build_provider(settings), GoogleProvider)
+    pipeline = _gateway_pipeline(_engine(), settings, _upstream(capture))
+    app = create_app(pipeline, settings)
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://p")
 
 
 @pytest.mark.parametrize(
@@ -227,37 +245,27 @@ async def test_gateway_base_url_keeps_its_root() -> None:
 
 
 async def test_gateway_serves_gemini_routes_only_with_the_google_provider() -> None:
-    pytest.importorskip("fastapi")
-    from privyx.gateway.server import Gateway
-
-    settings = Settings(provider={"type": "openai"})
-    gateway = Gateway(engine=_engine(), provider=build_provider(settings), settings=settings)
+    gateway = _gateway_pipeline(_engine(), Settings(provider={"type": "openai"}))
 
     assert "gemini" not in gateway.routes.values()
-    google = Settings(provider={"type": "google"})
-    with_google = Gateway(engine=_engine(), provider=build_provider(google), settings=google)
+    with_google = _gateway_pipeline(_engine(), Settings(provider={"type": "google"}))
     assert "/*/models/*:countTokens" in with_google.routes
 
 
 @pytest.mark.parametrize("mode", ["transparent", "gateway"])
 async def test_directive_reaches_generate_but_not_count_tokens(mode: str) -> None:
     pytest.importorskip("fastapi")
-    from privyx.gateway.server import Gateway
+    from privyx.proxy._asgi import create_app
 
     capture: list[httpx.Request] = []
     engine = _engine()
     engine.directive = True
     if mode == "gateway":
         settings = Settings(provider={"type": "google"})
-        provider = build_provider(settings)
-        app = Gateway(
-            engine=engine, provider=provider, settings=settings, client=_upstream(capture)
-        ).app
+        app = create_app(_gateway_pipeline(engine, settings, _upstream(capture)), settings)
     else:
-        from privyx.gateway.transparent import create_transparent_app
-
-        proxy = TransparentProxy(engine, origin="https://g.test", client=_upstream(capture))
-        app = create_transparent_app(engine, proxy)
+        proxy = Pipeline(engine, origin="https://g.test", client=_upstream(capture))
+        app = create_app(proxy)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://p"
     ) as client:

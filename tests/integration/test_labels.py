@@ -13,12 +13,11 @@ from privyx.app._build import build_engine
 from privyx.config.schema import Settings
 from privyx.core import ConfigError, Context, Detection, Session
 from privyx.engine import PrivacyEngine
-from privyx.gateway.server import Gateway
-from privyx.gateway.transparent import create_transparent_app
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.providers import GenericProvider
+from privyx.proxy import Pipeline
+from privyx.proxy._asgi import create_app
 from privyx.proxy.schemas import directive
-from privyx.proxy.transparent import TransparentProxy
 from privyx.testing import services
 from privyx.token.codec import LabelCodec
 
@@ -233,12 +232,22 @@ async def _apps(seen: list[dict[str, Any]], **proxy: Any) -> list[Any]:
         proxy={"directive": True, **proxy},
     )
     engine = await _engine(settings)
-    transparent = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
+    transparent = Pipeline(engine, origin="https://up.test", client=_upstream(seen))
     gateway_settings = settings.model_copy(update={"proxy": settings.proxy.model_copy()})
     provider = GenericProvider(base_url="https://up.test/v1/chat/completions")
     return [
-        create_transparent_app(engine, transparent, settings),
-        Gateway(engine, provider, gateway_settings, client=_upstream(seen)).app,
+        create_app(transparent, settings),
+        create_app(
+            Pipeline(
+                engine,
+                provider,
+                gateway=True,
+                routes=dict(gateway_settings.proxy.routes),
+                session_strategy=gateway_settings.session.strategy,
+                client=_upstream(seen),
+            ),
+            gateway_settings,
+        ),
     ]
 
 

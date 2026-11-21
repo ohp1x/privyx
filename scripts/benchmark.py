@@ -23,14 +23,14 @@ import httpx
 from privyx.app._build import build_engine
 from privyx.config.defaults import DEFAULTS
 from privyx.config.schema import Settings
-from privyx.core import Context, Session
+from privyx.core import Context, Exchange, Session
 from privyx.detectors import RegexDetector
 from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
 from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
 from privyx.vaults import MemoryVault
 
@@ -140,12 +140,12 @@ async def bench_request(kb: int, new_content: bool, n: int = 10) -> tuple[float,
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json=reply))
     )
-    proxy = TransparentProxy(engine, origin="http://upstream.test", client=client, audit=audit)
+    proxy = Pipeline(engine, origin="http://upstream.test", client=client, audit=audit)
     headers = {"content-type": "application/json", "x-api-key": "k"}
 
     async def send(tag: str) -> None:
         body = _claude_code_body(kb, tag)
-        await proxy.handle(method="POST", path="v1/messages", headers=headers, body=body)
+        await proxy.handle(Exchange(method="POST", path="v1/messages", headers=headers, body=body))
 
     await send("warmup")
     if not new_content:

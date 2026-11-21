@@ -33,3 +33,6 @@ BUILTIN_ENTITIES = frozenset(
         "ICD10",
     }
 )
+
+#: Built-in entities that are credentials, not personal data.
+SECRET_TYPES = ("API_KEY", "PRIVATE_KEY", "JWT", "AUTH_TOKEN", "URL_CREDENTIAL", "SECRET")

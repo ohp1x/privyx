@@ -7,6 +7,7 @@ Nothing here imports another Privyx package at run time.  Names outside
 from privyx.core._component import Component, Options, Services
 from privyx.core._context import Context
 from privyx.core._entities import BUILTIN_ENTITIES as BUILTIN_ENTITIES
+from privyx.core._entities import SECRET_TYPES as SECRET_TYPES
 from privyx.core._errors import (
     ConfigError,
     DetectorError,
@@ -20,6 +21,7 @@ from privyx.core._errors import (
     VaultError,
 )
 from privyx.core._events import Event, EventBus, Interceptable, ListenerError, Notification
+from privyx.core._exchange import Exchange
 from privyx.core._ids import request_id as request_id
 from privyx.core._json import leaf_text as leaf_text
 from privyx.core._json import map_values as map_values
@@ -41,6 +43,7 @@ __all__ = [
     "DetectorError",
     "Event",
     "EventBus",
+    "Exchange",
     "Interceptable",
     "LeakError",
     "ListenerError",

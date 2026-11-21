@@ -10,8 +10,8 @@ import pytest
 import yaml
 
 from privyx import load_config
+from privyx.config import trust
 from privyx.config.defaults import DEFAULT_AGENTS
-from privyx.config.loader import trust
 from privyx.core import ConfigError
 from privyx.providers import resolve_api_key
 

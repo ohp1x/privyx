@@ -171,7 +171,7 @@ class LaunchPlan:
     session: str
     anchor: str
     native_endpoint: tuple[str, str] | None = field(default=None, repr=False)
-    #: Set when each request names its upstream (pi); see TransparentProxy.
+    #: Set when each request names its upstream (pi); see privyx.proxy.Pipeline.
     run_token: str | None = field(default=None, repr=False)
 
     def bind_port(self, port: int) -> LaunchPlan:

@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from privyx.cli.commands.hook import _added_lines
 from privyx.cli.main import cli
+from privyx.workspace import added_lines as _added_lines
 
 KEY = "sk-" + "proj-abcdefghijklmnopqrstuvwxyz123456"
 

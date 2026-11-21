@@ -48,8 +48,7 @@ from contextlib import AbstractAsyncContextManager, nullcontext
 from functools import lru_cache
 from typing import Any
 
-from privyx.core import LeakError, Session, leaf_text, put_back
-from privyx.detectors._pattern import SECRET_TYPES
+from privyx.core import SECRET_TYPES, LeakError, Session, leaf_text, put_back
 from privyx.engine import PrivacyEngine
 from privyx.token.codec import FormatCodec, LabelCodec
 from privyx.token.model import LogicalToken

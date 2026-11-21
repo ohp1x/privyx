@@ -11,12 +11,12 @@ import click
 def config_options[F: Callable[..., Any]](fn: F) -> F:
     """Add ``--config``/``-c`` (as ``config_path``) and ``--preset NAME`` (repeatable).
 
-    The presets go to :data:`privyx.config.loader.CHOSEN_PRESETS`, which every
+    The presets go to :data:`privyx.config.CHOSEN_PRESETS`, which every
     ``load_config`` the command makes reads, and are cleared when it ends.
     """
 
     def choose(ctx: click.Context, _param: click.Parameter, value: tuple[str, ...]) -> None:
-        from privyx.config.loader import CHOSEN_PRESETS
+        from privyx.config import CHOSEN_PRESETS
 
         if value:
             token = CHOSEN_PRESETS.set(value)

@@ -1,9 +1,9 @@
 """What a workspace tells about its people, owners, and secrets.
 
 ``privyx scan`` writes what it finds to a config file, after asking;
-``privyx run --harvest`` masks it for one run, in memory. This module provides
-readers for git history and remotes, package manifests, and ``.env`` files.
-Runtime harvest also collects the local OS username.
+``privyx run --harvest`` masks it for one run, in memory (:func:`harvest`).
+This module provides readers for git history and remotes, package manifests,
+and ``.env`` files.  Runtime harvest also collects the local OS username.
 """
 
 from __future__ import annotations
@@ -15,7 +15,11 @@ import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from privyx.config.schema import Settings
 
 #: Commits ``privyx run --harvest`` reads authors from, so a long history does
 #: not slow every launch.  ``privyx scan`` reads them all.
@@ -207,3 +211,33 @@ def _toml(text: str, *keys: str) -> object:
 def _json_name(text: str) -> object:
     data = json.loads(text)
     return data.get("name") if isinstance(data, dict) else None
+
+
+def harvest(settings: Settings, root: Path) -> str:
+    """Add a detector for what ``root`` tells to ``settings``; return what it masks.
+
+    A detector of its own, so a ``patterns`` entry of the user's for the same
+    entity cannot override it.  Only counts are returned: the values are
+    never shown or written.
+    """
+    from privyx.config.schema import DetectorConfig
+
+    terms: dict[str, list[str]] = {}
+    for item in unique(git_terms(root, HARVEST_COMMITS) + os_user_terms()):
+        terms.setdefault(item.entity, []).append(item.value)
+    values: dict[str, set[str]] = {}
+    for key, value, _ in env_values(root):
+        entity = env_entity(key)
+        if entity:
+            values.setdefault(entity, set()).add(re.escape(value))
+    # Literal and case-sensitive, as a secret is: the fastest regex to search.
+    patterns = {e: "|".join(sorted(v, key=lambda p: (-len(p), p))) for e, v in values.items()}
+    if terms or patterns:
+        current = settings.detector if isinstance(settings.detector, list) else [settings.detector]
+        added = DetectorConfig.model_validate(
+            {"type": "yaml", "terms": terms, "patterns": patterns}
+        )
+        settings.detector = [*current, added]
+    counts = [f"{len(v)} {entity}" for entity, v in sorted(terms.items())]
+    counts.append(f"{sum(map(len, values.values()))} .env value(s)")
+    return ", ".join(counts)

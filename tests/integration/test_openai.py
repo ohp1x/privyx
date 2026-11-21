@@ -18,10 +18,9 @@ import pytest
 
 from privyx import load_config
 from privyx.app._build import build_engine
-from privyx.core import ProviderError
+from privyx.core import Exchange
 from privyx.providers import GenericProvider
-from privyx.proxy.http import HTTPProxy
-from privyx.streaming.adapters.registry import build_stream_adapter
+from privyx.proxy import Pipeline, Reply
 from privyx.streaming.sse import SSEDecoder
 
 EMAIL = "alice@example.com"
@@ -94,16 +93,45 @@ class Upstream:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
 
 
-async def build_proxy(upstream: Upstream, **provider_kwargs: Any) -> tuple[HTTPProxy, Any]:
+#: The session every request of a test is masked in.
+SESSION = "ses_openai"
+
+
+async def build_proxy(upstream: Upstream, **provider_kwargs: Any) -> tuple[Pipeline, Any]:
+    """The gateway, posting to ``upstream`` through a client the caller closes."""
     settings = load_config()
     engine, close = await build_engine(settings)
-    proxy = HTTPProxy(
-        engine=engine,
-        provider=GenericProvider(base_url=URL, **provider_kwargs),
-        client=upstream.client(),
-        stream_adapter=build_stream_adapter("openai"),
+    client = upstream.client()
+    proxy = Pipeline(
+        engine, GenericProvider(base_url=URL, **provider_kwargs), gateway=True, client=client
     )
-    return proxy, close
+
+    async def close_all() -> None:
+        await close()
+        await client.aclose()
+
+    return proxy, close_all
+
+
+async def send(proxy: Pipeline, payload: dict[str, Any]) -> Reply:
+    headers = {"x-privyx-session": SESSION}
+    body = json.dumps(payload).encode()
+    return await proxy.handle(Exchange("POST", "/v1/chat/completions", headers, body))
+
+
+async def pseudonym_of(proxy: Pipeline, value: str) -> str:
+    """The pseudonym ``value`` gets in the session, masked once in a batch request."""
+    await send(proxy, {"messages": [{"role": "user", "content": f"mail {value}"}]})
+    session = await proxy.engine.vault.get(SESSION)
+    assert session is not None
+    pseudonym = session.pseudonym_for(value)
+    assert pseudonym is not None
+    return pseudonym
+
+
+async def streamed(reply: Reply) -> str:
+    assert reply.stream is not None
+    return "".join([c if isinstance(c, str) else c.decode() async for c in reply.stream])
 
 
 def collect_content(raw: str) -> str:
@@ -125,20 +153,18 @@ async def test_streaming_round_trip_hides_pii_from_upstream() -> None:
     upstream = Upstream()
     proxy, close = await build_proxy(upstream, api_key="sk-test")
     try:
-        payload, session_id = await proxy.process_request(
-            {
-                "model": "gpt-4o",
-                "stream": True,
-                "messages": [{"role": "user", "content": f"Mail {EMAIL} about SSN {SSN}"}],
-            }
-        )
-        session = await proxy._engine.vault.get(session_id)  # noqa: SLF001
-        assert session is not None
-        email_pseudonym = session.pseudonym_for(EMAIL)
-        assert email_pseudonym is not None
-
+        email_pseudonym = await pseudonym_of(proxy, EMAIL)
         upstream.stream_body = openai_stream_body(["Sure — ", "mailing ", email_pseudonym, "."])
-        out = "".join([c async for c in proxy.process_stream(payload, session_id)])
+        out = await streamed(
+            await send(
+                proxy,
+                {
+                    "model": "gpt-4o",
+                    "stream": True,
+                    "messages": [{"role": "user", "content": f"Mail {EMAIL} about SSN {SSN}"}],
+                },
+            )
+        )
 
         # Upstream never saw the real values...
         sent = json.dumps(upstream.last_payload)
@@ -153,7 +179,6 @@ async def test_streaming_round_trip_hides_pii_from_upstream() -> None:
         assert out.endswith("data: [DONE]\n\n")
     finally:
         await close()
-        await proxy._client.aclose()  # noqa: SLF001
 
 
 @pytest.mark.parametrize("chunk_size", [1, 5, 40, 4096])
@@ -163,21 +188,15 @@ async def test_streaming_survives_upstream_chunk_size(chunk_size: int) -> None:
     upstream.chunk_size = chunk_size
     proxy, close = await build_proxy(upstream)
     try:
-        payload, session_id = await proxy.process_request(
-            {"messages": [{"role": "user", "content": f"mail {EMAIL}"}], "stream": True}
-        )
-        session = await proxy._engine.vault.get(session_id)  # noqa: SLF001
-        assert session is not None
-        pseudonym = session.pseudonym_for(EMAIL)
-        assert pseudonym is not None
-
+        pseudonym = await pseudonym_of(proxy, EMAIL)
         upstream.stream_body = openai_stream_body(["to ", pseudonym, " done"])
-        out = "".join([c async for c in proxy.process_stream(payload, session_id)])
+        out = await streamed(
+            await send(proxy, {"messages": [{"role": "user", "content": "hi"}], "stream": True})
+        )
 
         assert collect_content(out) == f"to {EMAIL} done"
     finally:
         await close()
-        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_batch_round_trip() -> None:
@@ -185,36 +204,32 @@ async def test_batch_round_trip() -> None:
     upstream = Upstream()
     proxy, close = await build_proxy(upstream)
     try:
-        payload, session_id = await proxy.process_request(
-            {"model": "gpt-4o", "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
-        )
-        session = await proxy._engine.vault.get(session_id)  # noqa: SLF001
-        assert session is not None
-        pseudonym = session.pseudonym_for(EMAIL)
-        assert pseudonym is not None
-
+        pseudonym = await pseudonym_of(proxy, EMAIL)
         upstream.json_response = openai_batch_body(f"Replied to {pseudonym}")
-        raw = await proxy.send_batch(payload)
-        result = await proxy.process_response(raw, session_id)
+        reply = await send(
+            proxy, {"model": "gpt-4o", "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+        )
 
+        assert reply.body is not None
+        result = json.loads(reply.body)
         assert result["choices"][0]["message"]["content"] == f"Replied to {EMAIL}"
         assert result["usage"]["total_tokens"] == 42  # untouched fields survive
     finally:
         await close()
-        await proxy._client.aclose()  # noqa: SLF001
 
 
-async def test_upstream_error_becomes_provider_error() -> None:
-    """An upstream 5xx surfaces as ProviderError, not a raw httpx exception."""
+async def test_an_upstream_error_reaches_the_client() -> None:
+    """An upstream 5xx reaches the client with its status and body, not a raw httpx exception."""
     upstream = Upstream()
     upstream.status = 503
     proxy, close = await build_proxy(upstream)
     try:
-        with pytest.raises(ProviderError):
-            await proxy.send_batch({"model": "gpt-4o"})
+        reply = await send(proxy, {"model": "gpt-4o"})
+
+        assert reply.status_code == 503
+        assert reply.body is not None and json.loads(reply.body) == {"error": "upstream said no"}
     finally:
         await close()
-        await proxy._client.aclose()  # noqa: SLF001
 
 
 async def test_the_gateway_closes_only_the_client_it_owns() -> None:
@@ -223,18 +238,16 @@ async def test_the_gateway_closes_only_the_client_it_owns() -> None:
     The gateway is closed on shutdown, so one that closed a shared client would
     break every other user of it.
     """
-    from privyx.gateway.server import Gateway
-
     engine, close = await build_engine(load_config())
     try:
         borrowed = Upstream().client()
-        gateway = Gateway(engine, GenericProvider(base_url=URL), client=borrowed)
+        gateway = Pipeline(engine, GenericProvider(base_url=URL), gateway=True, client=borrowed)
         await gateway.close()
         await gateway.close()  # idempotent
         assert not borrowed.is_closed
         await borrowed.aclose()
 
-        owned = Gateway(engine, GenericProvider(base_url=URL))
+        owned = Pipeline(engine, GenericProvider(base_url=URL), gateway=True)
         await owned.close()
         assert owned._client.is_closed  # noqa: SLF001
     finally:

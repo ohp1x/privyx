@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from privyx.proxy.headers import filter_request_headers, filter_response_headers
+from privyx.proxy._headers import filter_request_headers, filter_response_headers
 
 
 def test_strips_hop_by_hop_keeps_the_rest() -> None:

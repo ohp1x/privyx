@@ -2,9 +2,9 @@
 
 Each check exercises the *configured* component rather than asserting a static
 truth: the vault check writes and reads back a real session through the
-configured backend, and the proxy/streaming checks push a pseudonym through
-:meth:`HTTPProxy.process_stream` split at an awkward boundary.  A check that
-cannot fail is not a check.
+configured backend, the proxy check masks a request as the proxy does, and the
+streaming check pushes a pseudonym through the stream router split at an
+awkward boundary.  A check that cannot fail is not a check.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import importlib.util
 import os
 import secrets
 import sys
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import click
@@ -22,8 +22,6 @@ import click
 from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
-    import httpx
-
     from privyx.app import Privyx
     from privyx.config.schema import Settings
     from privyx.core import Detection
@@ -251,8 +249,8 @@ def _check_provider(settings: Settings, app: Privyx) -> tuple[bool, str]:
         return (False, "httpx not installed")
 
     from privyx.app._build import build_provider
-    from privyx.config.redact import redact
     from privyx.providers import Provider, resolve_base_url
+    from privyx.security import redact
 
     ptype = settings.provider.type
     registry = app.registry(Provider)
@@ -268,9 +266,7 @@ def _check_proxy(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """A request payload survives the proxy with no PII left in it."""
     from privyx.app._build import build_engine
     from privyx.core import Session
-    from privyx.providers import GenericProvider
-    from privyx.proxy.http import HTTPProxy
-    from privyx.streaming.adapters.registry import build_stream_adapter
+    from privyx.proxy.schemas import transform_request
 
     async def _probe() -> tuple[bool, str]:
         engine, close = await build_engine(settings, app)
@@ -280,16 +276,13 @@ def _check_proxy(settings: Settings, app: Privyx) -> tuple[bool, str]:
             text, detection = await _probe_sample(settings, engine.detector, engine.policy)
             if not detection.spans:
                 return (True, "skipped: no diagnostic sample is masked by the detector and policy")
-            proxy = HTTPProxy(
-                engine=engine,
-                provider=GenericProvider(),
-                client=_replay([]),
-                stream_adapter=build_stream_adapter(settings.provider.type),
+            payload = await transform_request(
+                {"messages": [{"role": "user", "content": text}]},
+                engine,
+                session.session_id,
+                schema="openai",
             )
-            payload, session_id = await proxy.process_request(
-                {"messages": [{"role": "user", "content": text}]}, session.session_id
-            )
-            stored = await engine.vault.get(session_id or "")
+            stored = await engine.vault.get(session.session_id)
             transformed = payload["messages"][0]["content"]
             remainder = transformed
             if stored:
@@ -321,9 +314,7 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
 
     from privyx.app._build import build_engine
     from privyx.core import Session
-    from privyx.providers import GenericProvider
-    from privyx.proxy.http import HTTPProxy
-    from privyx.proxy.stream_router import resolver_for
+    from privyx.proxy.stream_router import StreamRouter, resolver_for, select_processor_factory
     from privyx.streaming.adapters.openai import OpenAIStreamAdapter
     from privyx.streaming.sse import parse_sse
 
@@ -352,13 +343,20 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
             encoded = json.dumps(pseudonym)[1:-1]
             midpoint = body.index(encoded) + len(encoded) // 2
             adapter = OpenAIStreamAdapter()
-            proxy = HTTPProxy(
-                engine=engine,
-                provider=GenericProvider(),
-                client=_replay([body[:midpoint], body[midpoint:]]),
-                stream_adapter=adapter,
+            stored = await engine.vault.get(session.session_id)
+            mapping = stored.mapping if stored is not None else {}
+            resolve = resolver_for(engine.operator, mapping)
+            router = StreamRouter(
+                engine.codec,
+                resolve,
+                adapter,
+                make_processor=select_processor_factory(
+                    engine.operator, engine.codec, resolve, mapping
+                ),
             )
-            out = "".join([c async for c in proxy.process_stream({}, session.session_id)])
+            out = "".join(
+                [*router.feed(body[:midpoint]), *router.feed(body[midpoint:]), *router.flush()]
+            )
             restored = "".join(adapter.extract_delta(event) for event in parse_sse(out))
             if pseudonym in restored:
                 return (False, "pseudonym leaked through the stream")
@@ -395,7 +393,7 @@ def _check_routes(settings: Settings, app: Privyx) -> tuple[bool, str]:
 
     routes = proxy.routes
     if proxy.mode == "gateway":
-        from privyx.gateway.server import served_routes
+        from privyx.proxy import served_routes
 
         routes = served_routes(routes, google=settings.provider.type == "google")
         disposition = "unlisted paths return 404; auxiliary routes are not served"
@@ -464,20 +462,3 @@ def _check_configuration(settings: Settings, app: Privyx) -> tuple[bool, str]:
         f"valid: detector={settings.detector_type} policy={settings.policy.type} "
         f"operator={settings.operator.type} vault={settings.vault.type} {anchoring}",
     )
-
-
-def _replay(chunks: list[str]) -> httpx.AsyncClient:
-    """A client whose upstream streams back ``chunks``, so no network is ever touched."""
-    import httpx
-
-    class Chunks(httpx.AsyncByteStream):
-        async def __aiter__(self) -> AsyncIterator[bytes]:
-            for chunk in chunks:
-                yield chunk.encode()
-
-    def reply(request: httpx.Request) -> httpx.Response:
-        if not chunks:
-            raise AssertionError("doctor must not contact the upstream provider")
-        return httpx.Response(200, stream=Chunks())
-
-    return httpx.AsyncClient(transport=httpx.MockTransport(reply))

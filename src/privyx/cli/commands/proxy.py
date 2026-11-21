@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import signal
 import sys
 import time
 from pathlib import Path
@@ -12,11 +10,6 @@ from typing import Any
 import click
 
 from privyx.cli.config import config_options
-
-#: Seconds the requests still in flight get to finish on SIGTERM or a --reload
-#: restart; then they are cancelled, which still deletes their ephemeral
-#: sessions.  Within the 10 s `docker stop` waits before it sends SIGKILL.
-SHUTDOWN_GRACE_SECONDS = 5
 
 
 @click.command()
@@ -54,8 +47,8 @@ def proxy(
     ssl_ca_certs: str | None = None,
 ) -> None:
     """Start the privacy proxy server."""
-    from privyx.app import load_config
-    from privyx.config.loader import active_config_paths
+    from privyx.app import Privyx
+    from privyx.config import active_config_paths
     from privyx.core import PrivyxError
 
     extra: dict[str, Any] = {}
@@ -81,7 +74,8 @@ def proxy(
         extra["tls"] = tls_extra
 
     try:
-        settings = load_config(config_path, extra=extra)
+        app = Privyx(config_path, **extra)
+        settings = app.settings
         watch_paths = active_config_paths(config_path) if reload_on_change else []
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
@@ -100,7 +94,7 @@ def proxy(
 
     while True:
         try:
-            if not asyncio.run(_run_server(settings, watch_paths)):
+            if not app.serve(watch=watch_paths):
                 return
             click.echo("Config changed \u2014 restarting\u2026")
         except PrivyxError as exc:
@@ -114,7 +108,8 @@ def proxy(
         assert watch_paths  # only a watcher can ask for a restart
         while True:
             try:
-                settings = load_config(config_path, extra=extra)
+                app = Privyx(config_path, **extra)
+                _ = app.settings
                 break
             except PrivyxError as exc:
                 # A half-saved YAML must not kill it either.
@@ -137,241 +132,3 @@ def _wait_for_change(paths: list[Path], last: tuple[int, ...] | None) -> None:
         now = _mtimes(paths)
         if now is not None and now != last:
             return
-
-
-async def _watch_config(paths: list[Path], event: asyncio.Event) -> None:
-    """Set ``event`` once a config file changes on disk."""
-    last = _mtimes(paths)
-    while True:
-        await asyncio.sleep(1.0)
-        now = _mtimes(paths)
-        if now is not None and now != last:
-            event.set()
-            return
-
-
-async def _serve_until_reload(server: Any, event: asyncio.Event | None) -> None:
-    """Serve until the server stops on its own, or until ``event`` fires."""
-    # uvicorn stops on SIGINT or SIGTERM, then raises it again for the handler
-    # it found, which kills the process or cancels this task before the
-    # requests it cut off have cleaned up and the vault and the audit log have
-    # closed.  Its own handler there only asks it to stop, again.
-    stops = (signal.SIGINT, signal.SIGTERM)
-    previous = {sig: signal.signal(sig, server.handle_exit) for sig in stops}
-    try:
-        if event is None:
-            await server.serve()
-            return
-        serving = asyncio.create_task(server.serve())
-        waiting = asyncio.create_task(event.wait())
-        await asyncio.wait({serving, waiting}, return_when=asyncio.FIRST_COMPLETED)
-        server.should_exit = True  # graceful uvicorn shutdown
-        waiting.cancel()
-        await serving
-    finally:
-        # uvicorn cancels the requests still running after the grace period but
-        # does not wait for them, and their cleanup (the ephemeral session's
-        # deletion, the last audit events) must end before the vault and the
-        # audit log close.
-        cancelled = set(server.server_state.tasks)
-        if cancelled:
-            await asyncio.wait(cancelled, timeout=2)
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
-
-
-async def _run_server(
-    settings: Any, watch_paths: list[Path] | None = None, app: Any = None
-) -> bool:
-    """Build the engine from settings, serve the selected app, and release resources.
-
-    ``app``, a :class:`~privyx.app.Privyx`, adds its components, routes, and
-    listeners; without one, ``plugins.modules`` are set up with a new one.
-
-    Returns ``True`` when the server stopped because a config file changed.
-    """
-    from privyx.app import Privyx
-    from privyx.app._build import build_audit_logger, build_engine
-    from privyx.app._plugins import load_plugins
-    from privyx.events import AppStarting, AppStopping
-    from privyx.observability import tracing
-    from privyx.observability.logging import configure_logging
-
-    configure_logging(settings)
-    px = app if app is not None else Privyx()
-    # Load plugins before building the engine so a plugin detector/operator/etc.
-    # is registered by the time build_engine resolves the configured types.
-    load_plugins(settings, px)
-    tracing.configure(settings.tracing.enabled)
-    audit = build_audit_logger(settings)
-    engine, close_engine = await build_engine(settings, px, audit=audit)
-    await px._events.emit(AppStarting())
-    reload_event = asyncio.Event() if watch_paths else None
-    watcher = (
-        asyncio.create_task(_watch_config(watch_paths, reload_event))
-        if watch_paths and reload_event is not None
-        else None
-    )
-    try:
-        if settings.proxy.mode == "transparent":
-            await _serve_transparent(settings, engine, audit, reload_event, px._router)
-        else:
-            await _serve_gateway(settings, engine, audit, reload_event, px)
-    finally:
-        if watcher is not None:
-            watcher.cancel()
-        await px._events.emit(AppStopping())
-        await close_engine()
-        audit.close()
-    return reload_event is not None and reload_event.is_set()
-
-
-def build_transparent_proxy(
-    settings: Any, engine: Any, audit: Any, run_token: str | None = None
-) -> Any:
-    """The transparent proxy ``settings`` describe; ``privyx run`` serves it too."""
-    from privyx.observability.tap import Tap
-    from privyx.providers import resolve_api_key, resolve_transparent_upstream
-    from privyx.proxy.transparent import TransparentProxy
-
-    mapping = settings.proxy.path_mapping
-    return TransparentProxy(
-        engine,
-        # Each request names its own upstream with a run token: none to resolve.
-        origin="" if run_token else resolve_transparent_upstream(settings),
-        strip_prefix=mapping.strip_prefix if mapping.mode == "prefix" else None,
-        routes=dict(settings.proxy.routes),
-        passthrough_unknown=settings.proxy.passthrough_unknown,
-        forward_client_auth=settings.proxy.forward_client_auth,
-        api_key=resolve_api_key(settings),
-        extra_headers=dict(settings.provider.headers),
-        timeout=settings.proxy.timeout,
-        connect_timeout=settings.proxy.connect_timeout,
-        max_connections=settings.proxy.max_connections,
-        audit=audit,
-        session_strategy=settings.session.strategy,
-        tap=Tap(settings.audit.tap_dir) if settings.audit.tap else None,
-        run_token=run_token,
-    )
-
-
-async def _serve_transparent(
-    settings: Any,
-    engine: Any,
-    audit: Any,
-    reload_event: asyncio.Event | None = None,
-    router: Any = None,
-) -> None:
-    """Serve the drop-in transparent reverse proxy."""
-    import uvicorn
-
-    from privyx.config.redact import redact
-    from privyx.gateway.transparent import create_transparent_app
-    from privyx.providers import resolve_transparent_upstream
-
-    origin = resolve_transparent_upstream(settings)
-    proxy_instance = build_transparent_proxy(settings, engine, audit)
-    try:
-        app = create_transparent_app(engine, proxy_instance, settings, router)
-    except BaseException:
-        await proxy_instance.close()
-        raise
-
-    scheme = "https" if settings.is_tls else "http"
-    routes = ", ".join(f"{path}→{schema}" for path, schema in settings.proxy.routes.items())
-    click.echo(f"Privyx transparent proxy listening on {scheme}://{settings.host}:{settings.port}")
-    mapping = settings.proxy.path_mapping
-    if mapping.mode == "prefix":
-        click.echo(
-            f"Upstream: {redact(origin, 'url')} (path mapping: prefix, "
-            f"strip {mapping.strip_prefix or 'nothing'})"
-        )
-    else:
-        click.echo(f"Upstream origin: {redact(origin, 'url')}")
-    click.echo(f"Routes: {routes}")
-    click.echo(
-        f"Engine: detector={settings.detector_type} policy={settings.policy.type} "
-        f"operator={settings.operator.type} vault={settings.vault.type} "
-        f"session={settings.session.strategy}"
-    )
-
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app,
-            host=settings.host,
-            port=settings.port,
-            log_level=settings.log_level,
-            ws="none",  # a WebSocket upgrade arrives as a plain HTTP request
-            ssl_certfile=settings.tls.certfile or None,
-            ssl_keyfile=settings.tls.keyfile or None,
-            ssl_keyfile_password=settings.tls.keyfile_password or None,
-            ssl_ca_certs=settings.tls.ca_certs or None,
-            timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
-        )
-    )
-    try:
-        await _serve_until_reload(server, reload_event)
-    finally:
-        await proxy_instance.close()
-
-
-async def _serve_gateway(
-    settings: Any,
-    engine: Any,
-    audit: Any,
-    reload_event: asyncio.Event | None = None,
-    app: Any = None,
-) -> None:
-    """Serve the gateway: our own endpoints, one fixed upstream endpoint.
-
-    ``app``, a :class:`~privyx.app.Privyx`, gives the provider types and the
-    routes; without one, the built-ins and none.
-    """
-    import uvicorn
-
-    from privyx.app import Privyx
-    from privyx.app._build import open_provider
-    from privyx.config.redact import redact
-    from privyx.gateway.server import Gateway
-    from privyx.providers import resolve_base_url
-
-    app = app if app is not None else Privyx()
-    provider = await open_provider(settings, app)
-    try:
-        gateway = Gateway(
-            engine=engine, provider=provider, settings=settings, audit=audit, router=app._router
-        )
-    except BaseException:
-        await provider.close()
-        raise
-
-    scheme = "https" if settings.is_tls else "http"
-    routes = ", ".join(f"{path}→{schema}" for path, schema in gateway.routes.items())
-    click.echo(f"Privyx proxy listening on {scheme}://{settings.host}:{settings.port}")
-    click.echo(f"Upstream: {redact(resolve_base_url(settings), 'url')}")
-    click.echo(f"Routes: {routes}")
-    click.echo(
-        f"Engine: detector={settings.detector_type} policy={settings.policy.type} "
-        f"operator={settings.operator.type} vault={settings.vault.type} "
-        f"session={settings.session.strategy}"
-    )
-
-    server = uvicorn.Server(
-        uvicorn.Config(
-            gateway.app,
-            host=settings.host,
-            port=settings.port,
-            log_level=settings.log_level,
-            ws="none",  # a WebSocket upgrade arrives as a plain HTTP request
-            ssl_certfile=settings.tls.certfile or None,
-            ssl_keyfile=settings.tls.keyfile or None,
-            ssl_keyfile_password=settings.tls.keyfile_password or None,
-            ssl_ca_certs=settings.tls.ca_certs or None,
-            timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
-        )
-    )
-    try:
-        await _serve_until_reload(server, reload_event)
-    finally:
-        await gateway.close()
-        await provider.close()

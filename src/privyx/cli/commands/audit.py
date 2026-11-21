@@ -21,7 +21,6 @@ import click
 
 from privyx.cli.commands.session import _duration, _ts
 from privyx.cli.config import config_options
-from privyx.observability.metrics import AuditStats
 
 _FILE = click.argument("file", required=False, type=click.Path(dir_okay=False, path_type=Path))
 _ENVELOPE = frozenset({"schema_version", "time", "ts", "event", "request_id", "session_id"})
@@ -40,18 +39,14 @@ def audit() -> None:
 )
 def stats(file: Path | None, config_path: str | None, since: int | None) -> None:
     """Summarize requests, errors, sessions, and masked entity types."""
-    cutoff = time.time() - since if since else None
-    totals = AuditStats()
-    skipped = 0
-    path, fh = _open_log(file, config_path)
-    with fh:
-        for line in fh:
-            try:
-                record = json.loads(line)
-                if cutoff is None or record["ts"] >= cutoff:
-                    totals.add(record)
-            except (ValueError, KeyError, TypeError):
-                skipped += 1
+    from privyx.app import Privyx
+    from privyx.core import PrivyxError
+
+    try:
+        found = Privyx(config_path).audit.totals(file, since=since)
+    except (PrivyxError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    path, totals, skipped = found.path, found.stats, found.skipped
 
     events = totals.events
     if not events:
@@ -143,25 +138,19 @@ def watch(session_id: str | None, config_path: str | None, lines: int, follow: b
     One SESSION_ID, or every session.  Removed text is shown as [-...-], added
     text as {+...+}.  The tap holds original values, and so does this output.
     """
-    from privyx.app import load_config
+    from privyx.app import Privyx
     from privyx.core import PrivyxError
-    from privyx.observability.tap import tap_file
 
+    audit = Privyx(config_path).audit
     try:
-        settings = load_config(config_path)
+        tapping = audit.tapping
     except PrivyxError as exc:
         raise click.ClickException(str(exc)) from exc
-    directory = Path(os.path.expanduser(settings.audit.tap_dir))
-    if not settings.audit.tap:
+    if not tapping:
         click.echo("audit.tap is off: nothing new is recorded (set audit.tap: true)", err=True)
 
-    def files() -> list[Path]:
-        if session_id is not None:
-            return [tap_file(directory, session_id)]
-        return sorted(directory.glob("*.jsonl")) if directory.is_dir() else []
-
     def new_records() -> list[dict[str, Any]]:
-        records = _read_new(files(), offsets)
+        records = _read_new(audit.tap_files(session_id), offsets)
         # A file can be shared (a case-insensitive file system): check whose.
         return [r for r in records if session_id is None or r.get("session_id") == session_id]
 
@@ -338,11 +327,11 @@ def _sse_text(text: str) -> str:
 
 
 def _open_log(file: Path | None, config_path: str | None) -> tuple[Path, TextIO]:
-    from privyx.app import load_config
+    from privyx.app import Privyx
     from privyx.core import PrivyxError
 
     try:
-        path = file or Path(os.path.expanduser(load_config(config_path).audit.path))
+        path = Privyx(config_path).audit.path(file)
         return path, path.open(encoding="utf-8", errors="replace")
     except (PrivyxError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc

@@ -15,8 +15,8 @@ def trust() -> None:
     the upstream, so Privyx reads one only after you trust it here, and again
     after each change to it.
     """
-    from privyx.config.loader import find_local_configs
-    from privyx.config.loader import trust as trust_config
+    from privyx.config import find_local_configs
+    from privyx.config import trust as trust_config
     from privyx.core import PrivyxError
 
     paths = find_local_configs()

@@ -10,7 +10,7 @@ import click
 
 from privyx import __version__
 from privyx.cli.config import config_options
-from privyx.config.redact import redact
+from privyx.security import redact
 
 
 @click.command("config")
@@ -26,7 +26,7 @@ def config_cmd(
 ) -> None:
     """Inspect configuration."""
     from privyx.app import load_config
-    from privyx.config.loader import active_config_paths
+    from privyx.config import active_config_paths
     from privyx.core import PrivyxError
     from privyx.providers import resolve_base_url
 

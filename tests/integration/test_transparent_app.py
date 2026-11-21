@@ -1,9 +1,9 @@
 """End-to-end tests for the transparent proxy through its ASGI app.
 
 These drive :func:`create_transparent_app` with an in-process ASGI transport, so
-the FastAPI catch-all route, ``/health``, and the ``ProxyResponse`` →
+the FastAPI catch-all route, ``/health``, and the ``Reply`` →
 ``Response``/``StreamingResponse`` conversion are all exercised — the layer the
-direct ``TransparentProxy.handle`` tests skip.  The upstream is still a mock.
+direct ``Pipeline.handle`` tests skip.  The upstream is still a mock.
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ import httpx  # noqa: E402
 from privyx.core import DetectorError, VaultError  # noqa: E402
 from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
-from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
-from privyx.proxy.transparent import TransparentProxy  # noqa: E402
+from privyx.proxy import Pipeline  # noqa: E402
+from privyx.proxy._asgi import create_app  # noqa: E402
 from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "alice@example.com"
@@ -125,8 +125,8 @@ def _responses_reply(body: dict[str, Any]) -> httpx.Response:
 
 def _app(seen: list[bytes] | None = None) -> Any:
     engine = _engine()
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
-    return create_transparent_app(engine, proxy)
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen))
+    return create_app(proxy)
 
 
 def _client(app: Any) -> httpx.AsyncClient:
@@ -150,8 +150,8 @@ async def test_chat_paths_without_v1_are_masked() -> None:
 
     engine = _engine()
     upstream = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    proxy = TransparentProxy(engine, origin="https://up.test", client=upstream)
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    proxy = Pipeline(engine, origin="https://up.test", client=upstream)
+    async with _client(create_app(proxy)) as client:
         chat = {"messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
         await client.post("/chat/completions", json=chat)
         await client.post("/responses", json={"input": f"mail {EMAIL}"})
@@ -193,8 +193,8 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
         vault=vault,
         audit=audit,
     )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
+    async with _client(create_app(proxy)) as client:
         response = await client.post(
             "/v1/chat/completions",
             json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
@@ -217,8 +217,8 @@ async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
     audit = AuditLogger(buf)
     engine = _engine()
     engine.dlp_check = True
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
+    async with _client(create_app(proxy)) as client:
         response = await client.post(
             "/v1/chat/completions",
             json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}], "user": EMAIL},
@@ -236,9 +236,9 @@ async def test_dlp_check_forwards_a_copy_in_masked_text_masked() -> None:
     seen: list[bytes] = []
     engine = _engine()
     engine.dlp_check = True
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen))
     env = "PWD=/home/alice/apollo\nAPP_ROOT=/home/alice/apollo"  # `env` output in a turn
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    async with _client(create_app(proxy)) as client:
         response = await client.post(
             "/v1/chat/completions", json={"messages": [{"role": "user", "content": env}]}
         )
@@ -253,8 +253,8 @@ async def test_directive_reaches_the_upstream_in_the_system_prompt() -> None:
     seen: list[bytes] = []
     engine = _engine()
     engine.directive = True
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen))
+    async with _client(create_app(proxy)) as client:
         await client.post(
             "/v1/messages",
             json={"system": "be brief", "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
@@ -268,8 +268,8 @@ async def test_dlp_check_finds_a_masked_value_in_a_query_parameter_name() -> Non
     seen: list[bytes] = []
     engine = _engine()
     engine.dlp_check = True
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen))
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen))
+    async with _client(create_app(proxy)) as client:
         response = await client.post(
             "/v1/chat/completions?alice%40example.com=1",
             json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
@@ -319,8 +319,8 @@ async def test_a_vault_failure_is_a_503_audited(
         vault=_flaky_vault(method, nth),
         audit=audit,
     )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
+    async with _client(create_app(proxy)) as client:
         response = await client.post(
             "/v1/chat/completions",
             json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
@@ -354,8 +354,8 @@ async def test_an_ephemeral_request_never_touches_the_vault(stream: bool) -> Non
         vault=vault,
         audit=audit,
     )
-    proxy = TransparentProxy(engine, origin="https://up.test", client=_upstream(), audit=audit)
-    async with _client(create_transparent_app(engine, proxy)) as client:
+    proxy = Pipeline(engine, origin="https://up.test", client=_upstream(), audit=audit)
+    async with _client(create_app(proxy)) as client:
         response = await client.post(
             "/v1/chat/completions",
             json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},

@@ -9,9 +9,7 @@ from __future__ import annotations
 import asyncio
 import re
 import sys
-import time
-from collections.abc import AsyncIterator, Coroutine
-from contextlib import asynccontextmanager
+from collections.abc import Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,8 +19,7 @@ from privyx.cli.commands.inspect import inspect
 from privyx.cli.config import config_options
 
 if TYPE_CHECKING:
-    from privyx.config.schema import Settings
-    from privyx.vaults import Vault
+    from privyx.app._services._sessions import Sessions, Usage
 
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
@@ -123,51 +120,38 @@ def _run(coro: Coroutine[Any, Any, None]) -> None:
         sys.exit(1)
 
 
-@asynccontextmanager
-async def _open_vault(config_path: str | None) -> AsyncIterator[tuple[Settings, Vault]]:
-    from privyx.app import load_config
-    from privyx.app._build import build_vault
-    from privyx.app._plugins import load_plugins
+def _sessions(config_path: str | None) -> Sessions:
+    from privyx.app import Privyx
 
-    settings = load_config(config_path)
-    # Register plugin component types so a configured plugin vault resolves.
-    app = load_plugins(settings)
-    vault, close = await build_vault(settings, app)
-    try:
-        yield settings, vault
-    finally:
-        await close()
+    return Privyx(config_path).sessions
 
 
 async def _list(config_path: str | None) -> None:
-    async with _open_vault(config_path) as (settings, vault):
-        sessions = await vault.list_sessions()
-
+    service = _sessions(config_path)
+    sessions = await service.list()
     if not sessions:
-        click.echo(f"No sessions (vault: {settings.vault.type})")
+        click.echo(f"No sessions (vault: {service.vault_type})")
         return
-    sessions.sort(key=lambda s: s.updated_at, reverse=True)
     width = max(len("SESSION"), *(len(s.session_id) for s in sessions))
     click.echo(f"{'SESSION':<{width}}  {'LAST ACTIVE':<19}  {'CREATED':<19}  MAPPINGS")
     for s in sessions:
         click.echo(
             f"{s.session_id:<{width}}  {_ts(s.updated_at)}  {_ts(s.created_at)}  {len(s.mapping)}"
         )
-    click.echo(f"\n{len(sessions)} session(s) (vault: {settings.vault.type})")
+    click.echo(f"\n{len(sessions)} session(s) (vault: {service.vault_type})")
 
 
 async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
-    async with _open_vault(config_path) as (settings, vault):
-        record = await vault.get(session_id)
-    usage = _session_usage(settings, session_id)
-
+    service = _sessions(config_path)
+    view = await service.get(session_id)
+    record, usage = view.record, view.usage
     if record is None and usage is None:
         click.echo(f"Session not found: {session_id}", err=True)
-        click.echo(f"(vault: {settings.vault.type})", err=True)
+        click.echo(f"(vault: {service.vault_type})", err=True)
         sys.exit(1)
 
     click.echo(f"Session: {session_id}")
-    click.echo(f"  Vault:      {settings.vault.type}")
+    click.echo(f"  Vault:      {service.vault_type}")
     if record is None:
         click.echo("  (not in the vault; usage from the audit trail)")
     else:
@@ -177,7 +161,7 @@ async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
         if record.metadata:
             click.echo(f"  Metadata:   {record.metadata}")
     if usage is not None:
-        _show_usage(settings, *usage)
+        _show_usage(usage)
     if record is None or not record.mapping:
         return
     click.echo("")
@@ -189,186 +173,47 @@ async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
         click.echo("  (values masked; pass --reveal to show them)")
 
 
-#: Tap record fields kept in a forensic transcript: never ``before``/``restored``.
-_MASKED_SIDE = (
-    "time",
-    "ts",
-    "request_id",
-    "session_id",
-    "stage",
-    "path",
-    "schema",
-    "status",
-    "stream",
-    "aborted",
-    "after",
-    "upstream",
-)
-
-
 async def _export(session_id: str, config_path: str | None, output: Path) -> None:
-    async with _open_vault(config_path) as (settings, vault):
-        record = await vault.get(session_id)
-    _write_bundle(settings, session_id, None if record is None else len(record.mapping), output)
-
-
-def _write_bundle(settings: Settings, session_id: str, mappings: int | None, output: Path) -> None:
-    import json
-    import os
-    import zipfile
-    from collections import Counter
-    from datetime import UTC, datetime
-
-    from privyx.observability.metrics import AuditStats
-    from privyx.observability.tap import tap_file
-    from privyx.version import __version__
-
-    events = _matching_lines(Path(settings.audit.path).expanduser(), session_id)
-    taps = _matching_lines(
-        tap_file(Path(settings.audit.tap_dir).expanduser(), session_id), session_id
-    )
-    transcript = [{k: t[k] for k in _MASKED_SIDE if k in t} for t in taps]
-    if mappings is None and not events and not transcript:
+    exported = await _sessions(config_path).export(session_id, output)
+    if exported is None:
         click.echo(f"Nothing recorded for session {session_id}", err=True)
         sys.exit(1)
-
-    totals = AuditStats()
-    for event in events:
-        totals.add(event)
-    stamps = [e["ts"] for e in [*events, *transcript] if isinstance(e.get("ts"), int | float)]
-    summary = {
-        "session_id": session_id,
-        "exported_at": datetime.now(UTC).isoformat(timespec="microseconds"),
-        "privyx_version": __version__,
-        "first_ts": min(stamps, default=None),
-        "last_ts": max(stamps, default=None),
-        "events": dict(totals.events),
-        "entities_masked": dict(totals.entities),
-        "pseudonyms_restored": totals.restored,
-        "tokens": dict(totals.tokens),
-        "errors": dict(totals.errors),
-        "transcript_records": dict(Counter(str(t.get("stage")) for t in transcript)),
-        "vault_mappings": mappings,
-    }
-
-    def jsonl(rows: list[dict[str, Any]]) -> str:
-        return "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows)
-
-    try:
-        # Owner-only, and never over an existing file: it may be evidence.
-        fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except OSError as exc:
-        raise click.ClickException(f"cannot write {output}: {exc.strerror or exc}") from exc
-    with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("summary.json", json.dumps(summary, indent=2) + "\n")
-        archive.writestr("events.jsonl", jsonl(events))
-        archive.writestr("transcript.jsonl", jsonl(transcript))
     click.echo(
-        f"Wrote {output}: {len(events)} event(s), {len(transcript)} transcript record(s)"
-        + ("" if transcript else " (audit.tap was off)")
+        f"Wrote {output}: {exported.events} event(s), {exported.transcript} transcript record(s)"
+        + ("" if exported.transcript else " (audit.tap was off)")
     )
 
 
-def _matching_lines(path: Path, session_id: str | None = None) -> list[dict[str, Any]]:
-    """The JSON objects in a JSONL file, those of ``session_id`` when given."""
-    import json
-
-    # A cheap text test first, on the id as the trail and the tap write it
-    # (JSON-escaped: ``session"one`` is ``session\"one`` there), then the parsed field.
-    needle = None if session_id is None else json.dumps(session_id, ensure_ascii=False)
-    rows = []
-    try:
-        with path.open(encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if needle is not None and needle not in line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(row, dict) and (
-                    session_id is None or row.get("session_id") == session_id
-                ):
-                    rows.append(row)
-    except OSError:
-        return []
-    return rows
-
-
-def _session_usage(
-    settings: Settings, session_id: str
-) -> tuple[int, dict[str, dict[str, int]]] | None:
-    """Responses and token usage by model of ``session_id``, from the audit trail.
-
-    ``None`` when the trail is off, missing, or has no response of the session.
-    """
-    import os
-    from collections import Counter
-
-    if not settings.audit.enabled:
-        return None
-    path = Path(os.path.expanduser(settings.audit.path))
-    responses = [e for e in _matching_lines(path, session_id) if e.get("event") == "proxy.response"]
-    if not responses:
-        return None
-    by_model: dict[str, Counter[str]] = {}
-    for event in responses:
-        usage = event.get("usage")
-        if isinstance(usage, dict):
-            tokens = by_model.setdefault(str(event.get("model") or "unknown"), Counter())
-            tokens.update({k: v for k, v in usage.items() if isinstance(v, int)})
-    return len(responses), {model: dict(tokens) for model, tokens in by_model.items()}
-
-
-def _show_usage(settings: Settings, responses: int, by_model: dict[str, dict[str, int]]) -> None:
+def _show_usage(usage: Usage) -> None:
     from collections import Counter
 
     from privyx.cli.commands.audit import _tokens
-    from privyx.observability.usage import cost
 
-    click.echo(f"  Responses:  {responses}")
-    if not by_model:
+    click.echo(f"  Responses:  {usage.responses}")
+    if not usage.by_model:
         return
     total: Counter[str] = Counter()
-    for tokens in by_model.values():
+    for tokens in usage.by_model.values():
         total.update(tokens)
     click.echo(f"  Tokens:     {_tokens(total)}")
-    prices = settings.audit.prices
-    costs = {model: cost(model, tokens, prices) for model, tokens in by_model.items()}
-    known = [c for c in costs.values() if c is not None]
-    unknown = sorted(model for model, c in costs.items() if c is None)
+    known = [c for c in usage.costs.values() if c is not None]
+    unknown = sorted(model for model, c in usage.costs.items() if c is None)
     if known:
-        models = ", ".join(sorted(m for m, c in costs.items() if c is not None))
+        models = ", ".join(sorted(m for m, c in usage.costs.items() if c is not None))
         click.echo(f"  Cost:       ~${sum(known):.4f} (estimate; {models})")
     if unknown:
         click.echo(f"  No price for: {', '.join(unknown)} (set audit.prices)")
 
 
 async def _prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
-    from privyx.app._build import build_audit_logger
-    from privyx.observability.audit import AuditLogger
-
-    cutoff = time.time() - older_than
-    async with _open_vault(config_path) as (settings, vault):
-        stale = [s for s in await vault.list_sessions() if s.updated_at < cutoff]
-        audit = AuditLogger(None) if dry_run else build_audit_logger(settings)
-        try:
-            for s in stale:
-                if not dry_run:
-                    await vault.delete(s.session_id)
-                    # After the delete succeeds, so the trail never claims a
-                    # deletion that failed (same contract as the proxy).
-                    audit.session_deleted(
-                        s.session_id, reason="prune", mapping_count=len(s.mapping)
-                    )
-                click.echo(f"  {s.session_id}  last active {_ts(s.updated_at)}")
-        finally:
-            audit.close()
-
+    service = _sessions(config_path)
+    pruned = await service.prune(older_than, dry_run=dry_run)
+    for s in pruned.sessions:
+        click.echo(f"  {s.session_id}  last active {_ts(s.updated_at)}")
     verb = "Would prune" if dry_run else "Pruned"
     click.echo(
-        f"{verb} {len(stale)} session(s) idle since before {_ts(cutoff)} "
-        f"(vault: {settings.vault.type})"
+        f"{verb} {len(pruned.sessions)} session(s) idle since before {_ts(pruned.cutoff)} "
+        f"(vault: {service.vault_type})"
     )
 
 

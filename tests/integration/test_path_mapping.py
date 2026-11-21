@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from privyx.core import Exchange
+
 pytest.importorskip("fastapi")
 
 import httpx  # noqa: E402
@@ -21,13 +23,13 @@ from privyx.config.schema import Settings  # noqa: E402
 from privyx.core import ConfigError  # noqa: E402
 from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
-from privyx.gateway.transparent import create_transparent_app  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.providers import resolve_transparent_upstream  # noqa: E402
-from privyx.proxy.headers import RUN_TOKEN_HEADER, UPSTREAMS_HEADER  # noqa: E402
-from privyx.proxy.transparent import TransparentProxy  # noqa: E402
+from privyx.proxy import Pipeline  # noqa: E402
+from privyx.proxy._asgi import create_app  # noqa: E402
+from privyx.proxy._headers import RUN_TOKEN_HEADER, UPSTREAMS_HEADER  # noqa: E402
 from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "ana@example.com"
@@ -36,7 +38,7 @@ ROUTER = "https://router.example.com/api/v1"
 
 def _proxy(
     seen: list[httpx.Request], origin: str = ROUTER, strip_prefix: str | None = "/v1", **kw
-) -> TransparentProxy:
+) -> Pipeline:
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         body = json.loads(request.content) if request.content else {}
@@ -56,7 +58,7 @@ def _proxy(
         operator=PseudonymOperator(),
         vault=MemoryVault(),
     )
-    return TransparentProxy(
+    return Pipeline(
         engine,
         origin=origin,
         strip_prefix=strip_prefix,
@@ -65,8 +67,8 @@ def _proxy(
     )
 
 
-def _client(proxy: TransparentProxy) -> httpx.AsyncClient:
-    app = create_transparent_app(proxy._engine, proxy)
+def _client(proxy: Pipeline) -> httpx.AsyncClient:
+    app = create_app(proxy)
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://privyx")
 
 
@@ -102,7 +104,7 @@ async def test_prefix_keeps_upstream_path_and_masks(stream: bool) -> None:
 async def test_prefix_join(origin: str, prefix: str, path: str, url: str) -> None:
     seen: list[httpx.Request] = []
     proxy = _proxy(seen, origin=origin, strip_prefix=prefix)
-    response = await proxy.handle(method="GET", path=path, headers={}, body=b"")
+    response = await proxy.handle(Exchange(method="GET", path=path, headers={}, body=b""))
     assert response.status_code == 200
     assert str(seen[0].url) == url
 
@@ -124,7 +126,7 @@ async def test_prefix_refuses_paths_outside_or_ambiguous(path: str) -> None:
     seen: list[httpx.Request] = []
     trail = io.StringIO()
     proxy = _proxy(seen, audit=AuditLogger(trail))
-    response = await proxy.handle(method="POST", path=path, headers={}, body=b"{}")
+    response = await proxy.handle(Exchange(method="POST", path=path, headers={}, body=b"{}"))
     assert response.status_code == 404
     assert not seen
     event = json.loads(trail.getvalue().splitlines()[-1])
@@ -151,7 +153,7 @@ def _named(token: str = TOKEN, **bases: str) -> dict[str, str]:
     return {RUN_TOKEN_HEADER: token, UPSTREAMS_HEADER: json.dumps(bases or BASES)}
 
 
-def _pi_proxy(seen: list[httpx.Request]) -> TransparentProxy:
+def _pi_proxy(seen: list[httpx.Request]) -> Pipeline:
     return _proxy(seen, origin="https://default.example.com", strip_prefix=None, run_token=TOKEN)
 
 
@@ -188,15 +190,16 @@ async def test_run_token_sends_each_route_to_the_base_url_it_names(
 
 
 async def test_pi_routing_needs_no_fixed_upstream_with_prefix_mapping() -> None:
-    from privyx.cli.commands.proxy import build_transparent_proxy
+    from privyx.app._serve import build_pipeline
+    from privyx.providers import GenericProvider
 
     settings = Settings(proxy={"path_mapping": {"mode": "prefix"}})
     pi = TARGETS["pi"]
     plan = build_launch_plan(pi, [], settings, 0, pi.env_vars)
     engine = _proxy([])._engine
     with pytest.raises(ConfigError, match="prefix needs an upstream"):
-        build_transparent_proxy(settings, engine, None)
-    proxy = build_transparent_proxy(settings, engine, None, plan.run_token)
+        build_pipeline(settings, engine, GenericProvider())
+    proxy = build_pipeline(settings, engine, GenericProvider(), run_token=plan.run_token)
     await proxy.close()
 
 
@@ -238,7 +241,7 @@ async def test_run_token_refuses_a_request_without_a_usable_upstream(
 async def test_origin_mode_is_unchanged() -> None:
     seen: list[httpx.Request] = []
     proxy = _proxy(seen, origin="https://api.x.ai", strip_prefix=None)
-    await proxy.handle(method="GET", path="v10/models", headers={}, body=b"")
+    await proxy.handle(Exchange(method="GET", path="v10/models", headers={}, body=b""))
     assert str(seen[0].url) == "https://api.x.ai/v10/models"
 
 

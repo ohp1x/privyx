@@ -11,13 +11,13 @@ from typing import Any
 import httpx
 import pytest
 
-from privyx.core import ConfigError
+from privyx.core import ConfigError, Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.observability import tracing
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.proxy.transparent import TransparentProxy
+from privyx.proxy import Pipeline
 from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
@@ -37,7 +37,7 @@ def spans(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     yield exporter
 
 
-def _proxy() -> TransparentProxy:
+def _proxy() -> Pipeline:
     def upstream(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         text = body["messages"][-1]["content"]
@@ -53,18 +53,20 @@ def _proxy() -> TransparentProxy:
         vault=MemoryVault(),
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
-    return TransparentProxy(engine, origin="https://up.test", client=client)
+    return Pipeline(engine, origin="https://up.test", client=client)
 
 
 @pytest.mark.parametrize("stream", [False, True])
 async def test_a_request_gets_a_span_tree_without_payload_text(spans: Any, stream: bool) -> None:
     result = await _proxy().handle(
-        method="POST",
-        path="v1/chat/completions",
-        headers={"traceparent": f"00-{TRACE_ID}-00f067aa0ba902b7-01"},
-        body=json.dumps(
-            {"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
-        ).encode(),
+        Exchange(
+            method="POST",
+            path="v1/chat/completions",
+            headers={"traceparent": f"00-{TRACE_ID}-00f067aa0ba902b7-01"},
+            body=json.dumps(
+                {"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]}
+            ).encode(),
+        )
     )
     if result.stream is not None:
         _ = [chunk async for chunk in result.stream]
@@ -103,13 +105,15 @@ async def test_a_reply_closed_before_it_is_read_still_ends_its_span(spans: Any, 
         vault=MemoryVault(),
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
-    proxy = TransparentProxy(engine, origin="https://up.test", client=client)
+    proxy = Pipeline(engine, origin="https://up.test", client=client)
     body = json.dumps({"stream": True, "messages": [{"role": "user", "content": "hi"}]})
     result = await proxy.handle(
-        method="POST" if path.endswith("completions") else "GET",
-        path=path,
-        headers={},
-        body=body.encode() if path.endswith("completions") else b"",
+        Exchange(
+            method="POST" if path.endswith("completions") else "GET",
+            path=path,
+            headers={},
+            body=body.encode() if path.endswith("completions") else b"",
+        )
     )
     assert result.stream is not None
     await result.stream.aclose()  # the client went away before the first byte
@@ -139,11 +143,13 @@ async def test_a_failed_restore_ends_its_span_and_records_the_503(spans: Any) ->
         detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
-    proxy = TransparentProxy(engine, origin="https://up.test", client=client)
+    proxy = Pipeline(engine, origin="https://up.test", client=client)
     body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()
 
     result = await proxy.handle(
-        method="POST", path="v1/chat/completions", headers={"x-privyx-session": "s"}, body=body
+        Exchange(
+            method="POST", path="v1/chat/completions", headers={"x-privyx-session": "s"}, body=body
+        )
     )
 
     assert result.status_code == 503
@@ -166,10 +172,12 @@ async def test_an_upstream_5xx_marks_the_request_span_failed(spans: Any, content
         vault=MemoryVault(),
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
-    proxy = TransparentProxy(engine, origin="https://up.test", client=client)
+    proxy = Pipeline(engine, origin="https://up.test", client=client)
     body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()
 
-    result = await proxy.handle(method="POST", path="v1/chat/completions", headers={}, body=body)
+    result = await proxy.handle(
+        Exchange(method="POST", path="v1/chat/completions", headers={}, body=body)
+    )
     if result.stream is not None:
         _ = [chunk async for chunk in result.stream]
 
@@ -181,7 +189,7 @@ async def test_an_upstream_5xx_marks_the_request_span_failed(spans: Any, content
 def test_tracing_is_off_and_not_imported_by_default() -> None:
     # FastAPI imports the OpenTelemetry API itself; the SDK and exporter are ours.
     code = (
-        "import sys, privyx.proxy.transparent, privyx.gateway.transparent, privyx.cli.main;"
+        "import sys, privyx.proxy._pipeline, privyx.proxy._asgi, privyx.cli.main;"
         "print(sorted(m for m in sys.modules"
         " if m.startswith(('opentelemetry.sdk', 'opentelemetry.exporter'))))"
     )

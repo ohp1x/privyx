@@ -11,8 +11,9 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
-from privyx.cli.commands.mcp_serve import _handle, _respond, _tool_result
+from privyx import Privyx
 from privyx.cli.main import cli
+from privyx.mcp._serve import _handle, _respond, _tool_result
 
 
 def _resolved(root):
@@ -21,20 +22,11 @@ def _resolved(root):
 
 async def _run(name, arguments, config=None, root=None, engine=None):
     """A tools/call result, decoded: (value or message, is_error)."""
-    from privyx import load_config
-    from privyx.app._build import build_engine
-
-    settings = load_config(str(config) if config else None)
-    built, close = await build_engine(settings)
-    try:
-        result = await _tool_result(
-            {"name": name, "arguments": arguments},
-            engine or built,
-            settings,
-            _resolved(root),
-        )
-    finally:
-        await close()
+    app = Privyx(str(config) if config else None)
+    async with app.engine():
+        if engine is not None:
+            app._engine = engine  # a stand-in for the engine the server holds open
+        result = await _tool_result({"name": name, "arguments": arguments}, app, _resolved(root))
     text = result["content"][0]["text"]
     if result.get("isError"):
         return text, True
@@ -231,7 +223,6 @@ async def test_precommit_reads_plain_unified_diffs(diff, expected):
 
 @pytest.mark.asyncio
 async def test_sanitize_never_overwrites_and_leaves_no_session(tmp_path):
-    from privyx import load_config
     from privyx.app._build import build_engine
 
     config = _sqlite(tmp_path)
@@ -246,7 +237,7 @@ async def test_sanitize_never_overwrites_and_leaves_no_session(tmp_path):
             "privyx_sanitize_file", {**args, "output_path": output}, config, tmp_path
         )
         assert error and message == "output file already exists"
-    engine, close = await build_engine(load_config(str(config)))
+    engine, close = await build_engine(Privyx(str(config)).settings)
     try:
         assert [s.session_id for s in await engine.vault.list_sessions()] == [result["session_id"]]
     finally:
@@ -255,14 +246,12 @@ async def test_sanitize_never_overwrites_and_leaves_no_session(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sanitize_session_restores_with_persistent_vault(tmp_path):
-    from privyx.cli.commands.mask import _unmask_async
-
     (tmp_path / "input.txt").write_text("ana@example.com")
     config = _sqlite(tmp_path)
     result, _ = await _run("privyx_sanitize_file", {"path": "input.txt"}, config, tmp_path)
     assert "warning" not in result
-    restored = await _unmask_async(
-        result["text"], "text", (), None, result["session_id"], str(config)
+    restored = await Privyx(str(config)).masking.unmask(
+        result["text"], session_id=result["session_id"]
     )
     assert restored == "ana@example.com"
 
@@ -284,25 +273,18 @@ async def test_sanitize_sees_a_json_value_with_its_key(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sanitize_memory_vault_warns_and_keeps_nothing(tmp_path):
-    from privyx import load_config
-    from privyx.app._build import build_engine
-
     (tmp_path / "input.txt").write_text("ana@example.com")
-    settings = load_config(None)
-    engine, close = await build_engine(settings)
-    try:
+    app = Privyx()
+    async with app.engine() as engine:
         result = await _tool_result(
             {"name": "privyx_sanitize_file", "arguments": {"path": "input.txt"}},
-            engine,
-            settings,
+            app,
             tmp_path.resolve(),
         )
         value = json.loads(result["content"][0]["text"])
         assert "lost after this call" in value["warning"]
         assert "session_id" not in value
         assert await engine.vault.list_sessions() == []
-    finally:
-        await close()
 
 
 @pytest.mark.asyncio
@@ -377,16 +359,12 @@ def _record(event, ts, **fields):
 
 async def _prompt(name, config=None, engine=None):
     """The text of a prompts/get answer."""
-    from privyx import load_config
-    from privyx.app._build import build_engine
-
-    settings = load_config(str(config) if config else None)
-    built, close = await build_engine(settings)
-    try:
+    app = Privyx(str(config) if config else None)
+    async with app.engine():
+        if engine is not None:
+            app._engine = engine  # a stand-in for the engine the server holds open
         request = {"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": name}}
-        answer = await _handle(request, engine or built, settings, Path.cwd())
-    finally:
-        await close()
+        answer = await _handle(request, app, Path.cwd())
     (message,) = answer["result"]["messages"]
     assert message["role"] == "user"
     return message["content"]["text"]
@@ -394,20 +372,10 @@ async def _prompt(name, config=None, engine=None):
 
 @pytest.mark.asyncio
 async def test_status_counts_sessions_and_audit_without_values(tmp_path):
-    from privyx.cli.commands.mask import _mask_async
-
     config = _sqlite(tmp_path)
     audit = tmp_path / "audit.log"
     config.write_text(config.read_text() + f"audit:\n  path: {audit}\n")
-    await _mask_async(
-        "ana@example.com and bob@example.com",
-        "text",
-        (),
-        None,
-        "s1",
-        str(config),
-        warn_unpersisted=False,
-    )
+    await Privyx(str(config)).masking.mask("ana@example.com and bob@example.com", session_id="s1")
     audit.write_text(
         "\n".join(
             [
@@ -434,13 +402,9 @@ async def test_status_counts_sessions_and_audit_without_values(tmp_path):
 
 @pytest.mark.asyncio
 async def test_status_lists_only_the_latest_sessions(tmp_path):
-    from privyx.cli.commands.mask import _mask_async
-
     config = _sqlite(tmp_path)
     for i in range(7):
-        await _mask_async(
-            f"user{i}@example.com", "text", (), None, f"s{i}", str(config), warn_unpersisted=False
-        )
+        await Privyx(str(config)).masking.mask(f"user{i}@example.com", session_id=f"s{i}")
     text = await _prompt("status", config)
     assert "7 session(s)" in text
     assert "  s6  last active" in text
@@ -525,10 +489,7 @@ async def test_prompts_are_listed_and_an_unknown_one_is_an_error():
 
 
 async def _answers(*lines):
-    from privyx import load_config
-
-    settings = load_config(None)
-    return [await _respond(line, None, settings, Path.cwd()) for line in lines]  # type: ignore[arg-type]
+    return [await _respond(line, Privyx(), Path.cwd()) for line in lines]
 
 
 @pytest.mark.asyncio
@@ -602,7 +563,7 @@ def test_output_from_a_tool_goes_to_stderr(monkeypatch):
         print("noise")
         return {"ok": True}
 
-    monkeypatch.setattr("privyx.cli.commands.mcp_serve._call", noisy)
+    monkeypatch.setattr("privyx.mcp._serve._call", noisy)
     request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call"}
     request["params"] = {"name": "privyx_scan", "arguments": {}}
     result = CliRunner().invoke(cli, ["mcp", "serve"], input=json.dumps(request) + "\n")
@@ -647,7 +608,7 @@ def test_lone_surrogate_and_internal_error_do_not_stop_the_server(monkeypatch):
             raise RuntimeError("boom")
         return await real(message, *args)
 
-    monkeypatch.setattr("privyx.cli.commands.mcp_serve._handle", flaky)
+    monkeypatch.setattr("privyx.mcp._serve._handle", flaky)
     lines = [
         '{"jsonrpc": "2.0", "id": "\\ud800", "method": "ping"}',
         '{"jsonrpc": "2.0", "id": 2, "method": "ping"}',
@@ -665,10 +626,10 @@ def test_output_below_python_goes_to_stderr():
     script = (
         "import os, privyx.app._plugins as loader\n"
         "real = loader.load_plugins\n"
-        "def noisy(settings):\n"
+        "def noisy(*args):\n"
         "    print('noise from python', flush=True)\n"
         "    os.write(1, b'noise from fd\\n')\n"
-        "    return real(settings)\n"
+        "    return real(*args)\n"
         "loader.load_plugins = noisy\n"
         "from privyx.cli.main import cli\n"
         "cli()\n"
@@ -687,32 +648,25 @@ def test_output_below_python_goes_to_stderr():
 
 @pytest.mark.asyncio
 async def test_sanitize_saves_the_session_once(tmp_path):
-    from privyx import load_config
-    from privyx.app._build import build_engine
-
     config = _sqlite(tmp_path)
     leaves = {f"k{i}": f"user{i}@example.com" for i in range(50)}
     (tmp_path / "data.json").write_text(json.dumps(leaves))
-    settings = load_config(str(config))
-    engine, close = await build_engine(settings)
+    app = Privyx(str(config))
     saves = 0
-    save = engine.vault.save
+    async with app.engine() as engine:
+        save = engine.vault.save
 
-    async def counted(*args, **kwargs):
-        nonlocal saves
-        saves += 1
-        return await save(*args, **kwargs)
+        async def counted(*args, **kwargs):
+            nonlocal saves
+            saves += 1
+            return await save(*args, **kwargs)
 
-    engine.vault.save = counted
-    try:
+        engine.vault.save = counted
         result = await _tool_result(
             {"name": "privyx_sanitize_file", "arguments": {"path": "data.json"}},
-            engine,
-            settings,
+            app,
             tmp_path.resolve(),
         )
-    finally:
-        await close()
     assert not result.get("isError")
     assert saves == 1
 
@@ -726,7 +680,7 @@ def test_a_response_too_deep_to_write_does_not_stop_the_server(monkeypatch):
     async def handle(message, *args):
         return {"jsonrpc": "2.0", "id": deep if message["id"] == 1 else message["id"], "result": {}}
 
-    monkeypatch.setattr("privyx.cli.commands.mcp_serve._handle", handle)
+    monkeypatch.setattr("privyx.mcp._serve._handle", handle)
     lines = [json.dumps({"jsonrpc": "2.0", "id": i, "method": "ping"}) for i in (1, 2)]
     result = CliRunner().invoke(cli, ["mcp", "serve"], input="\n".join(lines) + "\n")
     responses = [json.loads(line) for line in result.stdout.splitlines()]
@@ -754,27 +708,21 @@ def test_nan_ids_get_valid_json():
 
 @pytest.mark.asyncio
 async def test_failed_cleanup_keeps_the_reason(tmp_path):
-    from privyx import load_config
-    from privyx.app._build import build_engine
     from privyx.core import VaultError
 
     (tmp_path / "bad.json").write_text("{")
-    settings = load_config(None)
-    engine, close = await build_engine(settings)
+    app = Privyx()
 
     async def broken(*args, **kwargs):
         raise VaultError("vault down")
 
-    engine.delete_session = broken
-    try:
+    async with app.engine() as engine:
+        engine.delete_session = broken
         result = await _tool_result(
             {"name": "privyx_sanitize_file", "arguments": {"path": "bad.json"}},
-            engine,
-            settings,
+            app,
             tmp_path.resolve(),
         )
-    finally:
-        await close()
     assert result["content"][0]["text"] == "file is not valid JSON"
 
 
@@ -790,7 +738,7 @@ async def test_failed_write_leaves_no_output(tmp_path):
 
 @pytest.mark.asyncio
 async def test_a_batch_answer_that_cannot_be_written_spares_the_others():
-    from privyx.cli.commands.mcp_serve import _dumps
+    from privyx.mcp._serve import _dumps
 
     batch = (
         '[{"jsonrpc": "2.0", "id": 1, "method": "ping"},'
