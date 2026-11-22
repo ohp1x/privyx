@@ -2,7 +2,7 @@
 #
 # For higher-sensitivity work.  It changes only how strictly Privyx masks and
 # forwards: the upstream, provider, and anchor stay as they would be without
-# it, so `privyx run -c configs/strict.yaml claude` still reaches Anthropic.
+# it, so `privyx -c configs/strict.yaml run claude` still reaches Anthropic.
 # Every setting is listed in configs/default.yaml.
 
 # Persist sessions in ~/.privyx/privyx.db across restarts (privyx[sqlite]).
@@ -11,14 +11,14 @@ vault:
 
 # The default policy masks everything detected: the built-ins, your own
 # `terms` and `patterns`, and what `privyx run --harvest` finds.
-detector:
-  type: regex
-  patterns:
-    DATE_OF_BIRTH: "\\b\\d{4}-\\d{2}-\\d{2}\\b"
-  # Also find values split into strings or Base64/hex/URL encoded, and values
-  # written in fullwidth letters or with zero-width characters inside.
-  decode: true
-  normalize: true
+detectors:
+  regex:
+    patterns:
+      DATE_OF_BIRTH: "\\b\\d{4}-\\d{2}-\\d{2}\\b"
+    # Also find values split into strings or Base64/hex/URL encoded, and values
+    # written in fullwidth letters or with zero-width characters inside.
+    decode: true
+    normalize: true
 
 proxy:
   # Only routes with a masking schema may reach the upstream.  Other paths,

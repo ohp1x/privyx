@@ -33,7 +33,7 @@ def test_doctor_redacts_url_credentials(tmp_path: Path, field: str) -> None:
         f"upstream_url: {url}\n" if field == "upstream_url" else f"provider:\n  base_url: {url}\n"
     )
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 0, result.output
     assert "example.com/v1" in result.output
@@ -58,7 +58,7 @@ def test_doctor_cleans_only_its_sessions(
     config.write_text(f"vault:\n  type: sqlite\n  dsn: {db}\n")
     runner = CliRunner()
     seeded = runner.invoke(
-        cli, ["mask", "-c", str(config), "--session", "keep", "alice@example.com"]
+        cli, ["-c", str(config), "mask", "--session", "keep", "alice@example.com"]
     )
     assert seeded.exit_code == 0, seeded.output
     before = _sessions(db)
@@ -87,7 +87,7 @@ def test_doctor_cleans_only_its_sessions(
         monkeypatch.setattr(StreamRouter, "feed", fail_stream)
 
     for _ in range(2):
-        result = runner.invoke(cli, ["doctor", "-c", str(config)])
+        result = runner.invoke(cli, ["-c", str(config), "doctor"])
         assert result.exit_code == (1 if failure else 0), result.output
         if failure:
             assert f"✗ {failure}:" in result.output
@@ -97,14 +97,21 @@ def test_doctor_cleans_only_its_sessions(
 @pytest.mark.parametrize(
     "contents, exercised",
     [
-        ("detector:\n  type: yaml\n  terms:\n    ORGANIZATION: [apollo]\n", True),
         (
-            "detector:\n  type: yaml\n  terms:\n    ORGANIZATION: [apollo]\n"
+            "detectors:\n  regex:\n    builtins: false\n    terms:\n      ORGANIZATION: [apollo]\n",
+            True,
+        ),
+        (
+            "detectors:\n  regex:\n    builtins: false\n    terms:\n      ORGANIZATION: [apollo]\n"
             "policy:\n  type: strict\n  allowed: [ORGANIZATION]\n",
             True,
         ),
-        ("detector:\n  disable: [EMAIL]\n", False),
-        ("detector:\n  type: yaml\n  patterns:\n    TICKET: 'TCK-[0-9]{4}'\n", False),
+        ("detectors:\n  regex:\n    disable: [EMAIL]\n", False),
+        (
+            "detectors:\n  regex:\n    builtins: false\n    patterns:\n"
+            "      TICKET: 'TCK-[0-9]{4}'\n",
+            False,
+        ),
         ("policy:\n  type: strict\n  allowed: [ORGANIZATION]\n", False),
     ],
 )
@@ -114,7 +121,7 @@ def test_doctor_respects_detector_and_policy_scope(
     config = tmp_path / "config.yaml"
     config.write_text(contents)
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 0, result.output
     assert "apollo" not in result.output
@@ -168,9 +175,11 @@ def test_doctor_restores_configured_terms_without_printing_them(tmp_path: Path, 
     import yaml
 
     config = tmp_path / "config.yaml"
-    config.write_text(yaml.safe_dump({"detector": {"type": "yaml", "terms": {"PERSON": [term]}}}))
+    config.write_text(
+        yaml.safe_dump({"detectors": {"regex": {"builtins": False, "terms": {"PERSON": [term]}}}})
+    )
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 0, result.output
     assert "streaming: pseudonym restored across a split chunk" in result.output
@@ -184,7 +193,7 @@ def test_doctor_handles_configured_operators(tmp_path: Path, operator: str) -> N
     key = f"  key: '{'ab' * 32}'\n" if operator == "encrypt" else ""
     config.write_text(f"operator:\n  type: {operator}\n{key}")
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 0, result.output
     if operator == "redact":
@@ -213,7 +222,7 @@ def test_doctor_closes_vaults_when_cleanup_fails(
     monkeypatch.setattr(SQLiteVault, "delete", fail_delete)
     monkeypatch.setattr(SQLiteVault, "close", record_close)
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 1
     assert result.output.count("probe cleanup failed") == 3
@@ -243,22 +252,22 @@ def test_doctor_never_sends_configured_terms_to_llm(
             return "[]"
 
     monkeypatch.setattr("privyx.detectors._llm._load_client", lambda *args: Client())
-    local = {"type": "yaml", "terms": {"PERSON": [term]}}
-    # Unmixed, the terms come from a file below the one that picks `llm`.
-    (tmp_path / "base.yaml").write_text(yaml.safe_dump({"detector": local}))
-    detector = [local, {"type": "llm"}] if mixed else {"type": "llm"}
+    local = {"builtins": False, "terms": {"PERSON": [term]}}
+    # Unmixed, the terms come from a file below the one that turns them off.
+    (tmp_path / "base.yaml").write_text(yaml.safe_dump({"detectors": {"regex": local}}))
+    detectors = {"regex": local, "llm": {}} if mixed else {"regex": False, "llm": {}}
     config = tmp_path / "config.yaml"
     config.write_text(
         yaml.safe_dump(
             {
                 "include": "base.yaml",
-                "detector": detector,
+                "detectors": detectors,
                 "policy": {"type": "strict", "allowed": [allowed]},
             }
         )
     )
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 0, result.output
     assert prompts
@@ -308,15 +317,15 @@ def test_doctor_never_sends_configured_terms_to_plugin_detector(
         yaml.safe_dump(
             {
                 "plugins": {"modules": ["remote_example_plugin"]},
-                "detector": [
-                    {"type": "yaml", "terms": {"PERSON": [term]}},
-                    {"type": "remote-example"},
-                ],
+                "detectors": {
+                    "regex": {"builtins": False, "terms": {"PERSON": [term]}},
+                    "remote-example": {},
+                },
             }
         )
     )
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 0, result.output
     scanned = importlib.import_module("remote_example_plugin").SCANNED
@@ -333,15 +342,18 @@ def test_doctor_accounts_for_redaction_token(
 
     operator = {"type": "redact"}
     if token is not None:
-        operator["token"] = token
+        operator["text"] = token
     config = tmp_path / "config.yaml"
     config.write_text(
         yaml.safe_dump(
-            {"detector": {"type": "yaml", "terms": {"PERSON": ["TED"]}}, "operator": operator}
+            {
+                "detectors": {"regex": {"builtins": False, "terms": {"PERSON": ["TED"]}}},
+                "operator": operator,
+            }
         )
     )
 
-    result = CliRunner().invoke(cli, ["doctor", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == expected, result.output
     assert ("✗ proxy:" in result.output) == bool(expected)

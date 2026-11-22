@@ -19,10 +19,12 @@ from typing import TYPE_CHECKING
 from privyx.core import PrivyxError
 
 if TYPE_CHECKING:
-    from privyx.detectors import YamlDetector
+    from privyx.detectors import RegexDetector
     from privyx.token import FormatCodec
 
-_MARKER = "# Installed by `privyx install-hook`."
+_MARKER = "# Installed by `privyx hook install`."
+#: The markers of Privyx's own hooks, the one earlier versions wrote too.
+_MARKERS = (_MARKER, "# Installed by `privyx install-hook`.")
 _HOOKS = {
     "pre-commit": "exec privyx hook pre-commit\n",
     "commit-msg": 'exec privyx hook commit-msg "$1"\n',
@@ -52,7 +54,8 @@ def install_hooks() -> Installed:
     refused: list[tuple[Path, str]] = []
     for name, line in _HOOKS.items():
         path = hooks_dir / name
-        if path.exists() and _MARKER not in path.read_text(encoding="utf-8", errors="replace"):
+        text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else None
+        if text is not None and not any(marker in text for marker in _MARKERS):
             refused.append((path, line.removeprefix("exec ")))
             continue
         path.write_text(f"#!/bin/sh\n{_MARKER}\n{line}", encoding="utf-8")
@@ -102,15 +105,15 @@ def findings(lines: list[tuple[int, str]], codec: FormatCodec) -> list[tuple[int
 
 
 @functools.cache
-def _secret_detector() -> YamlDetector:
+def _secret_detector() -> RegexDetector:
     """Built once: `privyx mcp serve` checks a diff per file, on every call."""
     from privyx.core import SECRET_TYPES
-    from privyx.detectors import YamlDetector
-    from privyx.detectors._pattern import DEFAULT_PATTERNS
+    from privyx.detectors import DEFAULT_PATTERNS, RegexDetector
 
     # Code and tests are full of emails and phone numbers, but a key must
     # never be committed.
-    return YamlDetector(
+    return RegexDetector(
+        builtins=False,
         patterns={entity: DEFAULT_PATTERNS[entity] for entity in SECRET_TYPES},
         underscore_separates_words=False,
     )

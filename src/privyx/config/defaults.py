@@ -90,20 +90,33 @@ DEFAULT_AGENTS: dict[str, dict[str, object]] = {
     },
 }
 
+#: The built-in features, each on or off unless a config says otherwise.
+#: ``budget`` is a ``privyx run`` profile's.
+DEFAULT_FEATURES: dict[str, bool] = {
+    "audit": True,
+    "metrics": True,
+    "tracing": False,
+    "directive": False,
+    "cache_control": False,
+}
+
 DEFAULTS: dict[str, object] = {
     "agents": DEFAULT_AGENTS,
-    "host": "127.0.0.1",
-    "port": 8000,
-    "log_level": "info",
-    "logging": "text",
-    "log_file": "",
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8000,
+        "workers": 1,
+        # TLS / HTTPS termination: empty paths mean plain HTTP.
+        "tls": {"certfile": "", "keyfile": "", "keyfile_password": "", "ca_certs": ""},
+    },
+    "log": {"level": "info", "format": "text", "file": ""},
     # A pluggable section names its type only: a field set here would count
     # as set in the config, and reach a plugin's Config in place of its own
     # default.  The fields' defaults are in privyx.config.schema.
     "vault": {"type": "memory"},
-    # No built-in patterns: the `regex` detector adds them itself.  A copy here
-    # would be merged into a `yaml` detector, which must see only its own.
-    "detector": {"type": "regex"},
+    # No built-in patterns: the `regex` detector adds them itself, unless
+    # `builtins: false`.
+    "detectors": {"regex": {}},
     "policy": {"type": "default"},
     "operator": {"type": "pseudonym"},
     "anchor": {"type": "hmac"},
@@ -115,17 +128,7 @@ DEFAULTS: dict[str, object] = {
     # privyx.providers.DEFAULT_BASE_URLS).
     "provider": {"type": "generic"},
     "providers": DEFAULT_PROVIDERS,
-    "audit": {
-        "enabled": True,
-        "path": "~/.privyx/audit.log",
-    },
+    "features": {name: {"enabled": on} for name, on in DEFAULT_FEATURES.items()},
     # Opt-in: no paths means no plugins are loaded.
     "plugins": {"enabled": True, "paths": [], "modules": []},
-    # Server TLS / HTTPS termination: empty paths mean plain HTTP.
-    "tls": {
-        "certfile": "",
-        "keyfile": "",
-        "keyfile_password": "",
-        "ca_certs": "",
-    },
 }

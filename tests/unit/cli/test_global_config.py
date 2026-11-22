@@ -19,9 +19,9 @@ def test_global_config_reaches_nested_command(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yaml").write_text(
-        'detector:\n  patterns:\n    TICKET: "TCK-[0-9]{4}"\n', encoding="utf-8"
+        'detectors:\n  regex:\n    patterns:\n      TICKET: "TCK-[0-9]{4}"\n', encoding="utf-8"
     )
-    result = CliRunner().invoke(cli, [option, "config.yaml", "inspect", "regex", "TICKET"])
+    result = CliRunner().invoke(cli, [option, "config.yaml", "detect", "--entity", "TICKET"])
     assert result.exit_code == 0, result.output
     assert "TCK-" in result.output
 
@@ -39,14 +39,16 @@ def test_global_config_precedence(
         args += ["-c", str(configs[2])]
     result = CliRunner().invoke(cli, args)
     assert result.exit_code == 0, result.output
-    assert result.output.strip() == str(configs[2 if subcommand_override else 1])
+    assert result.stdout.strip() == str(configs[2 if subcommand_override else 1])
+    # After the command it is the name of earlier versions: read, with a warning.
+    assert ("`-c` after" in result.stderr) is subcommand_override
     assert os.environ["PRIVYX_CONFIG"] == str(configs[0])
-    again = CliRunner().invoke(cli, ["config", "--path"])
+    again = CliRunner().invoke(cli, ["config", "path"])
     assert again.output.strip() == str(configs[0])
 
 
 @pytest.mark.parametrize("previous", [None, "original.yaml"])
-@pytest.mark.parametrize("contents", ["{}\n", "detector: [\n"])
+@pytest.mark.parametrize("contents", ["{}\n", "detectors: [\n"])
 def test_global_config_restores_environment_on_success_and_error(
     previous: str | None, contents: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -56,7 +58,7 @@ def test_global_config_restores_environment_on_success_and_error(
         monkeypatch.setenv("PRIVYX_CONFIG", previous)
     config = tmp_path / "config.yaml"
     config.write_text(contents, encoding="utf-8")
-    result = CliRunner().invoke(cli, ["-c", str(config), "config", "--path"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "config", "path"])
     assert result.exit_code == (0 if contents == "{}\n" else 1)
     assert os.environ.get("PRIVYX_CONFIG") == previous
 
@@ -112,7 +114,7 @@ def test_global_config_preserves_symlink_relative_includes(
         (shared / "extra.yaml").write_text("port: 8124\n", encoding="utf-8")
 
     runner = CliRunner()
-    subcommand = runner.invoke(cli, ["config", "-c", "project/config.yaml", "--show"])
+    subcommand = runner.invoke(cli, ["-c", "project/config.yaml", "config", "--show"])
     global_option = runner.invoke(cli, ["-c", "project/config.yaml", "config", "--show"])
 
     assert subcommand.exit_code == 0, subcommand.output

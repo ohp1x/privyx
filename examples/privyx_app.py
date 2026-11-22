@@ -16,8 +16,9 @@ from privyx.core import Context, Detection
 from privyx.detectors import Detector
 
 # Read like `privyx proxy`: the config files, then PRIVYX_* variables, then
-# these settings, which win as command-line flags do.
-px = Privyx(detector=[{"type": "regex"}, {"type": "codename"}])
+# these settings, which win as command-line flags do.  The codename detector
+# runs after the built-in regex one.
+px = Privyx(detectors={"codename": {}})
 
 CODENAME = re.compile(r"\bproject [A-Z][a-z]+\b")
 

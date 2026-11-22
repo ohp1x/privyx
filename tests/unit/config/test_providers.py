@@ -59,7 +59,7 @@ def test_a_key_does_not_follow_a_profile_upstream_to_another_origin(
     with pytest.raises(ConfigError, match="is for https://api.anthropic.com only") as error:
         check_credential(settings)
     assert KEY not in str(error.value)
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "claude:work"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "claude:work"])
     assert result.exit_code == 1
     assert "would go to https://router.example.com" in result.output
     assert KEY not in result.output

@@ -91,7 +91,7 @@ def test_claude_endpoint_sources(
             "local": tmp_path / ".claude/settings.local.json",
         }[source]
         write_settings(path)
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "claude"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "claude"])
     assert result.exit_code == 0, result.output
     assert f"Upstream: {url}" in result.output
     assert "Native endpoint (used):" in result.output
@@ -194,7 +194,7 @@ def test_a_wrapper_follows_the_endpoint_of_the_tool_it_extends(
     monkeypatch.setenv(variable, "https://router.example.com" + path)
     config = tmp_path / "wrapper.yaml"
     config.write_text(f"agents:\n  wrapped:\n    extends: {agent}\n    command: /opt/wrap\n")
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "wrapped"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "wrapped"])
     assert result.exit_code == 0, result.output
     assert "Upstream: https://router.example.com" + path in result.output
 
@@ -207,7 +207,7 @@ def test_a_wrapper_refuses_to_send_privyx_key_to_the_endpoint_it_follows(
     monkeypatch.setenv("PRIVYX_OPENAI_API_KEY", "dummy-privyx-key")
     config = tmp_path / "wrapper.yaml"
     config.write_text("agents:\n  wrapped:\n    extends: aider\n    command: aider-wrap\n")
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "wrapped"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "wrapped"])
     assert result.exit_code == 1
     assert "would receive Privyx's own API key" in result.output
 
@@ -231,7 +231,7 @@ def test_endpoint_env_names_what_a_profile_follows(
         f"agents:\n  own:\n    {fields}\n    provider: openai\n    base_path: /v1\n"
         "    env_vars: [ACME_BASE_URL, OPENAI_API_BASE]\n"
     )
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "own"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "own"])
     assert result.exit_code == 0, result.output
     assert "Upstream: " + upstream in result.output
 
@@ -277,7 +277,7 @@ def test_config_upstreams_win_over_native_environment(
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://native.example.com")
     config = tmp_path / "explicit.yaml"
     config.write_text(setting)
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "claude"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "claude"])
     assert result.exit_code == 0, result.output
     assert "Upstream: https://explicit.example.com" in result.output
     assert "Native endpoint (overridden): https://native.example.com" in result.output
@@ -306,7 +306,7 @@ def test_profile_settings_conflict_is_not_hidden_by_later_settings(tmp_path: Pat
         'agents:\n  claude:\n    args: [--settings, \'{"env":{"ANTHROPIC_BASE_URL":"https://router.example.com"}}\']\n'
     )
     result = CliRunner().invoke(
-        cli, ["run", "-c", str(config), "--dry-run", "claude", "--", "--settings={}"]
+        cli, ["-c", str(config), "run", "--dry-run", "claude", "--", "--settings={}"]
     )
     assert result.exit_code == 1
     assert "defines ANTHROPIC_BASE_URL" in result.output

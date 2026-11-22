@@ -40,7 +40,7 @@ ORG = "Acme Corp"
 #: A value the upstream writes itself, which no request masked.
 OTHER = "bob@example.org"
 
-CONFIG = {"detector": {"terms": {"PERSON": [PERSON], "ORG": [ORG]}}}
+CONFIG = {"detectors": {"regex": {"terms": {"PERSON": [PERSON], "ORG": [ORG]}}}}
 #: Headers of the transport and the HTTP client libraries, left out of a record.
 _TRANSPORT = frozenset(
     {
@@ -111,7 +111,7 @@ def proxies(
     upstream: Upstream, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[dict[str, str]]:
     """The URL of each ``privyx proxy``, started together and stopped at the end."""
-    gateway = {**CONFIG, "proxy": {"directive": True}}
+    gateway = {**CONFIG, "features": {"directive": True}}
     key = {"PRIVYX_API_KEY": "golden-privyx-key"}
     setups = {
         "transparent": (["--transparent", "-u", upstream.url], CONFIG, {}),

@@ -11,7 +11,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from privyx.core import Context
-from privyx.detectors import YamlDetector
+from privyx.detectors import RegexDetector
 from privyx.detectors._pattern import SECRET_PATTERN, _secret_matches
 
 from .test_detection_eval import CORPUS, _parse
@@ -88,8 +88,10 @@ def test_secret_search_matches_reference_with_arbitrary_surroundings(text: str) 
 
 
 def test_custom_secret_pattern_keeps_its_own_match_starts() -> None:
-    detector = YamlDetector(
-        patterns={"SECRET": r"CUSTOM\[(?P<value>[^]]+)\]"}, underscore_separates_words=False
+    detector = RegexDetector(
+        builtins=False,
+        patterns={"SECRET": r"CUSTOM\[(?P<value>[^]]+)\]"},
+        underscore_separates_words=False,
     )
     detection = detector.detect_sync("CUSTOM[canary]", Context())
     assert [(s.start, s.end, s.text) for s in detection.spans] == [(7, 13, "canary")]

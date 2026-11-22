@@ -2,7 +2,8 @@
 
 Interceptable events happen inside a flow: :class:`AppStarting`,
 :class:`RequestReceived`, :class:`RequestMasked`.  Notifications are the audit
-vocabulary (:class:`AuditEvent` and its subclasses), and :class:`AppStopping`.
+vocabulary (:class:`AuditEvent` and its subclasses), :class:`AppStopping`,
+and :class:`ConfigChanged`.
 """
 
 from privyx.events._app import AppStarting, AppStopping
@@ -23,6 +24,7 @@ from privyx.events._audit import (
     SessionRestore,
     SessionTransform,
 )
+from privyx.events._config import ConfigChanged
 from privyx.events._request import CREDENTIAL_HEADERS, Headers, RequestMasked, RequestReceived
 
 __all__ = [
@@ -32,6 +34,7 @@ __all__ = [
     "AppStopping",
     "AuditEvent",
     "AuditEventType",
+    "ConfigChanged",
     "Headers",
     "ProxyBlocked",
     "ProxyError",

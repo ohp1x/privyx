@@ -28,6 +28,7 @@ class Budget(Feature):
     """Refuses a launch's model turns once its turn or token limit is reached."""
 
     name = "budget"
+    single_process = True
 
     class Options(Feature.Options):
         max_turns: int | None = Field(default=None, gt=0)

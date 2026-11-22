@@ -18,3 +18,6 @@ class Feature(Component, kind="feature"):
 
     #: Whether the feature is on without a setting that switches it on.
     enabled_by_default: ClassVar[bool] = False
+    #: Whether it keeps state in its instance, which each server process
+    #: would have its own of: ``server.workers`` above 1 refuses it.
+    single_process: ClassVar[bool] = False

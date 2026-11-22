@@ -7,7 +7,7 @@ engine alone::
     from privyx import Privyx
     from privyx.events import AppStarting
 
-    px = Privyx("privyx.yaml", port=8080)
+    px = Privyx("privyx.yaml", server={"port": 8080})
     px.add(AcmeIdDetector)
 
     @px.router.get("/acme/status")
@@ -47,8 +47,11 @@ if TYPE_CHECKING:
     from fastapi import APIRouter
 
     from privyx.app._services._audit import Audit
+    from privyx.app._services._config import Config
+    from privyx.app._services._diagnostics import Diagnostics
     from privyx.app._services._features import Features
-    from privyx.app._services._masking import Masking
+    from privyx.app._services._masking import Inspection, Masking
+    from privyx.app._services._plugins import Plugins
     from privyx.app._services._sessions import Sessions
     from privyx.app._services._workspace import Workspace
     from privyx.config.schema import Settings
@@ -77,7 +80,8 @@ class Privyx:
         config: A config file read alone, as with ``--config``; ``None`` reads
             the usual files.
         **overrides: Settings that win over the files and the environment, as
-            command-line flags do: ``port=8080``, ``detector={"terms": ...}``.
+            command-line flags do: ``server={"port": 8080}``,
+            ``detectors={"regex": {"terms": ...}}``.
     """
 
     def __init__(self, config: str | Path | None = None, **overrides: Any) -> None:
@@ -96,6 +100,10 @@ class Privyx:
         self._sessions: Sessions | None = None
         self._audit_service: Audit | None = None
         self._features: Features | None = None
+        self._config_service: Config | None = None
+        self._diagnostics: Diagnostics | None = None
+        self._plugins: Plugins | None = None
+        self._inspection: Inspection | None = None
         self._modules: set[str] = set()
         self._files: set[Path] = set()
         #: What ``defaults()`` added, by section and name, and who added each.
@@ -103,6 +111,10 @@ class Privyx:
         self._defaults_from: dict[tuple[str, str], str] = {}
         #: The plugin being set up, named in errors.
         self._setting_up = "the app"
+        #: Whether code added to the app what its config does not name.
+        self._in_code = False
+        #: What added each component that is not built in, by kind and name.
+        self._origins: dict[tuple[str, str], str] = {}
         for package in _KINDS:
             importlib.import_module(package).setup(self)
 
@@ -133,7 +145,14 @@ class Privyx:
         if not (isinstance(cls, type) and issubclass(cls, Component)):
             raise ConfigError(f"{cls!r} is not a Privyx component")
         self.registry(cls).add(cls)
+        self._origins[(cls.kind, cls.name)] = self._setting_up
+        self._added()
         return cls
+
+    def _added(self) -> None:
+        """Note that code, not a plugin the config names, extended the app."""
+        if self._setting_up == "the app":
+            self._in_code = True
 
     def use(self, module: str) -> None:
         """Import plugin ``module`` and call its ``setup`` with this ``Privyx``, once.
@@ -147,6 +166,7 @@ class Privyx:
         if module not in self._modules:
             set_up_module(module, self)
             self._modules.add(module)
+            self._added()
 
     def on[F: Callable[..., Any]](
         self, event: type[Event], *, priority: int = 0
@@ -162,6 +182,7 @@ class Privyx:
 
         def add(listener: F) -> F:
             self._events.add(event, listener, priority=priority)
+            self._added()
             return listener
 
         return add
@@ -197,6 +218,7 @@ class Privyx:
                     )
                 self._defaults_from[(section, name)] = self._setting_up
                 self._defaults.setdefault(section, {})[name] = dict(value)
+                self._added()
 
     @property
     def router(self) -> APIRouter:
@@ -210,6 +232,7 @@ class Privyx:
             from fastapi import APIRouter
 
             self._router = APIRouter()
+        self._added()
         return self._router
 
     def add_middleware(
@@ -223,6 +246,7 @@ class Privyx:
         outermost; of equal ones, the one added first.
         """
         self._middleware.append((priority, len(self._middleware), factory, options))
+        self._added()
 
     @property
     def settings(self) -> Settings:
@@ -309,13 +333,21 @@ class Privyx:
         """Serve the proxy, as ``privyx proxy`` does, until stopped.
 
         With ``watch``, also until one of those files changes on disk, and then
-        return ``True`` (``privyx proxy --reload``).
+        return ``True`` (``privyx proxy --reload``).  With ``server.workers``
+        above 1, from that many processes, each building the app from the
+        config again (:func:`~privyx.app._serve.serve_workers`).
 
         Raises:
-            ConfigError: If the app cannot be built.
+            ConfigError: If the app cannot be built, or ``watch`` is given
+                with more than one worker.
         """
-        from privyx.app._serve import serve
+        from privyx.app._serve import serve, serve_workers
 
+        if self.settings.server.workers > 1:
+            if watch:
+                raise ConfigError("--reload serves with one worker; set server.workers to 1")
+            serve_workers(self)
+            return False
         return asyncio.run(serve(self, watch))
 
     @asynccontextmanager
@@ -340,6 +372,48 @@ class Privyx:
         finally:
             self._engine = None
             await close()
+
+    @property
+    def config(self) -> Config:
+        """The configuration: read, explain, change, check, migrate (experimental)."""
+        if self._config_service is None:
+            from privyx.app._services._config import Config
+
+            self._config_service = Config(self)
+        return self._config_service
+
+    @property
+    def diagnostics(self) -> Diagnostics:
+        """The checks of ``privyx doctor`` and ``privyx config lint`` (experimental)."""
+        if self._diagnostics is None:
+            from privyx.app._services._diagnostics import Diagnostics
+
+            self._diagnostics = Diagnostics(self)
+        return self._diagnostics
+
+    @property
+    def inspection(self) -> Inspection:
+        """Detection span by span, and regex checks, for ``privyx detect`` (experimental)."""
+        if self._inspection is None:
+            from privyx.app._services._masking import Inspection
+
+            self._inspection = Inspection(self)
+        return self._inspection
+
+    @property
+    def plugins(self) -> Plugins:
+        """The plugins the config loads, what they add, and the ones installed (experimental)."""
+        if self._plugins is None:
+            from privyx.app._services._plugins import Plugins
+
+            self._plugins = Plugins(self)
+        return self._plugins
+
+    def _types(self) -> Any:
+        """This app's registries as the loader reads a config with them."""
+        from privyx.config._layers import _Types
+
+        return _Types(self._registries)
 
     @property
     def masking(self) -> Masking:

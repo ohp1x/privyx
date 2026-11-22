@@ -15,7 +15,7 @@ async def main() -> None:
     # The same layers as the CLI: built-in defaults, the config files (or one
     # alone: pass its path as the first argument), PRIVYX_* environment
     # variables, then these settings.
-    app = Privyx(detector={"terms": {"PROJECT": ["bluebird"]}})
+    app = Privyx(detectors={"regex": {"terms": {"PROJECT": ["bluebird"]}}})
     async with app.engine() as engine:  # closes the vault on exit
         session = await engine.get_or_create_session()
 

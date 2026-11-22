@@ -1,7 +1,7 @@
 """Developer tap: each masked exchange before and after masking.
 
-Opt-in (``audit.tap``) and separate from the audit trail, which never holds
-content.  The tap does: per session, one JSONL file in ``audit.tap_dir`` gets
+Opt-in (``proxy.tap``) and separate from the audit trail, which never holds
+content.  The tap does: per session, one JSONL file in ``proxy.tap_dir`` gets
 two records per exchange::
 
     {"stage": "request", "before": <client body>, "after": <body sent upstream>, ...}

@@ -211,7 +211,7 @@ class Pipeline:
             ``x-privyx-session`` header — ``ephemeral`` (default), ``client``, or
             ``conversation``.  See :func:`privyx.proxy._session.resolve_session_id`.
         tap: Optional developer tap that records each masked exchange before
-            and after masking (``audit.tap``; see :mod:`privyx.proxy._tap`).
+            and after masking (``proxy.tap``; see :mod:`privyx.proxy._tap`).
         events: The bus the request events go to, the app's: a listener may
             change a request, refuse it, or answer it.
         metadata_keys, masked_headers: The request keys and headers in which
@@ -1107,7 +1107,7 @@ def log_scan_failure(exc: Exception) -> None:
     """Log a masking failure: the class at WARNING, the traceback only at DEBUG.
 
     The message stays out of the console because it may quote request text;
-    ``log_file`` at DEBUG, which is owner-only, keeps the full traceback.
+    ``log.file`` at DEBUG, which is owner-only, keeps the full traceback.
     """
     _log.warning("request not forwarded: %s while masking it", type(exc).__name__)
     _log.debug("masking failed", exc_info=exc)

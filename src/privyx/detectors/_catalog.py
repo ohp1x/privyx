@@ -324,8 +324,8 @@ ICD10_PATTERN = r"\b[A-Z]\d[0-9AB](?:\.[0-9A-Z]{1,4})?\b"
 
 # --- Registry ---------------------------------------------------------------
 
-#: Checked by checksum or structure, and built into the ``regex`` detector; a
-#: ``yaml`` detector takes them with ``enable``.  Each ID pattern starts with a
+#: Checked by checksum or structure, and among the built-in patterns; a detector
+#: with ``builtins: false`` takes them with ``enable``.  Each ID pattern starts with a
 #: digit or letter, its left boundary checked after it: a pattern starting with
 #: a lookbehind is tried at every position, which made it 3-5 times slower.
 CHECKED_PATTERNS: dict[str, str] = {

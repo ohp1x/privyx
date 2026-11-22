@@ -14,6 +14,9 @@ import threading
 from pathlib import Path
 from typing import Any, TextIO
 
+from pydantic import Field
+
+from privyx.config.schema import ModelPrice
 from privyx.core import ConfigError, Services, listen
 from privyx.events import AuditEvent
 from privyx.features._base import Feature
@@ -29,6 +32,8 @@ class AuditTrail(Feature):
 
     class Options(Feature.Options):
         path: str = "~/.privyx/audit.log"
+        #: Model-id prefix -> USD per million tokens, for ``privyx session show``.
+        prices: dict[str, ModelPrice] = Field(default_factory=dict)
 
     options: Options
 
@@ -83,4 +88,6 @@ def _append(where: str) -> TextIO:
                 os.chmod(path, 0o600)
         return open(path, "a", encoding="utf-8")  # noqa: SIM115 - closed by the feature
     except OSError as exc:
-        raise ConfigError(f"cannot write audit.path {path}: {exc.strerror or exc}") from exc
+        raise ConfigError(
+            f"cannot write features.audit.path {path}: {exc.strerror or exc}"
+        ) from exc

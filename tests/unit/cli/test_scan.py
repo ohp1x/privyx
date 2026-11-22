@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
@@ -115,13 +116,59 @@ def test_scan_writes_terms_and_env_patterns_but_no_env_value(runner: CliRunner, 
     # Written wholly here, so trusted: the terms apply right away.
     assert is_trusted(repo / "privyx.yaml")
     text = f"SENTRY_DSN={DSN} from Budi Contoh at ACME-LABS"
-    detector = build_detector(load_config().detector.model_dump())  # type: ignore[union-attr]
+    detector = build_detector(load_config().detectors)
     spans = asyncio.run(detector.detect(text, Context())).merged(text).spans
     assert {(s.entity_type, s.text) for s in spans} >= {
         ("ENV_SENTRY_DSN", DSN),
         ("PERSON", "Budi Contoh"),
         ("ORGANIZATION", "ACME-LABS"),
     }
+
+
+def test_scan_writes_the_current_keys_and_loads_without_a_warning(
+    runner: CliRunner, repo: Path
+) -> None:
+    assert runner.invoke(cli, ["scan", "--yes"]).exit_code == 0
+
+    data = yaml.safe_load((repo / "privyx.d" / "terms.yaml").read_text(encoding="utf-8"))
+    warnings: list[str] = []
+    settings = load_config(warnings=warnings)
+
+    assert list(data) == ["detectors"] and list(data["detectors"]) == ["regex"]
+    assert warnings == []
+    assert settings.detectors["regex"].terms
+
+
+def test_scan_adds_to_a_terms_file_of_an_earlier_version(runner: CliRunner, repo: Path) -> None:
+    terms = repo / "privyx.d" / "terms.yaml"
+    terms.parent.mkdir()
+    terms.write_text("detector:\n  terms:\n    PERSON: [john smith]\n", encoding="utf-8")
+
+    assert runner.invoke(cli, ["scan", "--yes"]).exit_code == 0
+
+    data = yaml.safe_load(terms.read_text(encoding="utf-8"))
+    assert list(data) == ["detector"]  # moved by `privyx config migrate`, not here
+    assert "john smith" in data["detector"]["terms"]["PERSON"]
+    assert "Ana Example" in data["detector"]["terms"]["PERSON"]
+
+
+@pytest.mark.parametrize(
+    "config",
+    ["detector: [{type: regex}]", "detectors:\n  regex: false\n  own: {type: regex}"],
+)
+def test_scan_says_when_the_config_leaves_the_terms_out(
+    runner: CliRunner, repo: Path, config: str
+) -> None:
+    (repo / "privyx.yaml").write_text(
+        f"include: [privyx.d/terms.yaml]\n{config}\n", encoding="utf-8"
+    )
+    (repo / "privyx.d").mkdir()
+    (repo / "privyx.d" / "terms.yaml").write_text("{}\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["scan", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "leaves out the terms" in result.output
 
 
 def test_scan_twice_leaves_the_files_unchanged(runner: CliRunner, repo: Path) -> None:
@@ -169,7 +216,7 @@ def test_scan_leaves_a_config_that_came_with_the_project_untrusted(
 
     assert config.read_text(encoding="utf-8") == "port: 9001\n"
     assert "Add privyx.d/terms.yaml to the include list" in result.output
-    assert "Run `privyx trust`" in result.output
+    assert "Run `privyx config trust`" in result.output
     assert not is_trusted(config)
 
 
@@ -185,14 +232,14 @@ def test_scan_names_the_error_of_a_broken_config(runner: CliRunner, repo: Path) 
 
 def test_scan_keeps_a_trusted_config_trusted(runner: CliRunner, repo: Path) -> None:
     config = repo / "privyx.yaml"
-    config.write_text("include: [privyx.d/*.yaml]\nport: 9001\n", encoding="utf-8")
-    assert runner.invoke(cli, ["trust"]).exit_code == 0
+    config.write_text("include: [privyx.d/*.yaml]\nserver:\n  port: 9001\n", encoding="utf-8")
+    assert runner.invoke(cli, ["config", "trust"]).exit_code == 0
 
     result = runner.invoke(cli, ["scan", "--yes"])
 
-    assert "include list" not in result.output and "privyx trust" not in result.output
+    assert "include list" not in result.output and "config trust" not in result.output
     assert is_trusted(config)
-    assert load_config().port == 9001
+    assert load_config().server.port == 9001
 
 
 def test_harvest_masks_the_workspace_for_one_run(runner: CliRunner, repo: Path) -> None:
@@ -200,8 +247,8 @@ def test_harvest_masks_the_workspace_for_one_run(runner: CliRunner, repo: Path) 
     summary = workspace.harvest(settings, Path.cwd())
 
     assert summary == "1 ORGANIZATION, 2 PERSON, 1 PROJECT, 3 .env value(s)"
-    assert isinstance(settings.detector, list)
-    detector = build_detector([d.model_dump() for d in settings.detector])
+    assert list(settings.detectors) == ["regex", "harvest"]
+    detector = build_detector(settings.detectors)
     text = f"Budi Contoh pasted {DSN} and acme-portal"
     spans = asyncio.run(detector.detect(text, Context())).merged(text).spans
     assert {s.text for s in spans} >= {"Budi Contoh", DSN, "acme-portal"}
@@ -284,7 +331,7 @@ def test_harvest_masks_a_value_with_an_escaped_quote(
     settings = load_config()
     workspace.harvest(settings, Path.cwd())
 
-    detector = build_detector([d.model_dump() for d in settings.detector])  # type: ignore[union-attr]
+    detector = build_detector(settings.detectors)
     text = 'it is abc-123"tail-456 here'
     spans = asyncio.run(detector.detect(text, Context())).merged(text).spans
     assert [s.text for s in spans] == ['abc-123"tail-456']
@@ -298,7 +345,7 @@ def test_harvest_masks_a_value_with_an_unknown_escape(
     settings = load_config()
     workspace.harvest(settings, Path.cwd())
 
-    detector = build_detector([d.model_dump() for d in settings.detector])  # type: ignore[union-attr]
+    detector = build_detector(settings.detectors)
     text = "it is abc\\q-123456 here"
     spans = asyncio.run(detector.detect(text, Context())).merged(text).spans
     assert [s.text for s in spans] == ["abc\\q-123456"]

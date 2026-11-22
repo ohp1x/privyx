@@ -23,7 +23,7 @@ def _validator() -> Any:
 
 def test_published_schema_is_up_to_date() -> None:
     published = json.loads((DOCS / "schema.json").read_text(encoding="utf-8"))
-    assert published == json_schema(), "run: privyx config --schema > docs/schema.json"
+    assert published == json_schema(), "run: privyx config schema > docs/schema.json"
 
 
 def _examples() -> list[tuple[str, dict[str, Any]]]:

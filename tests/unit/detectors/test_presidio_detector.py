@@ -87,7 +87,7 @@ async def test_config_can_select_presidio() -> None:
     Presidio installed it now fails on the missing extra instead — either way,
     at startup, and never with 'unknown'.
     """
-    detector = build_detector({"type": "presidio", "score_threshold": 0.5, "cache": False})
+    detector = build_detector({"presidio": {"score_threshold": 0.5, "cache": False}})
     try:
         await detector.open(services())
     except ConfigError as exc:

@@ -98,7 +98,7 @@ def test_an_invalid_env_boolean_fails_at_load(
 )
 def test_env_booleans(monkeypatch: pytest.MonkeyPatch, value: str, expected: bool) -> None:
     monkeypatch.setenv("PRIVYX_AUDIT_ENABLED", value)
-    assert load_config().audit.enabled is expected
+    assert load_config().features["audit"].enabled is expected
 
 
 def test_extra_overrides_base_extra() -> None:
@@ -115,21 +115,26 @@ def test_base_extra_leaves_unrelated_defaults_intact(tmp_path: Path) -> None:
     assert settings.operator.type == "pseudonym"  # untouched default
 
 
-def test_detector_accepts_a_list(tmp_path: Path) -> None:
+def test_detectors_run_in_the_order_written(tmp_path: Path) -> None:
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
-        "detector:\n  - type: regex\n  - type: yaml\n    patterns: {CODE: 'X\\d+'}\n",
+        "detectors:\n  codes:\n    type: regex\n    builtins: false\n"
+        "    patterns: {CODE: 'X\\d+'}\n  llm: false\n",
         encoding="utf-8",
     )
     settings = load_config(cfg)
-    assert isinstance(settings.detector, list)
-    assert settings.detector_type == "regex+yaml"
+    assert list(settings.detectors) == ["regex", "codes", "llm"]
+    assert list(settings.active_detectors) == ["regex", "codes"]
+    assert settings.detector_type == "regex+regex"
 
 
-async def test_yaml_detector_sees_only_its_own_patterns(tmp_path: Path) -> None:
+async def test_a_detector_without_builtins_sees_only_its_own_patterns(tmp_path: Path) -> None:
     # The built-in patterns in the defaults used to be merged into it.
     cfg = tmp_path / "c.yaml"
-    cfg.write_text("detector:\n  type: yaml\n  patterns: {CODE: 'X\\d+'}\n", encoding="utf-8")
+    cfg.write_text(
+        "detectors:\n  regex:\n    builtins: false\n    patterns: {CODE: 'X\\d+'}\n",
+        encoding="utf-8",
+    )
     detector = build_detector_from(load_config(cfg))
     detection = await detector.detect("X12 mail a@b.io", Context())
     assert [span.entity_type for span in detection.spans] == ["CODE"]
@@ -137,7 +142,7 @@ async def test_yaml_detector_sees_only_its_own_patterns(tmp_path: Path) -> None:
 
 async def test_regex_detector_keeps_the_builtin_patterns(tmp_path: Path) -> None:
     cfg = tmp_path / "c.yaml"
-    cfg.write_text("detector:\n  type: regex\n  patterns: {CODE: 'X\\d+'}\n", encoding="utf-8")
+    cfg.write_text("detectors:\n  regex:\n    patterns: {CODE: 'X\\d+'}\n", encoding="utf-8")
     detector = build_detector_from(load_config(cfg))
     detection = await detector.detect("X12 mail a@b.io", Context())
     assert sorted(span.entity_type for span in detection.spans) == ["CODE", "EMAIL"]
@@ -151,34 +156,39 @@ def test_env_detector_cache_applies_to_each_listed_detector(
     monkeypatch.setenv("PRIVYX_DETECTOR_CACHE", "false")
     cfg = tmp_path / "c.yaml"
     cfg.write_text(
-        "detector:\n"
-        "  - type: regex\n    terms: {PROJECT: [bluebird]}\n"
-        "  - type: yaml\n    patterns: {CODE: 'X\\d+'}\n",
+        "detectors:\n"
+        "  regex:\n    terms: {PROJECT: [bluebird]}\n"
+        "  codes:\n    type: regex\n    builtins: false\n    patterns: {CODE: 'X\\d+'}\n",
         encoding="utf-8",
     )
     settings = load_config(cfg)
-    assert isinstance(settings.detector, list)
-    assert settings.detector_type == "regex+yaml"
-    assert settings.detector[0].terms == {"PROJECT": ["bluebird"]}
-    assert [d.cache.enabled for d in settings.detector] == [False, False]
+    assert settings.detectors["regex"].model_dump()["terms"] == {"PROJECT": ["bluebird"]}
+    assert [d.cache.enabled for d in settings.detectors.values()] == [False, False]
 
 
 @pytest.mark.parametrize(
     ("text", "message"),
     [
-        ("detector:\n  term: {PERSON: [Zed Quill]}\n", "'detector.term' (did you mean 'terms'?)"),
-        ("detectors:\n  - type: regex\n", "'detectors' (did you mean 'detector'?)"),
         (
-            "detector:\n  - type: regex\n  - type: yaml\n    patern: {CODE: X}\n",
-            "'detector[1].patern' (did you mean 'patterns'?)",
+            "detectors:\n  regex:\n    term: {PERSON: [Zed Quill]}\n",
+            "'detectors.regex.term' (did you mean 'terms'?)",
+        ),
+        ("detectorz:\n  regex: {}\n", "'detectorz' (did you mean 'detectors'?)"),
+        (
+            "detectors:\n  codes:\n    type: regex\n    patern: {CODE: X}\n",
+            "'detectors.codes.patern' (did you mean 'patterns'?)",
         ),
         (
-            "detector:\n  cache: {max_sise: 5}\n",
-            "'detector.cache.max_sise' (did you mean 'max_size'?)",
+            "detectors:\n  regex:\n    cache: {max_sise: 5}\n",
+            "'detectors.regex.cache.max_sise' (did you mean 'max_size'?)",
         ),
         ("vault:\n  type: sqlite\n  path: x.db\n", "unknown setting 'vault.path'"),
+        (
+            "detector:\n  term: {PERSON: [Zed Quill]}\n",
+            "'detectors.regex.term' (did you mean 'terms'?)",
+        ),
     ],
-    ids=["terms", "detector", "list-item", "cache", "vault"],
+    ids=["terms", "detectors", "entry", "cache", "vault", "old-key"],
 )
 def test_an_unknown_setting_fails_to_load(tmp_path: Path, text: str, message: str) -> None:
     # Each used to load with the key dropped, so the first masked no PERSON
@@ -254,8 +264,10 @@ def test_local_configs_override_the_home_config_in_order(
     home_config = _write(
         home / ".privyx" / "config.yaml", "session:\n  strategy: client\nvault:\n  ttl: 100\n"
     )
-    plain = _write(Path.cwd() / "privyx.yaml", "session:\n  strategy: conversation\nport: 9001\n")
-    hidden = _write(Path.cwd() / ".privyx" / "config.yaml", "port: 9002\n")
+    plain = _write(
+        Path.cwd() / "privyx.yaml", "session:\n  strategy: conversation\nserver:\n  port: 9001\n"
+    )
+    hidden = _write(Path.cwd() / ".privyx" / "config.yaml", "server:\n  port: 9002\n")
     trust(plain)
     trust(hidden)
 
@@ -264,7 +276,7 @@ def test_local_configs_override_the_home_config_in_order(
     assert active_config_paths() == [home_config, plain, hidden]
     assert settings.vault.ttl == 100  # only the home config sets it
     assert settings.session.strategy == "conversation"  # privyx.yaml over the home config
-    assert settings.port == 9002  # .privyx/config.yaml over privyx.yaml
+    assert settings.server.port == 9002  # .privyx/config.yaml over privyx.yaml
 
 
 def test_env_overrides_every_config_file(
@@ -285,7 +297,7 @@ def test_a_named_config_is_read_alone(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     _write(home / ".privyx" / "config.yaml", "vault:\n  ttl: 100\n")
-    trust(_write(Path.cwd() / "privyx.yaml", "port: 9001\n"))
+    trust(_write(Path.cwd() / "privyx.yaml", "server:\n  port: 9001\n"))
     named = _write(tmp_path / "named" / "custom.yaml", "session:\n  strategy: client\n")
     if by_env:
         monkeypatch.setenv("PRIVYX_CONFIG", str(named))
@@ -295,7 +307,7 @@ def test_a_named_config_is_read_alone(
     assert active_config_paths(None if by_env else named) == [named]
     assert settings.session.strategy == "client"
     assert settings.vault.ttl is None
-    assert settings.port == 8000
+    assert settings.server.port == 8000
 
 
 def test_no_discovery_reads_no_file_that_was_not_named(
@@ -303,12 +315,12 @@ def test_no_discovery_reads_no_file_that_was_not_named(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     _write(home / ".privyx" / "config.yaml", "vault:\n  ttl: 100\n")
-    trust(_write(Path.cwd() / "privyx.yaml", "port: 9001\n"))
+    trust(_write(Path.cwd() / "privyx.yaml", "server:\n  port: 9001\n"))
     monkeypatch.setenv("PRIVYX_NO_DISCOVERY", "1")
 
     assert active_config_paths() == []
     assert load_config().vault.ttl is None
-    assert load_config().port == 8000
+    assert load_config().server.port == 8000
 
 
 def test_a_mistyped_no_discovery_fails_to_load(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -339,12 +351,12 @@ def test_without_a_home_directory_a_project_cannot_stand_in_for_it(
 
     monkeypatch.setattr(Path, "home", no_home)
     monkeypatch.chdir(tmp_path)
-    config = _write(Path.cwd() / "privyx.yaml", "port: 9001\n")
-    _write(Path.cwd() / "~" / ".privyx" / "config.yaml", "port: 9002\n")
+    config = _write(Path.cwd() / "privyx.yaml", "server:\n  port: 9001\n")
+    _write(Path.cwd() / "~" / ".privyx" / "config.yaml", "server:\n  port: 9002\n")
     _write(Path.cwd() / "~" / ".privyx" / "trusted.json", "{}")
 
     assert active_config_paths() == []
-    assert load_config().port == 8000
+    assert load_config().server.port == 8000
     with pytest.raises(ConfigError, match="no home directory"):
         trust(config)
 
@@ -363,12 +375,12 @@ def test_yaml_values_read_environment_variables(
     monkeypatch.setenv("TEST_PORT", "9100")
     cfg = _yaml(
         tmp_path,
-        "port: ${TEST_PORT}\n"
+        "server:\n  port: ${TEST_PORT}\n"
         "vault:\n  type: redis\n"
         "  redis_url: redis://${TEST_REDIS_HOST}:${TEST_REDIS_PORT:-6379}/0\n",
     )
     settings = load_config(cfg)
-    assert settings.port == 9100
+    assert settings.server.port == 9100
     assert settings.vault.redis_url == "redis://cache.internal:6379/0"
 
 
@@ -397,16 +409,16 @@ def test_a_malformed_reference_fails(tmp_path: Path, value: str) -> None:
 
 
 def test_a_doubled_dollar_keeps_a_literal_reference(tmp_path: Path) -> None:
-    cfg = _yaml(tmp_path, "detector:\n  terms:\n    PROJECT: ['$${NOT_A_VAR}']\n")
+    cfg = _yaml(tmp_path, "detectors:\n  regex:\n    terms:\n      PROJECT: ['$${NOT_A_VAR}']\n")
     settings = load_config(cfg)
-    assert settings.detector.terms == {"PROJECT": ["${NOT_A_VAR}"]}  # type: ignore[union-attr]
+    assert settings.detectors["regex"].model_dump()["terms"] == {"PROJECT": ["${NOT_A_VAR}"]}
 
 
 def test_an_error_never_shows_a_variable_value(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TEST_SECRET_PORT", "sk-" + "proj-abc123")
-    cfg = _yaml(tmp_path, "port: ${TEST_SECRET_PORT}\n")
+    cfg = _yaml(tmp_path, "server:\n  port: ${TEST_SECRET_PORT}\n")
     with pytest.raises(ConfigError) as exc:
         load_config(cfg)
     assert "proj-abc123" not in str(exc.value)
@@ -419,7 +431,7 @@ def test_include_merges_files_below_the_including_one(tmp_path: Path) -> None:
         "vault:\n  ttl: 120\n  type: memory\n", encoding="utf-8"
     )
     (tmp_path / "terms.yaml").write_text(
-        "detector:\n  terms:\n    PROJECT: [bluebird]\n", encoding="utf-8"
+        "detectors:\n  regex:\n    terms:\n      PROJECT: [bluebird]\n", encoding="utf-8"
     )
     cfg = _yaml(
         tmp_path,
@@ -430,8 +442,8 @@ def test_include_merges_files_below_the_including_one(tmp_path: Path) -> None:
     settings = load_config(cfg, sources=sources)
     assert settings.vault.ttl == 300  # the including file wins
     assert settings.vault.type == "memory"  # the later include wins over the earlier
-    assert settings.detector.terms == {"PROJECT": ["bluebird"]}  # type: ignore[union-attr]
-    assert sources["detector.terms.PROJECT"] == str((tmp_path / "terms.yaml").resolve())
+    assert settings.detectors["regex"].model_dump()["terms"] == {"PROJECT": ["bluebird"]}
+    assert sources["detectors.regex.terms.PROJECT"] == str((tmp_path / "terms.yaml").resolve())
     assert active_config_paths(cfg) == [
         tmp_path / "privyx.d" / "10-vault.yaml",
         tmp_path / "privyx.d" / "20-vault.yaml",
@@ -442,7 +454,7 @@ def test_include_merges_files_below_the_including_one(tmp_path: Path) -> None:
 
 def test_a_glob_may_match_nothing(tmp_path: Path) -> None:
     cfg = _yaml(tmp_path, "include: ['privyx.d/*.yaml']\n")
-    assert load_config(cfg).port == load_config().port
+    assert load_config(cfg).server.port == load_config().server.port
 
 
 def test_a_missing_included_file_fails(tmp_path: Path) -> None:
@@ -453,7 +465,7 @@ def test_a_missing_included_file_fails(tmp_path: Path) -> None:
 
 def test_an_included_file_cannot_include(tmp_path: Path) -> None:
     (tmp_path / "a.yaml").write_text("include: [b.yaml]\n", encoding="utf-8")
-    (tmp_path / "b.yaml").write_text("port: 9000\n", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("server:\n  port: 9000\n", encoding="utf-8")
     cfg = _yaml(tmp_path, "include: [a.yaml]\n")
     with pytest.raises(ConfigError, match="cannot include files itself"):
         load_config(cfg)
@@ -461,8 +473,8 @@ def test_an_included_file_cannot_include(tmp_path: Path) -> None:
 
 def test_an_included_file_is_interpolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_PORT", "9200")
-    (tmp_path / "port.yaml").write_text("port: ${TEST_PORT}\n", encoding="utf-8")
-    assert load_config(_yaml(tmp_path, "include: [port.yaml]\n")).port == 9200
+    (tmp_path / "port.yaml").write_text("server:\n  port: ${TEST_PORT}\n", encoding="utf-8")
+    assert load_config(_yaml(tmp_path, "include: [port.yaml]\n")).server.port == 9200
 
 
 def test_trust_covers_included_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -471,14 +483,14 @@ def test_trust_covers_included_files(tmp_path: Path, monkeypatch: pytest.MonkeyP
     (project / "privyx.d").mkdir(parents=True)
     monkeypatch.chdir(project)
     (project / "privyx.yaml").write_text("include: ['privyx.d/*.yaml']\n", encoding="utf-8")
-    (project / "privyx.d" / "port.yaml").write_text("port: 9300\n", encoding="utf-8")
+    (project / "privyx.d" / "port.yaml").write_text("server:\n  port: 9300\n", encoding="utf-8")
     trust(project / "privyx.yaml")
-    assert load_config().port == 9300
+    assert load_config().server.port == 9300
 
-    (project / "privyx.d" / "port.yaml").write_text("port: 9301\n", encoding="utf-8")
-    assert load_config().port != 9301  # changed since trusted: not read
+    (project / "privyx.d" / "port.yaml").write_text("server:\n  port: 9301\n", encoding="utf-8")
+    assert load_config().server.port != 9301  # changed since trusted: not read
     trust(project / "privyx.yaml")
-    assert load_config().port == 9301
+    assert load_config().server.port == 9301
 
     (project / "privyx.d" / "upstream.yaml").write_text(
         "upstream_url: https://evil.test\n", encoding="utf-8"
@@ -493,13 +505,15 @@ def test_a_trusted_config_with_a_key_given_twice_stops_the_load(
     # reported, not "not trusted" with the project's terms left out.
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "terms.yaml").write_text("port: 9300\n", encoding="utf-8")
-    config = _write(tmp_path / "privyx.yaml", "include: [terms.yaml]\nport: 1\nport: 2\n")
+    (tmp_path / "terms.yaml").write_text("server:\n  port: 9300\n", encoding="utf-8")
+    config = _write(
+        tmp_path / "privyx.yaml", "include: [terms.yaml]\nserver:\n  port: 1\n  port: 2\n"
+    )
     trust(config)
 
-    with pytest.raises(ConfigError, match="line 3: key 'port' is given twice"):
+    with pytest.raises(ConfigError, match="line 4: key 'port' is given twice"):
         load_config()
-    (tmp_path / "terms.yaml").write_text("port: 9301\n", encoding="utf-8")
+    (tmp_path / "terms.yaml").write_text("server:\n  port: 9301\n", encoding="utf-8")
     assert not is_trusted(config)
 
 

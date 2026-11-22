@@ -1,4 +1,4 @@
-"""Tests for `privyx pipe`."""
+"""Tests for `privyx mask --stream` and `unmask --stream`, and the `privyx pipe` alias."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from privyx.cli.commands import pipe
 from privyx.cli.main import cli
 
 EMAIL = "alice@example.com"
@@ -26,8 +25,6 @@ def config(tmp_path: Path) -> Path:
         "vault:\n"
         "  type: sqlite\n"
         f"  dsn: sqlite+aiosqlite:///{tmp_path / 'privyx.db'}\n"
-        "detector:\n"
-        "  type: regex\n"
         "anchor:\n"  # counter tokens, which the tests name
         "  secret: ''\n",
         encoding="utf-8",
@@ -38,7 +35,9 @@ def config(tmp_path: Path) -> Path:
 def test_masks_and_restores_lines_byte_for_byte(config: Path) -> None:
     runner = CliRunner()
     source = f"a {EMAIL}\r\nno value \xff\nb {EMAIL}".encode("latin-1")
-    masked = runner.invoke(cli, ["pipe", "-c", str(config), "--session", "s1"], input=source)
+    masked = runner.invoke(
+        cli, ["-c", str(config), "mask", "--stream", "--session", "s1"], input=source
+    )
     assert masked.exit_code == 0, masked.output
     assert masked.stderr == "session: s1\n"
     assert EMAIL not in masked.stdout
@@ -48,21 +47,21 @@ def test_masks_and_restores_lines_byte_for_byte(config: Path) -> None:
     assert masked.stdout_bytes.decode() == f"a {token}\r\nno value \ufffd\nb {token}"
 
     restored = runner.invoke(
-        cli, ["pipe", "-c", str(config), "--session", "s1", "--restore"], input=masked.stdout_bytes
+        cli, ["-c", str(config), "unmask", "--stream", "--session", "s1"], input=masked.stdout_bytes
     )
     assert restored.exit_code == 0, restored.output
     assert restored.stdout_bytes.decode() == f"a {EMAIL}\r\nno value \ufffd\nb {EMAIL}"
 
 
 def test_restore_needs_a_session(config: Path) -> None:
-    result = CliRunner().invoke(cli, ["pipe", "-c", str(config), "--restore"], input="x\n")
+    result = CliRunner().invoke(cli, ["-c", str(config), "unmask", "--stream"], input="x\n")
     assert result.exit_code == 1
-    assert "--restore needs --session" in result.stderr
+    assert "unmask --stream needs --session" in result.stderr
 
 
 def test_restore_of_an_unknown_session_fails(config: Path) -> None:
     result = CliRunner().invoke(
-        cli, ["pipe", "-c", str(config), "--session", "nope", "--restore"], input="x\n"
+        cli, ["-c", str(config), "unmask", "--stream", "--session", "nope"], input="x\n"
     )
     assert result.exit_code == 1
     assert "session not found: nope" in result.stderr
@@ -88,14 +87,14 @@ def test_restore_follows_a_masking_pipe_on_a_new_session(config: Path, operator:
     with config.open("a", encoding="utf-8") as fh:
         fh.write(f"operator:\n  type: {operator}\n")
     runner = CliRunner()
-    proc = _cli("pipe", "-c", str(config), "--session", "new", "--restore")
+    proc = _cli("-c", str(config), "unmask", "--stream", "--session", "new")
     assert proc.stdin is not None and proc.stdout is not None
     try:
         time.sleep(1.5)  # past start-up, where it used to look the session up
         assert proc.poll() is None, proc.stderr.read() if proc.stderr else ""
         for value in (EMAIL, "bob@example.com"):
             masked = runner.invoke(
-                cli, ["pipe", "-c", str(config), "--session", "new"], input=f"{value}\n"
+                cli, ["-c", str(config), "mask", "--stream", "--session", "new"], input=f"{value}\n"
             )
             assert masked.exit_code == 0, masked.output
             assert value not in masked.stdout
@@ -111,14 +110,16 @@ def test_restore_follows_a_masking_pipe_on_a_new_session(config: Path, operator:
 def test_masking_keeps_what_another_writer_added(config: Path) -> None:
     """A long-running pipe must not mask from, and save, a stale copy of its session."""
     runner = CliRunner()
-    proc = _cli("pipe", "-c", str(config), "--session", "s1")
+    proc = _cli("-c", str(config), "mask", "--stream", "--session", "s1")
     assert proc.stdin is not None and proc.stdout is not None
     try:
         proc.stdin.write(f"{EMAIL}\n".encode())
         proc.stdin.flush()
         assert proc.stdout.readline() == b"<PRIVYX_EMAIL_1>\n"
         other = runner.invoke(
-            cli, ["pipe", "-c", str(config), "--session", "s1"], input="bob@example.com\n"
+            cli,
+            ["-c", str(config), "mask", "--stream", "--session", "s1"],
+            input="bob@example.com\n",
         )
         assert other.stdout == "<PRIVYX_EMAIL_2>\n"
         proc.stdin.write(b"carol@example.com\n")
@@ -130,7 +131,7 @@ def test_masking_keeps_what_another_writer_added(config: Path) -> None:
         proc.kill()
     restored = runner.invoke(
         cli,
-        ["pipe", "-c", str(config), "--session", "s1", "--restore"],
+        ["-c", str(config), "unmask", "--stream", "--session", "s1"],
         input="<PRIVYX_EMAIL_1> <PRIVYX_EMAIL_2> <PRIVYX_EMAIL_3>\n",
     )
     assert restored.stdout == f"{EMAIL} bob@example.com carol@example.com\n"
@@ -156,8 +157,10 @@ def test_pipe_stops_when_the_session_vanishes(config: Path, restore: bool, expir
         )
 
     runner = CliRunner()
-    runner.invoke(cli, ["pipe", "-c", str(config), "--session", "s1"], input=f"{EMAIL}\n")
-    proc = _cli("pipe", "-c", str(config), "--session", "s1", *(["--restore"] if restore else []))
+    runner.invoke(
+        cli, ["-c", str(config), "mask", "--stream", "--session", "s1"], input=f"{EMAIL}\n"
+    )
+    proc = _cli("-c", str(config), "unmask" if restore else "mask", "--stream", "--session", "s1")
     assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
     try:
         proc.stdin.write(b"<PRIVYX_EMAIL_1>\n" if restore else f"{EMAIL}\n".encode())
@@ -192,7 +195,7 @@ def test_a_read_error_ends_the_command(
 
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(Failing(f"{EMAIL}\nmore\n".encode())))
     with pytest.raises(SystemExit) as exit_:
-        pipe.pipe.main(["-c", str(config)], standalone_mode=False)
+        cli.main(["-c", str(config), "mask", "--stream"], standalone_mode=False)
     assert exit_.value.code == 1
     out, err = capsys.readouterr()
     assert out == "<PRIVYX_EMAIL_1>\n"
@@ -202,8 +205,8 @@ def test_a_read_error_ends_the_command(
 def test_ctrl_c_stops_a_pipe_whose_reader_stopped_reading(tmp_path: Path) -> None:
     """Blocked writing to a full stdout pipe, Ctrl-C still ends it."""
     config = tmp_path / "memory.yaml"
-    config.write_text("detector:\n  type: regex\n", encoding="utf-8")
-    proc = _cli("pipe", "-c", str(config))
+    config.write_text("server:\n  port: 8000\n", encoding="utf-8")
+    proc = _cli("-c", str(config), "mask", "--stream")
     assert proc.stdin is not None
     try:
         # 80 KB through a 64 KB stdout pipe nobody reads; what is left of the
@@ -220,7 +223,7 @@ def test_ctrl_c_stops_a_pipe_whose_reader_stopped_reading(tmp_path: Path) -> Non
 
 def test_each_line_is_written_before_the_next_is_read(config: Path) -> None:
     """Run as for real: a line comes out while stdin is still open, and Ctrl-C ends it."""
-    proc = _cli("pipe", "-c", str(config))
+    proc = _cli("-c", str(config), "mask", "--stream")
     assert proc.stdin is not None and proc.stdout is not None
     try:
         proc.stdin.write(f"mail {EMAIL}\n".encode())
@@ -234,7 +237,7 @@ def test_each_line_is_written_before_the_next_is_read(config: Path) -> None:
 
 def test_concurrent_pipe_processes_keep_distinct_mappings(config: Path) -> None:
     initialized = CliRunner().invoke(
-        cli, ["pipe", "-c", str(config), "--session", "shared"], input=""
+        cli, ["-c", str(config), "mask", "--stream", "--session", "shared"], input=""
     )
     assert initialized.exit_code == 0, initialized.output
     # Slow masking after the session read to expose overlapping updates reliably.
@@ -251,7 +254,17 @@ cli()
 """
     processes = [
         subprocess.Popen(
-            [sys.executable, "-c", script, "pipe", "-c", str(config), "--session", "shared"],
+            [
+                sys.executable,
+                "-c",
+                script,
+                "-c",
+                str(config),
+                "mask",
+                "--stream",
+                "--session",
+                "shared",
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -276,7 +289,7 @@ cli()
         for output, value in zip(outputs, values, strict=True):
             restored = CliRunner().invoke(
                 cli,
-                ["pipe", "-c", str(config), "--session", "shared", "--restore"],
+                ["-c", str(config), "unmask", "--stream", "--session", "shared"],
                 input=output,
             )
             assert restored.exit_code == 0, restored.output
@@ -285,3 +298,24 @@ cli()
         for proc in processes:
             proc.kill()
             proc.wait(timeout=10)
+
+
+def test_pipe_is_an_alias_with_a_warning(config: Path) -> None:
+    runner = CliRunner()
+    masked = runner.invoke(cli, ["-c", str(config), "pipe", "--session", "s1"], input=f"{EMAIL}\n")
+    restored = runner.invoke(
+        cli, ["-c", str(config), "pipe", "--session", "s1", "--restore"], input=masked.stdout
+    )
+
+    assert (masked.exit_code, restored.exit_code) == (0, 0)
+    assert masked.stdout == "<PRIVYX_EMAIL_1>\n"
+    assert restored.stdout == f"{EMAIL}\n"
+    assert "`privyx pipe` is deprecated; use `privyx mask --stream`" in masked.stderr
+    assert "`privyx unmask --stream`" in restored.stderr
+
+
+def test_stream_reads_stdin_only(config: Path) -> None:
+    result = CliRunner().invoke(cli, ["-c", str(config), "mask", "--stream", "text"])
+
+    assert result.exit_code == 2
+    assert "leave out TEXT" in result.stderr

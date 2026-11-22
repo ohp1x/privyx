@@ -31,7 +31,7 @@ def _recorder(calls: list[str]) -> Any:
 
 async def test_middleware_runs_from_the_highest_priority_in() -> None:
     calls: list[str] = []
-    px = Privyx(audit={"enabled": False})
+    px = Privyx(features={"audit": False})
     record = _recorder(calls)
     px.add_middleware(record, name="inner", priority=-5)
     px.add_middleware(record, name="first-of-ten", priority=10)
@@ -82,7 +82,7 @@ async def test_a_stream_reaches_the_client_as_it_arrives(monkeypatch: pytest.Mon
         lambda **_: httpx.AsyncClient(transport=httpx.MockTransport(reply)),
     )
     calls: list[str] = []
-    px = Privyx(audit={"enabled": False}, vault={"type": "memory"}, anchor={"secret": ""})
+    px = Privyx(features={"audit": False}, vault={"type": "memory"}, anchor={"secret": ""})
     px.add_middleware(_recorder(calls), name="edge")
     app = px.asgi()
 

@@ -9,7 +9,7 @@ import pytest
 
 from privyx.app._build import build_detector
 from privyx.core import ConfigError, Context
-from privyx.detectors import RegexDetector, YamlDetector
+from privyx.detectors import RegexDetector
 from privyx.detectors._pattern import (
     DEFAULT_PATTERNS,
     OPTIONAL_PATTERNS,
@@ -41,8 +41,8 @@ async def test_regex_detector_finds_multiple_entities() -> None:
 
 @pytest.mark.asyncio
 async def test_yaml_detector_custom_rules() -> None:
-    detector = YamlDetector(
-        patterns={"CODE": r"\b[A-Z]{3}\d{2}\b"}, underscore_separates_words=False
+    detector = RegexDetector(
+        builtins=False, patterns={"CODE": r"\b[A-Z]{3}\d{2}\b"}, underscore_separates_words=False
     )
     detection = await detector.detect("code is ABC12", Context())
     assert len(detection.spans) == 1
@@ -213,8 +213,8 @@ def test_a_url_password_is_no_email_address(text: str, spans: list[tuple[str, st
 
 
 def test_own_pattern_for_a_builtin_entity_is_used_as_written() -> None:
-    detector = YamlDetector(
-        patterns={"CREDIT_CARD": r"\b\d{16}\b"}, underscore_separates_words=False
+    detector = RegexDetector(
+        builtins=False, patterns={"CREDIT_CARD": r"\b\d{16}\b"}, underscore_separates_words=False
     )
     detection = detector.detect_sync("id 1234567812345678", Context())
     assert [s.text for s in detection.spans] == ["1234567812345678"]
@@ -353,8 +353,10 @@ def test_builtin_patterns_stay_linear_on_adversarial_input() -> None:
 async def test_value_group_marks_only_the_value() -> None:
     # `value` group → only it; an alternative without it → the whole match;
     # an empty `value` → nothing.
-    detector = YamlDetector(
-        patterns={"SECRET": r"PASSWORD=(?P<value>\S*)|sk-\w+"}, underscore_separates_words=False
+    detector = RegexDetector(
+        builtins=False,
+        patterns={"SECRET": r"PASSWORD=(?P<value>\S*)|sk-\w+"},
+        underscore_separates_words=False,
     )
     detection = await detector.detect("DB_PASSWORD=hunter2 sk-abc PASSWORD= x", Context())
     assert [(s.entity_type, s.text) for s in detection.spans] == [
@@ -376,7 +378,7 @@ async def _detect_terms(text: str, **config: object) -> dict[str, list[str]]:
         "merge_terms": False,
         **config,
     }
-    detector = build_detector({"type": "regex", **options})
+    detector = build_detector({"regex": {**options}})
     detection = (await detector.detect(text, Context())).merged(text)
     found: dict[str, list[str]] = {}
     for span in detection.spans:
@@ -508,7 +510,7 @@ async def test_patterns_win_over_terms_for_the_same_entity(
     }
     with caplog.at_level("WARNING", logger="privyx"):
         found = await _detect_terms("ann and bob", **config)
-        build_detector({"type": "regex", **config})  # built again: no second warning
+        build_detector({"regex": {**config}})  # built again: no second warning
     assert found == {"PERSON": ["bob"]}
     assert len(caplog.records) == 1
     assert "'PERSON' replaces its 2 terms" in caplog.text
@@ -521,7 +523,7 @@ async def test_empty_term_list_matches_nothing() -> None:
     assert found == {}
 
 
-@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize("builtins", [True, False], ids=["builtins", "own"])
 @pytest.mark.parametrize(
     ("pattern", "text", "expected"),
     [
@@ -536,14 +538,20 @@ async def test_empty_term_list_matches_nothing() -> None:
     ],
 )
 async def test_merge_terms_keeps_both_branches_and_regex_semantics(
-    dtype: str, pattern: str, text: str, expected: list[str], caplog: pytest.LogCaptureFixture
+    builtins: bool,
+    pattern: str,
+    text: str,
+    expected: list[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     detector = build_detector(
         {
-            "type": dtype,
-            "merge_terms": True,
-            "terms": {"PERSON": ["ann"]},
-            "patterns": {"PERSON": pattern},
+            "regex": {
+                "builtins": builtins,
+                "merge_terms": True,
+                "terms": {"PERSON": ["ann"]},
+                "patterns": {"PERSON": pattern},
+            }
         }
     )
     found = await detector.detect(text, Context())
@@ -578,7 +586,13 @@ async def test_merge_terms_keeps_variants_and_underscore_boundaries() -> None:
 def test_merge_terms_reports_an_invalid_original_regex() -> None:
     with pytest.raises(ConfigError, match="invalid regex for entity 'PERSON'"):
         build_detector(
-            {"merge_terms": True, "terms": {"PERSON": ["ann"]}, "patterns": {"PERSON": "("}}
+            {
+                "regex": {
+                    "merge_terms": True,
+                    "terms": {"PERSON": ["ann"]},
+                    "patterns": {"PERSON": "("},
+                }
+            }
         )
 
 
@@ -592,19 +606,26 @@ def test_merge_terms_reports_an_invalid_original_regex() -> None:
 )
 def test_malformed_terms_raise_config_error(terms: object) -> None:
     with pytest.raises(ConfigError):
-        build_detector({"type": "regex", "terms": terms})
+        build_detector({"regex": {"terms": terms}})
 
 
 @pytest.mark.parametrize("entity", ["my-person", "1PERSON", "", "A" * 65])
 def test_invalid_entity_name_raises_config_error(entity: str) -> None:
     with pytest.raises(ConfigError, match="invalid entity name"):
-        build_detector({"type": "regex", "terms": {entity: ["ann"]}})
+        build_detector({"regex": {"terms": {entity: ["ann"]}}})
 
 
 @pytest.mark.asyncio
-async def test_detector_list_pools_spans_from_every_detector() -> None:
+async def test_detectors_pool_spans_from_every_detector() -> None:
     detector = build_detector(
-        [{"type": "regex"}, {"type": "yaml", "patterns": {"CODE": r"\b[A-Z]{3}\d{2}\b"}}]
+        {
+            "regex": {},
+            "codes": {
+                "type": "regex",
+                "builtins": False,
+                "patterns": {"CODE": r"\b[A-Z]{3}\d{2}\b"},
+            },
+        }
     )
     detection = await detector.detect("mail alice@example.com code ABC12", Context())
     assert sorted((s.entity_type, s.text) for s in detection.spans) == [
@@ -614,57 +635,73 @@ async def test_detector_list_pools_spans_from_every_detector() -> None:
 
 
 @pytest.mark.asyncio
-async def test_detector_list_collapses_exact_duplicates() -> None:
-    detector = build_detector([{"type": "regex"}, {"type": "regex"}])
+async def test_detectors_collapse_exact_duplicates() -> None:
+    detector = build_detector({"regex": {}, "regex-2": {"type": "regex"}})
     detection = await detector.detect("mail alice@example.com", Context())
     assert len(detection.spans) == 1
 
 
-def test_empty_detector_list_raises_config_error() -> None:
-    with pytest.raises(ConfigError, match="must not be empty"):
-        build_detector([])
+@pytest.mark.parametrize("sections", [{}, {"regex": {"enabled": False}}])
+def test_no_detector_on_raises_config_error(sections: dict) -> None:
+    with pytest.raises(ConfigError, match="no detector is on"):
+        build_detector(sections)
 
 
 def test_disable_turns_a_built_in_off() -> None:
     text = "card 378282246310005, mail alice@example.com"
-    detector = build_detector({"type": "regex", "cache": False, "disable": ["CREDIT_CARD"]})
+    detector = build_detector({"regex": {"cache": False, "disable": ["CREDIT_CARD"]}})
     spans = detector.detect_sync(text, Context()).spans
     assert [(s.entity_type, s.text) for s in spans] == [("EMAIL", "alice@example.com")]
 
 
 def test_disable_keeps_your_own_pattern_for_the_entity() -> None:
     config = {"disable": ["CREDIT_CARD"], "patterns": {"CREDIT_CARD": r"\bCC-\d{4}\b"}}
-    detector = build_detector({"type": "regex", "cache": False, **config})
+    detector = build_detector({"regex": {"cache": False, **config}})
     spans = detector.detect_sync("card CC-1234 or 378282246310005", Context()).spans
     assert [(s.entity_type, s.text) for s in spans] == [("CREDIT_CARD", "CC-1234")]
 
 
-@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize("builtins", [True, False], ids=["builtins", "own"])
 @pytest.mark.parametrize("entity", sorted(OPTIONAL_PATTERNS))
-def test_disable_accepts_an_inactive_optional_entity(dtype: str, entity: str) -> None:
-    config = {"type": dtype, "cache": False, "patterns": {"CODE": "ABC123"}}
-    baseline = build_detector(config).detect_sync("ABC123 alice@example.com", Context())
-    disabled = build_detector({**config, "disable": [entity]})
+def test_disable_accepts_an_inactive_optional_entity(builtins: bool, entity: str) -> None:
+    config = {"builtins": builtins, "cache": False, "patterns": {"CODE": "ABC123"}}
+    baseline = build_detector({"regex": config}).detect_sync("ABC123 alice@example.com", Context())
+    disabled = build_detector({"regex": {**config, "disable": [entity]}})
     assert disabled.detect_sync("ABC123 alice@example.com", Context()) == baseline
 
 
-@pytest.mark.parametrize("dtype", ["regex", "yaml"])
+@pytest.mark.parametrize("builtins", [True, False], ids=["builtins", "own"])
 @pytest.mark.parametrize("entity", ["CREDITCARD", "NOT_AN_ENTITY"])
-def test_disable_rejects_an_unknown_entity(dtype: str, entity: str) -> None:
+def test_disable_rejects_an_unknown_entity(builtins: bool, entity: str) -> None:
     with pytest.raises(ConfigError, match=entity):
-        build_detector({"type": dtype, "disable": [entity]})
+        build_detector({"regex": {"builtins": builtins, "disable": [entity]}})
 
 
-@pytest.mark.parametrize("dtype", ["regex", "yaml"])
-def test_disable_rejects_an_entity_that_is_also_enabled(dtype: str) -> None:
+@pytest.mark.parametrize("builtins", [True, False], ids=["builtins", "own"])
+def test_disable_rejects_an_entity_that_is_also_enabled(builtins: bool) -> None:
     with pytest.raises(ConfigError, match="both.*enable.*disable.*CRYPTO_WALLET"):
-        build_detector({"type": dtype, "enable": ["CRYPTO_WALLET"], "disable": ["CRYPTO_WALLET"]})
+        build_detector(
+            {
+                "regex": {
+                    "builtins": builtins,
+                    "enable": ["CRYPTO_WALLET"],
+                    "disable": ["CRYPTO_WALLET"],
+                }
+            }
+        )
 
 
-@pytest.mark.parametrize("dtype", ["regex", "yaml"])
-def test_disable_keeps_terms_for_an_optional_entity(dtype: str) -> None:
+@pytest.mark.parametrize("builtins", [True, False], ids=["builtins", "own"])
+def test_disable_keeps_terms_for_an_optional_entity(builtins: bool) -> None:
     detector = build_detector(
-        {"type": dtype, "cache": False, "disable": ["MRN"], "terms": {"MRN": ["ABC123"]}}
+        {
+            "regex": {
+                "builtins": builtins,
+                "cache": False,
+                "disable": ["MRN"],
+                "terms": {"MRN": ["ABC123"]},
+            }
+        }
     )
     spans = detector.detect_sync("ABC123", Context()).spans
     assert [(s.entity_type, s.text) for s in spans] == [("MRN", "ABC123")]

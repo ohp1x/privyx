@@ -1,9 +1,9 @@
-"""The ``regex`` and ``yaml`` detectors: named regular expressions and literal terms."""
+"""The ``regex`` detector: named regular expressions and literal terms."""
 
 from __future__ import annotations
 
 import re
-from typing import Any, ClassVar
+from typing import Any
 
 from pydantic import Field
 
@@ -27,8 +27,12 @@ from privyx.detectors._pattern import (
 )
 
 
-class _PatternDetector(Detector):
-    """Entity → regex detection, shared by the ``regex`` and ``yaml`` detectors.
+class RegexDetector(Detector):
+    """The built-in entity patterns, with the configured patterns and terms over them.
+
+    Adding one pattern never silently disables EMAIL, SSN, and the rest;
+    ``disable`` turns a built-in off, and ``builtins: false`` all of them but
+    those ``enable`` names.
 
     ``patterns`` maps an entity to a regex; ``terms`` maps an entity to a list
     of literal strings, compiled into one case-insensitive regex.  Both may be
@@ -45,7 +49,12 @@ class _PatternDetector(Detector):
             ``context`` is invalid.
     """
 
+    name = "regex"
+
     class Options(Detector.Options):
+        #: The built-in patterns, under the configured ones; ``false`` keeps
+        #: only the configured ones and the opt-in built-ins ``enable`` names.
+        builtins: bool = True
         patterns: dict[str, str] = Field(default_factory=dict)
         terms: dict[str, list[str]] = Field(default_factory=dict)
         merge_terms: bool = True  # match terms before patterns for the same entity
@@ -60,14 +69,11 @@ class _PatternDetector(Detector):
 
     options: Options
 
-    #: Whether the built-in patterns come first, under the configured ones.
-    builtins: ClassVar[bool]
-
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
         config = self.options.model_dump()
         combined = {**_enabled(config), **_patterns_from(config)}
-        if self.builtins:
+        if self.options.builtins:
             combined = {**_builtins(config), **combined}
         _validate(combined)
         settings = _pattern_options(config, combined)
@@ -106,24 +112,3 @@ class _PatternDetector(Detector):
                 s for s in found.spans if (s.start, s.end, s.entity_type) not in seen
             ]
         return detection
-
-
-class RegexDetector(_PatternDetector):
-    """The built-in entity patterns, with the configured patterns and terms over them.
-
-    Adding one pattern never silently disables EMAIL, SSN, and the rest;
-    ``disable`` turns a built-in off.
-    """
-
-    name = "regex"
-    builtins = True
-
-
-class YamlDetector(_PatternDetector):
-    """Only the configured patterns and terms, and the built-ins ``enable`` lists.
-
-    Use it for full control over which entities are detected.
-    """
-
-    name = "yaml"
-    builtins = False

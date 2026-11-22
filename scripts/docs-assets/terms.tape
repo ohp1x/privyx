@@ -28,7 +28,7 @@ Sleep 300ms
 Enter
 Sleep 2.5s
 
-Type 'privyx detect -c my.yaml --transform "Bob at Initech wants Bluebird specs before Acme does"'
+Type 'privyx -c my.yaml detect --transform "Bob at Initech wants Bluebird specs before Acme does"'
 Sleep 300ms
 Enter
 Sleep 5s

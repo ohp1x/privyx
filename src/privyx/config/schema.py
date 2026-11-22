@@ -71,10 +71,23 @@ class SharedDetectorOptions(BaseModel):
         return v
 
 
-class DetectorConfig(SharedDetectorOptions, PluggableConfig):
-    """Detector selection and its rules."""
+class Switch(BaseModel):
+    """The setting of an entry of ``detectors`` or ``features`` that Privyx applies.
 
-    type: str = "regex"
+    Writing ``false`` in place of the entry is ``enabled: false``, and ``true``
+    is ``enabled: true``, so a layer turns an entry off or on again without
+    the options a layer below gave it.
+    """
+
+    enabled: bool = True
+
+
+class DetectorConfig(SharedDetectorOptions, Switch, PluggableConfig):
+    """One of ``detectors``: its type, by default the entry's name, and its rules."""
+
+
+class FeatureConfig(Switch, PluggableConfig):
+    """One of ``features``: its type, by default the entry's name, and its options."""
 
 
 class PolicyConfig(PluggableConfig):
@@ -260,11 +273,10 @@ class ProxyConfig(BaseModel):
     #: Mask each copy of a value a request masked, and refuse the request if
     #: one is still where Privyx does not mask.
     dlp_check: bool = True
-    #: Tell the model, in each masked chat request, to keep placeholders as written.
-    directive: bool = False
-    #: Mark a large Anthropic ``tools`` / ``system`` prefix for prompt caching
-    #: when the request marks nothing itself.
-    cache_control: bool = False
+    #: Developer tap: each masked exchange before and after masking, one JSONL
+    #: file per session in ``tap_dir``.  It holds original values; owner-only.
+    tap: bool = False
+    tap_dir: str = "~/.privyx/tap"
 
 
 class ModelPrice(BaseModel):
@@ -274,33 +286,6 @@ class ModelPrice(BaseModel):
     output: float = Field(ge=0)
     cache_read: float | None = Field(default=None, ge=0)
     cache_write: float | None = Field(default=None, ge=0)
-
-
-class TracingConfig(BaseModel):
-    """OpenTelemetry spans per proxied request (``pip install 'privyx[otel]'``).
-
-    The exporter is configured by the standard ``OTEL_*`` environment variables.
-    """
-
-    enabled: bool = False
-
-
-class AuditConfig(BaseModel):
-    """PII-safe audit trail.
-
-    Events (session created, transform, restore, proxy request) are appended as
-    JSON lines to ``path``.  The trail records counts and entity *types*, never
-    payload content; see :mod:`privyx.observability.audit`.
-    """
-
-    enabled: bool = True
-    path: str = "~/.privyx/audit.log"
-    #: Developer tap: each masked exchange before and after masking, one JSONL
-    #: file per session in ``tap_dir``.  It holds original values; owner-only.
-    tap: bool = False
-    tap_dir: str = "~/.privyx/tap"
-    #: Model-id prefix -> USD per million tokens, for ``privyx session show``.
-    prices: dict[str, ModelPrice] = Field(default_factory=dict)
 
 
 class PluginsConfig(BaseModel):
@@ -331,6 +316,28 @@ class TLSConfig(BaseModel):
     @property
     def enabled(self) -> bool:
         return bool(self.certfile and self.keyfile)
+
+
+class ServerConfig(BaseModel):
+    """Where ``privyx proxy`` listens, and how many processes serve it."""
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=8000, ge=0, le=65535)
+    #: Server processes.  More than one needs a vault they all share (``sqlite``
+    #: or ``redis``); ``privyx run`` serves with one.
+    workers: int = Field(default=1, ge=1)
+    tls: TLSConfig = Field(default_factory=TLSConfig)
+
+
+class LogConfig(BaseModel):
+    """Privyx's own log: its level, its console format, and a file that also takes others'."""
+
+    level: str = "info"
+    #: ``text``, or ``json`` for one JSON object per line.
+    format: str = "text"
+    #: A debug log file, created owner-only.  It also takes third-party
+    #: records at ``level``: at ``debug`` they hold raw vault rows.
+    file: str = ""
 
 
 class BudgetConfig(BaseModel):
@@ -451,16 +458,31 @@ def _default_providers() -> dict[str, ProviderConfig]:
     return {name: ProviderConfig.model_validate(spec) for name, spec in DEFAULT_PROVIDERS.items()}
 
 
+def _default_detectors() -> dict[str, DetectorConfig]:
+    return {"regex": DetectorConfig(type="regex")}
+
+
+def _default_features() -> dict[str, FeatureConfig]:
+    from privyx.config.defaults import DEFAULT_FEATURES
+
+    return {
+        name: FeatureConfig(type=name, enabled=enabled)
+        for name, enabled in DEFAULT_FEATURES.items()
+    }
+
+
 class Settings(BaseModel):
-    """Top-level Privyx settings."""
+    """Top-level Privyx settings.
 
-    model_config = ConfigDict(hide_input_in_errors=True)
+    A key it does not define is refused, so a setting renamed in 0.3.0 and
+    given here by its old name fails rather than doing nothing: the loader
+    reads the old names of a file with a warning.
+    """
 
-    host: str = "127.0.0.1"
-    port: int = Field(default=8000, ge=0, le=65535)
-    log_level: str = "info"
-    logging: str = "text"
-    log_file: str = ""
+    model_config = ConfigDict(hide_input_in_errors=True, extra="forbid")
+
+    server: ServerConfig = Field(default_factory=ServerConfig)
+    log: LogConfig = Field(default_factory=LogConfig)
     #: Where requests go when that is not the provider's own ``base_url``: a
     #: profile's ``upstream``, or the agent endpoint ``privyx run`` follows.
     #: Set by the loader, not written in a file (where ``upstream_url`` is the
@@ -468,8 +490,8 @@ class Settings(BaseModel):
     #: own.  See :func:`privyx.providers.resolve_base_url`.
     upstream_url: str = ""
     vault: VaultConfig = Field(default_factory=VaultConfig)
-    #: One detector, or a list of them run together (their spans are pooled).
-    detector: DetectorConfig | list[DetectorConfig] = Field(default_factory=DetectorConfig)
+    #: The detectors, by name, run in this order; their spans are pooled.
+    detectors: dict[str, DetectorConfig] = Field(default_factory=_default_detectors)
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
     operator: OperatorConfig = Field(default_factory=OperatorConfig)
     anchor: AnchorConfig = Field(default_factory=AnchorConfig)
@@ -481,12 +503,12 @@ class Settings(BaseModel):
     #: The named providers, the built-in ones among them (``openai``, ``xai``, ...).
     providers: dict[str, ProviderConfig] = Field(default_factory=_default_providers)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
-    audit: AuditConfig = Field(default_factory=AuditConfig)
-    tracing: TracingConfig = Field(default_factory=TracingConfig)
+    #: The optional features, by name, each on or off: ``audit``, ``metrics``,
+    #: ``tracing``, ``directive``, ``cache_control``, a plugin's.
+    features: dict[str, FeatureConfig] = Field(default_factory=_default_features)
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     #: The options of each secret resolver, by scheme (``op``, a plugin's).
     secrets: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    tls: TLSConfig = Field(default_factory=TLSConfig)
     agents: dict[str, AgentConfig] = Field(default_factory=_default_agents)
     #: Named sets of settings that a ``privyx run`` profile or ``--preset`` applies.
     presets: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -499,6 +521,14 @@ class Settings(BaseModel):
     _home: tuple[str, str] | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
+    def _named_types(self) -> Settings:
+        # An entry written without a type has its name's.
+        for entries in (self.detectors, self.features):
+            for name, entry in entries.items():
+                entry.type = entry.type or name
+        return self
+
+    @model_validator(mode="after")
     def _transparent_mapping(self) -> Settings:
         # The gateway calls a provider endpoint, not a joined path.
         if self.proxy.mode == "gateway" and self.provider.path_mapping.mode != "origin":
@@ -506,16 +536,14 @@ class Settings(BaseModel):
         return self
 
     @property
-    def is_tls(self) -> bool:
-        """Whether TLS/SSL is active for the proxy server."""
-        return self.tls.enabled
+    def active_detectors(self) -> dict[str, DetectorConfig]:
+        """The detectors that are on, by name, in the order they run."""
+        return {name: d for name, d in self.detectors.items() if d.enabled}
 
     @property
     def detector_type(self) -> str:
-        """The detector type for display, e.g. ``regex`` or ``regex+presidio``."""
-        if isinstance(self.detector, list):
-            return "+".join(d.type for d in self.detector)
-        return self.detector.type
+        """The detector types that are on, for display: ``regex``, ``regex+presidio``."""
+        return "+".join(d.type for d in self.active_detectors.values()) or "none"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:
@@ -527,9 +555,15 @@ class Settings(BaseModel):
 #: Each section whose ``type`` names a component, by key: the kind of the component.
 PLUGGABLE: dict[str, type[PluggableConfig]] = {
     "vault": VaultConfig,
-    "detector": DetectorConfig,
     "policy": PolicyConfig,
     "operator": OperatorConfig,
     "anchor": AnchorConfig,
     "provider": ProviderConfig,
+}
+
+#: Each section of named entries whose type is by default the entry's name,
+#: and that ``false`` turns off: its kind, and the settings of one entry.
+NAMED: dict[str, tuple[str, type[PluggableConfig]]] = {
+    "detectors": ("detector", DetectorConfig),
+    "features": ("feature", FeatureConfig),
 }

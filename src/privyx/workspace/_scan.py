@@ -43,8 +43,8 @@ class Added:
     #: Why ``privyx.yaml`` could not be read to see that it includes the file.
     include_error: str | None = None
     included: bool = True
-    #: ``privyx.yaml`` gives ``detector`` as a list, which replaces the terms.
-    detector_list: bool = False
+    #: ``privyx.yaml`` includes the terms but keeps them from a detector that uses them.
+    terms_unused: bool = False
     #: ``privyx.yaml`` was trusted with its new content.
     trusted: bool = False
     #: ``privyx.yaml`` is not trusted, so the terms are not used until it is.
@@ -60,9 +60,9 @@ def scan(root: Path) -> Scan:
     root = root.resolve()
     terms_file = root / TERMS_FILE
     existing = _read(terms_file)
-    detector = existing.get("detector", {})
-    terms = {e: {str(v).casefold() for v in vs} for e, vs in detector.get("terms", {}).items()}
-    patterns = detector.get("patterns", {})
+    section = _section(existing)
+    terms = {e: {str(v).casefold() for v in vs} for e, vs in section.get("terms", {}).items()}
+    patterns = section.get("patterns", {})
     found = _unique(git_terms(root) + package_terms(root) + env_keys(root))
     new = [
         item
@@ -145,21 +145,34 @@ def _read(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     data = read_yaml(path)
-    detector = data.get("detector", {})
-    if not isinstance(detector, dict) or not all(
-        isinstance(detector.get(key, {}), dict) for key in ("terms", "patterns")
+    section = _section(data)
+    if not isinstance(section, dict) or not all(
+        isinstance(section.get(key, {}), dict) for key in ("terms", "patterns")
     ):
-        raise ConfigError(f"{path}: 'detector' must be a mapping with 'terms' and 'patterns'")
+        name = "detector" if "detector" in data else "detectors.regex"
+        raise ConfigError(f"{path}: {name!r} must be a mapping with 'terms' and 'patterns'")
     return data
 
 
+def _section(data: dict[str, Any]) -> Any:
+    """Where a terms file holds its terms; one of an earlier version keeps its old key."""
+    if "detector" in data:
+        return data["detector"]
+    detectors = data.get("detectors", {})
+    return detectors.get("regex", {}) if isinstance(detectors, dict) else None
+
+
 def _add(data: dict[str, Any], new: list[Found]) -> None:
-    detector = data.setdefault("detector", {})
+    section = (
+        data["detector"]
+        if "detector" in data
+        else data.setdefault("detectors", {}).setdefault("regex", {})
+    )
     for item in sorted(new, key=lambda item: (item.entity, item.value)):
         if is_env(item):
-            detector.setdefault("patterns", {})[item.entity] = env_pattern(item.value)
+            section.setdefault("patterns", {})[item.entity] = env_pattern(item.value)
         else:
-            detector.setdefault("terms", {}).setdefault(item.entity, []).append(item.value)
+            section.setdefault("terms", {}).setdefault(item.entity, []).append(item.value)
 
 
 def _dump(data: dict[str, Any]) -> str:
@@ -177,8 +190,13 @@ def _included(added: Added, config_file: Path, terms_file: Path) -> Added:
         included = terms_file in [file.resolve() for file in included_files(config_file, data)]
     except ConfigError as exc:
         return replace(added, include_error=str(exc))
-    return replace(
-        added,
-        included=included,
-        detector_list=included and isinstance(data.get("detector"), list),
-    )
+    return replace(added, included=included, terms_unused=included and _drops_terms(data))
+
+
+def _drops_terms(data: dict[str, Any]) -> bool:
+    """Whether a config including the terms file keeps them from the detector they are for."""
+    if isinstance(data.get("detector"), list):
+        return True  # a list replaces what is below it
+    detectors = data.get("detectors")
+    regex = detectors.get("regex") if isinstance(detectors, dict) else None
+    return regex is False or (isinstance(regex, dict) and regex.get("enabled") is False)

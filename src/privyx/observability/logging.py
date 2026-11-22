@@ -1,6 +1,6 @@
 """Structured application logging for Privyx.
 
-Two formats, selected by ``settings.logging``:
+Two formats, selected by ``log.format``:
 
 - ``text`` — human-readable single lines (the default).
 - ``json`` — one JSON object per line, built with :func:`json.dumps` so a
@@ -8,7 +8,7 @@ Two formats, selected by ``settings.logging``:
 
 This configures the *application* log (startup, errors, request lines) on the
 root logger, which the ``privyx`` logger hierarchy inherits, plus an optional
-``log_file`` that also captures third-party debug output.  The audit trail is
+``log.file`` that also captures third-party debug output.  The audit trail is
 a separate concern with its own file — see :mod:`privyx.observability.audit`.
 """
 
@@ -85,12 +85,12 @@ class _PrivateFileHandler(logging.FileHandler):
             # Validate the descriptor we write to, without reopening its path.
             info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode):
-                raise ConfigError("log_file must be a regular file")
+                raise ConfigError("log.file must be a regular file")
             if os.name == "posix":
                 if info.st_uid != os.geteuid():
-                    raise ConfigError("log_file must be owned by the current user")
+                    raise ConfigError("log.file must be owned by the current user")
                 if stat.S_IMODE(info.st_mode) & ~0o600:
-                    raise ConfigError("log_file permissions are too broad; use chmod 600 on it")
+                    raise ConfigError("log.file permissions are too broad; use chmod 600 on it")
             return open(fd, "a", encoding=self.encoding, errors=self.errors)
         except BaseException:
             os.close(fd)
@@ -100,18 +100,18 @@ class _PrivateFileHandler(logging.FileHandler):
 def configure_logging(settings: Settings, *, console: bool = True) -> None:
     """Set up application logging from Privyx settings.
 
-    ``log_level`` governs Privyx's own loggers.  Third-party libraries
+    ``log.level`` governs Privyx's own loggers.  Third-party libraries
     (aiosqlite, httpcore, ...) reach the console only at WARNING and above; set
-    ``log_file`` to capture them in full at ``log_level`` for debugging.  With
+    ``log.file`` to capture them in full at ``log.level`` for debugging.  With
     ``console=False`` (``privyx run``, whose tool owns the terminal) records go
-    to ``log_file`` only, or nowhere without one.
+    to ``log.file`` only, or nowhere without one.
 
     Idempotent: re-configuring (``privyx run`` then ``privyx proxy`` in the same
     process, or repeated test setup) replaces Privyx's handlers rather than
     stacking a second set.
     """
-    level = getattr(logging, settings.log_level.upper(), logging.INFO)
-    if settings.logging == "json":
+    level = getattr(logging, settings.log.level.upper(), logging.INFO)
+    if settings.log.format == "json":
         formatter: logging.Formatter = JsonFormatter()
     else:
         formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -122,12 +122,12 @@ def configure_logging(settings: Settings, *, console: bool = True) -> None:
         own = logging.Filter("privyx")
         stream.addFilter(lambda record: record.levelno >= logging.WARNING or own.filter(record))
         handlers.append(stream)
-    if settings.log_file:
+    if settings.log.file:
         # Third-party debug output includes raw vault rows (original PII): owner-only.
         try:
-            log_file = _PrivateFileHandler(settings.log_file, encoding="utf-8")
+            log_file = _PrivateFileHandler(settings.log.file, encoding="utf-8")
         except OSError as exc:
-            msg = f"cannot write log_file {settings.log_file}: {exc.strerror or exc}"
+            msg = f"cannot write log.file {settings.log.file}: {exc.strerror or exc}"
             raise ConfigError(msg) from exc
         log_file.addFilter(_tidy_third_party)
         handlers.append(log_file)
@@ -145,5 +145,5 @@ def configure_logging(settings: Settings, *, console: bool = True) -> None:
         handler.set_name(_HANDLER_NAME)
         root.addHandler(handler)
     # Without a file nobody sees third-party debug records, so don't create them.
-    root.setLevel(level if settings.log_file else max(level, logging.WARNING))
+    root.setLevel(level if settings.log.file else max(level, logging.WARNING))
     logging.getLogger("privyx").setLevel(level)

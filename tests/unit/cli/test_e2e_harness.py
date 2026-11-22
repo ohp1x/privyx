@@ -185,8 +185,8 @@ def test_seed_runs_on_the_defaults_with_terms_and_a_pattern_merged(
     run_harness.seed(tmp_path, {})
     settings = load_config(tmp_path / "privyx.yaml")
     base = yaml.safe_load(run_harness.CONFIG)
-    assert set(base) == {"detector"}  # every other setting is a default
-    assert set(base["detector"]) == {"type", "terms", "patterns"}
+    assert set(base) == {"detectors"}  # every other setting is a default
+    assert set(base["detectors"]["regex"]) == {"terms", "patterns"}
     detector = build_detector_from(settings)
     assert detector.detect_sync("ordinary prose", Context()).spans == []
     # The pattern covers only the git user: the other term needs merge_terms.

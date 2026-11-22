@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from privyx.core import Session, SessionNotFoundError, VaultError
-from privyx.detectors import RegexDetector, YamlDetector
+from privyx.detectors import RegexDetector
 from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
 from privyx.engine._engine import KEY_PROBE_LIMIT
@@ -144,7 +144,8 @@ async def test_transform_with_a_key_finds_what_only_the_key_tells() -> None:
     alone matches (an anchored pattern)."""
     buf = io.StringIO()
     engine = PrivacyEngine(
-        detector=YamlDetector(
+        detector=RegexDetector(
+            builtins=False,
             patterns={"SECRET": DEFAULT_PATTERNS["SECRET"], "EMAIL": DEFAULT_PATTERNS["EMAIL"]}
             | {"BADGE": r"^EMP\d{4}$"},
             context={"EMAIL": ["owner"]},
@@ -181,8 +182,10 @@ async def test_transform_detects_only_a_short_value_with_its_key() -> None:
     """A value longer than ``KEY_PROBE_LIMIT`` (a file's content) is detected
     alone, once: the key is not looked at."""
     engine = PrivacyEngine(
-        detector=YamlDetector(
-            patterns={"SECRET": DEFAULT_PATTERNS["SECRET"]}, underscore_separates_words=False
+        detector=RegexDetector(
+            builtins=False,
+            patterns={"SECRET": DEFAULT_PATTERNS["SECRET"]},
+            underscore_separates_words=False,
         ),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
@@ -335,7 +338,6 @@ async def test_compact_tokens_from_config_round_trip() -> None:
         Settings(
             vault={"type": "memory"},
             token={"compact": True},
-            audit={"enabled": False},
             anchor={"secret": ""},  # a counter id, which the test names
         )
     )
@@ -374,7 +376,6 @@ async def test_operator_id_length_sets_anchored_and_encrypt_ids(
             vault={"type": "memory"},
             anchor={"secret": "test-secret"},
             operator=operator,
-            audit={"enabled": False},
         )
     )
     try:
@@ -434,13 +435,13 @@ async def test_the_dlp_check_splits_at_underscores_when_a_detector_does() -> Non
 
     flags = []
     for detector in (
-        {"type": "regex", "underscore_separates_words": False},
-        [
-            {"type": "regex", "underscore_separates_words": False},
-            {"type": "yaml", "underscore_separates_words": True},
-        ],
+        {"regex": {"underscore_separates_words": False}},
+        {
+            "regex": {"underscore_separates_words": False},
+            "own": {"type": "regex", "builtins": False, "underscore_separates_words": True},
+        },
     ):
-        engine, close = await build_engine(Settings(vault={"type": "memory"}, detector=detector))
+        engine, close = await build_engine(Settings(vault={"type": "memory"}, detectors=detector))
         await close()
         flags.append(engine.underscore_separates_words)
     assert flags == [False, True]

@@ -69,7 +69,9 @@ def set_up_plugins(plugins: PluginsConfig, px: Privyx) -> None:
                     _set_up(_import_file(file), f"plugin {file}", px)
                     px._files.add(resolved)
         for name in plugins.modules:
-            px.use(name)
+            if name not in px._modules:
+                set_up_module(name, px)
+                px._modules.add(name)
 
 
 def set_up_module(name: str, px: Privyx) -> None:

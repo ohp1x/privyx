@@ -6,7 +6,7 @@ import pytest
 
 from privyx.app._build import build_detector
 from privyx.core import Context
-from privyx.detectors import RegexDetector, YamlDetector
+from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
@@ -14,7 +14,7 @@ from privyx.vaults import MemoryVault
 
 
 def _found(text: str, **config: object) -> list[tuple[str, str]]:
-    detector = build_detector({"type": "regex", "terms": {"PERSON": ["john"]}, **config})
+    detector = build_detector({"regex": {"terms": {"PERSON": ["john"]}, **config}})
     spans = detector.detect_sync(text, Context())
     return sorted((s.entity_type, s.text) for s in spans.spans)
 
@@ -48,8 +48,11 @@ def test_text_that_folds_to_itself_finds_nothing_twice() -> None:
 
 def test_a_character_that_folds_to_several_is_marked_whole() -> None:
     """``ﬁ`` folds to ``fi``: a match on either letter takes the ligature."""
-    detector = YamlDetector(
-        patterns={"FILE": r"\bfile\b"}, normalize=True, underscore_separates_words=False
+    detector = RegexDetector(
+        builtins=False,
+        patterns={"FILE": r"\bfile\b"},
+        normalize=True,
+        underscore_separates_words=False,
     )
     (span,) = detector.detect_sync("open ﬁle now", Context()).spans
     assert (span.start, span.end, span.text) == (5, 8, "ﬁle")
@@ -57,7 +60,8 @@ def test_a_character_that_folds_to_several_is_marked_whole() -> None:
 
 def test_a_value_is_found_when_only_its_context_folds() -> None:
     """The value is ASCII, the name or context word around it is fullwidth."""
-    named = YamlDetector(
+    named = RegexDetector(
+        builtins=False,
         patterns={"PW": r"PASSWORD=(?P<value>\S+)"},
         normalize=True,
         underscore_separates_words=False,
@@ -75,7 +79,7 @@ def test_a_value_is_found_when_only_its_context_folds() -> None:
 def test_what_the_text_as_written_shows_is_found_once() -> None:
     """Something else folds, so the folded text is scanned too: ``john`` and
     the email are not found a second time there."""
-    detector = build_detector({"type": "regex", "terms": {"PERSON": ["john"]}, "normalize": True})
+    detector = build_detector({"regex": {"terms": {"PERSON": ["john"]}, "normalize": True}})
     spans = detector.detect_sync("john, ｊｏｈｎ, ana@example.com", Context()).spans
     assert sorted((s.entity_type, s.start) for s in spans) == [
         ("EMAIL", 12),
@@ -92,9 +96,7 @@ def test_built_in_patterns_see_folded_text_too() -> None:
 
 async def test_the_text_as_written_is_masked_and_restored() -> None:
     engine = PrivacyEngine(
-        detector=build_detector(
-            {"type": "regex", "terms": {"PERSON": ["john"]}, "normalize": True}
-        ),
+        detector=build_detector({"regex": {"terms": {"PERSON": ["john"]}, "normalize": True}}),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),

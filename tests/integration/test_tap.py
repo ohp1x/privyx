@@ -107,16 +107,17 @@ def test_export_and_watch_keep_only_the_session_asked_for(tmp_path: Path) -> Non
         fh.write(json.dumps({"session_id": "ses_A", "stage": "request", "after": "other"}) + "\n")
     config = tmp_path / "c.yaml"
     config.write_text(
-        f"audit:\n  tap: true\n  path: {tmp_path / 'none.log'}\n  tap_dir: {tap.directory}\n",
+        f"proxy:\n  tap: true\n  tap_dir: {tap.directory}\n"
+        f"features:\n  audit:\n    path: {tmp_path / 'none.log'}\n",
         encoding="utf-8",
     )
     out = tmp_path / "a.zip"
     runner = CliRunner()
 
     runner.invoke(
-        cli, ["session", "export", "ses_a", "--forensic", "-c", str(config), "-o", str(out)]
+        cli, ["-c", str(config), "session", "export", "ses_a", "--forensic", "-o", str(out)]
     )
-    watched = runner.invoke(cli, ["audit", "watch", "ses_a", "-c", str(config), "--no-follow"])
+    watched = runner.invoke(cli, ["-c", str(config), "audit", "watch", "ses_a", "--no-follow"])
 
     import zipfile
 
@@ -129,9 +130,9 @@ def test_export_and_watch_keep_only_the_session_asked_for(tmp_path: Path) -> Non
 async def test_audit_watch_shows_what_masking_changed(tmp_path: Path) -> None:
     await _exchange(_proxy(Tap(tmp_path / "tap")), stream=True)
     config = tmp_path / "c.yaml"
-    config.write_text(f"audit:\n  tap: true\n  tap_dir: {tmp_path / 'tap'}\n", encoding="utf-8")
+    config.write_text(f"proxy:\n  tap: true\n  tap_dir: {tmp_path / 'tap'}\n", encoding="utf-8")
 
-    result = CliRunner().invoke(cli, ["audit", "watch", "-c", str(config), "--no-follow"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "audit", "watch", "--no-follow"])
 
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
@@ -140,7 +141,7 @@ async def test_audit_watch_shows_what_masking_changed(tmp_path: Path) -> None:
     assert any("response" in line and "status 200 stream" in line for line in lines)
     assert f"  Sent to [-<PRIVYX_EMAIL_1>-]{{+{EMAIL}+}}." in lines
 
-    one = CliRunner().invoke(cli, ["audit", "watch", "-c", str(config), "--no-follow", "ses_x"])
+    one = CliRunner().invoke(cli, ["-c", str(config), "audit", "watch", "--no-follow", "ses_x"])
     assert one.output == ""
 
 
@@ -163,14 +164,15 @@ def test_forensic_export_keeps_only_the_masked_side(tmp_path: Path) -> None:
     (tmp_path / "audit.log").write_text(log.getvalue(), encoding="utf-8")
     config = tmp_path / "c.yaml"
     config.write_text(
-        f"audit:\n  path: {tmp_path / 'audit.log'}\n  tap_dir: {tmp_path / 'tap'}\n",
+        f"proxy:\n  tap_dir: {tmp_path / 'tap'}\n"
+        f"features:\n  audit:\n    path: {tmp_path / 'audit.log'}\n",
         encoding="utf-8",
     )
     out = tmp_path / "case.zip"
     runner = CliRunner()
 
     result = runner.invoke(
-        cli, ["session", "export", "ses_tap", "--forensic", "-c", str(config), "-o", str(out)]
+        cli, ["-c", str(config), "session", "export", "ses_tap", "--forensic", "-o", str(out)]
     )
 
     assert result.exit_code == 0, result.output
@@ -188,10 +190,10 @@ def test_forensic_export_keeps_only_the_masked_side(tmp_path: Path) -> None:
         assert stat.S_IMODE(out.stat().st_mode) == 0o600
 
     again = runner.invoke(
-        cli, ["session", "export", "ses_tap", "--forensic", "-c", str(config), "-o", str(out)]
+        cli, ["-c", str(config), "session", "export", "ses_tap", "--forensic", "-o", str(out)]
     )
     assert again.exit_code == 1 and "cannot write" in again.output
-    missing = runner.invoke(cli, ["session", "export", "ses_none", "--forensic", "-c", str(config)])
+    missing = runner.invoke(cli, ["-c", str(config), "session", "export", "ses_none", "--forensic"])
     assert missing.exit_code == 1 and "Nothing recorded" in missing.output
-    no_flag = runner.invoke(cli, ["session", "export", "ses_tap", "-c", str(config)])
+    no_flag = runner.invoke(cli, ["-c", str(config), "session", "export", "ses_tap"])
     assert no_flag.exit_code == 2

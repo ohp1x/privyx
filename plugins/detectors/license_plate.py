@@ -7,11 +7,11 @@ when the file's directory is listed under ``plugins.paths``::
     # config.yaml
     plugins:
       paths: [./plugins]
-    detector:
-      type: license_plate
+    detectors:
+      license_plate: {}      # runs after the built-in regex detector
 
-Then ``privyx doctor`` lists it under plugins and the engine uses it as the
-configured detector.  See ../../docs/development/plugins.md.
+Then ``privyx doctor`` lists it under plugins and the engine runs it with the
+other detectors.  See ../../docs/development/plugins.md.
 """
 
 from __future__ import annotations

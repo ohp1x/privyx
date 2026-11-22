@@ -107,31 +107,8 @@ ALLOWED: frozenset[tuple[str, str]] = frozenset(
 #: (importer, imported) pairs where a module imports a private module of another package.
 ALLOWED_PRIVATE: frozenset[tuple[str, str]] = frozenset(
     {
-        # `config` loads plugins and builds the schema itself, until a config
-        # service serves `config get` and `set`.
-        ("privyx.cli.commands.config", "privyx.app._plugins"),
-        ("privyx.cli.commands.config", "privyx.app._schema"),
-        # `detect` builds its detector and policy itself, until the masking
-        # service explains a detection and checks a pattern.
-        ("privyx.cli.commands.detect", "privyx.app._build"),
-        ("privyx.cli.commands.detect", "privyx.app._plugins"),
-        ("privyx.cli.commands.detect", "privyx.detectors._pattern"),
-        # `doctor` and `lint` run their checks themselves, until a diagnostics
-        # service does.
-        ("privyx.cli.commands.doctor", "privyx.app._build"),
-        ("privyx.cli.commands.doctor", "privyx.app._plugins"),
-        ("privyx.cli.commands.doctor", "privyx.vaults._sqlite"),
-        ("privyx.cli.commands.lint", "privyx.app._build"),
-        ("privyx.cli.commands.lint", "privyx.app._plugins"),
-        # `inspect` reads the pattern engine and the codec, until its commands
-        # move under `config`, `detect`, and `session`.
-        ("privyx.cli.commands.inspect", "privyx.app._build"),
-        ("privyx.cli.commands.inspect", "privyx.detectors._pattern"),
         # `run` serves through the launch module, until an agents service runs it.
         ("privyx.cli.commands.run", "privyx.app._run"),
-        # The git hooks build a detector of the built-in credential patterns,
-        # until `detectors` exports its pattern catalog.
-        ("privyx.workspace._githook", "privyx.detectors._pattern"),
     }
 )
 

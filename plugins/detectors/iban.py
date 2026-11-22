@@ -6,9 +6,8 @@ shape is one takes a calculation, which is what a plugin is for::
     # config.yaml
     plugins:
       paths: [./plugins]
-    detector:
-      - type: regex            # the built-in patterns
-      - type: iban
+    detectors:
+      iban:                    # runs after the built-in regex detector
         countries: [DE, NL]    # optional: only these country codes
 
 See ../../docs/tutorials/detector-plugin.md for a walkthrough.

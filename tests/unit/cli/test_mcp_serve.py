@@ -442,9 +442,9 @@ async def test_audit_prompts_report_an_unreadable_or_disabled_trail(tmp_path):
         "The Privyx audit trail cannot be read (Is a directory)."
     )
     config.write_text("audit:\n  enabled: false\n")
-    assert "Audit trail: off (audit.enabled is false)" in await _prompt("status", config)
+    assert "Audit trail: off (features.audit.enabled is false)" in await _prompt("status", config)
     assert await _prompt("audit-tail", config) == (
-        "The Privyx audit trail is off (audit.enabled is false)."
+        "The Privyx audit trail is off (features.audit.enabled is false)."
     )
 
 

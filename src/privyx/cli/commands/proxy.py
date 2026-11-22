@@ -9,13 +9,19 @@ from typing import Any
 
 import click
 
-from privyx.cli.config import config_options
+from privyx.cli._options import config_options
 
 
 @click.command()
 @config_options
 @click.option("--host", default=None, help="Bind address")
 @click.option("--port", default=None, type=int, help="Bind port")
+@click.option(
+    "--workers",
+    default=None,
+    type=click.IntRange(1),
+    help="Server processes; more than one needs a sqlite or redis vault.",
+)
 @click.option("--upstream", "-u", default=None, help="Upstream provider URL")
 @click.option(
     "--transparent/--gateway",
@@ -35,9 +41,9 @@ from privyx.cli.config import config_options
 @click.option("--ssl-keyfile-password", default=None, help="Password for SSL/TLS private key")
 @click.option("--ssl-ca-certs", default=None, help="CA certificates file path (PEM)")
 def proxy(
-    config_path: str | None,
     host: str | None,
     port: int | None,
+    workers: int | None,
     upstream: str | None,
     transparent_mode: bool | None,
     reload_on_change: bool,
@@ -52,10 +58,11 @@ def proxy(
     from privyx.core import PrivyxError
 
     extra: dict[str, Any] = {}
-    if host is not None:
-        extra["host"] = host
-    if port is not None:
-        extra["port"] = port
+    server: dict[str, Any] = {
+        key: value
+        for key, value in (("host", host), ("port", port), ("workers", workers))
+        if value is not None
+    }
     if upstream is not None:
         extra["upstream_url"] = upstream  # the base URL of the provider in use
     if transparent_mode is not None:
@@ -70,21 +77,22 @@ def proxy(
     if ssl_ca_certs is not None:
         tls_extra["ca_certs"] = ssl_ca_certs
     if tls_extra:
-        extra["tls"] = tls_extra
+        server["tls"] = tls_extra
+    if server:
+        extra["server"] = server
 
     try:
-        app = Privyx(config_path, **extra)
+        app = Privyx(**extra)
         settings = app.settings
-        watch_paths = active_config_paths(config_path) if reload_on_change else []
+        watch_paths = active_config_paths() if reload_on_change else []
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     if reload_on_change and not watch_paths:
         click.echo("--reload needs a config file; serving without it.", err=True)
 
-    if (settings.tls.certfile and not settings.tls.keyfile) or (
-        settings.tls.keyfile and not settings.tls.certfile
-    ):
+    tls = settings.server.tls
+    if (tls.certfile and not tls.keyfile) or (tls.keyfile and not tls.certfile):
         click.echo(
             "Error: Both --ssl-certfile and --ssl-keyfile are required for HTTPS.",
             err=True,
@@ -107,7 +115,7 @@ def proxy(
         assert watch_paths  # only a watcher can ask for a restart
         while True:
             try:
-                app = Privyx(config_path, **extra)
+                app = Privyx(**extra)
                 _ = app.settings
                 break
             except PrivyxError as exc:
@@ -125,7 +133,7 @@ def _mtimes(paths: list[Path]) -> tuple[int, ...] | None:
 
 
 def _wait_for_change(paths: list[Path], last: tuple[int, ...] | None) -> None:
-    # ponytail: mtime poll, 1s — swap for watchfiles if it ever matters
+    # An mtime poll each second; watchfiles if that ever matters.
     while True:
         time.sleep(1.0)
         now = _mtimes(paths)

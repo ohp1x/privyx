@@ -13,7 +13,8 @@ from pydantic import BaseModel
 from privyx import load_config
 from privyx.app import Privyx
 from privyx.app._build import build_detector_from, build_policy_from
-from privyx.config.schema import PLUGGABLE, Settings
+from privyx.config.defaults import DEFAULT_FEATURES
+from privyx.config.schema import NAMED, PLUGGABLE, DetectorConfig, Settings
 from privyx.core import Context
 
 CONFIGS = Path(__file__).parents[3] / "configs"
@@ -49,6 +50,29 @@ def _type_options() -> dict[tuple[str, ...], Any]:
     return out
 
 
+def _named_options() -> dict[tuple[str, ...], Any]:
+    """The settings of the entries of ``detectors`` and ``features``, with their defaults.
+
+    Each built-in type's own options under its name, and the settings every
+    detector takes once, under ``regex``.  A feature on or off by default
+    with ``enabled``, or as ``true`` or ``false`` when it has no options.
+    """
+    app, out = Privyx(), {}
+    for section, (kind, model) in NAMED.items():
+        registry = app._registries[kind]
+        for name in registry.builtin_names():
+            options = registry.get(name).Options.model_construct()
+            for field in type(options).model_fields:
+                if field not in model.shared_fields():
+                    out[(section, name, field)] = getattr(options, field)
+    shared = _defaults(DetectorConfig(type="regex"), ("detectors", "regex"))
+    out |= {path: value for path, value in shared.items() if path[-1] != "type"}
+    for name, on in DEFAULT_FEATURES.items():
+        options = any(path[:2] == ("features", name) for path in out)
+        out[("features", name, "enabled") if options else ("features", name)] = on
+    return out
+
+
 def _documented() -> dict[tuple[str, ...], str]:
     out: dict[tuple[str, ...], str] = {}
     stack: list[str] = []
@@ -77,7 +101,7 @@ INTERNAL = {("upstream_url",)}
 def test_default_yaml_lists_every_setting_with_its_default() -> None:
     defaults = {
         path: value
-        for path, value in (_defaults(Settings()) | _type_options()).items()
+        for path, value in (_defaults(Settings()) | _type_options() | _named_options()).items()
         if path not in INTERNAL
     }
     documented = _documented()
@@ -102,7 +126,7 @@ def test_strict_yaml_keeps_the_destination_and_run_defaults() -> None:
 
 @pytest.mark.asyncio
 async def test_strict_yaml_masks_your_own_terms() -> None:
-    settings = load_config(STRICT, extra={"detector": {"terms": {"PERSON": ["ann"]}}})
+    settings = load_config(STRICT, extra={"detectors": {"regex": {"terms": {"PERSON": ["ann"]}}}})
     detection = await build_detector_from(settings).detect("ask ann", Context())
     decision = await build_policy_from(settings).decide(detection, Context())
 

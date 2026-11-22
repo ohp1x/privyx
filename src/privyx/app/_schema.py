@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from privyx.config._presets import _NOT_IN_PRESET
-from privyx.config.schema import PLUGGABLE, AgentConfig, PluggableConfig, Settings
+from privyx.config.schema import NAMED, PLUGGABLE, AgentConfig, PluggableConfig, Settings
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
@@ -50,10 +50,9 @@ def json_schema(app: Privyx | None = None) -> dict[str, Any]:
     from privyx.app._privyx import Privyx
 
     registries = (app or Privyx())._registries
+    kinds = (*PLUGGABLE, *(kind for kind, _ in NAMED.values()), "agent")
     closed = app is not None and any(
-        not registries[name].is_builtin(kind)
-        for name in (*PLUGGABLE, "agent")
-        for kind in registries[name].names()
+        not registries[name].is_builtin(kind) for name in kinds for kind in registries[name].names()
     )
     schema = Settings.model_json_schema()
     schema["properties"]["include"] = {
@@ -67,7 +66,11 @@ def json_schema(app: Privyx | None = None) -> dict[str, Any]:
     _allow_references(schema)
     _deprecated(schema)
     for name, model in PLUGGABLE.items():
-        _by_type(schema["$defs"], name, model, registries[name], closed=closed)
+        default = model.model_fields["type"].default
+        _by_type(schema["$defs"], name, model, registries[name], closed=closed, default=default)
+    for name, (kind, model) in NAMED.items():
+        _by_type(schema["$defs"], name, model, registries[kind], closed=closed, default=None)
+        _named(schema, name, model)
     # `provider` names one of `providers`, or is a definition of its own.
     schema["properties"]["provider"] = {
         "title": "Provider",
@@ -76,7 +79,7 @@ def json_schema(app: Privyx | None = None) -> dict[str, Any]:
             {"$ref": "#/$defs/ProviderConfig"},
         ],
     }
-    _by_type(schema["$defs"], "agents", AgentConfig, registries["agent"], closed=closed)
+    _by_type(schema["$defs"], "agents", AgentConfig, registries["agent"], closed=closed, default="")
     # A profile's settings and a preset are partial config files, less the
     # keys the loader refuses there; `include` is a file's own.
     for name, refused in (
@@ -99,6 +102,7 @@ def _by_type(
     registry: Registry[Any],
     *,
     closed: bool,
+    default: str | None,
 ) -> None:
     """Make ``model``'s definition check each ``type`` with that type's options.
 
@@ -106,6 +110,8 @@ def _by_type(
     no name, is checked as an unknown plugin's: with any key.  Built-in types
     whose options are the same share one check.  ``closed``: ``type`` takes
     only the registered names and references, not any other string.
+    ``default`` is the type without a ``type`` key; ``None`` for an entry of
+    a mapping, whose type is its name's (:func:`_named`).
     """
     node = defs[model.__name__]
     builtin = registry.builtin_names()
@@ -128,15 +134,17 @@ def _by_type(
     node["properties"] = {"type": kind, **{k: props[k] for k in props if k in shared}}
     node["additionalProperties"] = True
     taken = {"type": True, **dict.fromkeys(shared, True)}
-    default = model.model_fields["type"].default
     groups: dict[str, tuple[dict[str, Any], list[str]]] = {}
     for name in builtin:
-        own = _own(registry.get(name).Options.model_json_schema(), shared)
+        options = registry.get(name).Options.model_json_schema()
+        for key, value in options.pop("$defs", {}).items():
+            defs.setdefault(key, value)  # the models of its options, such as ModelPrice
+        own = _own(options, shared)
         groups.setdefault(json.dumps(own, sort_keys=True), (own, []))[1].append(name)
     checks: list[dict[str, Any]] = []
     for own, types in groups.values():
         check: dict[str, Any] = {"properties": {"type": {"enum": types}}}
-        if default not in types:  # the default's check also applies with no `type`
+        if default is None or default not in types:  # the default's applies with no `type`
             check["required"] = ["type"]
         checks.append(
             {"if": check, "then": {"properties": {**taken, **own}, "additionalProperties": False}}
@@ -167,10 +175,43 @@ def _by_type(
     node["allOf"] = checks
 
 
-def _deprecated(schema: dict[str, Any]) -> None:
-    """Add the keys of the sections that are not by type, renamed in 0.3.0, as deprecated."""
+def _named(schema: dict[str, Any], section: str, model: type[BaseModel]) -> None:
+    """Make ``section`` a mapping of entries whose type is their name's unless they write one.
+
+    Each type's check applies to the entry named like it with no ``type``;
+    ``true`` or ``false`` switches an entry.  The checks and the section are
+    definitions of their own, so the settings of a profile and of a preset
+    refer to them rather than copy them.
+    """
     defs = schema["$defs"]
-    upstream = schema["properties"]["upstream_url"]
+    ref = {"$ref": f"#/$defs/{model.__name__}"}
+    switch = {"type": "boolean"}
+    entries: dict[str, Any] = {}
+    for check in defs[model.__name__]["allOf"]:
+        kind = check["if"]["properties"]["type"]
+        names = kind.get("enum", [kind.get("const")])
+        options = f"{model.__name__}.{names[0]}"
+        defs[options] = check["then"]
+        check["then"] = {"$ref": f"#/$defs/{options}"}
+        for name in names:
+            implied = {"if": {"not": {"required": ["type"]}}, "then": check["then"]}
+            entries[name] = {"anyOf": [switch, {"allOf": [ref, implied]}]}
+    field = schema["properties"][section]
+    name = section.title()
+    defs[name] = {
+        "title": field.get("title", name),
+        "type": "object",
+        "properties": entries,
+        "additionalProperties": {"anyOf": [switch, ref]},
+    }
+    schema["properties"][section] = {"$ref": f"#/$defs/{name}"}
+
+
+def _deprecated(schema: dict[str, Any]) -> None:
+    """Add the keys renamed in 0.3.0, read with a warning until 0.4.0, as deprecated."""
+    props = schema["properties"]
+    defs = schema["$defs"]
+    upstream = props["upstream_url"]
     upstream.update(deprecated=True, description="Write provider.base_url.")
     proxy = defs["ProxyConfig"]["properties"]
     for key in (
@@ -182,9 +223,53 @@ def _deprecated(schema: dict[str, Any]) -> None:
     ):
         moved = defs["ProviderConfig"]["properties"][key]
         proxy[key] = {**moved, "deprecated": True, "description": f"Write provider.{key}."}
+    for key in ("directive", "cache_control"):
+        proxy[key] = {
+            "type": "boolean",
+            "deprecated": True,
+            "description": f"Write features.{key}.",
+        }
     token = defs["TokenConfig"]["properties"]
     token["id_length"] = {**_LENGTH, "deprecated": True, "description": "Write operator.id_length."}
     _allow_references(token["id_length"])
+    server, log = defs["ServerConfig"]["properties"], defs["LogConfig"]["properties"]
+    for old, new, moved in (
+        ("host", "server.host", server["host"]),
+        ("port", "server.port", server["port"]),
+        ("tls", "server.tls", server["tls"]),
+        ("log_level", "log.level", log["level"]),
+        ("logging", "log.format", log["format"]),
+        ("log_file", "log.file", log["file"]),
+    ):
+        props[old] = {**moved, "deprecated": True, "description": f"Write {new}."}
+    entry = {"type": "object", "properties": {"type": {"type": "string"}}}
+    props["detector"] = {
+        "anyOf": [entry, {"type": "array", "items": entry}],
+        "deprecated": True,
+        "description": "Write detectors, with an entry per detector.",
+    }
+    props["audit"] = {
+        "type": "object",
+        "deprecated": True,
+        "description": "Write features.audit, and proxy.tap and proxy.tap_dir.",
+        "properties": {
+            "enabled": {"type": "boolean"},
+            "path": {"type": "string"},
+            "tap": {"type": "boolean"},
+            "tap_dir": {"type": "string"},
+            "prices": {"type": "object", "additionalProperties": {"$ref": "#/$defs/ModelPrice"}},
+        },
+        "additionalProperties": False,
+    }
+    props["tracing"] = {
+        "type": "object",
+        "deprecated": True,
+        "description": "Write features.tracing.",
+        "properties": {"enabled": {"type": "boolean"}},
+        "additionalProperties": False,
+    }
+    for name in ("detector", "audit", "tracing"):
+        _allow_references(props[name])
 
 
 def _own(schema: dict[str, Any], shared: list[str]) -> dict[str, Any]:

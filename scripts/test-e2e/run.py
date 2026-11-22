@@ -81,20 +81,20 @@ from common import (
 AGENTS: dict[str, Agent] = {"claude": claude.AGENT, "codex": codex.AGENT}
 #: ``patterns`` covers one PERSON term, so the other is masked only if terms merge.
 CONFIG = f"""\
-detector:
-  type: regex
-  terms:
-    PERSON: ["{PERSON}", "{GIT_USER}"]
-    ORGANIZATION: ["{ORG}"]
-  patterns:
-    PERSON: '{re.escape(GIT_USER)}'
+detectors:
+  regex:
+    terms:
+      PERSON: ["{PERSON}", "{GIT_USER}"]
+      ORGANIZATION: ["{ORG}"]
+    patterns:
+      PERSON: '{re.escape(GIT_USER)}'
 """
 
 #: Labeled placeholders, explained to the model by the directive.
 LABELS = """\
 token:
   label_format: "<{namespace}_{type}_{id}:{label}>"
-proxy:
+features:
   directive: true
 """
 

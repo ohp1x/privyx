@@ -9,8 +9,7 @@ from pathlib import Path
 
 import click
 
-from privyx.cli.commands.pipe import _drop_stdout, _interrupt
-from privyx.cli.config import config_options
+from privyx.cli._options import config_options, drop_stdout, interrupt
 
 
 @click.group()
@@ -22,7 +21,7 @@ def mcp() -> None:
 @click.option("--session", "session_id", default=None, help="Vault session id")
 @config_options
 @click.argument("command", nargs=-1, required=True, type=click.UNPROCESSED)
-def wrap(session_id: str | None, config_path: str | None, command: tuple[str, ...]) -> None:
+def wrap(session_id: str | None, command: tuple[str, ...]) -> None:
     """Run an MCP server, masking what it sends to the client.
 
     Put it before the server's command in the client's config:
@@ -35,12 +34,12 @@ def wrap(session_id: str | None, config_path: str | None, command: tuple[str, ..
     from privyx.mcp import wrap as wrap_server
 
     try:
-        code = asyncio.run(wrap_server(Privyx(config_path), command, session_id))
+        code = asyncio.run(wrap_server(Privyx(), command, session_id))
     except KeyboardInterrupt:
-        _drop_stdout()
+        drop_stdout()
         code = 130
     except BrokenPipeError:
-        _drop_stdout()  # the client went away
+        drop_stdout()  # the client went away
         code = 0
     except (PrivyxError, OSError) as exc:
         click.echo(f"Error: {exc}", err=True)
@@ -56,22 +55,22 @@ def wrap(session_id: str | None, config_path: str | None, command: tuple[str, ..
     default=".",
     help="Directory the file tool may read and write in (default: the current one)",
 )
-def serve(config_path: str | None, root: Path) -> None:
+def serve(root: Path) -> None:
     """Serve Privyx tools over MCP stdio."""
     from privyx.app import Privyx
     from privyx.core import PrivyxError
     from privyx.mcp import serve as serve_tools
 
-    # Ctrl-C stops at once, as in `privyx pipe`: the read from stdin blocks,
-    # and asyncio.run's own handler waits for it to return.
-    previous = signal.signal(signal.SIGINT, _interrupt)
+    # Ctrl-C stops at once, as in `privyx mask --stream`: the read from stdin
+    # blocks, and asyncio.run's own handler waits for it to return.
+    previous = signal.signal(signal.SIGINT, interrupt)
     try:
-        asyncio.run(serve_tools(Privyx(config_path), root.resolve()))
+        asyncio.run(serve_tools(Privyx(), root.resolve()))
     except KeyboardInterrupt:
-        _drop_stdout()
+        drop_stdout()
         sys.exit(130)
     except BrokenPipeError:
-        _drop_stdout()  # the client went away
+        drop_stdout()  # the client went away
     except (PrivyxError, OSError) as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)

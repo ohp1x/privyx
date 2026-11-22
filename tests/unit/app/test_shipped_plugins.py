@@ -53,7 +53,7 @@ class TestLicensePlateDetector(DetectorSuite):
 
 
 async def test_iban_detector_keeps_only_a_valid_checksum() -> None:
-    detector = build_detector({"type": "iban"}, _load())
+    detector = build_detector({"iban": {}}, _load())
     text = "DE89 3704 0044 0532 0130 00 EUR, GB82WEST12345698765432, not DE89370400440532013001"
     found = await detector.detect(text, Context())
     assert [(span.entity_type, span.text) for span in found.spans] == [
@@ -63,6 +63,6 @@ async def test_iban_detector_keeps_only_a_valid_checksum() -> None:
 
 
 async def test_iban_detector_takes_a_countries_option() -> None:
-    detector = build_detector({"type": "iban", "countries": ["nl"]}, _load())
+    detector = build_detector({"iban": {"countries": ["nl"]}}, _load())
     found = await detector.detect("GB82WEST12345698765432 NL91ABNA0417164300", Context())
     assert [span.text for span in found.spans] == ["NL91ABNA0417164300"]

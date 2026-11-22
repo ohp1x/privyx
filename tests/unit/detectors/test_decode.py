@@ -18,7 +18,7 @@ EMAIL = "ana@example.com"
 
 
 def _found(text: str, decode: bool = True) -> list[tuple[str, str]]:
-    detector = build_detector({"type": "regex", "cache": False, "decode": decode})
+    detector = build_detector({"regex": {"cache": False, "decode": decode}})
     detection = detector.detect_sync(text, Context())  # type: ignore[attr-defined]
     return [(s.entity_type, s.text) for s in detection.merged(text).spans]
 

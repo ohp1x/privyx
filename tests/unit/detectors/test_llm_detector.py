@@ -255,7 +255,7 @@ async def test_config_can_select_llm_with_an_unknown_provider() -> None:
     at startup, with a message naming the problem, never with the generic
     "unknown detector type".
     """
-    detector = build_detector({"type": "llm", "llm_provider": "does-not-exist"})
+    detector = build_detector({"llm": {"llm_provider": "does-not-exist"}})
     with pytest.raises(ConfigError, match="no built-in support for provider"):
         await detector.open(services())
 
@@ -272,7 +272,7 @@ async def test_config_selects_llm_and_fails_fast_without_the_providers_extra(
     # Without a key the SDK refuses to construct a client, so this skipped as
     # "extra not installed" even where it is (CI included).
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    detector = build_detector({"type": "llm", "cache": False})
+    detector = build_detector({"llm": {"cache": False}})
     try:
         await detector.open(services())
     except ConfigError as exc:
@@ -304,7 +304,7 @@ def test_a_fallback_result_is_never_cached(monkeypatch: pytest.MonkeyPatch) -> N
     """Built from config with the default cache, a fallback is retried next turn."""
     client = _FailingLLMClient()
     monkeypatch.setattr("privyx.detectors._llm._load_client", lambda *_: client)
-    detector = build_detector({"type": "llm", "llm_fallback_on_error": True, "cache": True})
+    detector = build_detector({"llm": {"llm_fallback_on_error": True, "cache": True}})
 
     for _ in range(2):
         asyncio.run(detector.detect("mail ann@example.com", Context()))

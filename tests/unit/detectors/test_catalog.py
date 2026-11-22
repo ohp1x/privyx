@@ -28,7 +28,7 @@ CATALOG = [
 
 
 def _found(text: str, **config: object) -> list[tuple[str, str]]:
-    detector = build_detector({"type": "regex", "cache": False, "enable": CATALOG, **config})
+    detector = build_detector({"regex": {"cache": False, "enable": CATALOG, **config}})
     detection = detector.detect_sync(text, Context())  # type: ignore[attr-defined]
     return [(s.entity_type, s.text) for s in detection.merged(text).spans]
 
@@ -92,14 +92,14 @@ def test_wallets_and_national_ids_are_on_by_default_in_regex() -> None:
     assert _found(WALLET_AND_IDS, enable=[]) == FOUND
 
 
-def test_a_yaml_detector_takes_wallets_and_national_ids_with_enable() -> None:
-    assert _found(WALLET_AND_IDS, type="yaml", enable=[]) == []
-    assert _found(WALLET_AND_IDS, type="yaml") == FOUND
+def test_without_builtins_enable_takes_wallets_and_national_ids() -> None:
+    assert _found(WALLET_AND_IDS, builtins=False, enable=[]) == []
+    assert _found(WALLET_AND_IDS, builtins=False) == FOUND
 
 
 def test_disable_turns_wallets_and_national_ids_off(tmp_path: Path) -> None:
     config = tmp_path / "privyx.yaml"
-    config.write_text(f"detector:\n  disable: {CATALOG}\n")
+    config.write_text(f"detectors:\n  regex:\n    disable: {CATALOG}\n")
     detector = build_detector_from(load_config(config))
     assert detector.detect_sync(WALLET_AND_IDS, Context()).spans == []
 
@@ -146,7 +146,7 @@ def test_national_id_look_alikes_are_kept(text: str) -> None:
 
 
 def test_a_context_word_must_be_near_a_match() -> None:
-    config = {"type": "yaml", "patterns": {"PASSPORT": r"\b[A-Z]\d{7}\b"}}
+    config = {"builtins": False, "patterns": {"PASSPORT": r"\b[A-Z]\d{7}\b"}}
     context = {"context": {"PASSPORT": ["passport", "paspor"]}}
     text = "order A1234567 shipped to the old office last week; passport no. B7654321"
     assert _found(text, **config) == [("PASSPORT", "A1234567"), ("PASSPORT", "B7654321")]
@@ -162,12 +162,12 @@ def test_context_replaces_a_builtin_entitys_own_words() -> None:
 
 def test_context_for_an_entity_the_detector_lacks_is_rejected() -> None:
     with pytest.raises(ConfigError, match="PASPORT"):
-        build_detector({"type": "regex", "context": {"PASPORT": ["passport"]}})
+        build_detector({"regex": {"context": {"PASPORT": ["passport"]}}})
 
 
 def test_enable_rejects_an_unknown_entity() -> None:
     with pytest.raises(ConfigError, match="MRNN"):
-        build_detector({"type": "regex", "enable": ["MRNN"]})
+        build_detector({"regex": {"enable": ["MRNN"]}})
 
 
 #: Fixed, so the check cannot fail on a draw without a digit or with a long word.
@@ -269,7 +269,7 @@ def test_medical_look_alikes_are_kept(text: str) -> None:
 
 
 def test_strict_policy_keeps_an_enabled_opt_in_entity() -> None:
-    detector = build_detector({"type": "regex", "cache": False, "enable": ["MRN"]})
+    detector = build_detector({"regex": {"cache": False, "enable": ["MRN"]}})
     detection = detector.detect_sync("MRN 00123456", Context())  # type: ignore[attr-defined]
     kept = StrictPolicy().decide_sync(detection, Context())
     assert [s.entity_type for s in kept.spans] == ["MRN"]
