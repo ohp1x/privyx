@@ -121,12 +121,12 @@ class Shell:
         command = shlex.join(
             [
                 *entrypoint,
+                "-c",
+                str(config),
                 "run",
                 "--no-anchor",
                 "--port",
                 str(port),
-                "-c",
-                str(config),
                 agent,
                 "--",
                 "--value",
@@ -186,7 +186,7 @@ def _config(
                         "env_from": {"PROFILE_REFERENCE": "WORK_VALUE"},
                     }
                 },
-                "audit": {"path": str(tmp_path / "audit.log")},
+                "features": {"audit": {"path": str(tmp_path / "audit.log")}},
                 "upstream_url": upstream,
             }
         )

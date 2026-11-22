@@ -1,77 +1,120 @@
-"""CLI main entry point — orchestration layer.
+"""The ``privyx`` command: its global options, and where each subcommand lives.
 
-Each sub-command lives in its own module under ``privyx.cli.commands``.
-This module only wires them together.
-
-Usage::
-
-    privyx proxy [--config FILE] [--port PORT] [--host HOST] [--upstream URL]
-    privyx run [--provider openai|anthropic|generic] [--config FILE]
-    privyx detect [--stdin] TEXT
-    privyx mask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
-    privyx unmask [--stdin | -i FILE] [--map FILE] [--session ID] TEXT
-    privyx pipe [--session ID] [--restore]
-    privyx mcp wrap [--session ID] -- COMMAND...
-    privyx mcp serve [--config FILE] [--root DIR]
-    privyx session list|show|prune
-    privyx inspect routes|regex|token
-    privyx inspect session <session_id>   (alias of `session show`)
-    privyx audit stats|tail [FILE]
-    privyx doctor [--config FILE]
-    privyx config [--show] [--path]
-    privyx trust
-    privyx scan [PATH] [--yes] [--dry-run]
-    privyx install-hook
-    privyx hook pre-commit|commit-msg FILE
+Each subcommand lives in its own module under ``privyx.cli.commands`` and is
+imported only when it runs: ``privyx --help`` lists them from
+:data:`COMMANDS`, which holds the line it shows for each, so it imports none
+of them, nor the libraries they use.
 """
 
 from __future__ import annotations
 
+import importlib
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import click
 
-from privyx import __version__
-from privyx.cli.commands.audit import audit
-from privyx.cli.commands.config import config_cmd
-from privyx.cli.commands.detect import detect
-from privyx.cli.commands.doctor import doctor
-from privyx.cli.commands.features import features
-from privyx.cli.commands.hook import hook, install_hook
-from privyx.cli.commands.inspect import inspect
-from privyx.cli.commands.lint import lint
-from privyx.cli.commands.mask import mask, unmask
-from privyx.cli.commands.mcp import mcp
-from privyx.cli.commands.pipe import pipe
-from privyx.cli.commands.proxy import proxy
-from privyx.cli.commands.run import run
-from privyx.cli.commands.scan import scan
-from privyx.cli.commands.session import session
-from privyx.cli.commands.trust import trust
+from privyx.version import __version__
+
+#: Each command, in the order ``privyx --help`` lists them: where it is, and
+#: its line there.
+COMMANDS: dict[str, tuple[str, str]] = {
+    "run": ("privyx.cli.commands.run:run", "Run TARGET with its traffic routed through Privyx."),
+    "proxy": ("privyx.cli.commands.proxy:proxy", "Start the privacy proxy server."),
+    "mask": ("privyx.cli.commands.mask:mask", "Replace sensitive values with tokens, reversibly."),
+    "unmask": (
+        "privyx.cli.commands.mask:unmask",
+        "Put the original values back, from a --map file or a --session id.",
+    ),
+    "detect": (
+        "privyx.cli.commands.detect:detect",
+        "Detect sensitive entities in text, or check a regex.",
+    ),
+    "scan": (
+        "privyx.cli.commands.scan:scan",
+        "Find names and secrets in a workspace for Privyx to mask.",
+    ),
+    "doctor": ("privyx.cli.commands.doctor:doctor", "Run diagnostic checks system-wide."),
+    "config": (
+        "privyx.cli.commands.config:config",
+        "Show, change, check, and migrate the configuration.",
+    ),
+    "session": ("privyx.cli.commands.session:session", "List, show, and prune vault sessions."),
+    "audit": ("privyx.cli.commands.audit:audit", "Summarize and follow the audit trail."),
+    "hook": (
+        "privyx.cli.commands.hook:hook",
+        "Git hooks that stop a commit holding a secret or a Privyx placeholder.",
+    ),
+    "mcp": ("privyx.cli.commands.mcp:mcp", "Use Privyx with MCP servers (stdio)."),
+    "features": (
+        "privyx.cli.commands.features:features",
+        "List the optional features, and switch them on or off.",
+    ),
+    "plugin": ("privyx.cli.commands.plugin:plugin", "List the plugins loaded and installed."),
+}
+
+#: The names of earlier versions, hidden from ``privyx --help``: each runs
+#: with a warning that names its replacement, until 0.4.0.
+ALIASES: dict[str, str] = {
+    "pipe": "privyx.cli.commands.mask:pipe",
+    "trust": "privyx.cli.commands.config:trust_alias",
+    "lint": "privyx.cli.commands.config:lint_alias",
+    "inspect": "privyx.cli.commands.inspect:inspect",
+    "install-hook": "privyx.cli.commands.hook:install_hook",
+}
 
 
-@click.group()
+class LazyGroup(click.Group):
+    """A group whose commands are imported when one runs, not when they are listed."""
+
+    def __init__(
+        self,
+        *args: Any,
+        lazy: Mapping[str, tuple[str, str]],
+        hidden: Mapping[str, str],
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.lazy = lazy
+        self.aliases = hidden
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        return list(self.lazy)
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        where = self.lazy[cmd_name][0] if cmd_name in self.lazy else self.aliases.get(cmd_name)
+        if where is None:
+            return None
+        module, _, name = where.partition(":")
+        command: click.Command = getattr(importlib.import_module(module), name)
+        return command
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        with formatter.section("Commands"):
+            formatter.write_dl([(name, line) for name, (_, line) in self.lazy.items()])
+
+
+@click.group(cls=LazyGroup, lazy=COMMANDS, hidden=ALIASES)
 @click.version_option(version=__version__, prog_name="privyx")
+@click.option("--config", "-c", "config_path", default=None, help="Read this config file alone.")
 @click.option(
-    "--config", "-c", "config_path", default=None, help="Config file path for subcommands"
+    "--preset",
+    "presets",
+    multiple=True,
+    help="Apply the settings of this preset under `presets` (repeatable; later ones win).",
 )
 @click.pass_context
-def cli(ctx: click.Context, config_path: str | None) -> None:
+def cli(ctx: click.Context, config_path: str | None, presets: tuple[str, ...]) -> None:
     """Privyx — AI data privacy gateway."""
+    from privyx.cli._options import choose_presets, use_config
+
     if config_path is not None:
-        previous = os.environ.get("PRIVYX_CONFIG")
-
-        def restore_config() -> None:
-            if previous is None:
-                os.environ.pop("PRIVYX_CONFIG", None)
-            else:
-                os.environ["PRIVYX_CONFIG"] = previous
-
-        ctx.call_on_close(restore_config)
-        # Keep symlinks intact: relative includes use the given config's parent.
-        os.environ["PRIVYX_CONFIG"] = str(Path(config_path).absolute())
+        use_config(ctx, config_path)
+    if presets:
+        choose_presets(ctx, presets)
     _adopt_earlier_files()
 
 
@@ -97,26 +140,6 @@ def _adopt_earlier_files() -> None:
         except OSError:
             continue  # stays where it was
         click.echo(f"Moved {earlier} to {target}", err=True)
-
-
-cli.add_command(proxy)
-cli.add_command(run)
-cli.add_command(detect)
-cli.add_command(lint)
-cli.add_command(mask)
-cli.add_command(unmask)
-cli.add_command(pipe)
-cli.add_command(mcp)
-cli.add_command(inspect)
-cli.add_command(session)
-cli.add_command(audit)
-cli.add_command(doctor)
-cli.add_command(features)
-cli.add_command(config_cmd, name="config")
-cli.add_command(trust)
-cli.add_command(scan)
-cli.add_command(install_hook)
-cli.add_command(hook)
 
 
 if __name__ == "__main__":

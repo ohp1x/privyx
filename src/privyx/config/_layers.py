@@ -4,9 +4,9 @@ Precedence (low → high):
     1. Built-in defaults
     2. The defaults plugins add (``Privyx.defaults``), then the caller's
        (``base_extra``)
-    3. ``~/.privyx/config.yaml``
-    4. ``privyx.yaml``, then ``.privyx/config.yaml``, in the working directory,
-       each only once trusted
+    3. ``~/.privyx/config.yaml``, then ``~/.privyx/settings.yaml``
+    4. ``privyx.yaml``, ``.privyx/config.yaml``, then ``.privyx/settings.yaml``,
+       in the working directory, each only once trusted
     5. Environment variables (``PRIVYX_*``)
     6. Caller overrides such as command-line flags (``extra``)
 
@@ -22,8 +22,11 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from privyx.config._env import env_config
 from privyx.config._files import _config_layers, _config_paths
 from privyx.config._interpolate import _DEFERRED, _interpolate, _settle
+from privyx.config._keys import leaves
+from privyx.config._migrate import translate
 from privyx.config._presets import (
     CHOSEN_PRESETS,
     _check_overrides,
@@ -33,14 +36,13 @@ from privyx.config._presets import (
 from privyx.config._unused import _UNUSED_WARNED, _raise_unknown, _unknown_keys, _unused
 from privyx.config.agents import profile_type, resolve_profiles, translate_adapters
 from privyx.config.defaults import DEFAULTS
-from privyx.config.env import env_config
 from privyx.config.providers import (
     resolve_provider,
     token_warnings,
     translate_keys,
     translate_operator,
 )
-from privyx.config.schema import PLUGGABLE, AgentConfig, Settings
+from privyx.config.schema import NAMED, PLUGGABLE, AgentConfig, PluggableConfig, Settings
 from privyx.core import ConfigError
 
 if TYPE_CHECKING:
@@ -49,12 +51,22 @@ if TYPE_CHECKING:
 _log = logging.getLogger("privyx")
 
 
+#: The settings model of one component of each kind.
+MODELS: dict[str, type[PluggableConfig]] = {
+    **PLUGGABLE,
+    **{kind: model for kind, model in NAMED.values()},
+}
+
+#: The settings of an entry that Privyx applies itself, never its type's options.
+_CORE = ("type", "enabled")
+
+
 class _Types:
-    """The built-in types of each section, read from the app's registries.
+    """The built-in types of each kind, read from the app's registries.
 
     A built-in type's options are checked when the config is read; a plugin's
     when it is built, since the plugins a config loads are not loaded yet.
-    Only the chosen types are imported, and the others of a section only when
+    Only the chosen types are imported, and the others of a kind only when
     a key is not one of the chosen type's.
     """
 
@@ -66,43 +78,45 @@ class _Types:
         """The registry of ``kind``, such as ``agent``, if the app has one."""
         return self._registries.get(kind)
 
-    def builtin(self, section: str, kind: object) -> bool:
-        """Whether ``kind`` is a built-in type of ``section``."""
-        registry = self._registries.get(section)
-        return isinstance(kind, str) and registry is not None and registry.is_builtin(kind)
+    def builtin(self, kind: str, name: object) -> bool:
+        """Whether ``name`` is a built-in type of ``kind``."""
+        registry = self._registries.get(kind)
+        return isinstance(name, str) and registry is not None and registry.is_builtin(name)
 
-    def fields(self, section: str, kind: str) -> frozenset[str]:
-        """The keys built-in type ``kind`` takes: ``type``, the shared ones, and its options."""
-        options = self._registries[section].get(kind).Options
-        return frozenset({*PLUGGABLE[section].model_fields, *options.model_fields})
+    def fields(self, kind: str, name: str) -> frozenset[str]:
+        """The keys built-in type ``name`` takes: ``type``, the shared ones, and its options."""
+        options = self._registries[kind].get(name).Options
+        return frozenset({*MODELS[kind].model_fields, *options.model_fields})
 
-    def union(self, section: str) -> frozenset[str]:
-        """The keys some built-in type of ``section`` takes."""
-        if section not in self._unions:
-            builtins = self._registries[section].builtin_names()
-            self._unions[section] = frozenset(PLUGGABLE[section].model_fields).union(
-                *(self.fields(section, kind) for kind in builtins)
+    def union(self, kind: str) -> frozenset[str]:
+        """The keys some built-in type of ``kind`` takes."""
+        if kind not in self._unions:
+            builtins = self._registries[kind].builtin_names()
+            self._unions[kind] = frozenset(MODELS[kind].model_fields).union(
+                *(self.fields(kind, name) for name in builtins)
             )
-        return self._unions[section]
+        return self._unions[kind]
 
-    def checked(self, section: str, data: Any, setting: str) -> Any:
+    def checked(self, kind: str, data: Any, setting: str, default: str) -> Any:
         """``data`` with a built-in type's options checked and their defaults filled in.
 
-        The keys another built-in type takes, which :func:`_unused` let
-        through from another layer, are dropped.
+        ``default`` is the type without a ``type`` key.  The keys another
+        built-in type takes, which :func:`_unused` let through from another
+        layer, are dropped.
 
         Raises:
             ConfigError: If an option has an invalid value.
         """
         if not isinstance(data, dict):
             return data  # the wrong shape is pydantic's to report
-        kind = data.get("type", PLUGGABLE[section].model_fields["type"].default)
-        if not self.builtin(section, kind):
+        name = data.get("type", default)
+        if not self.builtin(kind, name):
             return data
-        own = self.fields(section, kind)
-        options = {key: value for key, value in data.items() if key != "type" and key in own}
-        checked = self._registries[section].validate(kind, options, setting=setting)
-        return {"type": kind, **checked.model_dump()}
+        own = self.fields(kind, name)
+        options = {k: v for k, v in data.items() if k not in _CORE and k in own}
+        checked = self._registries[kind].validate(name, options, setting=setting)
+        core = {k: data[k] for k in _CORE[1:] if k in data}
+        return {"type": name, **core, **checked.model_dump()}
 
 
 def _deep_merge(
@@ -111,45 +125,60 @@ def _deep_merge(
     result = dict(base)
     for key, value in override.items():
         current = result.get(key)
-        section = key if top and key in PLUGGABLE else None
         if isinstance(current, dict) and isinstance(value, dict):
-            result[key] = _deep_merge(
-                _retyped(section, current, value, types), value, types, top=False
-            )
-        elif key == "detector" and isinstance(current, list) and isinstance(value, dict):
-            # A section given as a list (`detector: [...]`) takes a mapping
-            # override such as PRIVYX_DETECTOR_CACHE into each item.  Replacing
-            # the list would silently drop the detectors it names.
-            result[key] = [
-                _deep_merge(_retyped(section, item, value, types), value, types, top=False)
-                if isinstance(item, dict)
-                else item
-                for item in current
-            ]
+            if top and key in NAMED:
+                kind = NAMED[key][0]
+                merged = dict(current)
+                for name, entry in value.items():
+                    below = merged.get(name)
+                    if isinstance(below, dict) and isinstance(entry, dict):
+                        below = _retyped(kind, name, below, entry, types)
+                        merged[name] = _deep_merge(below, entry, types, top=False)
+                    else:
+                        merged[name] = entry
+                result[key] = merged
+            else:
+                section = key if top and key in PLUGGABLE else None
+                if section is not None:
+                    default = PLUGGABLE[section].model_fields["type"].default
+                    current = _retyped(section, default, current, value, types)
+                result[key] = _deep_merge(current, value, types, top=False)
         else:
             result[key] = value
     return result
 
 
 def _retyped(
-    section: str | None, current: dict[str, Any], override: dict[str, Any], types: _Types
+    kind: str, default: str, current: dict[str, Any], override: dict[str, Any], types: _Types
 ) -> dict[str, Any]:
     """``current`` without a plugin's options when ``override`` picks another ``type``.
 
     They are options of the type below, and would be unknown settings, or wrong
     ones, for the new type.  The keys some built-in type takes are merged as
-    before.  Below the built-in default type, every key is kept: it was written
+    before.  Below the ``default`` type, every key is kept: it was written
     for the type a later layer picks, as with ``vault: {bucket: b}`` in a file
     and ``PRIVYX_VAULT`` naming the plugin.
     """
-    if section is None or "type" not in override:
+    if "type" not in override:
         return current
-    default = PLUGGABLE[section].model_fields["type"].default
     below = current.get("type", default)
     if below in (override["type"], default):
         return current
-    fields = types.union(section)
+    fields = types.union(kind)
     return {key: value for key, value in current.items() if key in fields}
+
+
+def _named(merged: dict[str, Any]) -> None:
+    """Give each entry of ``detectors`` and ``features`` without a ``type`` its name's, in place."""
+    for section in NAMED:
+        entries = merged.get(section)
+        if isinstance(entries, dict):
+            merged[section] = {
+                name: {"type": name, **entry}
+                if isinstance(entry, dict) and "type" not in entry
+                else entry
+                for name, entry in entries.items()
+            }
 
 
 def load_config(
@@ -160,10 +189,12 @@ def load_config(
     agent: str | None = None,
     presets: Sequence[str] | None = None,
     sources: dict[str, str] | None = None,
+    written: dict[str, list[str]] | None = None,
     secrets: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     setup: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     defaults: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
+    defaults_only: bool = False,
     types: Mapping[str, Registry[Any]],
 ) -> Settings:
     """Load and merge configuration into validated :class:`Settings`.
@@ -175,15 +206,17 @@ def load_config(
     the user's config (e.g. ``--upstream``).
 
     The YAML files are ``path`` (or ``PRIVYX_CONFIG``) alone when one is named;
-    otherwise ``~/.privyx/config.yaml`` and then the working directory's trusted
-    ``privyx.yaml`` and ``.privyx/config.yaml``.
+    otherwise ``config.yaml`` and ``settings.yaml`` in ``~/.privyx``, then the
+    working directory's trusted ``privyx.yaml``, ``.privyx/config.yaml``, and
+    ``.privyx/settings.yaml``.
 
     With ``agent``, that profile's provider/upstream are applied within each
     layer, above that layer's common settings. Later layers still win. Its
     ``presets``, then its ``privyx`` settings, then ``presets`` come just
     below ``extra``; without a profile, just ``presets``.  ``presets`` defaults
     to :data:`CHOSEN_PRESETS`.
-    ``sources`` optionally receives dotted field paths -> winning layer.
+    ``sources`` optionally receives dotted field paths -> winning layer, and
+    ``written`` each path -> every layer that writes it, lowest first.
     ``secrets`` resolves the secret references of the merged config; without
     it they are left as written (``op://...``), so no password manager is asked.
     ``setup``, given the merged files, environment, and ``extra``, sets up
@@ -195,6 +228,8 @@ def load_config(
     written beside the type; masking keys from another layer that no detector
     uses are logged, once per process, or appended to ``warnings`` when it is
     given.
+    ``defaults_only`` reads no file and no environment: the settings as
+    they are when nothing is written.
     ``types`` holds the registry of each section's components, by section
     name: a built-in type's options are checked against its ``Options``, and
     a section of one gets their defaults.  ``privyx.load_config`` passes the
@@ -211,6 +246,13 @@ def load_config(
 
     def apply(data: dict[str, Any], source: str) -> None:
         nonlocal merged
+        quiet = source in ("defaults", "plugin defaults", "run defaults", "environment")
+        below = merged.get("detectors")
+        data = translate(
+            data,
+            below if isinstance(below, dict) else {},
+            deprecated=[] if quiet else deprecated,
+        )
         data = translate_keys(translate_adapters(data, deprecated), source, deprecated)
         layers.append((source, data))
         _record_sources(data, source, origins, base=merged)
@@ -221,19 +263,20 @@ def load_config(
         apply(defaults, "plugin defaults")
     apply(base_extra or {}, "run defaults")
 
-    config_files, untrusted = _config_paths(path)
+    config_files, untrusted = ([], []) if defaults_only else _config_paths(path)
     # Read again with the plugins' defaults: what was said the first time stands.
     warn = defaults is None
     for config_file in untrusted if warn else ():
         _log.warning(
-            "ignoring %s: not trusted, or changed since; run `privyx trust` to use it",
+            "ignoring %s: not trusted, or changed since; run `privyx config trust` to use it",
             config_file,
         )
     for config_file in config_files:
         for file, data in _config_layers(config_file, warn=warn):
             apply(_interpolate(data, file), str(file.resolve()))
 
-    apply(env_config(), "environment")
+    if not defaults_only:
+        apply(env_config(merged, known), "environment")
 
     if extra:
         apply(extra, "CLI")
@@ -245,9 +288,11 @@ def load_config(
             agent=agent,
             presets=presets,
             sources=sources,
+            written=written,
             secrets=secrets,
             defaults=added,
             warnings=warnings,
+            defaults_only=defaults_only,
             types=types,
         )
 
@@ -257,6 +302,7 @@ def load_config(
     kind = kind if isinstance(kind, str) else "pseudonym"
     layers[:] = [(src, translate_operator(data, kind, src, deprecated)) for src, data in layers]
     merged = translate_operator(merged, kind, "defaults", [])
+    _named(merged)
     # A misspelled key would otherwise be dropped without a word, and the
     # setting it meant to change (a detector's terms, say) silently not apply.
     _raise_unknown(_unknown_keys(Settings, merged, known))
@@ -312,10 +358,16 @@ def load_config(
         effective["agents"] = profiles
         effective_sources.update(inherited_sources)
     merged, origins = effective, effective_sources
+    _named(merged)
 
     if sources is not None:
         sources.clear()
         sources.update(origins)
+    if written is not None:
+        written.clear()
+        for source, data in layers:
+            for leaf in leaves(data):
+                written.setdefault(".".join(leaf), []).append(source)
     refused, unused = _unused(layers, merged, origins, known)
     if refused:
         raise ConfigError("; ".join(refused))
@@ -346,17 +398,20 @@ def load_config(
     named = merged.get("providers")
     if isinstance(named, dict):
         merged["providers"] = {
-            name: known.checked("provider", item, f"providers.{name}")
+            name: known.checked("provider", item, f"providers.{name}", "generic")
             for name, item in named.items()
         }
-    for name in PLUGGABLE:
-        value = merged.get(name)
-        if isinstance(value, list):
-            merged[name] = [
-                known.checked(name, item, f"{name}[{i}]") for i, item in enumerate(value)
-            ]
-        elif name in merged:
-            merged[name] = known.checked(name, value, name)
+    for name, model in PLUGGABLE.items():
+        if name in merged:
+            default = model.model_fields["type"].default
+            merged[name] = known.checked(name, merged[name], name, default)
+    for section, (kind, _) in NAMED.items():
+        entries = merged.get(section)
+        if isinstance(entries, dict):
+            merged[section] = {
+                name: known.checked(kind, entry, f"{section}.{name}", name)
+                for name, entry in entries.items()
+            }
     try:
         settings = Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
@@ -431,23 +486,17 @@ def _record_sources(
         path = f"{prefix}{key}"
         current = (base or {}).get(key)
         if isinstance(value, dict):
-            if key == "detector" and isinstance(current, list):
-                # Match the mapping override that _deep_merge applies to each detector.
-                for index, item in enumerate(current):
-                    if isinstance(item, dict):
-                        _record_sources(value, source, sources, f"{path}.{index}.", base=item)
-            else:
-                if not isinstance(current, dict):
-                    for old in list(sources):
-                        if old == path or old.startswith(path + "."):
-                            del sources[old]
-                _record_sources(
-                    value,
-                    source,
-                    sources,
-                    path + ".",
-                    base=current if isinstance(current, dict) else None,
-                )
+            if not isinstance(current, dict):
+                for old in list(sources):
+                    if old == path or old.startswith(path + "."):
+                        del sources[old]
+            _record_sources(
+                value,
+                source,
+                sources,
+                path + ".",
+                base=current if isinstance(current, dict) else None,
+            )
         else:
             # A replaced list/scalar invalidates any old nested provenance.
             for old in list(sources):

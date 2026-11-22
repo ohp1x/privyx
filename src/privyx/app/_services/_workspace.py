@@ -1,6 +1,6 @@
 """The workspace service: the scan of the working directory, and the checks of its git hooks.
 
-``privyx scan``, ``privyx install-hook`` and ``privyx hook``, and the
+``privyx scan`` and ``privyx hook``, and the
 ``privyx_precommit_check`` tool of ``privyx mcp serve`` call it.
 """
 

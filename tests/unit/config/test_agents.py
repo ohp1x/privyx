@@ -420,7 +420,7 @@ def test_profile_privyx_settings_sit_between_the_environment_and_the_cli(
 @pytest.mark.parametrize(
     ("override", "message"),
     [
-        ({"detecter": {}}, "'agents.x.privyx.detecter' (did you mean 'detector'?)"),
+        ({"detectorz": {}}, "'agents.x.privyx.detectorz' (did you mean 'detectors'?)"),
         ({"operator": {"type": "hash", "lenght": 4}}, "'agents.x.privyx.operator.lenght'"),
         ({"agents": {}}, "'agents.x.privyx.agents'"),
     ],

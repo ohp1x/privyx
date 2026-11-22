@@ -14,10 +14,10 @@ operator:
   locale: en_US             # the language of the labels
   seed: 1234                # optional: other labels for the same tokens
 
-proxy:
+features:
   directive: true           # tells the model to keep each placeholder whole
 
-detector:
-  type: regex
-  terms:
-    PERSON: [ann, bob]
+detectors:
+  regex:
+    terms:
+      PERSON: [ann, bob]

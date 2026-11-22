@@ -42,12 +42,12 @@ def test_no_builtin_pattern_is_flagged() -> None:
 
 def test_a_risky_custom_pattern_warns_but_still_builds(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING, logger="privyx"):
-        detector = build_detector({"type": "regex", "patterns": {"ORDER": r"ORD-(\d+)+X"}})
+        detector = build_detector({"regex": {"patterns": {"ORDER": r"ORD-(\d+)+X"}}})
     assert detector is not None
     assert "'ORDER'" in caplog.text and "(a+)+" in caplog.text
 
 
 def test_terms_never_warn(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING, logger="privyx"):
-        build_detector({"type": "regex", "terms": {"PROJECT": ["aaa+", "(a+)+"]}})
+        build_detector({"regex": {"terms": {"PROJECT": ["aaa+", "(a+)+"]}}})
     assert caplog.text == ""

@@ -42,42 +42,59 @@ class Features:
     def configured(self, settings: Settings | None = None) -> dict[str, dict[str, Any]]:
         """The features ``settings`` switch on, by name, with their options.
 
-        A feature on by default is on, and the settings of the built-ins
-        switch theirs: ``audit.enabled`` and ``audit.path``, ``tracing.enabled``,
-        ``proxy.directive``, ``proxy.cache_control``.  ``budget`` is a
-        ``privyx run`` profile's.
+        An entry of ``features`` is on unless it says ``enabled: false``; a
+        feature the settings do not name is on when its type is on by default.
+        ``budget`` is a ``privyx run`` profile's.
         """
         from privyx.features import Feature
 
         settings = settings if settings is not None else self._app.settings
         registry = self._app.registry(Feature)
         on: dict[str, dict[str, Any]] = {
-            name: {} for name in registry.names() if registry.get(name).enabled_by_default
+            name: {}
+            for name in registry.names()
+            if name not in settings.features and registry.get(name).enabled_by_default
         }
-        on.pop("audit", None)
-        if settings.audit.enabled:
-            on["audit"] = {"path": settings.audit.path}
-        for name, switched in (
-            ("tracing", settings.tracing.enabled),
-            ("directive", settings.proxy.directive),
-            ("cache_control", settings.proxy.cache_control),
-        ):
-            if switched:
-                on[name] = {}
+        for name, entry in settings.features.items():
+            if entry.enabled:
+                kind = {"type": entry.type} if entry.type != name else {}
+                on[name] = {**kind, **(entry.model_extra or {})}
         return on
 
-    def list(self, settings: Settings | None = None) -> list[FeatureInfo]:
-        """Every registered feature type, sorted, whether the settings switch it on."""
+    def options(self, name: str, settings: Settings | None = None) -> Any:
+        """The options feature ``name`` has in ``settings``, checked: its type's ``Options``.
+
+        Raises:
+            ConfigError: If its type is unknown, or an option invalid.
+        """
         from privyx.features import Feature
 
+        settings = settings if settings is not None else self._app.settings
+        entry = settings.features.get(name)
+        kind = entry.type if entry is not None else name
+        options = (entry.model_extra or {}) if entry is not None else {}
+        return self._app.registry(Feature).validate(kind, options, setting=f"features.{name}")
+
+    def list(self, settings: Settings | None = None) -> list[FeatureInfo]:
+        """Every feature type and entry of ``features``, sorted, whether the settings switch it on.
+
+        Raises:
+            ConfigError: If an entry names a type no plugin added.
+        """
+        from privyx.features import Feature
+
+        settings = settings if settings is not None else self._app.settings
         registry = self._app.registry(Feature)
         on = self.configured(settings)
         found = []
-        for name in registry.names():
+        for name in sorted({*registry.names(), *settings.features}):
+            entry = settings.features.get(name)
+            kind = entry.type if entry is not None else name
             listens = tuple(
-                (event.name, priority) for event, priority, _ in listened(registry.get(name))
+                (event.name, priority) for event, priority, _ in listened(registry.get(kind))
             )
-            found.append(FeatureInfo(name, name in on, listens, registry.extends(name)))
+            extends = kind if kind != name else registry.extends(name)
+            found.append(FeatureInfo(name, name in on, listens, extends))
         return found
 
     def get(self, name: str) -> Feature | None:
@@ -96,7 +113,9 @@ class Features:
         from privyx.features import Feature
 
         await self.disable(name)
-        feature = self._app.registry(Feature).build(name, options, setting=f"features.{name}")
+        options = dict(options)
+        kind = options.pop("type", name)
+        feature = self._app.registry(Feature).build(kind, options, setting=f"features.{name}")
         await feature.open(self._services or self._shared(self._app.settings))
         added = []
         for event, priority, listener in listened(feature):

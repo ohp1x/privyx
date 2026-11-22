@@ -12,6 +12,8 @@ server that never comes up.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import signal
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -181,7 +183,7 @@ def build_pipeline(
         max_connections=upstream.max_connections,
         audit=audit,
         session_strategy=settings.session.strategy,
-        tap=Tap(settings.audit.tap_dir) if settings.audit.tap else None,
+        tap=Tap(settings.proxy.tap_dir) if settings.proxy.tap else None,
         run_token=run_token,
         metadata_keys=agents[0],
         masked_headers=agents[1],
@@ -235,6 +237,111 @@ def metadata(app: Privyx) -> tuple[frozenset[str], frozenset[str]]:
     return client_metadata(app.registry(Agent))
 
 
+def _tls(settings: Settings) -> dict[str, Any]:
+    """uvicorn's TLS settings: none unless ``server.tls`` names a certificate."""
+    tls = settings.server.tls
+    return {
+        "ssl_certfile": tls.certfile or None,
+        "ssl_keyfile": tls.keyfile or None,
+        "ssl_keyfile_password": tls.keyfile_password or None,
+        "ssl_ca_certs": tls.ca_certs or None,
+    }
+
+
+#: The variable that tells a server process what to serve: the parent's
+#: config file, overrides, and presets.
+_WORKER = "PRIVYX_WORKER"
+
+
+def serve_workers(app: Privyx) -> None:
+    """Serve ``app`` from ``server.workers`` processes, each with the app built again.
+
+    A process builds the app from the config, the overrides, and the
+    presets, so what code added to ``app`` is in none of them: such an app
+    serves with one process, or with ``uvicorn --factory --workers N`` and
+    a factory of its own.  The vault must be one they all share.
+
+    Raises:
+        ConfigError: If the vault is ``memory``, a feature keeps state in its
+            instance, code added to ``app``, or the app cannot be built.
+    """
+    import uvicorn
+
+    from privyx.config import CHOSEN_PRESETS
+    from privyx.core import ConfigError
+    from privyx.features import Feature
+    from privyx.observability.logging import configure_logging
+
+    settings = app.settings
+    workers = settings.server.workers
+    if settings.vault.type == "memory":
+        raise ConfigError(
+            f"server.workers {workers} needs a vault the processes share; "
+            "set vault.type to sqlite or redis"
+        )
+    registry = app.registry(Feature)
+    for name, options in app.features.configured(settings).items():
+        if registry.get(options.get("type", name)).single_process:
+            raise ConfigError(
+                f"feature {name!r} keeps its state in one process; "
+                "turn it off or serve with server.workers 1"
+            )
+    if app._in_code:
+        raise ConfigError(
+            "server.workers builds each process from the config, without what code "
+            "added to the app; serve it with one, or with uvicorn --factory --workers"
+        )
+    configure_logging(settings)
+    asyncio.run(_trial(app, settings))  # a config that cannot be built fails here, once
+    config = str(Path(app._config).absolute()) if app._config is not None else None
+    os.environ[_WORKER] = json.dumps(
+        {"config": config, "overrides": app._overrides, "presets": list(CHOSEN_PRESETS.get())}
+    )
+    scheme = "https" if settings.server.tls.enabled else "http"
+    print(
+        f"Privyx proxy listening on {scheme}://{settings.server.host}:{settings.server.port} "
+        f"with {workers} workers",
+        flush=True,
+    )
+    uvicorn.run(
+        "privyx.app._serve:worker",
+        factory=True,
+        host=settings.server.host,
+        port=settings.server.port,
+        workers=workers,
+        log_level=settings.log.level,
+        ws="none",
+        **_tls(settings),
+        timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
+    )
+
+
+async def _trial(app: Privyx, settings: Settings) -> None:
+    """Open the components, the features, and the provider ``settings`` describe, and close them."""
+    from privyx.app._build import build_engine, open_provider
+    from privyx.app._plugins import load_plugins
+
+    load_plugins(settings, app)
+    async with app.features.running(settings):
+        engine, close = await build_engine(settings, app)
+        await close()
+        provider = await open_provider(settings, app)
+        await provider.close()
+
+
+def worker() -> Any:
+    """The app one process of :func:`serve_workers` serves: ``uvicorn --factory``."""
+    from privyx.app._privyx import Privyx
+    from privyx.config import CHOSEN_PRESETS
+    from privyx.observability.logging import configure_logging
+
+    spec = json.loads(os.environ[_WORKER])
+    CHOSEN_PRESETS.set(tuple(spec["presets"]))
+    app = Privyx(spec["config"], **spec["overrides"])
+    configure_logging(app.settings)
+    return app.asgi()
+
+
 async def serve(app: Privyx, watch: Sequence[Path] = ()) -> bool:
     """Serve ``app`` as ``privyx proxy`` does, until stopped or one of ``watch`` changes.
 
@@ -258,14 +365,11 @@ async def serve(app: Privyx, watch: Sequence[Path] = ()) -> bool:
         server = uvicorn.Server(
             uvicorn.Config(
                 asgi,
-                host=settings.host,
-                port=settings.port,
-                log_level=settings.log_level,
+                host=settings.server.host,
+                port=settings.server.port,
+                log_level=settings.log.level,
                 ws="none",  # a WebSocket upgrade arrives as a plain HTTP request
-                ssl_certfile=settings.tls.certfile or None,
-                ssl_keyfile=settings.tls.keyfile or None,
-                ssl_keyfile_password=settings.tls.keyfile_password or None,
-                ssl_ca_certs=settings.tls.ca_certs or None,
+                **_tls(settings),
                 timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
             )
         )
@@ -283,8 +387,8 @@ def _banner(settings: Settings, pipeline: Pipeline) -> list[str]:
     from privyx.providers import resolve_base_url, resolve_transparent_upstream
     from privyx.security import redact
 
-    scheme = "https" if settings.is_tls else "http"
-    where = f"{scheme}://{settings.host}:{settings.port}"
+    scheme = "https" if settings.server.tls.enabled else "http"
+    where = f"{scheme}://{settings.server.host}:{settings.server.port}"
     if pipeline.gateway:
         routes = pipeline.routes
         lines = [

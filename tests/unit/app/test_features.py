@@ -14,18 +14,19 @@ from privyx.core import ConfigError
 from privyx.events import RequestMasked
 
 
-def test_audit_and_metrics_are_on_and_the_old_keys_switch_the_rest() -> None:
+def test_audit_and_metrics_are_on_and_the_features_switch_the_rest() -> None:
     features = Privyx().features
     switched = Settings(
-        audit={"enabled": False, "path": "/tmp/x.log"},
-        tracing={"enabled": True},
-        proxy={"directive": True, "cache_control": True},
+        features={
+            "audit": {"enabled": False, "path": "/tmp/x.log"},
+            "tracing": {"enabled": True},
+            "directive": {"enabled": True},
+            "cache_control": {"enabled": True},
+        }
     )
 
-    assert features.configured(Settings()) == {
-        "audit": {"path": "~/.privyx/audit.log"},
-        "metrics": {},
-    }
+    assert features.configured(Settings()) == {"audit": {}, "metrics": {}}
+    assert features.options("audit", Settings()).path == "~/.privyx/audit.log"
     assert features.configured(switched) == {
         "metrics": {},
         "tracing": {},
@@ -36,7 +37,7 @@ def test_audit_and_metrics_are_on_and_the_old_keys_switch_the_rest() -> None:
 
 async def test_a_feature_switched_on_while_running_listens_from_the_next_event() -> None:
     app = Privyx()
-    async with app.features.running(Settings(audit={"enabled": False})):
+    async with app.features.running(Settings(features={"audit": {"enabled": False}})):
         assert not app._events.wants(RequestMasked)
         directive = await app.features.enable("directive")
         assert app._events.listeners(RequestMasked) == (directive.add,)
@@ -55,7 +56,7 @@ def test_privyx_features_list_shows_each_feature_and_what_it_listens_to(tmp_path
     config = tmp_path / "privyx.yaml"
     config.write_text("proxy:\n  directive: true\n", encoding="utf-8")
 
-    result = CliRunner().invoke(cli, ["features", "list", "--events", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "features", "list", "--events"])
 
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
@@ -71,7 +72,7 @@ async def test_capture_events_sees_what_the_app_emits_while_it_runs() -> None:
     from privyx.testing import capture_events
 
     app = Privyx()
-    async with app.features.running(Settings(audit={"enabled": False})) as audit:
+    async with app.features.running(Settings(features={"audit": {"enabled": False}})) as audit:
         with capture_events(app, AuditEvent) as seen:
             audit.session_created("ses_1")
         audit.session_created("ses_2")  # after the block: not seen

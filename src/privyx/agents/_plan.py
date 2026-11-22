@@ -294,7 +294,7 @@ def build_launch_plan(
     return LaunchPlan(
         target=spec,
         user_args=tuple(argv),
-        host=settings.host,
+        host=settings.server.host,
         port=port,
         env_vars=tuple(dict.fromkeys(env_vars)),
         inherited_env=MappingProxyType(inherited),

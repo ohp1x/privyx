@@ -307,7 +307,7 @@ async def test_an_existing_audit_file_is_tightened_to_owner_only(tmp_path: Path)
 async def test_an_unwritable_audit_path_is_a_config_error(tmp_path: Path) -> None:
     (tmp_path / "file").write_text("")  # a file where a directory is needed
 
-    with pytest.raises(ConfigError, match="cannot write audit.path"):
+    with pytest.raises(ConfigError, match="cannot write features.audit.path"):
         await AuditTrail(path=str(tmp_path / "file" / "audit.log")).open(services())
 
 

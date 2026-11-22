@@ -133,7 +133,7 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
                         ),
                     }
                 },
-                "audit": {"path": str(tmp_path / "audit.log")},
+                "features": {"audit": {"path": str(tmp_path / "audit.log")}},
             }
         )
     )
@@ -180,10 +180,10 @@ def test_real_codex_custom_provider_is_masked_and_keeps_its_auth(
                 sys.executable,
                 "-c",
                 "from privyx.cli.main import cli; cli()",
-                "run",
-                "--no-anchor",
                 "-c",
                 str(config),
+                "run",
+                "--no-anchor",
                 "codex",
                 "--",
                 "exec",

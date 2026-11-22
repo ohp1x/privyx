@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -71,12 +70,7 @@ def resolve_profiles(
             _record_sources(child, "", own_origins, base=parent)
             for path, origin in own_origins.items():
                 if not origin:
-                    # A mapping override of an inherited detector list has no index
-                    # in the child's original source paths.
-                    unindexed = re.sub(r"(^|\.)detector\.\d+\.", r"\1detector.", path)
-                    own_origins[path] = sources.get(
-                        prefix + path, sources.get(prefix + unindexed, "defaults")
-                    )
+                    own_origins[path] = sources.get(prefix + path, "defaults")
             for field in ("env", "env_from"):
                 other = "env_from" if field == "env" else "env"
                 own = child.get(field, {})

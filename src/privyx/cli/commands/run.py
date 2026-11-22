@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 import click
 from click.core import ParameterSource
 
-from privyx.cli.config import config_options
+from privyx.cli._options import config_options, json_option
 
 if TYPE_CHECKING:
     from privyx.agents import LaunchPlan
@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 
 def _run_settings(
     app: Privyx,
-    config_path: str | None,
     provider: str | None,
     upstream: str | None,
     session_strategy: str | None,
@@ -66,7 +65,7 @@ def _run_settings(
     if no_anchor:
         # Below the config: an anchor set there still applies.
         base_extra["anchor"] = {"secret": ""}
-    return app._load(config_path, extra=extra, base_extra=base_extra, agent=agent, sources=sources)
+    return app._load(app._config, extra=extra, base_extra=base_extra, agent=agent, sources=sources)
 
 
 @click.command(
@@ -110,10 +109,10 @@ def _run_settings(
 )
 @click.option("--list", "list_targets", is_flag=True, help="List known targets and exit")
 @click.option("--dry-run", is_flag=True, help="Show the launch plan without starting anything")
+@json_option
 def run(
     target: str | None,
     args: tuple[str, ...],
-    config_path: str | None,
     provider: str | None,
     upstream: str | None,
     port: int,
@@ -123,6 +122,7 @@ def run(
     harvest: bool | None,
     list_targets: bool,
     dry_run: bool,
+    as_json: bool,
 ) -> None:
     """Run TARGET with its traffic routed through Privyx.
 
@@ -140,13 +140,14 @@ def run(
 
     if not target and not list_targets:
         raise click.UsageError("missing TARGET (try `privyx run --list`)")
+    if as_json and not (list_targets or dry_run):
+        raise click.UsageError("--json writes the plan of --dry-run or the list of --list")
 
     app = Privyx()
     sources: dict[str, str] = {}
     try:
         settings = _run_settings(
             app,
-            config_path,
             provider,
             upstream,
             session_strategy,
@@ -159,8 +160,16 @@ def run(
         raise click.ClickException(str(exc)) from exc
 
     if list_targets:
+        targets = sorted(settings.agents.items())
+        if as_json:
+            listed_json = [
+                {"name": name, "type": p.type, "provider": p.provider, "env_vars": p.env_vars}
+                for name, p in targets
+            ]
+            click.echo(json.dumps(listed_json, indent=2))
+            return
         click.echo("Known targets:")
-        for name, listed in sorted(settings.agents.items()):
+        for name, listed in targets:
             click.echo(f"  {name:<8} provider={listed.provider:<10} {', '.join(listed.env_vars)}")
         return
 
@@ -175,7 +184,6 @@ def run(
         try:
             settings = _run_settings(
                 app,
-                config_path,
                 provider,
                 upstream,
                 session_strategy,
@@ -235,6 +243,9 @@ def run(
     else:
         harvested = None
     if dry_run:
+        if as_json:
+            click.echo(json.dumps(_plan_json(plan, settings, target, harvested), indent=2))
+            return
         _show_plan(plan)
         _show_presets(settings, sources, target)
         if harvested is not None:
@@ -256,7 +267,6 @@ def run(
         _run_target,
         spec=spec,
         argv=list(args),
-        config_path=config_path,
         upstream=upstream,
         port=port,
         env_vars=all_env_vars,
@@ -314,13 +324,58 @@ def _show_plan(plan: LaunchPlan) -> None:
     for field_name in ("command", "base_path", "type", "args"):
         fallback = "CLI" if field_name == "command" else "defaults"
         click.echo(f"Source {field_name}: {sources.get(prefix + field_name, fallback)}")
-    for path in ("host", "proxy.mode", "run.port"):
+    for path in ("server.host", "proxy.mode", "run.port"):
         click.echo(f"Source {path}: {sources.get(path, 'defaults')}")
     click.echo("Source arguments: CLI")
     click.echo("Environment injected:")
     for key in sorted(plan.injected_env):
         value = plan.base_url if key in plan.env_vars else "***"
         click.echo(f"  {key}={value} [{plan.env_sources[key]}]")
+
+
+def _plan_json(
+    plan: LaunchPlan, settings: Settings, profile: str, harvested: str | None
+) -> dict[str, Any]:
+    """What ``--dry-run`` shows, as data: no credential, and URLs with their secrets masked."""
+    from privyx.config import CHOSEN_PRESETS
+    from privyx.security import redact, redact_argv
+
+    sources = plan.sources
+    budget = plan.target.budget
+    endpoint = plan.native_endpoint
+    listed = settings.agents.get(profile)
+    presets = [*(listed.presets if listed else []), *CHOSEN_PRESETS.get()]
+    return {
+        "profile": plan.profile,
+        "type": plan.target.type,
+        "command": plan.command,
+        "argv": redact_argv([plan.command, *plan.argv])[1:],
+        "proxy": {"url": plan.base_url, "mode": plan.proxy_mode},
+        "provider": {"name": plan.provider, "source": sources.get("provider.type", "defaults")},
+        "upstream": {
+            "url": redact(plan.upstream, "upstream_url"),
+            "source": sources["run.upstream"],
+        },
+        "native_endpoint": None
+        if endpoint is None
+        else {"url": redact(endpoint.url, "url"), "source": endpoint.origin},
+        "route": redact(plan.route, "upstream_url"),
+        "session": {
+            "strategy": plan.session,
+            "source": sources.get("session.strategy", "defaults"),
+        },
+        "anchor": {"value": plan.anchor, "source": sources.get("anchor.secret", "defaults")},
+        "budget": {"max_turns": budget.max_turns, "max_tokens": budget.max_tokens},
+        "presets": presets,
+        "environment": {
+            key: {
+                "value": plan.base_url if key in plan.env_vars else "***",
+                "source": plan.env_sources[key],
+            }
+            for key in sorted(plan.injected_env)
+        },
+        "harvest": harvested,
+    }
 
 
 def _show_presets(settings: Settings, sources: dict[str, str], profile: str) -> None:
@@ -363,7 +418,6 @@ def _show_presets(settings: Settings, sources: dict[str, str], profile: str) -> 
 async def _run_target(
     spec: Target,
     argv: list[str],
-    config_path: str | None,
     upstream: str | None,
     port: int,
     env_vars: tuple[str, ...],
@@ -394,16 +448,14 @@ async def _run_target(
 
     app = app or Privyx()
     if settings is None:
-        settings = _run_settings(
-            app, config_path, spec.provider, upstream, session_strategy, no_anchor
-        )
+        settings = _run_settings(app, spec.provider, upstream, session_strategy, no_anchor)
     if plan is None:
         plan = plan_launch(spec, argv, settings, port, env_vars)
-    # The child tool owns the terminal: log lines go to log_file if one is set,
+    # The child tool owns the terminal: log lines go to log.file if one is set,
     # else nowhere, and the audit trail still records every error.
     configure_logging(settings, console=False)
     # Bound before the rest opens, so a port in use leaves nothing to undo.
-    sock, bound_port = _listen(settings.host, port)
+    sock, bound_port = _listen(settings.server.host, port)
 
     async def launch(bound: LaunchPlan) -> int:
         # On stderr: stdout is the tool's, and may be piped into a parser.

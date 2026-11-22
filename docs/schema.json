@@ -3,8 +3,27 @@
   "$id": "https://ohp1x.github.io/privyx/schema.json",
   "$defs": {
     "AgentConfig": {
+      "additionalProperties": true,
       "description": "How to launch a tool and point it at the local proxy; never a shell command.\n\nEvery key but these is an option of the profile's agent ``type``, which\nits ``Options`` check.",
       "properties": {
+        "type": {
+          "default": "",
+          "title": "Type",
+          "anyOf": [
+            {
+              "enum": [
+                "claude",
+                "codex",
+                "env",
+                "ollama",
+                "pi"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
         "command": {
           "minLength": 1,
           "title": "Command",
@@ -79,24 +98,6 @@
         "privyx": {
           "title": "Privyx",
           "$ref": "#/$defs/ProfileSettings"
-        },
-        "type": {
-          "default": "",
-          "title": "Type",
-          "anyOf": [
-            {
-              "enum": [
-                "claude",
-                "codex",
-                "env",
-                "ollama",
-                "pi"
-              ]
-            },
-            {
-              "type": "string"
-            }
-          ]
         }
       },
       "title": "AgentConfig",
@@ -177,8 +178,7 @@
             "additionalProperties": false
           }
         }
-      ],
-      "additionalProperties": true
+      ]
     },
     "AnchorConfig": {
       "additionalProperties": true,
@@ -226,57 +226,6 @@
           }
         }
       ]
-    },
-    "AuditConfig": {
-      "description": "PII-safe audit trail.\n\nEvents (session created, transform, restore, proxy request) are appended as\nJSON lines to ``path``.  The trail records counts and entity *types*, never\npayload content; see :mod:`privyx.observability.audit`.",
-      "properties": {
-        "enabled": {
-          "title": "Enabled",
-          "anyOf": [
-            {
-              "default": true,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "path": {
-          "default": "~/.privyx/audit.log",
-          "title": "Path",
-          "type": "string"
-        },
-        "tap": {
-          "title": "Tap",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "tap_dir": {
-          "default": "~/.privyx/tap",
-          "title": "Tap Dir",
-          "type": "string"
-        },
-        "prices": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ModelPrice"
-          },
-          "title": "Prices",
-          "type": "object"
-        }
-      },
-      "title": "AuditConfig",
-      "type": "object",
-      "additionalProperties": false
     },
     "BudgetConfig": {
       "description": "Limits on one ``privyx run`` launch; unset means no limit.",
@@ -364,22 +313,34 @@
     },
     "DetectorConfig": {
       "additionalProperties": true,
-      "description": "Detector selection and its rules.",
+      "description": "One of ``detectors``: its type, by default the entry's name, and its rules.",
       "properties": {
         "type": {
-          "default": "regex",
+          "default": "",
           "title": "Type",
           "anyOf": [
             {
               "enum": [
                 "llm",
                 "presidio",
-                "regex",
-                "yaml"
+                "regex"
               ]
             },
             {
               "type": "string"
+            }
+          ]
+        },
+        "enabled": {
+          "title": "Enabled",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
             }
           ]
         },
@@ -424,126 +385,16 @@
             "properties": {
               "type": {
                 "enum": [
-                  "regex",
-                  "yaml"
-                ]
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "type": true,
-              "cache": true,
-              "underscore_separates_words": true,
-              "patterns": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "title": "Patterns",
-                "type": "object"
-              },
-              "terms": {
-                "additionalProperties": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "title": "Terms",
-                "type": "object"
-              },
-              "merge_terms": {
-                "title": "Merge Terms",
-                "anyOf": [
-                  {
-                    "default": true,
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              },
-              "term_variants": {
-                "title": "Term Variants",
-                "anyOf": [
-                  {
-                    "default": true,
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              },
-              "context": {
-                "additionalProperties": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "title": "Context",
-                "type": "object"
-              },
-              "enable": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Enable",
-                "type": "array"
-              },
-              "disable": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Disable",
-                "type": "array"
-              },
-              "entropy_threshold": {
-                "title": "Entropy Threshold",
-                "anyOf": [
-                  {
-                    "default": 3.0,
-                    "exclusiveMinimum": 0,
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              },
-              "decode": {
-                "title": "Decode",
-                "anyOf": [
-                  {
-                    "default": false,
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              },
-              "normalize": {
-                "title": "Normalize",
-                "anyOf": [
-                  {
-                    "default": false,
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
+                  "regex"
                 ]
               }
             },
-            "additionalProperties": false
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/DetectorConfig.regex"
           }
         },
         {
@@ -560,42 +411,7 @@
             ]
           },
           "then": {
-            "properties": {
-              "type": true,
-              "cache": true,
-              "underscore_separates_words": true,
-              "language": {
-                "default": "en",
-                "title": "Language",
-                "type": "string"
-              },
-              "model": {
-                "default": "",
-                "title": "Model",
-                "type": "string"
-              },
-              "entities": {
-                "items": {
-                  "type": "string"
-                },
-                "title": "Entities",
-                "type": "array"
-              },
-              "score_threshold": {
-                "title": "Score Threshold",
-                "anyOf": [
-                  {
-                    "default": 0.35,
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              }
-            },
-            "additionalProperties": false
+            "$ref": "#/$defs/DetectorConfig.presidio"
           }
         },
         {
@@ -612,154 +428,127 @@
             ]
           },
           "then": {
-            "properties": {
-              "type": true,
-              "cache": true,
-              "underscore_separates_words": true,
-              "llm_provider": {
-                "default": "openai",
-                "title": "Llm Provider",
-                "type": "string"
-              },
-              "llm_model": {
-                "default": "",
-                "title": "Llm Model",
-                "type": "string"
-              },
-              "llm_api_key": {
-                "default": "",
-                "title": "Llm Api Key",
-                "type": "string"
-              },
-              "llm_instructions": {
-                "default": "",
-                "title": "Llm Instructions",
-                "type": "string"
-              },
-              "llm_timeout": {
-                "title": "Llm Timeout",
-                "anyOf": [
-                  {
-                    "default": 30.0,
-                    "exclusiveMinimum": 0,
-                    "type": "number"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              },
-              "llm_max_chars": {
-                "title": "Llm Max Chars",
-                "anyOf": [
-                  {
-                    "default": 4000,
-                    "exclusiveMinimum": 0,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              },
-              "llm_fallback_on_error": {
-                "title": "Llm Fallback On Error",
-                "anyOf": [
-                  {
-                    "default": false,
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "string",
-                    "pattern": "\\$\\{"
-                  }
-                ]
-              }
-            },
-            "additionalProperties": false
+            "$ref": "#/$defs/DetectorConfig.llm"
           }
         }
       ]
     },
-    "ModelPrice": {
-      "description": "USD per million tokens; cache rates default to 0.1x and 1.25x of input.",
+    "FeatureConfig": {
+      "additionalProperties": true,
+      "description": "One of ``features``: its type, by default the entry's name, and its options.",
       "properties": {
-        "input": {
-          "title": "Input",
+        "type": {
+          "default": "",
+          "title": "Type",
           "anyOf": [
             {
-              "minimum": 0,
-              "type": "number"
+              "enum": [
+                "audit",
+                "budget",
+                "cache_control",
+                "directive",
+                "metrics",
+                "tracing"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "enabled": {
+          "title": "Enabled",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
             },
             {
               "type": "string",
               "pattern": "\\$\\{"
             }
           ]
-        },
-        "output": {
-          "title": "Output",
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
-        "cache_read": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "minimum": 0,
-                  "type": "number"
-                },
-                {
-                  "type": "string",
-                  "pattern": "\\$\\{"
-                }
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Cache Read"
-        },
-        "cache_write": {
-          "anyOf": [
-            {
-              "anyOf": [
-                {
-                  "minimum": 0,
-                  "type": "number"
-                },
-                {
-                  "type": "string",
-                  "pattern": "\\$\\{"
-                }
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Cache Write"
         }
       },
-      "required": [
-        "input",
-        "output"
-      ],
-      "title": "ModelPrice",
+      "title": "FeatureConfig",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "audit"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/FeatureConfig.audit"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "metrics",
+                  "tracing",
+                  "directive",
+                  "cache_control"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/FeatureConfig.metrics"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "budget"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/$defs/FeatureConfig.budget"
+          }
+        }
+      ]
+    },
+    "LogConfig": {
+      "description": "Privyx's own log: its level, its console format, and a file that also takes others'.",
+      "properties": {
+        "level": {
+          "default": "info",
+          "title": "Level",
+          "type": "string"
+        },
+        "format": {
+          "default": "text",
+          "title": "Format",
+          "type": "string"
+        },
+        "file": {
+          "default": "",
+          "title": "File",
+          "type": "string"
+        }
+      },
+      "title": "LogConfig",
       "type": "object",
       "additionalProperties": false
     },
@@ -1401,10 +1190,49 @@
           "title": "Routes",
           "type": "object"
         },
-        "path_mapping": {
-          "$ref": "#/$defs/PathMappingConfig",
-          "deprecated": true,
-          "description": "Write provider.path_mapping."
+        "passthrough_unknown": {
+          "title": "Passthrough Unknown",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "dlp_check": {
+          "title": "Dlp Check",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "tap": {
+          "title": "Tap",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "tap_dir": {
+          "default": "~/.privyx/tap",
+          "title": "Tap Dir",
+          "type": "string"
         },
         "forward_client_auth": {
           "title": "Forward Client Auth",
@@ -1421,18 +1249,10 @@
           "deprecated": true,
           "description": "Write provider.forward_client_auth."
         },
-        "passthrough_unknown": {
-          "title": "Passthrough Unknown",
-          "anyOf": [
-            {
-              "default": true,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
+        "path_mapping": {
+          "$ref": "#/$defs/PathMappingConfig",
+          "deprecated": true,
+          "description": "Write provider.path_mapping."
         },
         "timeout": {
           "title": "Timeout",
@@ -1489,47 +1309,63 @@
           "deprecated": true,
           "description": "Write provider.max_connections."
         },
-        "dlp_check": {
-          "title": "Dlp Check",
-          "anyOf": [
-            {
-              "default": true,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
-        },
         "directive": {
-          "title": "Directive",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Write features.directive."
         },
         "cache_control": {
-          "title": "Cache Control",
-          "anyOf": [
-            {
-              "default": false,
-              "type": "boolean"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ]
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Write features.cache_control."
         }
       },
       "title": "ProxyConfig",
+      "type": "object",
+      "additionalProperties": false
+    },
+    "ServerConfig": {
+      "description": "Where ``privyx proxy`` listens, and how many processes serve it.",
+      "properties": {
+        "host": {
+          "default": "127.0.0.1",
+          "title": "Host",
+          "type": "string"
+        },
+        "port": {
+          "title": "Port",
+          "anyOf": [
+            {
+              "default": 8000,
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "workers": {
+          "title": "Workers",
+          "anyOf": [
+            {
+              "default": 1,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "tls": {
+          "$ref": "#/$defs/TLSConfig"
+        }
+      },
+      "title": "ServerConfig",
       "type": "object",
       "additionalProperties": false
     },
@@ -1613,40 +1449,19 @@
             }
           ]
         },
-        "id_length": {
-          "anyOf": [
-            {
-              "maximum": 64,
-              "deprecated": true,
-              "minimum": 6,
-              "type": "integer"
-            },
-            {
-              "type": "string",
-              "pattern": "\\$\\{"
-            }
-          ],
-          "description": "Write operator.id_length."
-        },
         "label_format": {
           "default": "",
           "title": "Label Format",
           "type": "string"
-        }
-      },
-      "title": "TokenConfig",
-      "type": "object",
-      "additionalProperties": false
-    },
-    "TracingConfig": {
-      "description": "OpenTelemetry spans per proxied request (``pip install 'privyx[otel]'``).\n\nThe exporter is configured by the standard ``OTEL_*`` environment variables.",
-      "properties": {
-        "enabled": {
-          "title": "Enabled",
+        },
+        "id_length": {
+          "description": "Write operator.id_length.",
           "anyOf": [
             {
-              "default": false,
-              "type": "boolean"
+              "type": "integer",
+              "minimum": 6,
+              "maximum": 64,
+              "deprecated": true
             },
             {
               "type": "string",
@@ -1655,7 +1470,7 @@
           ]
         }
       },
-      "title": "TracingConfig",
+      "title": "TokenConfig",
       "type": "object",
       "additionalProperties": false
     },
@@ -1814,21 +1629,220 @@
         }
       ]
     },
-    "ProfileSettings": {
-      "type": "object",
+    "DetectorConfig.regex": {
       "properties": {
-        "host": {
-          "default": "127.0.0.1",
-          "title": "Host",
-          "type": "string"
-        },
-        "port": {
-          "title": "Port",
+        "type": true,
+        "enabled": true,
+        "underscore_separates_words": true,
+        "cache": true,
+        "builtins": {
+          "title": "Builtins",
           "anyOf": [
             {
-              "default": 8000,
-              "maximum": 65535,
-              "minimum": 0,
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "patterns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Patterns",
+          "type": "object"
+        },
+        "terms": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Terms",
+          "type": "object"
+        },
+        "merge_terms": {
+          "title": "Merge Terms",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "term_variants": {
+          "title": "Term Variants",
+          "anyOf": [
+            {
+              "default": true,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "context": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Context",
+          "type": "object"
+        },
+        "enable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Enable",
+          "type": "array"
+        },
+        "disable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Disable",
+          "type": "array"
+        },
+        "entropy_threshold": {
+          "title": "Entropy Threshold",
+          "anyOf": [
+            {
+              "default": 3.0,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "decode": {
+          "title": "Decode",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "normalize": {
+          "title": "Normalize",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "DetectorConfig.presidio": {
+      "properties": {
+        "type": true,
+        "enabled": true,
+        "underscore_separates_words": true,
+        "cache": true,
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "entities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "score_threshold": {
+          "title": "Score Threshold",
+          "anyOf": [
+            {
+              "default": 0.35,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "DetectorConfig.llm": {
+      "properties": {
+        "type": true,
+        "enabled": true,
+        "underscore_separates_words": true,
+        "cache": true,
+        "llm_provider": {
+          "default": "openai",
+          "title": "Llm Provider",
+          "type": "string"
+        },
+        "llm_model": {
+          "default": "",
+          "title": "Llm Model",
+          "type": "string"
+        },
+        "llm_api_key": {
+          "default": "",
+          "title": "Llm Api Key",
+          "type": "string"
+        },
+        "llm_instructions": {
+          "default": "",
+          "title": "Llm Instructions",
+          "type": "string"
+        },
+        "llm_timeout": {
+          "title": "Llm Timeout",
+          "anyOf": [
+            {
+              "default": 30.0,
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "llm_max_chars": {
+          "title": "Llm Max Chars",
+          "anyOf": [
+            {
+              "default": 4000,
+              "exclusiveMinimum": 0,
               "type": "integer"
             },
             {
@@ -1837,20 +1851,423 @@
             }
           ]
         },
-        "log_level": {
-          "default": "info",
-          "title": "Log Level",
+        "llm_fallback_on_error": {
+          "title": "Llm Fallback On Error",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Detectors": {
+      "title": "Detectors",
+      "type": "object",
+      "properties": {
+        "regex": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/DetectorConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/DetectorConfig.regex"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "presidio": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/DetectorConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/DetectorConfig.presidio"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "llm": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/DetectorConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/DetectorConfig.llm"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "$ref": "#/$defs/DetectorConfig"
+          }
+        ]
+      }
+    },
+    "ModelPrice": {
+      "description": "USD per million tokens; cache rates default to 0.1x and 1.25x of input.",
+      "properties": {
+        "input": {
+          "minimum": 0,
+          "title": "Input",
+          "type": "number"
+        },
+        "output": {
+          "minimum": 0,
+          "title": "Output",
+          "type": "number"
+        },
+        "cache_read": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Read"
+        },
+        "cache_write": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Write"
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "title": "ModelPrice",
+      "type": "object"
+    },
+    "FeatureConfig.audit": {
+      "properties": {
+        "type": true,
+        "enabled": true,
+        "path": {
+          "default": "~/.privyx/audit.log",
+          "title": "Path",
           "type": "string"
         },
-        "logging": {
-          "default": "text",
-          "title": "Logging",
-          "type": "string"
+        "prices": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelPrice"
+          },
+          "title": "Prices",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "FeatureConfig.metrics": {
+      "properties": {
+        "type": true,
+        "enabled": true
+      },
+      "additionalProperties": false
+    },
+    "FeatureConfig.budget": {
+      "properties": {
+        "type": true,
+        "enabled": true,
+        "max_turns": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Turns"
         },
-        "log_file": {
+        "max_tokens": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "profile": {
           "default": "",
-          "title": "Log File",
+          "title": "Profile",
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Features": {
+      "title": "Features",
+      "type": "object",
+      "properties": {
+        "audit": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/FeatureConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/FeatureConfig.audit"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/FeatureConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/FeatureConfig.metrics"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "tracing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/FeatureConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/FeatureConfig.metrics"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "directive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/FeatureConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/FeatureConfig.metrics"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "cache_control": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/FeatureConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/FeatureConfig.metrics"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/FeatureConfig"
+                },
+                {
+                  "if": {
+                    "not": {
+                      "required": [
+                        "type"
+                      ]
+                    }
+                  },
+                  "then": {
+                    "$ref": "#/$defs/FeatureConfig.budget"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "$ref": "#/$defs/FeatureConfig"
+          }
+        ]
+      }
+    },
+    "ProfileSettings": {
+      "type": "object",
+      "properties": {
+        "server": {
+          "$ref": "#/$defs/ServerConfig"
+        },
+        "log": {
+          "$ref": "#/$defs/LogConfig"
         },
         "upstream_url": {
           "default": "",
@@ -1862,19 +2279,8 @@
         "vault": {
           "$ref": "#/$defs/VaultConfig"
         },
-        "detector": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DetectorConfig"
-            },
-            {
-              "items": {
-                "$ref": "#/$defs/DetectorConfig"
-              },
-              "type": "array"
-            }
-          ],
-          "title": "Detector"
+        "detectors": {
+          "$ref": "#/$defs/Detectors"
         },
         "policy": {
           "$ref": "#/$defs/PolicyConfig"
@@ -1913,11 +2319,8 @@
         "proxy": {
           "$ref": "#/$defs/ProxyConfig"
         },
-        "audit": {
-          "$ref": "#/$defs/AuditConfig"
-        },
-        "tracing": {
-          "$ref": "#/$defs/TracingConfig"
+        "features": {
+          "$ref": "#/$defs/Features"
         },
         "plugins": {
           "$ref": "#/$defs/PluginsConfig"
@@ -1929,9 +2332,6 @@
           },
           "title": "Secrets",
           "type": "object"
-        },
-        "tls": {
-          "$ref": "#/$defs/TLSConfig"
         },
         "harvest": {
           "title": "Harvest",
@@ -1945,17 +2345,13 @@
               "pattern": "\\$\\{"
             }
           ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "PresetSettings": {
-      "type": "object",
-      "properties": {
+        },
         "host": {
           "default": "127.0.0.1",
           "title": "Host",
-          "type": "string"
+          "type": "string",
+          "deprecated": true,
+          "description": "Write server.host."
         },
         "port": {
           "title": "Port",
@@ -1970,39 +2366,139 @@
               "type": "string",
               "pattern": "\\$\\{"
             }
-          ]
+          ],
+          "deprecated": true,
+          "description": "Write server.port."
+        },
+        "tls": {
+          "$ref": "#/$defs/TLSConfig",
+          "deprecated": true,
+          "description": "Write server.tls."
         },
         "log_level": {
           "default": "info",
-          "title": "Log Level",
-          "type": "string"
+          "title": "Level",
+          "type": "string",
+          "deprecated": true,
+          "description": "Write log.level."
         },
         "logging": {
           "default": "text",
-          "title": "Logging",
-          "type": "string"
+          "title": "Format",
+          "type": "string",
+          "deprecated": true,
+          "description": "Write log.format."
         },
         "log_file": {
           "default": "",
-          "title": "Log File",
-          "type": "string"
-        },
-        "vault": {
-          "$ref": "#/$defs/VaultConfig"
+          "title": "File",
+          "type": "string",
+          "deprecated": true,
+          "description": "Write log.file."
         },
         "detector": {
           "anyOf": [
             {
-              "$ref": "#/$defs/DetectorConfig"
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                }
+              }
             },
             {
+              "type": "array",
               "items": {
-                "$ref": "#/$defs/DetectorConfig"
-              },
-              "type": "array"
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           ],
-          "title": "Detector"
+          "deprecated": true,
+          "description": "Write detectors, with an entry per detector."
+        },
+        "audit": {
+          "type": "object",
+          "deprecated": true,
+          "description": "Write features.audit, and proxy.tap and proxy.tap_dir.",
+          "properties": {
+            "enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "tap": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            "tap_dir": {
+              "type": "string"
+            },
+            "prices": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/ModelPrice"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "tracing": {
+          "type": "object",
+          "deprecated": true,
+          "description": "Write features.tracing.",
+          "properties": {
+            "enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PresetSettings": {
+      "type": "object",
+      "properties": {
+        "server": {
+          "$ref": "#/$defs/ServerConfig"
+        },
+        "log": {
+          "$ref": "#/$defs/LogConfig"
+        },
+        "vault": {
+          "$ref": "#/$defs/VaultConfig"
+        },
+        "detectors": {
+          "$ref": "#/$defs/Detectors"
         },
         "policy": {
           "$ref": "#/$defs/PolicyConfig"
@@ -2022,11 +2518,8 @@
         "proxy": {
           "$ref": "#/$defs/ProxyConfig"
         },
-        "audit": {
-          "$ref": "#/$defs/AuditConfig"
-        },
-        "tracing": {
-          "$ref": "#/$defs/TracingConfig"
+        "features": {
+          "$ref": "#/$defs/Features"
         },
         "plugins": {
           "$ref": "#/$defs/PluginsConfig"
@@ -2038,9 +2531,6 @@
           },
           "title": "Secrets",
           "type": "object"
-        },
-        "tls": {
-          "$ref": "#/$defs/TLSConfig"
         },
         "harvest": {
           "title": "Harvest",
@@ -2054,47 +2544,155 @@
               "pattern": "\\$\\{"
             }
           ]
+        },
+        "host": {
+          "default": "127.0.0.1",
+          "title": "Host",
+          "type": "string",
+          "deprecated": true,
+          "description": "Write server.host."
+        },
+        "port": {
+          "title": "Port",
+          "anyOf": [
+            {
+              "default": 8000,
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ],
+          "deprecated": true,
+          "description": "Write server.port."
+        },
+        "tls": {
+          "$ref": "#/$defs/TLSConfig",
+          "deprecated": true,
+          "description": "Write server.tls."
+        },
+        "log_level": {
+          "default": "info",
+          "title": "Level",
+          "type": "string",
+          "deprecated": true,
+          "description": "Write log.level."
+        },
+        "logging": {
+          "default": "text",
+          "title": "Format",
+          "type": "string",
+          "deprecated": true,
+          "description": "Write log.format."
+        },
+        "log_file": {
+          "default": "",
+          "title": "File",
+          "type": "string",
+          "deprecated": true,
+          "description": "Write log.file."
+        },
+        "detector": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "deprecated": true,
+          "description": "Write detectors, with an entry per detector."
+        },
+        "audit": {
+          "type": "object",
+          "deprecated": true,
+          "description": "Write features.audit, and proxy.tap and proxy.tap_dir.",
+          "properties": {
+            "enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "tap": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            },
+            "tap_dir": {
+              "type": "string"
+            },
+            "prices": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/ModelPrice"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "tracing": {
+          "type": "object",
+          "deprecated": true,
+          "description": "Write features.tracing.",
+          "properties": {
+            "enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "pattern": "\\$\\{"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
     }
   },
-  "description": "Top-level Privyx settings.",
+  "additionalProperties": false,
+  "description": "Top-level Privyx settings.\n\nA key it does not define is refused, so a setting renamed in 0.3.0 and\ngiven here by its old name fails rather than doing nothing: the loader\nreads the old names of a file with a warning.",
   "properties": {
-    "host": {
-      "default": "127.0.0.1",
-      "title": "Host",
-      "type": "string"
+    "server": {
+      "$ref": "#/$defs/ServerConfig"
     },
-    "port": {
-      "title": "Port",
-      "anyOf": [
-        {
-          "default": 8000,
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        },
-        {
-          "type": "string",
-          "pattern": "\\$\\{"
-        }
-      ]
-    },
-    "log_level": {
-      "default": "info",
-      "title": "Log Level",
-      "type": "string"
-    },
-    "logging": {
-      "default": "text",
-      "title": "Logging",
-      "type": "string"
-    },
-    "log_file": {
-      "default": "",
-      "title": "Log File",
-      "type": "string"
+    "log": {
+      "$ref": "#/$defs/LogConfig"
     },
     "upstream_url": {
       "default": "",
@@ -2106,19 +2704,8 @@
     "vault": {
       "$ref": "#/$defs/VaultConfig"
     },
-    "detector": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/DetectorConfig"
-        },
-        {
-          "items": {
-            "$ref": "#/$defs/DetectorConfig"
-          },
-          "type": "array"
-        }
-      ],
-      "title": "Detector"
+    "detectors": {
+      "$ref": "#/$defs/Detectors"
     },
     "policy": {
       "$ref": "#/$defs/PolicyConfig"
@@ -2157,11 +2744,8 @@
     "proxy": {
       "$ref": "#/$defs/ProxyConfig"
     },
-    "audit": {
-      "$ref": "#/$defs/AuditConfig"
-    },
-    "tracing": {
-      "$ref": "#/$defs/TracingConfig"
+    "features": {
+      "$ref": "#/$defs/Features"
     },
     "plugins": {
       "$ref": "#/$defs/PluginsConfig"
@@ -2173,9 +2757,6 @@
       },
       "title": "Secrets",
       "type": "object"
-    },
-    "tls": {
-      "$ref": "#/$defs/TLSConfig"
     },
     "agents": {
       "additionalProperties": {
@@ -2217,9 +2798,144 @@
           }
         }
       ]
+    },
+    "host": {
+      "default": "127.0.0.1",
+      "title": "Host",
+      "type": "string",
+      "deprecated": true,
+      "description": "Write server.host."
+    },
+    "port": {
+      "title": "Port",
+      "anyOf": [
+        {
+          "default": 8000,
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "string",
+          "pattern": "\\$\\{"
+        }
+      ],
+      "deprecated": true,
+      "description": "Write server.port."
+    },
+    "tls": {
+      "$ref": "#/$defs/TLSConfig",
+      "deprecated": true,
+      "description": "Write server.tls."
+    },
+    "log_level": {
+      "default": "info",
+      "title": "Level",
+      "type": "string",
+      "deprecated": true,
+      "description": "Write log.level."
+    },
+    "logging": {
+      "default": "text",
+      "title": "Format",
+      "type": "string",
+      "deprecated": true,
+      "description": "Write log.format."
+    },
+    "log_file": {
+      "default": "",
+      "title": "File",
+      "type": "string",
+      "deprecated": true,
+      "description": "Write log.file."
+    },
+    "detector": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "deprecated": true,
+      "description": "Write detectors, with an entry per detector."
+    },
+    "audit": {
+      "type": "object",
+      "deprecated": true,
+      "description": "Write features.audit, and proxy.tap and proxy.tap_dir.",
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "tap": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "tap_dir": {
+          "type": "string"
+        },
+        "prices": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelPrice"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "tracing": {
+      "type": "object",
+      "deprecated": true,
+      "description": "Write features.tracing.",
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "title": "Settings",
-  "type": "object",
-  "additionalProperties": false
+  "type": "object"
 }

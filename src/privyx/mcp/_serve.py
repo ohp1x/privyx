@@ -393,7 +393,7 @@ async def _status(app: Privyx) -> str:
             if len(sessions) > _RECENT:
                 lines.append(f"  and {len(sessions) - _RECENT} more")
     if not app.audit.enabled:
-        lines.append("Audit trail: off (audit.enabled is false)")
+        lines.append("Audit trail: off (features.audit.enabled is false)")
         return "\n".join(lines)
     try:
         found = app.audit.totals()
@@ -428,7 +428,7 @@ def _audit_tail(app: Privyx) -> str:
     from privyx.cli.commands.audit import _line
 
     if not app.audit.enabled:
-        return "The Privyx audit trail is off (audit.enabled is false)."
+        return "The Privyx audit trail is off (features.audit.enabled is false)."
     recent: deque[str] = deque(maxlen=_TAIL)
     try:
         for record in app.audit.records():

@@ -187,7 +187,10 @@ def test_real_claude_native_endpoint_is_masked(tmp_path: Path, source: str) -> N
     config = tmp_path / "privyx.yaml"
     config.write_text(
         yaml.safe_dump(
-            {"agents": {"claude": profile}, "audit": {"path": str(tmp_path / "audit.log")}}
+            {
+                "agents": {"claude": profile},
+                "features": {"audit": {"path": str(tmp_path / "audit.log")}},
+            }
         )
     )
     try:
@@ -234,10 +237,10 @@ def test_real_claude_native_endpoint_is_masked(tmp_path: Path, source: str) -> N
                 sys.executable,
                 "-c",
                 "from privyx.cli.main import cli; cli()",
-                "run",
-                "--no-anchor",
                 "-c",
                 str(config),
+                "run",
+                "--no-anchor",
                 "claude",
                 "--",
                 "-p",

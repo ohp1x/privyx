@@ -160,7 +160,7 @@ def test_missing_env_reference_fails_before_any_resources_open(
     forbidden = AsyncMock(side_effect=AssertionError("must not launch"))
     monkeypatch.setattr("privyx.cli.commands.run._run_target", forbidden)
     flags = ["--dry-run"] if dry_run else []
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), *flags, "work"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", *flags, "work"])
     assert result.exit_code == 1, result.output
     assert "requires environment variable ABSENT_WORK_TOKEN" in result.output
     forbidden.assert_not_called()
@@ -192,7 +192,7 @@ def test_config_dump_and_preview_hide_custom_env_and_default_arg_credentials(
             assert secret not in result.output
     # Inspection lists definitions without resolving secrets for unused profiles.
     monkeypatch.delenv("WORK_TOKEN")
-    assert CliRunner().invoke(cli, ["run", "--list", "-c", str(config)]).exit_code == 0
+    assert CliRunner().invoke(cli, ["-c", str(config), "run", "--list"]).exit_code == 0
 
 
 def test_inherited_sources_are_visible_in_preview(tmp_path: Path) -> None:
@@ -249,11 +249,11 @@ def test_cli_finds_command_using_profile_path(tmp_path: Path) -> None:
                         "env_vars": ["WORK_BASE_URL"],
                     }
                 },
-                "audit": {"path": str(tmp_path / "audit.log")},
+                "features": {"audit": {"path": str(tmp_path / "audit.log")}},
             }
         )
     )
-    result = CliRunner().invoke(cli, ["run", "--no-anchor", "-c", str(config), "work"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--no-anchor", "work"])
     assert result.exit_code == 9, result.output
 
 

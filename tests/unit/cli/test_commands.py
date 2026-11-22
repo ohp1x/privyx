@@ -14,6 +14,7 @@ import re
 import time
 from pathlib import Path
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -37,8 +38,6 @@ def sqlite_config(tmp_path: Path) -> Path:
         "vault:\n"
         "  type: sqlite\n"
         f"  dsn: sqlite+aiosqlite:///{tmp_path / 'privyx.db'}\n"
-        "detector:\n"
-        "  type: regex\n"
         "anchor:\n"  # counter tokens, which the tests name
         "  secret: ''\n",
         encoding="utf-8",
@@ -76,10 +75,10 @@ def test_detect_honours_config_patterns(runner: CliRunner, tmp_path: Path) -> No
     """A custom pattern from the config file is actually used."""
     config = tmp_path / "c.yaml"
     config.write_text(
-        'detector:\n  type: regex\n  patterns:\n    TICKET: "TCK-[0-9]{4}"\n', encoding="utf-8"
+        'detectors:\n  regex:\n    patterns:\n      TICKET: "TCK-[0-9]{4}"\n', encoding="utf-8"
     )
 
-    result = runner.invoke(cli, ["detect", "-c", str(config), "see TCK-1234"])
+    result = runner.invoke(cli, ["-c", str(config), "detect", "see TCK-1234"])
 
     assert result.exit_code == 0
     assert "TICKET" in result.output
@@ -90,8 +89,8 @@ def test_detect_applies_policy(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
     config.write_text("policy:\n  type: strict\n  allowed: [SSN]\n", encoding="utf-8")
 
-    filtered = runner.invoke(cli, ["detect", "-c", str(config), f"mail {EMAIL}"])
-    unfiltered = runner.invoke(cli, ["detect", "-c", str(config), "--no-policy", f"mail {EMAIL}"])
+    filtered = runner.invoke(cli, ["-c", str(config), "detect", f"mail {EMAIL}"])
+    unfiltered = runner.invoke(cli, ["-c", str(config), "detect", "--no-policy", f"mail {EMAIL}"])
 
     assert "No sensitive entities detected." in filtered.output
     assert "EMAIL" in unfiltered.output
@@ -104,9 +103,11 @@ def test_detect_without_text_exits_nonzero(runner: CliRunner) -> None:
 
 def test_detect_reports_bad_config(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text('detector:\n  patterns:\n    BAD: "([unclosed"\n', encoding="utf-8")
+    config.write_text(
+        'detectors:\n  regex:\n    patterns:\n      BAD: "([unclosed"\n', encoding="utf-8"
+    )
 
-    result = runner.invoke(cli, ["detect", "-c", str(config), "text"])
+    result = runner.invoke(cli, ["-c", str(config), "detect", "text"])
 
     assert result.exit_code == 1
     assert "Error:" in result.output
@@ -117,16 +118,17 @@ def test_detect_explain_names_the_detector_and_the_policy(
 ) -> None:
     config = tmp_path / "c.yaml"
     config.write_text(
-        "detector:\n"
-        "  - type: regex\n"
+        "detectors:\n"
+        "  regex:\n"
         "    terms:\n      PROJECT: [bluebird]\n"
-        "  - type: yaml\n"
+        "  tickets:\n"
+        "    type: regex\n    builtins: false\n"
         "    patterns:\n      TICKET: 'TCK-\\d+'\n"
         "policy:\n  type: strict\n  allowed: [EMAIL, PROJECT]\n",
         encoding="utf-8",
     )
     text = f"mail {EMAIL} about bluebird, ticket TCK-42"
-    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), text])
+    result = runner.invoke(cli, ["-c", str(config), "detect", "--explain", text])
 
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
@@ -135,10 +137,10 @@ def test_detect_explain_names_the_detector_and_the_policy(
         start = next(i for i, line in enumerate(lines) if repr(value) in line)
         return lines[start + 1 : start + 3]
 
-    assert block(EMAIL) == ["        found by  #1 regex: built-in pattern EMAIL", "        masked"]
-    assert block("bluebird") == ["        found by  #1 regex: terms PROJECT", "        masked"]
+    assert block(EMAIL) == ["        found by  regex: built-in pattern EMAIL", "        masked"]
+    assert block("bluebird") == ["        found by  regex: terms PROJECT", "        masked"]
     assert block("TCK-42") == [
-        "        found by  #2 yaml: pattern TICKET",
+        "        found by  tickets (regex): pattern TICKET",
         "        not masked: the strict policy masks only the types in policy.allowed",
     ]
 
@@ -146,11 +148,12 @@ def test_detect_explain_names_the_detector_and_the_policy(
 def test_detect_explain_shows_a_partly_masked_span(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
     config.write_text(
-        "detector:\n  type: yaml\n  patterns:\n    OUTER: abcdef\n    INNER: bcd\n"
+        "detectors:\n  regex:\n    builtins: false\n"
+        "    patterns:\n      OUTER: abcdef\n      INNER: bcd\n"
         "policy:\n  type: strict\n  allowed: [INNER]\n",
         encoding="utf-8",
     )
-    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), "abcdef"])
+    result = runner.invoke(cli, ["-c", str(config), "detect", "--explain", "abcdef"])
 
     assert "OUTER" in result.output
     assert "partly masked: only 'bcd' as INNER; the rest is sent as is" in result.output
@@ -159,9 +162,9 @@ def test_detect_explain_shows_a_partly_masked_span(runner: CliRunner, tmp_path: 
 
 def test_detect_explain_names_an_opt_in_entity(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text("detector:\n  type: regex\n  enable: [CRYPTO_WALLET]\n", encoding="utf-8")
+    config.write_text("detectors:\n  regex:\n    enable: [CRYPTO_WALLET]\n", encoding="utf-8")
     address = "0x" + "ab" * 20
-    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), f"pay {address}"])
+    result = runner.invoke(cli, ["-c", str(config), "detect", "--explain", f"pay {address}"])
 
     assert result.exit_code == 0, result.output
     assert "found by  regex: built-in pattern CRYPTO_WALLET" in result.output
@@ -172,11 +175,12 @@ def test_detect_explain_credits_merged_terms_and_patterns(
 ) -> None:
     config = tmp_path / "c.yaml"
     config.write_text(
-        "detector:\n  terms: {PERSON: [john smith]}\n  patterns: {PERSON: 'EMP-\\d+'}\n",
+        "detectors:\n  regex:\n    terms: {PERSON: [john smith]}\n"
+        "    patterns: {PERSON: 'EMP-\\d+'}\n",
         encoding="utf-8",
     )
     result = runner.invoke(
-        cli, ["detect", "--explain", "-c", str(config), "ask john smith or EMP-12"]
+        cli, ["-c", str(config), "detect", "--explain", "ask john smith or EMP-12"]
     )
 
     assert result.exit_code == 0, result.output
@@ -189,13 +193,14 @@ def test_detect_explain_credits_only_merged_entities_to_their_terms(
 ) -> None:
     config = tmp_path / "c.yaml"
     config.write_text(
-        "detector:\n  terms: {PERSON: [john smith], EMAIL: [ops desk]}\n"
-        "  patterns: {PERSON: 'EMP-\\d+', EMPLOYEE_ID: 'E\\d{6}', EMAIL: 'alice@example\\.com'}\n",
+        "detectors:\n  regex:\n    terms: {PERSON: [john smith], EMAIL: [ops desk]}\n"
+        "    patterns:\n"
+        "      {PERSON: 'EMP-\\d+', EMPLOYEE_ID: 'E\\d{6}', EMAIL: 'alice@example\\.com'}\n",
         encoding="utf-8",
     )
     result = runner.invoke(
         cli,
-        ["detect", "--explain", "-c", str(config), "ask john smith, E123456, alice@example.com"],
+        ["-c", str(config), "detect", "--explain", "ask john smith, E123456, alice@example.com"],
     )
 
     assert result.exit_code == 0, result.output
@@ -209,12 +214,12 @@ def test_detect_explain_credits_merged_terms_found_once_folded(
 ) -> None:
     config = tmp_path / "c.yaml"
     config.write_text(
-        "detector:\n  normalize: true\n  terms: {PERSON: [john smith]}\n"
-        "  patterns: {PERSON: 'EMP-\\d+'}\n",
+        "detectors:\n  regex:\n    normalize: true\n    terms: {PERSON: [john smith]}\n"
+        "    patterns: {PERSON: 'EMP-\\d+'}\n",
         encoding="utf-8",
     )
     result = runner.invoke(
-        cli, ["detect", "--explain", "-c", str(config), "ask ｊｏｈｎ ｓｍｉｔｈ"]
+        cli, ["-c", str(config), "detect", "--explain", "ask ｊｏｈｎ ｓｍｉｔｈ"]
     )
 
     assert result.exit_code == 0, result.output
@@ -223,9 +228,9 @@ def test_detect_explain_credits_merged_terms_found_once_folded(
 
 def test_detect_explain_names_a_decoded_finding(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text("detector:\n  type: regex\n  decode: true\n", encoding="utf-8")
+    config.write_text("detectors:\n  regex:\n    decode: true\n", encoding="utf-8")
     hidden = base64.b64encode(EMAIL.encode()).decode()
-    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), f"blob {hidden}"])
+    result = runner.invoke(cli, ["-c", str(config), "detect", "--explain", f"blob {hidden}"])
 
     assert result.exit_code == 0, result.output
     assert "found by  regex: built-in pattern EMAIL, once joined or decoded" in result.output
@@ -237,11 +242,11 @@ def test_detect_explain_names_a_folded_finding(
 ) -> None:
     config = tmp_path / "c.yaml"
     config.write_text(
-        f"detector:\n  type: regex\n  normalize: true\n  decode: {decode}\n", encoding="utf-8"
+        f"detectors:\n  regex:\n    normalize: true\n    decode: {decode}\n", encoding="utf-8"
     )
     hidden = base64.b64encode(EMAIL.encode()).decode()
     text = f"mail ａｎａ@ｅｘａｍｐｌｅ.ｃｏｍ, blob {hidden}"
-    result = runner.invoke(cli, ["detect", "--explain", "-c", str(config), text])
+    result = runner.invoke(cli, ["-c", str(config), "detect", "--explain", text])
 
     assert result.exit_code == 0, result.output
     assert "found by  regex: built-in pattern EMAIL, once folded" in result.output
@@ -260,10 +265,10 @@ def test_detect_explain_without_policy_masks_everything(runner: CliRunner) -> No
 
 
 def _lint(runner: CliRunner, tmp_path: Path, config: str) -> tuple[int, dict[str, list[str]]]:
-    """Run ``privyx lint`` and group the spellings under the advice line above them."""
+    """Run ``privyx config lint`` and group the spellings under the advice line above them."""
     path = tmp_path / "c.yaml"
     path.write_text(config, encoding="utf-8")
-    result = runner.invoke(cli, ["lint", "-c", str(path)])
+    result = runner.invoke(cli, ["-c", str(path), "config", "lint"])
     groups: dict[str, list[str]] = {}
     lines: list[str] = []
     for line in result.output.splitlines():
@@ -278,16 +283,16 @@ def test_lint_suggests_the_option_that_masks_a_spelling(runner: CliRunner, tmp_p
     code, groups = _lint(
         runner,
         tmp_path,
-        "detector:\n  type: regex\n  terms:\n    PERSON: [john smith]\n"
-        "  underscore_separates_words: false\n  term_variants: false\n",
+        "detectors:\n  regex:\n    terms:\n      PERSON: [john smith]\n"
+        "    underscore_separates_words: false\n    term_variants: false\n",
     )
 
     assert code == 1
-    assert "'DB_JOHN SMITH'" in groups["Set detector.underscore_separates_words: true"]
-    assert "'id_10.0.0.1'" in groups["Set detector.underscore_separates_words: true"]
-    assert groups["Set detector.decode: true"] == ["'john%20smith'"]
-    assert "'j\\u200bohn smith'" in groups["Set detector.normalize: true"]
-    assert groups["Set detector.term_variants: true"] == ["'john_smith'"]
+    assert "'DB_JOHN SMITH'" in groups["Set detectors.regex.underscore_separates_words: true"]
+    assert "'id_10.0.0.1'" in groups["Set detectors.regex.underscore_separates_words: true"]
+    assert groups["Set detectors.regex.decode: true"] == ["'john%20smith'"]
+    assert "'j\\u200bohn smith'" in groups["Set detectors.regex.normalize: true"]
+    assert groups["Set detectors.regex.term_variants: true"] == ["'john_smith'"]
     assert "'john smith'" not in str(groups)
 
 
@@ -295,8 +300,8 @@ def test_lint_passes_once_the_options_are_on(runner: CliRunner, tmp_path: Path) 
     code, groups = _lint(
         runner,
         tmp_path,
-        "detector:\n  type: regex\n  terms:\n    PERSON: [john, smith, john smith]\n"
-        "  decode: true\n  normalize: true\n  underscore_separates_words: true\n",
+        "detectors:\n  regex:\n    terms:\n      PERSON: [john, smith, john smith]\n"
+        "    decode: true\n    normalize: true\n    underscore_separates_words: true\n",
     )
 
     assert code == 0
@@ -307,14 +312,16 @@ def test_lint_suggests_options_that_only_mask_together(runner: CliRunner, tmp_pa
     code, groups = _lint(
         runner,
         tmp_path,
-        "detector:\n  type: yaml\n  terms:\n    PROJECT: [apollo]\n"
-        "  patterns:\n    PROJECT: 'apollo-\\d+'\n"
-        "  merge_terms: false\n  underscore_separates_words: false\n",
+        "detectors:\n  regex:\n    builtins: false\n    terms:\n      PROJECT: [apollo]\n"
+        "    patterns:\n      PROJECT: 'apollo-\\d+'\n"
+        "    merge_terms: false\n    underscore_separates_words: false\n",
     )
 
     assert code == 1
-    assert groups["Set detector.merge_terms: true"] == ["'apollo'"]
-    both = "Set detector.merge_terms: true and detector.underscore_separates_words: true"
+    assert groups["Set detectors.regex.merge_terms: true"] == ["'apollo'"]
+    both = (
+        "Set detectors.regex.merge_terms: true and detectors.regex.underscore_separates_words: true"
+    )
     assert groups[both] == ["'DB_APOLLO'", "'apollo_dev'"]
 
 
@@ -325,9 +332,9 @@ def test_lint_leaves_out_the_separators_of_a_fullwidth_spelling(
     code, groups = _lint(
         runner,
         tmp_path,
-        "detector:\n  type: yaml\n  terms:\n    PERSON: [john smith]\n"
-        "  patterns:\n    PERSON: '(?i:john|smith)'\n"
-        "  normalize: true\n  decode: true\n  underscore_separates_words: true\n",
+        "detectors:\n  regex:\n    builtins: false\n    terms:\n      PERSON: [john smith]\n"
+        "    patterns:\n      PERSON: '(?i:john|smith)'\n"
+        "    normalize: true\n    decode: true\n    underscore_separates_words: true\n",
     )
 
     assert code == 0, groups
@@ -337,7 +344,7 @@ def test_lint_names_the_policy_that_drops_a_term(runner: CliRunner, tmp_path: Pa
     code, groups = _lint(
         runner,
         tmp_path,
-        "detector:\n  type: yaml\n  terms:\n    PERSON: [john]\n"
+        "detectors:\n  regex:\n    builtins: false\n    terms:\n      PERSON: [john]\n"
         "policy:\n  type: strict\n  allowed: [EMAIL]\n",
     )
 
@@ -351,15 +358,13 @@ def test_lint_skips_detectors_it_cannot_run_offline(runner: CliRunner, tmp_path:
     code, groups = _lint(
         runner,
         tmp_path,
-        "detector:\n  - type: yaml\n    terms:\n      PERSON: [john]\n"
-        "    underscore_separates_words: false\n  - type: llm\n",
+        "detectors:\n  regex:\n    builtins: false\n    terms:\n      PERSON: [john]\n"
+        "    underscore_separates_words: false\n  llm: {}\n",
     )
 
     assert code == 1
-    assert "Not checked: detector #2 (llm)" in groups
-    assert (
-        "'DB_JOHN'" in groups["Set underscore_separates_words: true on each regex or yaml detector"]
-    )
+    assert "Not checked: detector llm (llm)" in groups
+    assert "'DB_JOHN'" in groups["Set detectors.regex.underscore_separates_words: true"]
 
 
 # --------------------------------------------------------------------------
@@ -373,7 +378,7 @@ def test_inspect_session_masks_values_by_default(runner: CliRunner, sqlite_confi
     """
     session_id = _seed_session(sqlite_config)
 
-    result = runner.invoke(cli, ["inspect", "session", "-c", str(sqlite_config), session_id])
+    result = runner.invoke(cli, ["-c", str(sqlite_config), "inspect", "session", session_id])
 
     assert result.exit_code == 0
     assert "<PRIVYX_EMAIL_1>" in result.output
@@ -386,7 +391,7 @@ def test_inspect_session_reveal_shows_values(runner: CliRunner, sqlite_config: P
     session_id = _seed_session(sqlite_config)
 
     result = runner.invoke(
-        cli, ["inspect", "session", "-c", str(sqlite_config), "--reveal", session_id]
+        cli, ["-c", str(sqlite_config), "inspect", "session", "--reveal", session_id]
     )
 
     assert result.exit_code == 0
@@ -394,7 +399,7 @@ def test_inspect_session_reveal_shows_values(runner: CliRunner, sqlite_config: P
 
 
 def test_inspect_session_missing_exits_nonzero(runner: CliRunner, sqlite_config: Path) -> None:
-    result = runner.invoke(cli, ["inspect", "session", "-c", str(sqlite_config), "ses_nope"])
+    result = runner.invoke(cli, ["-c", str(sqlite_config), "inspect", "session", "ses_nope"])
 
     assert result.exit_code == 1
     assert "Session not found" in result.output
@@ -417,9 +422,9 @@ def test_session_show_sums_tokens_and_cost_from_the_audit_trail(
     ]
     log.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
     config = tmp_path / "c.yaml"
-    config.write_text(f"audit:\n  path: {log}\n", encoding="utf-8")
+    config.write_text(f"features:\n  audit:\n    path: {log}\n", encoding="utf-8")
 
-    result = runner.invoke(cli, ["session", "show", "-c", str(config), "ses_a"])
+    result = runner.invoke(cli, ["-c", str(config), "session", "show", "ses_a"])
 
     assert result.exit_code == 0, result.output
     assert "not in the vault" in result.output
@@ -428,13 +433,14 @@ def test_session_show_sums_tokens_and_cost_from_the_audit_trail(
     assert "(cache hit rate 75%)" in result.output
     # 1M input at $4 + 100k output at $20 + 3M cache reads at $0.20.
     assert "Cost:       ~$6.6000 (estimate; claude-opus-5-5)" in result.output
-    assert "No price for: gpt-x (set audit.prices)" in result.output
+    assert "No price for: gpt-x (set features.audit.prices)" in result.output
 
     config.write_text(
-        f"audit:\n  path: {log}\n  prices:\n    gpt-x: {{input: 1, output: 1}}\n",
+        f"features:\n  audit:\n    path: {log}\n"
+        "    prices:\n      gpt-x: {input: 1, output: 1}\n",
         encoding="utf-8",
     )
-    priced = runner.invoke(cli, ["session", "show", "-c", str(config), "ses_a"])
+    priced = runner.invoke(cli, ["-c", str(config), "session", "show", "ses_a"])
     assert "(estimate; claude-opus-5-5, gpt-x)" in priced.output
 
 
@@ -443,9 +449,9 @@ def test_session_show_finds_an_id_that_json_escapes(runner: CliRunner, tmp_path:
     record = {"event": "proxy.response", "session_id": 'session"one', "usage": {"input": 5}}
     log.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
     config = tmp_path / "c.yaml"
-    config.write_text(f"audit:\n  path: {log}\n", encoding="utf-8")
+    config.write_text(f"features:\n  audit:\n    path: {log}\n", encoding="utf-8")
 
-    result = runner.invoke(cli, ["session", "show", "-c", str(config), 'session"one'])
+    result = runner.invoke(cli, ["-c", str(config), "session", "show", 'session"one'])
 
     assert result.exit_code == 0, result.output
     assert "Responses:  1" in result.output
@@ -454,7 +460,7 @@ def test_session_show_finds_an_id_that_json_escapes(runner: CliRunner, tmp_path:
 def test_inspect_token_names_its_session_masked(runner: CliRunner, sqlite_config: Path) -> None:
     session_id = _seed_session(sqlite_config)
 
-    result = runner.invoke(cli, ["inspect", "token", "-c", str(sqlite_config), "<PRIVYX_EMAIL_1>"])
+    result = runner.invoke(cli, ["-c", str(sqlite_config), "inspect", "token", "<PRIVYX_EMAIL_1>"])
 
     assert result.exit_code == 0, result.output
     assert "Type: EMAIL" in result.output
@@ -479,7 +485,7 @@ def test_inspect_routes_lists_the_configured_paths(runner: CliRunner, tmp_path: 
         "proxy:\n  passthrough_unknown: false\n  routes:\n    /v1/messages: anthropic\n",
         encoding="utf-8",
     )
-    result = runner.invoke(cli, ["inspect", "routes", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "inspect", "routes"])
 
     assert result.exit_code == 0, result.output
     assert "/v1/messages  anthropic" in result.output
@@ -494,7 +500,7 @@ def test_inspect_routes_shows_what_the_gateway_serves(
     config = tmp_path / "c.yaml"
     config.write_text(f"proxy:\n  mode: gateway\nprovider:\n  type: {provider}\n")
 
-    result = runner.invoke(cli, ["inspect", "routes", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "inspect", "routes"])
 
     assert result.exit_code == 0, result.output
     assert ("/*/models/*:generateContent" in result.output) is gemini
@@ -502,64 +508,78 @@ def test_inspect_routes_shows_what_the_gateway_serves(
     assert "/v1/messages/count_tokens" not in result.output
 
 
-def test_inspect_regex_by_entity_and_by_pattern(runner: CliRunner, tmp_path: Path) -> None:
+def test_detect_checks_an_entitys_regex_and_a_pattern(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text("detector:\n  patterns:\n    ORDER: 'ORD-(\\d+)+X'\n", encoding="utf-8")
-    args = ["inspect", "regex", "-c", str(config)]
+    config.write_text(
+        "detectors:\n  regex:\n    patterns:\n      ORDER: 'ORD-(\\d+)+X'\n", encoding="utf-8"
+    )
+    args = ["-c", str(config), "detect"]
 
-    risky = runner.invoke(cli, [*args, "ORDER"])
+    risky = runner.invoke(cli, [*args, "--entity", "ORDER"])
     assert "Entity:  ORDER" in risky.output
     assert "ReDoS:   risky" in risky.output
     assert "µs per KB" in risky.output  # the sample does not set it off
 
-    builtin = runner.invoke(cli, [*args, "EMAIL"])
+    builtin = runner.invoke(cli, [*args, "--entity", "EMAIL"])
     assert "no nested repeat found" in builtin.output
     assert "µs per KB" in builtin.output
 
-    raw = runner.invoke(cli, [*args, r"EMP-\d{6}"])
+    raw = runner.invoke(cli, [*args, "--pattern", r"EMP-\d{6}"])
     assert "Entity" not in raw.output and "no nested repeat found" in raw.output
 
-    assert runner.invoke(cli, [*args, "("]).exit_code == 1
+    assert runner.invoke(cli, [*args, "--pattern", "("]).exit_code == 1
+    assert runner.invoke(cli, [*args, "--entity", "NOPE"]).exit_code == 1
+    assert runner.invoke(cli, [*args, "--pattern", "x", "text"]).exit_code == 2
 
 
-def test_inspect_regex_leaves_out_a_disabled_built_in(runner: CliRunner, tmp_path: Path) -> None:
+def test_inspect_regex_is_an_alias_with_a_warning(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text("detector:\n  disable: [EMAIL]\n", encoding="utf-8")
-    result = runner.invoke(cli, ["inspect", "regex", "-c", str(config), "EMAIL"])
-    assert "Entity" not in result.output and "Pattern: EMAIL" in result.output
+    config.write_text("detectors:\n  regex:\n    disable: [EMAIL]\n", encoding="utf-8")
+
+    by_entity = runner.invoke(cli, ["-c", str(config), "inspect", "regex", "SSN"])
+    # A built-in turned off is no entity of the config: the name is a pattern.
+    by_pattern = runner.invoke(cli, ["-c", str(config), "inspect", "regex", "EMAIL"])
+
+    assert "Entity:  SSN" in by_entity.stdout
+    assert "`privyx detect --entity NAME`" in by_entity.stderr
+    assert "Entity" not in by_pattern.stdout and "Pattern: EMAIL" in by_pattern.stdout
+    assert "`privyx detect --pattern REGEX`" in by_pattern.stderr
 
 
-@pytest.mark.parametrize("dtype", ["regex", "yaml"])
-def test_optional_opt_out_is_valid_for_inspect_and_explain(
-    runner: CliRunner, tmp_path: Path, dtype: str
+@pytest.mark.parametrize("builtins", ["true", "false"])
+def test_optional_opt_out_is_valid_for_the_check_and_explain(
+    runner: CliRunner, tmp_path: Path, builtins: str
 ) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text(f"detector:\n  type: {dtype}\n  disable: [CRYPTO_WALLET]\n")
-    inspected = runner.invoke(cli, ["inspect", "regex", "-c", str(config), "CRYPTO_WALLET"])
-    assert inspected.exit_code == 0, inspected.output
-    assert "Entity:" not in inspected.output
-    explained = runner.invoke(cli, ["detect", "--explain", "-c", str(config), "ordinary prose"])
+    config.write_text(
+        f"detectors:\n  regex:\n    builtins: {builtins}\n    disable: [CRYPTO_WALLET]\n"
+    )
+    checked = runner.invoke(cli, ["-c", str(config), "detect", "--entity", "CRYPTO_WALLET"])
+    assert checked.exit_code == 1, checked.output  # turned off: no regex of the config
+    explained = runner.invoke(cli, ["-c", str(config), "detect", "--explain", "ordinary prose"])
     assert explained.exit_code == 0, explained.output
 
 
-@pytest.mark.parametrize("command", [["inspect", "regex", "CRYPTO_WALLET"], ["detect", "text"]])
+@pytest.mark.parametrize("command", [["detect", "--entity", "CRYPTO_WALLET"], ["detect", "text"]])
 def test_conflicting_detector_switches_fail_in_cli(
     runner: CliRunner, tmp_path: Path, command: list[str]
 ) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text("detector:\n  enable: [CRYPTO_WALLET]\n  disable: [CRYPTO_WALLET]\n")
-    result = runner.invoke(cli, [*command, "-c", str(config)])
+    config.write_text(
+        "detectors:\n  regex:\n    enable: [CRYPTO_WALLET]\n    disable: [CRYPTO_WALLET]\n"
+    )
+    result = runner.invoke(cli, ["-c", str(config), *command])
     assert result.exit_code == 1, result.output
     assert "both 'enable' and 'disable'" in result.output
 
 
-def test_inspect_regex_reports_a_stall_the_check_misses(
+def test_detect_reports_a_stall_the_check_misses(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from privyx.cli.commands import inspect
+    from privyx.app._services import _masking
 
-    monkeypatch.setattr(inspect, "_BENCH_TIMEOUT", 0.5)
-    result = runner.invoke(cli, ["inspect", "regex", "-c", os.devnull, "(?:.|..)+Z"])
+    monkeypatch.setattr(_masking, "BENCH_TIMEOUT", 0.5)
+    result = runner.invoke(cli, ["-c", os.devnull, "detect", "--pattern", "(?:.|..)+Z"])
 
     assert result.exit_code == 0, result.output
     assert "no nested repeat found" in result.output  # the static check misses it
@@ -572,7 +592,7 @@ def test_inspect_regex_reports_a_stall_the_check_misses(
 def test_session_list_shows_counts_not_values(runner: CliRunner, sqlite_config: Path) -> None:
     session_id = _seed_session(sqlite_config)
 
-    result = runner.invoke(cli, ["session", "list", "-c", str(sqlite_config)])
+    result = runner.invoke(cli, ["-c", str(sqlite_config), "session", "list"])
 
     assert result.exit_code == 0
     assert session_id in result.output
@@ -598,7 +618,7 @@ def test_session_prune_deletes_idle_sessions_and_audits(
     assert result.exit_code == 0
     assert "Pruned 1 session(s)" in result.output
 
-    listed = runner.invoke(cli, ["session", "list", "-c", str(sqlite_config)]).output
+    listed = runner.invoke(cli, ["-c", str(sqlite_config), "session", "list"]).output
     assert idle not in listed and active in listed
     events = [json.loads(line) for line in audit_log.read_text().splitlines()]
     assert [(e["event"], e["session_id"], e["reason"], e["mapping_count"]) for e in events] == [
@@ -705,7 +725,7 @@ def test_audit_tail_prints_the_last_events_readably(runner: CliRunner, tmp_path:
 
 
 def test_session_prune_rejects_a_bare_number(runner: CliRunner, sqlite_config: Path) -> None:
-    result = runner.invoke(cli, ["session", "prune", "-c", str(sqlite_config), "--older-than", "7"])
+    result = runner.invoke(cli, ["-c", str(sqlite_config), "session", "prune", "--older-than", "7"])
 
     assert result.exit_code == 2
     assert "e.g. 7d" in result.output
@@ -792,7 +812,7 @@ def test_doctor_resolves_secrets_once_per_invocation(
     for item in ("first", "second"):
         reference = f"op://example/{item}/credential"
         config.write_text(f"provider:\n  api_key: {reference}\n")
-        result = runner.invoke(cli, ["doctor", "-c", str(config)])
+        result = runner.invoke(cli, ["-c", str(config), "doctor"])
         assert result.exit_code == (1 if unavailable else 0), result.output
         if unavailable:
             assert "configuration: ConfigError: password manager unavailable" in result.output
@@ -811,7 +831,7 @@ def test_doctor_shares_settings_between_checks(
 
     from privyx.config.schema import Settings
 
-    module = importlib.import_module("privyx.cli.commands.doctor")
+    module = importlib.import_module("privyx.app._services._diagnostics")
     snapshots: list[Settings] = []
     for name in (
         "plugins",
@@ -847,16 +867,18 @@ def test_doctor_covers_every_documented_check(runner: CliRunner) -> None:
 
 def test_doctor_fails_on_broken_config(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
-    config.write_text('detector:\n  patterns:\n    BAD: "([unclosed"\n', encoding="utf-8")
+    config.write_text(
+        'detectors:\n  regex:\n    patterns:\n      BAD: "([unclosed"\n', encoding="utf-8"
+    )
 
-    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 1
     assert "✗ detector" in result.output
 
 
 def test_doctor_uses_the_configured_vault(runner: CliRunner, sqlite_config: Path) -> None:
-    result = runner.invoke(cli, ["doctor", "-c", str(sqlite_config)])
+    result = runner.invoke(cli, ["-c", str(sqlite_config), "doctor"])
 
     assert result.exit_code == 0
     assert "✓ vault: sqlite" in result.output
@@ -869,7 +891,7 @@ def test_doctor_detects_insecure_file_permissions(runner: CliRunner, tmp_path: P
     config = tmp_path / "c.yaml"
     config.write_text(f"vault:\n  type: sqlite\n  dsn: {db}\n", encoding="utf-8")
 
-    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "doctor"])
 
     assert result.exit_code == 1
     assert "✗ permissions" in result.output
@@ -882,7 +904,7 @@ def test_doctor_reports_effective_route_coverage(
 ) -> None:
     config = tmp_path / "routes.yaml"
     config.write_text(f"proxy:\n  passthrough_unknown: {str(passthrough).lower()}\n")
-    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "doctor"])
     assert result.exit_code == 0
     assert "/v1/responses (responses)" in result.output
     assert "/v1/messages/count_tokens (anthropic)" in result.output
@@ -892,7 +914,7 @@ def test_doctor_reports_effective_route_coverage(
 def test_doctor_reports_invalid_routes(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "routes.yaml"
     config.write_text("proxy:\n  routes:\n    missing-slash: unsupported\n")
-    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "doctor"])
     assert result.exit_code == 1
     assert "✗ routes: invalid path or unsupported schema" in result.output
 
@@ -900,7 +922,7 @@ def test_doctor_reports_invalid_routes(runner: CliRunner, tmp_path: Path) -> Non
 def test_doctor_reports_gateway_auxiliary_gaps(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "routes.yaml"
     config.write_text("proxy:\n  mode: gateway\n")
-    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "doctor"])
     assert result.exit_code == 0
     assert "unlisted paths return 404" in result.output
     assert "WITHOUT body masking" not in result.output
@@ -913,7 +935,7 @@ def test_doctor_counts_gateway_gemini_routes_only_with_google(
 ) -> None:
     config = tmp_path / "routes.yaml"
     config.write_text(f"proxy:\n  mode: gateway\nprovider:\n  type: {provider}\n")
-    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "doctor"])
     assert result.exit_code == 0
     covered = result.output.split("masking route(s): ")[1].split(";")[0]
     assert ("/*/models/*:generateContent (gemini)" in covered) is served
@@ -923,7 +945,7 @@ def test_doctor_counts_gateway_gemini_routes_only_with_google(
 def test_doctor_reports_a_replaced_route_map(runner: CliRunner, tmp_path: Path, mode: str) -> None:
     config = tmp_path / "routes.yaml"
     config.write_text(f"proxy:\n  mode: {mode}\n  routes:\n    /v1/messages: anthropic\n")
-    result = runner.invoke(cli, ["doctor", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "doctor"])
     assert result.exit_code == 0
     assert "1 masking route(s): /v1/messages (anthropic)" in result.output
     assert "/chat/completions" in result.output.split("default paths outside coverage: ")[1]
@@ -1135,7 +1157,7 @@ def test_run_an_ollama_wrapper_checks_the_server_too(
     monkeypatch.setattr("privyx.cli.commands.run._run_target", lambda **kw: None)
     monkeypatch.setenv("OLLAMA_HOST", "gpu.example.test")
 
-    runner.invoke(cli, ["run", "-c", str(config), "wrapped"])
+    runner.invoke(cli, ["-c", str(config), "run", "wrapped"])
 
     assert checked == ["http://gpu.example.test:11434"]
 
@@ -1344,7 +1366,6 @@ async def test_run_spawns_target_against_a_live_proxy(
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
-        config_path=None,
         upstream=None,
         port=0,
         env_vars=("PROBE_BASE_URL",),
@@ -1390,7 +1411,6 @@ async def test_run_provisions_anchor_secret_by_default(
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
-        config_path=None,
         upstream=None,
         port=0,
         env_vars=("PROBE_BASE_URL",),
@@ -1461,9 +1481,9 @@ def test_run_profile_routes_real_child_and_masks_payload(
     result = runner.invoke(
         cli,
         [
-            "run",
             "-c",
             str(config),
+            "run",
             "--no-anchor",
             "work",
             "--env-var",
@@ -1522,7 +1542,6 @@ async def test_run_relays_the_tools_own_credential(
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
-        config_path=None,
         upstream=url,
         port=0,
         env_vars=spec.env_vars,
@@ -1559,6 +1578,7 @@ async def test_run_serves_the_gateway_from_the_config(
     config.write_text(
         f"proxy:\n  mode: gateway\nproviders:\n  anthropic:\n    base_url: {url}/base/v1/messages\n"
     )
+    monkeypatch.setenv("PRIVYX_CONFIG", str(config))
 
     from privyx.agents._plan import Target
     from privyx.cli.commands.run import _run_target
@@ -1579,7 +1599,6 @@ async def test_run_serves_the_gateway_from_the_config(
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
-        config_path=str(config),
         upstream=None,
         port=0,
         env_vars=spec.env_vars,
@@ -1672,7 +1691,6 @@ async def test_run_points_each_known_target_at_the_proxy(
     code = await _run_target(
         spec=spec,
         argv=argv,
-        config_path=None,
         upstream=url,
         port=0,
         env_vars=spec.env_vars,
@@ -1778,7 +1796,6 @@ async def test_run_warns_when_no_request_took_a_masking_route(
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
-        config_path=None,
         upstream=url,
         port=0,
         env_vars=spec.env_vars,
@@ -1847,7 +1864,6 @@ async def test_run_stops_the_tool_at_its_budget(
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
-        config_path=None,
         upstream=url,
         port=0,
         env_vars=spec.env_vars,
@@ -1910,7 +1926,6 @@ async def test_run_counts_a_masked_request_still_awaiting_its_response(
         code = await _run_target(
             spec=spec,
             argv=[str(probe)],
-            config_path=None,
             upstream=f"http://127.0.0.1:{server.server_address[1]}",
             port=0,
             env_vars=spec.env_vars,
@@ -1970,7 +1985,6 @@ async def test_run_counts_a_request_still_being_masked_when_the_tool_exits(
     code = await _run_target(
         spec=spec,
         argv=[str(probe)],
-        config_path=None,
         upstream=url,
         port=0,
         env_vars=spec.env_vars,
@@ -2006,7 +2020,6 @@ async def test_run_keeps_the_audit_trail_out_of_the_working_directory(
     code = await _run_target(
         spec=spec,
         argv=["-c", "pass"],
-        config_path=None,
         upstream=None,
         port=0,
         env_vars=spec.env_vars,
@@ -2048,21 +2061,34 @@ def test_trust_allows_the_local_config(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    nothing = runner.invoke(cli, ["trust"])
+    nothing = runner.invoke(cli, ["config", "trust"])
     assert nothing.exit_code == 1
-    assert "no privyx.yaml or .privyx/config.yaml" in nothing.output
+    assert "no privyx.yaml, .privyx/config.yaml, or .privyx/settings.yaml" in nothing.output
 
     config = Path.cwd() / "privyx.yaml"
-    config.write_text("port: 9001\n", encoding="utf-8")
-    assert "Host: 127.0.0.1:8000" in runner.invoke(cli, ["config"]).output
-    assert runner.invoke(cli, ["config", "--path"]).output.strip() == "defaults"
+    config.write_text("server:\n  port: 9001\n", encoding="utf-8")
+    assert "Server: 127.0.0.1:8000" in runner.invoke(cli, ["config"]).output
+    assert runner.invoke(cli, ["config", "path"]).output.strip() == "defaults"
 
-    result = runner.invoke(cli, ["trust"])
+    result = runner.invoke(cli, ["config", "trust"])
 
     assert result.exit_code == 0
     assert result.output.strip() == f"Trusted {config}"
-    assert "Host: 127.0.0.1:9001" in runner.invoke(cli, ["config"]).output
-    assert runner.invoke(cli, ["config", "--path"]).output.strip() == str(config)
+    assert "Server: 127.0.0.1:9001" in runner.invoke(cli, ["config"]).output
+    assert runner.invoke(cli, ["config", "path"]).output.strip() == str(config)
+
+
+def test_trust_is_an_alias_with_a_warning(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "privyx.yaml").write_text("server:\n  port: 9001\n", encoding="utf-8")
+
+    result = runner.invoke(cli, ["trust"])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == f"Trusted {tmp_path / 'privyx.yaml'}"
+    assert "`privyx trust` is deprecated; use `privyx config trust`" in result.stderr
 
 
 @pytest.mark.parametrize("xdg", [False, True], ids=["default directories", "XDG directories"])
@@ -2115,79 +2141,109 @@ def test_a_file_the_home_directory_already_has_is_not_replaced(
 
 
 def test_config_show_outputs_settings(runner: CliRunner) -> None:
-    result = runner.invoke(cli, ["config", "--show"])
+    result = runner.invoke(cli, ["config", "show"])
 
     assert result.exit_code == 0
-    assert "detector" in result.output or "vault" in result.output
+    shown = json.loads(result.stdout)
+    assert shown["server"]["port"] == 8000 and shown["detectors"]["regex"]["type"] == "regex"
+
+
+@pytest.mark.parametrize(
+    ("flags", "replacement"),
+    [
+        (["--show"], "`privyx config show [--sources]`"),
+        (["--path"], "`privyx config path`"),
+        (["--schema"], "`privyx config schema`"),
+    ],
+)
+def test_config_flags_are_aliases_with_a_warning(
+    runner: CliRunner, flags: list[str], replacement: str
+) -> None:
+    result = runner.invoke(cli, ["config", *flags])
+
+    assert result.exit_code == 0, result.output
+    assert replacement in result.stderr
+    assert result.stdout.strip()
 
 
 def test_config_sources_reports_winning_layers(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     included = tmp_path / "included.yaml"
-    included.write_text("port: 9001\nvault:\n  ttl: 60\n  type: sqlite\n", encoding="utf-8")
+    included.write_text(
+        "server:\n  port: 9001\nvault:\n  ttl: 60\n  type: sqlite\n", encoding="utf-8"
+    )
     config = tmp_path / "config.yaml"
-    config.write_text("include: included.yaml\nport: 9002\nvault:\n  ttl: 120\n", encoding="utf-8")
+    config.write_text(
+        "include: included.yaml\nserver:\n  port: 9002\nvault:\n  ttl: 120\n", encoding="utf-8"
+    )
     monkeypatch.setenv("PRIVYX_PORT", "9003")
 
-    result = runner.invoke(cli, ["-c", str(config), "config", "--sources"])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 0, result.output
-    shown = json.loads(result.output)
-    assert shown["port"] == {"value": 9003, "source": "environment"}
+    shown = json.loads(result.stdout)
+    assert shown["server.port"] == {"value": 9003, "source": "environment"}
     assert shown["vault.ttl"] == {"value": 120, "source": str(config)}
     assert shown["vault.type"] == {"value": "sqlite", "source": str(included)}
-    assert shown["host"] == {"value": "127.0.0.1", "source": "defaults"}
+    assert shown["server.host"] == {"value": "127.0.0.1", "source": "defaults"}
     assert shown["provider.api_key"] == {"value": "", "source": "defaults"}
     assert shown["plugins.paths"] == {"value": [], "source": "defaults"}
 
 
 @pytest.mark.parametrize("environment", [False, True])
-def test_config_sources_tracks_fields_in_detector_lists(
+def test_config_sources_tracks_the_fields_of_each_detector(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment: bool
 ) -> None:
     included = tmp_path / "included.yaml"
     included.write_text(
-        "detector:\n  - type: yaml\n    cache: true\n    terms: {PERSON: [john smith]}\n"
-        "  - type: regex\n",
+        "detectors:\n  regex:\n    cache: true\n    terms: {PERSON: [john smith]}\n"
+        "  own:\n    type: regex\n    builtins: false\n",
         encoding="utf-8",
     )
     config = tmp_path / "config.yaml"
-    config.write_text("include: included.yaml\ndetector:\n  cache: true\n", encoding="utf-8")
+    config.write_text(
+        "include: included.yaml\ndetectors:\n  regex:\n    cache: true\n  own:\n    cache: true\n",
+        encoding="utf-8",
+    )
     if environment:
         monkeypatch.setenv("PRIVYX_DETECTOR_CACHE", "false")
 
-    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 0, result.output
-    shown = json.loads(result.output)
-    for index in (0, 1):
-        assert shown[f"detector.{index}.cache.enabled"] == {
+    shown = json.loads(result.stdout)
+    for name in ("regex", "own"):
+        assert shown[f"detectors.{name}.cache.enabled"] == {
             "value": not environment,
             "source": "environment" if environment else str(config),
         }
-        assert shown[f"detector.{index}.cache.max_size"] == {"value": 10000, "source": "defaults"}
-        assert shown[f"detector.{index}.type"]["source"] == str(included)
-        assert shown[f"detector.{index}.normalize"] == {"value": False, "source": "defaults"}
-    assert shown["detector.0.terms.PERSON"] == {"value": ["***"], "source": str(included)}
+        assert shown[f"detectors.{name}.cache.max_size"] == {"value": 10000, "source": "defaults"}
+        assert shown[f"detectors.{name}.normalize"] == {"value": False, "source": "defaults"}
+    assert shown["detectors.own.type"]["source"] == str(included)
+    assert shown["detectors.regex.type"]["source"] == "defaults"  # named like its type
+    assert shown["detectors.regex.terms.PERSON"] == {"value": ["***"], "source": str(included)}
 
 
-def test_config_sources_discards_origins_of_replaced_detector_lists(
+def test_config_sources_names_where_a_detector_is_turned_off(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     (tmp_path / "included.yaml").write_text(
-        "detector:\n  - type: yaml\n    cache: false\n  - type: regex\n", encoding="utf-8"
+        "detectors:\n  own:\n    type: regex\n    builtins: false\n    cache: false\n",
+        encoding="utf-8",
     )
     config = tmp_path / "config.yaml"
-    config.write_text("include: included.yaml\ndetector:\n  - type: regex\n", encoding="utf-8")
+    config.write_text("include: included.yaml\ndetectors:\n  own: false\n", encoding="utf-8")
 
-    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 0, result.output
-    shown = json.loads(result.output)
-    assert shown["detector.0.type"] == {"value": "regex", "source": str(config)}
-    assert shown["detector.0.cache.enabled"] == {"value": True, "source": "defaults"}
-    assert not any(path.startswith("detector.1.") for path in shown)
+    shown = json.loads(result.stdout)
+    assert shown["detectors.own.enabled"] == {"value": False, "source": str(config)}
+    assert shown["detectors.own.cache.enabled"] == {
+        "value": False,
+        "source": str(tmp_path / "included.yaml"),
+    }
 
 
 def test_config_sources_tracks_inherited_profile_fields(runner: CliRunner, tmp_path: Path) -> None:
@@ -2195,31 +2251,31 @@ def test_config_sources_tracks_inherited_profile_fields(runner: CliRunner, tmp_p
     included.write_text(
         "agents:\n  base:\n    command: example\n    privyx:\n"
         "      session:\n        strategy: client\n"
-        "      detector:\n        - type: yaml\n        - type: regex\n",
+        "      detectors:\n        own:\n          type: regex\n          builtins: false\n",
         encoding="utf-8",
     )
     config = tmp_path / "config.yaml"
     config.write_text(
         "include: included.yaml\nagents:\n  work:\n    extends: base\n"
-        "    privyx:\n      detector:\n        cache: false\n",
+        "    privyx:\n      detectors:\n        own:\n          cache: false\n",
         encoding="utf-8",
     )
 
-    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 0, result.output
-    shown = json.loads(result.output)
+    shown = json.loads(result.stdout)
     assert shown["agents.work.command"] == {"value": "example", "source": str(included)}
     assert shown["agents.work.extends"] == {"value": "base", "source": str(config)}
     assert shown["agents.work.privyx.session.strategy"] == {
         "value": "client",
         "source": str(included),
     }
-    assert shown["agents.work.privyx.detector.0.type"] == {
-        "value": "yaml",
+    assert shown["agents.work.privyx.detectors.own.type"] == {
+        "value": "regex",
         "source": str(included),
     }
-    assert shown["agents.work.privyx.detector.0.cache"] == {
+    assert shown["agents.work.privyx.detectors.own.cache"] == {
         "value": False,
         "source": str(config),
     }
@@ -2229,18 +2285,19 @@ def test_config_sources_clears_shorthand_when_replaced_by_mapping(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     included = tmp_path / "included.yaml"
-    included.write_text("detector:\n  cache: false\n", encoding="utf-8")
+    included.write_text("detectors:\n  regex:\n    cache: false\n", encoding="utf-8")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "include: included.yaml\ndetector:\n  cache:\n    max_size: 200\n", encoding="utf-8"
+        "include: included.yaml\ndetectors:\n  regex:\n    cache:\n      max_size: 200\n",
+        encoding="utf-8",
     )
 
-    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 0, result.output
-    shown = json.loads(result.output)
-    assert shown["detector.cache.enabled"] == {"value": True, "source": "defaults"}
-    assert shown["detector.cache.max_size"] == {"value": 200, "source": str(config)}
+    shown = json.loads(result.stdout)
+    assert shown["detectors.regex.cache.enabled"] == {"value": True, "source": "defaults"}
+    assert shown["detectors.regex.cache.max_size"] == {"value": 200, "source": str(config)}
 
 
 @pytest.mark.parametrize("flags", [[], ["--show"], ["--path"], ["--show", "--path"]])
@@ -2250,7 +2307,7 @@ def test_config_sources_takes_precedence_over_show_and_path(
     result = runner.invoke(cli, ["config", "--sources", *flags])
 
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["port"] == {"value": 8000, "source": "defaults"}
+    assert json.loads(result.stdout)["server.port"] == {"value": 8000, "source": "defaults"}
 
 
 def test_config_schema_takes_precedence_over_sources(
@@ -2260,7 +2317,7 @@ def test_config_schema_takes_precedence_over_sources(
     result = runner.invoke(cli, ["config", "--sources", "--schema"])
 
     assert result.exit_code == 0, result.output
-    assert "properties" in json.loads(result.output)
+    assert "properties" in json.loads(result.stdout)
 
 
 def test_config_sources_does_not_print_secret_values_in_errors(
@@ -2269,9 +2326,11 @@ def test_config_sources_does_not_print_secret_values_in_errors(
     secret = "sk-" + "proj-abc123"
     monkeypatch.setenv("TEST_SECRET_PORT", secret)
     config = tmp_path / "config.yaml"
-    config.write_text("port: ${TEST_SECRET_PORT}\nprovider:\n  api_key: ${TEST_SECRET_PORT}\n")
+    config.write_text(
+        "server:\n  port: ${TEST_SECRET_PORT}\nprovider:\n  api_key: ${TEST_SECRET_PORT}\n"
+    )
 
-    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 1
     assert "Error: invalid configuration" in result.output
@@ -2293,41 +2352,41 @@ def test_config_sources_masks_resolved_secrets(
     config = tmp_path / "config.yaml"
     config.write_text("provider:\n  api_key: op://example/item/credential\n", encoding="utf-8")
 
-    result = runner.invoke(cli, ["config", "--sources", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 0, result.output
     assert calls == ["provider.api_key"]
     assert secret not in result.output
     assert "op://" not in result.output
-    assert json.loads(result.output)["provider.api_key"] == {"value": "***", "source": str(config)}
+    assert json.loads(result.stdout)["provider.api_key"] == {"value": "***", "source": str(config)}
 
 
 def test_config_path_names_the_files_in_use_or_defaults(
     runner: CliRunner, home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    assert runner.invoke(cli, ["config", "--path"]).output.strip() == "defaults"
+    assert runner.invoke(cli, ["config", "path"]).output.strip() == "defaults"
 
     named = tmp_path / "custom.yaml"
-    named.write_text("port: 9000\n", encoding="utf-8")
-    result = runner.invoke(cli, ["config", "--path", "-c", str(named)])
+    named.write_text("server:\n  port: 9000\n", encoding="utf-8")
+    result = runner.invoke(cli, ["-c", str(named), "config", "path"])
     assert result.exit_code == 0
     assert result.output.strip() == str(named)
 
     home_config = home / ".privyx" / "config.yaml"
     home_config.parent.mkdir()
-    home_config.write_text("port: 9001\n", encoding="utf-8")
-    assert runner.invoke(cli, ["config", "--path"]).output.strip() == str(home_config)
+    home_config.write_text("server:\n  port: 9001\n", encoding="utf-8")
+    assert runner.invoke(cli, ["config", "path"]).output.strip() == str(home_config)
 
     included = tmp_path / "extra.yaml"
-    included.write_text("log_level: debug\n", encoding="utf-8")
+    included.write_text("log:\n  level: debug\n", encoding="utf-8")
     project = tmp_path / "privyx.yaml"
-    project.write_text("include: extra.yaml\nport: 9002\n", encoding="utf-8")
-    assert runner.invoke(cli, ["config", "--path"]).output.strip() == str(home_config)
+    project.write_text("include: extra.yaml\nserver:\n  port: 9002\n", encoding="utf-8")
+    assert runner.invoke(cli, ["config", "path"]).output.strip() == str(home_config)
 
-    trusted = runner.invoke(cli, ["trust"])
+    trusted = runner.invoke(cli, ["config", "trust"])
     assert trusted.exit_code == 0, trusted.output
-    result = runner.invoke(cli, ["config", "--path"])
+    result = runner.invoke(cli, ["config", "path"])
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [str(home_config), str(included), str(project)]
 
@@ -2350,7 +2409,7 @@ def test_config_path_does_not_resolve_secrets(
     config = tmp_path / "config.yaml"
     config.write_text("include: credentials.yaml\n", encoding="utf-8")
 
-    result = runner.invoke(cli, ["config", "--path", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "path"])
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [str(included), str(config)]
@@ -2360,16 +2419,16 @@ def test_config_path_does_not_validate_settings(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "config.yaml"
-    config.write_text("port: invalid\n", encoding="utf-8")
+    config.write_text("server:\n  port: invalid\n", encoding="utf-8")
     monkeypatch.setenv("PRIVYX_SESSION_STRATEGY", "bogus")
 
-    result = runner.invoke(cli, ["-c", str(config), "config", "--path"])
+    result = runner.invoke(cli, ["-c", str(config), "config", "path"])
 
     assert result.exit_code == 0, result.output
     assert result.output.strip() == str(config)
 
 
-@pytest.mark.parametrize("content", [None, "include: missing.yaml\n", "port: [\n"])
+@pytest.mark.parametrize("content", [None, "include: missing.yaml\n", "server: [\n"])
 def test_config_path_reports_file_errors_without_traceback(
     runner: CliRunner, tmp_path: Path, content: str | None
 ) -> None:
@@ -2377,14 +2436,14 @@ def test_config_path_reports_file_errors_without_traceback(
     if content is not None:
         config.write_text(content, encoding="utf-8")
 
-    result = runner.invoke(cli, ["config", "--path", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "path"])
 
     assert result.exit_code == 1
     assert "Error:" in result.output
     assert "Traceback" not in result.output
 
 
-@pytest.mark.parametrize("args", [["config"], ["config", "--show"], ["config", "--show", "--path"]])
+@pytest.mark.parametrize("args", [["config"], ["config", "show"], ["config", "--show", "--path"]])
 def test_config_reports_bad_config_without_traceback(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, args: list[str]
 ) -> None:
@@ -2397,9 +2456,9 @@ def test_config_reports_bad_config_without_traceback(
     assert "Traceback" not in result.output
 
 
-@pytest.mark.parametrize("flag", ["--show", "--sources"])
+@pytest.mark.parametrize("flag", [[], ["--sources"]])
 def test_config_show_masks_secrets(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: list[str]
 ) -> None:
     # The last two come from detector config, which spells out what it hides.
     secrets = ["sk-env-key", "hunter2", "anchor-secret", "Bearer hdr-token", "llm-key"]
@@ -2411,11 +2470,11 @@ def test_config_show_masks_secrets(
         "  redis_url: redis://:hunter2@cache:6379/0\n"
         "anchor:\n  secret: anchor-secret\n"
         "provider:\n  headers:\n    Authorization: Bearer hdr-token\n"
-        "detector:\n"
-        "  - type: regex\n"
+        "detectors:\n"
+        "  regex:\n"
         "    patterns: {CODENAME: 'Project\\s+Falcon'}\n"
         "    terms: {PERSON: [Ann Acme]}\n"
-        "  - type: llm\n"
+        "  llm:\n"
         "    llm_api_key: llm-key\n"
         "    llm_instructions: Also mask Project Falcon\n",
         encoding="utf-8",
@@ -2423,44 +2482,55 @@ def test_config_show_masks_secrets(
     monkeypatch.setenv("PRIVYX_OPENAI_API_KEY", "sk-env-key")
     monkeypatch.delenv("PRIVYX_API_KEY", raising=False)
 
-    result = runner.invoke(cli, ["config", flag, "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "show", *flag])
 
     assert result.exit_code == 0, result.output
     assert not [s for s in secrets if s in result.output]
-    shown = json.loads(result.output)
-    if flag == "--sources":
+    shown = json.loads(result.stdout)
+    if flag:
         assert shown["vault.redis_url"]["value"] == "redis://:***@cache:6379/0"
         assert shown["providers.openai.api_key"] == {"value": "***", "source": "environment"}
         assert shown["provider.api_key"] == {"value": "", "source": "defaults"}
-        assert shown["detector.0.patterns.CODENAME"]["value"] == "***"
-        assert shown["detector.0.terms.PERSON"]["value"] == ["***"]
+        assert shown["detectors.regex.patterns.CODENAME"]["value"] == "***"
+        assert shown["detectors.regex.terms.PERSON"]["value"] == ["***"]
         return
     assert shown["vault"]["redis_url"] == "redis://:***@cache:6379/0"
     assert shown["providers"]["openai"]["api_key"] == "***"
     assert shown["provider"]["api_key"] == ""  # unset stays visible as unset
-    assert shown["detector"][0]["patterns"] == {"CODENAME": "***"}  # names stay
-    assert shown["detector"][0]["terms"] == {"PERSON": ["***"]}
+    assert shown["detectors"]["regex"]["patterns"] == {"CODENAME": "***"}  # names stay
+    assert shown["detectors"]["regex"]["terms"] == {"PERSON": ["***"]}
 
 
 def test_cli_exposes_every_documented_command(runner: CliRunner) -> None:
-    """The CLI tree: proxy, run, detect, mask, unmask, inspect, session, audit, config, doctor,
-    trust."""
+    """The CLI tree: 14 commands; the names of earlier versions run, hidden."""
+    from privyx.cli.main import ALIASES, COMMANDS
+
     result = runner.invoke(cli, ["--help"])
 
-    for command in (
-        "proxy",
+    rows = result.output.split("Commands:")[1].splitlines()
+    listed = [line.split()[0] for line in rows if line[:2] == "  " and line[2:3] != " "]
+    assert listed == [
         "run",
-        "detect",
+        "proxy",
         "mask",
         "unmask",
-        "inspect",
+        "detect",
+        "scan",
+        "doctor",
+        "config",
         "session",
         "audit",
-        "config",
-        "doctor",
-        "trust",
-    ):
-        assert command in result.output
+        "hook",
+        "mcp",
+        "features",
+        "plugin",
+    ]
+    for name in [*COMMANDS, *ALIASES]:
+        command = cli.get_command(click.Context(cli), name)
+        assert command is not None, name
+        assert command.hidden is (name in ALIASES), name
+        if name in COMMANDS:
+            assert COMMANDS[name][1] == command.get_short_help_str(limit=200), name
 
     sub = runner.invoke(cli, ["inspect", "--help"])
     assert "session" in sub.output
@@ -2541,13 +2611,13 @@ def test_mask_creates_the_map_file_owner_only(runner: CliRunner, tmp_path: Path)
 
 def test_mask_unmask_round_trips_through_the_vault(runner: CliRunner, sqlite_config: Path) -> None:
     masked = runner.invoke(
-        cli, ["mask", "-c", str(sqlite_config), "--session", "demo", f"mail {EMAIL}"]
+        cli, ["-c", str(sqlite_config), "mask", "--session", "demo", f"mail {EMAIL}"]
     )
     assert masked.exit_code == 0
     assert "session: demo" in masked.stderr
 
     back = runner.invoke(
-        cli, ["unmask", "-c", str(sqlite_config), "--session", "demo", masked.stdout.strip()]
+        cli, ["-c", str(sqlite_config), "unmask", "--session", "demo", masked.stdout.strip()]
     )
     assert back.exit_code == 0
     assert back.stdout.strip() == f"mail {EMAIL}"
@@ -2643,7 +2713,7 @@ def test_unmask_without_a_mapping_source_exits_nonzero(runner: CliRunner) -> Non
 
 
 def test_unmask_unknown_session_exits_nonzero(runner: CliRunner, sqlite_config: Path) -> None:
-    result = runner.invoke(cli, ["unmask", "-c", str(sqlite_config), "--session", "nope", "x"])
+    result = runner.invoke(cli, ["-c", str(sqlite_config), "unmask", "--session", "nope", "x"])
 
     assert result.exit_code == 1
     assert "session not found" in result.stderr
@@ -2673,20 +2743,20 @@ def test_proxy_reload_restarts_and_rereads_config(
 ) -> None:
     """`--reload` re-runs the server with the *new* config, then exits cleanly."""
     config = tmp_path / "c.yaml"
-    config.write_text("port: 9001\n", encoding="utf-8")
+    config.write_text("server:\n  port: 9001\n", encoding="utf-8")
     ports: list[int] = []
 
     def fake_serve(app: Privyx, *, watch: list[Path] | None = None) -> bool:
         assert watch == [config]
-        ports.append(app.settings.port)
+        ports.append(app.settings.server.port)
         if len(ports) == 1:
-            config.write_text("port: 9002\n", encoding="utf-8")
+            config.write_text("server:\n  port: 9002\n", encoding="utf-8")
             return True  # as if the watcher had fired
         return False
 
     monkeypatch.setattr("privyx.app.Privyx.serve", fake_serve)
 
-    result = runner.invoke(cli, ["proxy", "--reload", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "proxy", "--reload"])
 
     assert result.exit_code == 0, result.output
     assert ports == [9001, 9002]
@@ -2698,10 +2768,10 @@ def test_proxy_reload_watches_every_config_file_in_use(
     monkeypatch.chdir(tmp_path)
     home_config = home / ".privyx" / "config.yaml"
     home_config.parent.mkdir()
-    home_config.write_text("port: 9001\n", encoding="utf-8")
+    home_config.write_text("server:\n  port: 9001\n", encoding="utf-8")
     local = Path.cwd() / "privyx.yaml"
-    local.write_text("log_level: debug\n", encoding="utf-8")
-    assert runner.invoke(cli, ["trust"]).exit_code == 0
+    local.write_text("log:\n  level: debug\n", encoding="utf-8")
+    assert runner.invoke(cli, ["config", "trust"]).exit_code == 0
     watched: list[list[Path] | None] = []
 
     def fake_serve(app: Privyx, *, watch: list[Path] | None = None) -> bool:
@@ -2756,12 +2826,12 @@ def test_proxy_ssl_options_applied(runner: CliRunner, monkeypatch: pytest.Monkey
     )
     assert result.exit_code == 0, result.output
     assert len(captured_settings) == 1
-    s = captured_settings[0]
-    assert s.tls.certfile == "/tmp/cert.pem"  # type: ignore[attr-defined]
-    assert s.tls.keyfile == "/tmp/key.pem"  # type: ignore[attr-defined]
-    assert s.tls.keyfile_password == "mypass"  # type: ignore[attr-defined]
-    assert s.tls.ca_certs == "/tmp/ca.pem"  # type: ignore[attr-defined]
-    assert s.is_tls  # type: ignore[attr-defined]
+    tls = captured_settings[0].server.tls  # type: ignore[attr-defined]
+    assert tls.certfile == "/tmp/cert.pem"
+    assert tls.keyfile == "/tmp/key.pem"
+    assert tls.keyfile_password == "mypass"
+    assert tls.ca_certs == "/tmp/ca.pem"
+    assert tls.enabled
 
 
 def test_proxy_ssl_requires_both_cert_and_key(runner: CliRunner) -> None:
@@ -2822,7 +2892,7 @@ async def test_proxy_gives_running_requests_a_grace_period(
     monkeypatch.setattr("uvicorn.Config", fake_config)
 
     with pytest.raises(Built):
-        await _serve.serve(Privyx(proxy={"mode": mode}, audit={"enabled": False}))
+        await _serve.serve(Privyx(proxy={"mode": mode}, features={"audit": False}))
 
     assert captured["timeout_graceful_shutdown"] == _serve.SHUTDOWN_GRACE_SECONDS
 
@@ -2931,7 +3001,7 @@ def test_the_selected_profile_reports_a_missing_reference(
         "agents:\n  claude:\n    env: {TOKEN: '${TEST_UNSET_PROFILE}'}\n", encoding="utf-8"
     )
 
-    result = runner.invoke(cli, ["run", "--dry-run", "-c", str(config), "claude"])
+    result = runner.invoke(cli, ["-c", str(config), "run", "--dry-run", "claude"])
 
     assert result.exit_code == 1
     assert "TEST_UNSET_PROFILE is not set" in result.output
@@ -2942,11 +3012,11 @@ def test_config_path_does_not_interpolate(
 ) -> None:
     monkeypatch.delenv("TEST_UNSET_PORT", raising=False)
     included = tmp_path / "port.yaml"
-    included.write_text("port: ${TEST_UNSET_PORT}\n", encoding="utf-8")
+    included.write_text("server:\n  port: ${TEST_UNSET_PORT}\n", encoding="utf-8")
     config = tmp_path / "config.yaml"
-    config.write_text("include: port.yaml\nlog_file: ${TEST_UNSET_PORT}\n", encoding="utf-8")
+    config.write_text("include: port.yaml\nlog:\n  file: ${TEST_UNSET_PORT}\n", encoding="utf-8")
 
-    result = runner.invoke(cli, ["config", "--path", "-c", str(config)])
+    result = runner.invoke(cli, ["-c", str(config), "config", "path"])
 
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == [str(included), str(config)]

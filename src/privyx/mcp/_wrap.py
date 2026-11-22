@@ -74,7 +74,7 @@ async def wrap(app: Privyx, command: tuple[str, ...], session_id: str | None = N
         context = Context(session_id=sid, vault=engine.vault)
 
         async def mask(line: bytes) -> bytes:
-            # Under the session's lock, as `privyx pipe` does: the proxy or a
+            # Under the session's lock, as `privyx mask --stream` does: the proxy or a
             # pipe may be writing to the same session.  A session deleted or
             # expired meanwhile ends the run: one made again would hand the
             # client's old tokens to new values.

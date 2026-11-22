@@ -1,12 +1,9 @@
-"""`privyx session` command group — list, show, and prune vault sessions.
-
-``privyx inspect session <id>`` predates this group and stays as an alias of
-``privyx session show``.
-"""
+"""`privyx session` command group — list, show, prune, and export vault sessions."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sys
 from collections.abc import Coroutine
@@ -15,8 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from privyx.cli.commands.inspect import inspect
-from privyx.cli.config import config_options
+from privyx.cli._options import config_options, json_option
 
 if TYPE_CHECKING:
     from privyx.app._services._sessions import Sessions, Usage
@@ -40,25 +36,26 @@ def session() -> None:
 
 @session.command("list")
 @config_options
-def list_cmd(config_path: str | None) -> None:
+@json_option
+def list_cmd(as_json: bool) -> None:
     """List live sessions, most recently active first.
 
     Shows ids, timestamps, and mapping counts only — never mapping values.
     """
-    _run(_list(config_path))
+    _run(_list(as_json))
 
 
 @session.command("show")
 @click.argument("session_id")
 @config_options
 @click.option("--reveal", is_flag=True, help="Show original values in full (sensitive!)")
-def show(session_id: str, config_path: str | None, reveal: bool) -> None:
+def show(session_id: str, reveal: bool) -> None:
     """Show one session's mappings.
 
     Original values are masked unless ``--reveal`` is given, so that routine
     debugging does not print PII to a terminal or CI log.
     """
-    _run(_show(session_id, config_path, reveal))
+    _run(_show(session_id, reveal))
 
 
 @session.command("prune")
@@ -70,13 +67,13 @@ def show(session_id: str, config_path: str | None, reveal: bool) -> None:
 )
 @config_options
 @click.option("--dry-run", is_flag=True, help="List what would be deleted; delete nothing.")
-def prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
+def prune(older_than: int, dry_run: bool) -> None:
     """Delete sessions idle longer than ``--older-than``.
 
     Each deletion is written to the audit trail as ``session.deleted`` with
     ``reason: prune``.
     """
-    _run(_prune(older_than, config_path, dry_run))
+    _run(_prune(older_than, dry_run))
 
 
 @session.command("export")
@@ -95,19 +92,25 @@ def prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
     default=None,
     help="Archive to write [default: SESSION_ID-forensic.zip].",
 )
-def export(session_id: str, config_path: str | None, forensic: bool, output: Path | None) -> None:
+def export(session_id: str, forensic: bool, output: Path | None) -> None:
     """Write a session's record for review as a zip archive.
 
     ``events.jsonl`` holds its audit events, ``transcript.jsonl`` each request
     as sent upstream and each reply as the upstream sent it (from the tap,
-    when ``audit.tap`` was on), and ``summary.json`` the totals.  Original
+    when ``proxy.tap`` was on), and ``summary.json`` the totals.  Original
     values are left out: the transcript is the masked side.  A value Privyx
     did not detect is in it as it was sent.
     """
-    _run(_export(session_id, config_path, output or Path(f"{session_id}-forensic.zip")))
+    _run(_export(session_id, output or Path(f"{session_id}-forensic.zip")))
 
 
-inspect.add_command(show, name="session")
+@session.command("token")
+@click.argument("token")
+@click.option("--reveal", is_flag=True, help="Show the original value in full (sensitive!)")
+@config_options
+def token(token: str, reveal: bool) -> None:
+    """Show what TOKEN stands for, and in which session."""
+    _run(_token(token, reveal))
 
 
 def _run(coro: Coroutine[Any, Any, None]) -> None:
@@ -120,15 +123,27 @@ def _run(coro: Coroutine[Any, Any, None]) -> None:
         sys.exit(1)
 
 
-def _sessions(config_path: str | None) -> Sessions:
+def _sessions() -> Sessions:
     from privyx.app import Privyx
 
-    return Privyx(config_path).sessions
+    return Privyx().sessions
 
 
-async def _list(config_path: str | None) -> None:
-    service = _sessions(config_path)
+async def _list(as_json: bool) -> None:
+    service = _sessions()
     sessions = await service.list()
+    if as_json:
+        listed = [
+            {
+                "session_id": s.session_id,
+                "created_at": s.created_at,
+                "updated_at": s.updated_at,
+                "mappings": len(s.mapping),
+            }
+            for s in sessions
+        ]
+        click.echo(json.dumps({"vault": service.vault_type, "sessions": listed}, indent=2))
+        return
     if not sessions:
         click.echo(f"No sessions (vault: {service.vault_type})")
         return
@@ -141,8 +156,8 @@ async def _list(config_path: str | None) -> None:
     click.echo(f"\n{len(sessions)} session(s) (vault: {service.vault_type})")
 
 
-async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
-    service = _sessions(config_path)
+async def _show(session_id: str, reveal: bool) -> None:
+    service = _sessions()
     view = await service.get(session_id)
     record, usage = view.record, view.usage
     if record is None and usage is None:
@@ -173,14 +188,14 @@ async def _show(session_id: str, config_path: str | None, reveal: bool) -> None:
         click.echo("  (values masked; pass --reveal to show them)")
 
 
-async def _export(session_id: str, config_path: str | None, output: Path) -> None:
-    exported = await _sessions(config_path).export(session_id, output)
+async def _export(session_id: str, output: Path) -> None:
+    exported = await _sessions().export(session_id, output)
     if exported is None:
         click.echo(f"Nothing recorded for session {session_id}", err=True)
         sys.exit(1)
     click.echo(
         f"Wrote {output}: {exported.events} event(s), {exported.transcript} transcript record(s)"
-        + ("" if exported.transcript else " (audit.tap was off)")
+        + ("" if exported.transcript else " (proxy.tap was off)")
     )
 
 
@@ -202,11 +217,11 @@ def _show_usage(usage: Usage) -> None:
         models = ", ".join(sorted(m for m, c in usage.costs.items() if c is not None))
         click.echo(f"  Cost:       ~${sum(known):.4f} (estimate; {models})")
     if unknown:
-        click.echo(f"  No price for: {', '.join(unknown)} (set audit.prices)")
+        click.echo(f"  No price for: {', '.join(unknown)} (set features.audit.prices)")
 
 
-async def _prune(older_than: int, config_path: str | None, dry_run: bool) -> None:
-    service = _sessions(config_path)
+async def _prune(older_than: int, dry_run: bool) -> None:
+    service = _sessions()
     pruned = await service.prune(older_than, dry_run=dry_run)
     for s in pruned.sessions:
         click.echo(f"  {s.session_id}  last active {_ts(s.updated_at)}")
@@ -215,6 +230,31 @@ async def _prune(older_than: int, config_path: str | None, dry_run: bool) -> Non
         f"{verb} {len(pruned.sessions)} session(s) idle since before {_ts(pruned.cutoff)} "
         f"(vault: {service.vault_type})"
     )
+
+
+async def _token(token: str, reveal: bool) -> None:
+    service = _sessions()
+    found = await service.find_token(token)
+    if found.parsed is None:
+        click.echo(f"Not a token in the configured format ({found.format})")
+    else:
+        parsed = found.parsed
+        click.echo(f"Type: {parsed.type}  Namespace: {parsed.namespace}  Id: {parsed.identifier}")
+    if not found.sessions:
+        click.echo(f"Not found in any session (vault: {service.vault_type})", err=True)
+        sys.exit(1)
+    for s in found.sessions:
+        original = s.mapping[token]
+        click.echo("")
+        click.echo(f"Session: {s.session_id}")
+        click.echo(f"  Value:       {original if reveal else _mask(original)}")
+        click.echo(f"  Created:     {_ts(s.created_at)}")
+        click.echo(f"  Last active: {_ts(s.updated_at)}")
+        expires = _ts(s.updated_at + found.ttl) if found.ttl else "never (no vault.ttl)"
+        click.echo(f"  Expires:     {expires}")
+    if not reveal:
+        click.echo("")
+        click.echo("(value masked; pass --reveal to show it)")
 
 
 def _mask(value: str) -> str:

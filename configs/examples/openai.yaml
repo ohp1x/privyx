@@ -1,6 +1,6 @@
 # Example: a proxy in front of OpenAI
 #
-#   privyx proxy -c configs/examples/openai.yaml
+#   privyx -c configs/examples/openai.yaml proxy
 #   OPENAI_BASE_URL=http://127.0.0.1:8000/v1 python app.py    # any OpenAI client
 #
 # `privyx run codex` needs no config for this: its profile picks OpenAI.

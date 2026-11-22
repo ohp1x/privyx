@@ -32,7 +32,7 @@ from privyx.app._build import build_engine
 from privyx.config.defaults import DEFAULTS
 from privyx.config.schema import Settings
 from privyx.core import Context, Detection, Exchange, Session
-from privyx.detectors import Detector, YamlDetector
+from privyx.detectors import Detector, RegexDetector
 from privyx.detectors._cache import CachedDetector
 from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
@@ -222,7 +222,9 @@ async def pattern_costs(body: bytes, iterations: int) -> dict[str, Any]:
     await transform_request(json.loads(body), engine, session.session_id, session=session)
     result = {}
     for entity, pattern in DEFAULT_PATTERNS.items():
-        detector = YamlDetector(patterns={entity: pattern}, underscore_separates_words=False)
+        detector = RegexDetector(
+            builtins=False, patterns={entity: pattern}, underscore_separates_words=False
+        )
         context = Context()
         samples = []
         count = 0

@@ -12,7 +12,7 @@ import pytest
 
 from privyx.agents import ClaudeAgent, CodexAgent, EnvAgent, OllamaAgent, PiAgent
 from privyx.anchors import HMACAnchor
-from privyx.detectors import LLMDetector, PresidioDetector, RegexDetector, YamlDetector
+from privyx.detectors import LLMDetector, PresidioDetector, RegexDetector
 from privyx.dialects import (
     AnthropicDialect,
     EmbeddingsDialect,
@@ -131,9 +131,13 @@ class TestRegexDetector(DetectorSuite):
     }
 
 
-class TestYamlDetector(DetectorSuite):
-    component = YamlDetector
-    options = {"terms": {"PROJECT": ["kestrel"]}, "patterns": {"TICKET": r"\bT-\d{4}\b"}}
+class TestRegexDetectorWithoutBuiltins(DetectorSuite):
+    component = RegexDetector
+    options = {
+        "builtins": False,
+        "terms": {"PROJECT": ["kestrel"]},
+        "patterns": {"TICKET": r"\bT-\d{4}\b"},
+    }
     samples = {"the kestrel launch, ticket T-1234": ["kestrel", "T-1234"]}
 
 

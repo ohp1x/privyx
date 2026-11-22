@@ -127,44 +127,48 @@ async def build_vault(settings: Settings, app: Privyx | None = None) -> tuple[Va
 
 
 def build_detector(
-    sections: DetectorConfig | Mapping[str, Any] | list[DetectorConfig] | list[Mapping[str, Any]],
-    app: Privyx | None = None,
+    sections: Mapping[str, DetectorConfig | Mapping[str, Any]], app: Privyx | None = None
 ) -> Detector:
-    """Build the detector of ``sections``: one, or a list run together.
+    """Build the detectors of ``sections``, by name, the ones that are on run together.
 
-    A section is a :class:`DetectorConfig` or a mapping of one.  Each takes the
-    ``cache`` it sets, so a list caches each detector on its own.
+    An entry is a :class:`DetectorConfig` or a mapping of one; its type is its
+    name's without a ``type``.  Each takes the ``cache`` it sets, so a list
+    caches each detector on its own.
 
     Raises:
-        ConfigError: If the list is empty, a type is unknown, or an option invalid.
+        ConfigError: If no detector is on, a type is unknown, or an option invalid.
     """
     from privyx.detectors._cache import CachedDetector
     from privyx.detectors._composite import CompositeDetector
 
     app = _app(app)
-    items = [
-        item if isinstance(item, DetectorConfig) else DetectorConfig.model_validate(item)
-        for item in (sections if isinstance(sections, list) else [sections])
-    ]
-    if not items:
-        # No detector means nothing is ever pseudonymized — fail loudly.
-        raise ConfigError("detector list must not be empty")
     detectors: list[Detector] = []
-    for index, section in enumerate(items):
-        where = "detector" if not isinstance(sections, list) else f"detector[{index}]"
-        detector: Detector = _build(app, Detector, section, where)
+    for name, entry in sections.items():
+        section = (
+            entry
+            if isinstance(entry, DetectorConfig)
+            else DetectorConfig.model_validate({"type": name, **entry})
+        )
+        if not section.type:
+            section = section.model_copy(update={"type": name})
+        if not section.enabled:
+            continue
+        detector: Detector = _build(app, Detector, section, f"detectors.{name}")
         cache = section.cache
         enabled = cache if isinstance(cache, bool) else cache.enabled
         if enabled:
             size = 10000 if isinstance(cache, bool) else cache.max_size
             detector = CachedDetector(detector, max_size=size)
         detectors.append(detector)
+    if not detectors:
+        # No detector means nothing is ever pseudonymized — fail loudly.
+        raise ConfigError("no detector is on: turn one on under 'detectors'")
     return detectors[0] if len(detectors) == 1 else CompositeDetector(detectors)
 
 
 def build_detector_from(settings: Settings, app: Privyx | None = None) -> Detector:
-    """Build the configured detector (a composite when a list is configured)."""
-    return build_detector(settings.detector, app)
+    """Build the configured detectors, run together when more than one is on."""
+    return build_detector(settings.detectors, app)
 
 
 def build_policy_from(settings: Settings, app: Privyx | None = None) -> Policy:
@@ -255,10 +259,7 @@ async def build_engine(
         audit=audit,
         dlp_check=settings.proxy.dlp_check,
         underscore_separates_words=any(
-            d.underscore_separates_words
-            for d in (
-                settings.detector if isinstance(settings.detector, list) else [settings.detector]
-            )
+            d.underscore_separates_words for d in settings.active_detectors.values()
         ),
     )
 
@@ -276,8 +277,8 @@ def _app(app: Privyx | None) -> Privyx:
 
 
 def _options(section: PluggableConfig) -> dict[str, Any]:
-    """The options a section gives its type: every key but ``type``."""
-    return section.model_dump(exclude={"type"})
+    """The options a section gives its type: every key but ``type`` and ``enabled``."""
+    return section.model_dump(exclude={"type", "enabled"})
 
 
 def _build[C: Component](app: Privyx, kind: type[C], section: PluggableConfig, setting: str) -> C:

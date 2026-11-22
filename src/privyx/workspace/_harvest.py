@@ -233,11 +233,14 @@ def harvest(settings: Settings, root: Path) -> str:
     # Literal and case-sensitive, as a secret is: the fastest regex to search.
     patterns = {e: "|".join(sorted(v, key=lambda p: (-len(p), p))) for e, v in values.items()}
     if terms or patterns:
-        current = settings.detector if isinstance(settings.detector, list) else [settings.detector]
-        added = DetectorConfig.model_validate(
-            {"type": "yaml", "terms": terms, "patterns": patterns}
+        name = next(
+            n
+            for n in ("harvest", *(f"harvest-{i}" for i in range(2, 100)))
+            if n not in settings.detectors
         )
-        settings.detector = [*current, added]
+        settings.detectors[name] = DetectorConfig.model_validate(
+            {"type": "regex", "builtins": False, "terms": terms, "patterns": patterns}
+        )
     counts = [f"{len(v)} {entity}" for entity, v in sorted(terms.items())]
     counts.append(f"{sum(map(len, values.values()))} .env value(s)")
     return ", ".join(counts)

@@ -7,17 +7,18 @@ import tracemalloc
 
 import pytest
 
+from privyx import load_config
 from privyx.app._build import build_detector, build_detector_from
-from privyx.config.env import env_config
-from privyx.config.schema import DetectorConfig, Settings
+from privyx.config.schema import DetectorCacheConfig, DetectorConfig, Settings
 from privyx.core import Context
-from privyx.detectors import RegexDetector, YamlDetector
+from privyx.detectors import RegexDetector
 from privyx.detectors._cache import CachedDetector
 
 
 @pytest.mark.asyncio
 async def test_cached_detector_hits_and_misses() -> None:
-    inner = YamlDetector(
+    inner = RegexDetector(
+        builtins=False,
         patterns={"EMAIL": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"},
         underscore_separates_words=False,
     )
@@ -49,7 +50,9 @@ async def test_cached_detector_hits_and_misses() -> None:
 
 @pytest.mark.asyncio
 async def test_cached_detector_lru_eviction() -> None:
-    inner = YamlDetector(patterns={"WORD": r"\btest\b"}, underscore_separates_words=False)
+    inner = RegexDetector(
+        builtins=False, patterns={"WORD": r"\btest\b"}, underscore_separates_words=False
+    )
     cached = CachedDetector(inner, max_size=2)
     ctx = Context()
 
@@ -75,8 +78,10 @@ async def test_cached_detector_lru_eviction() -> None:
 
 
 def test_cached_detector_sync() -> None:
-    inner = YamlDetector(
-        patterns={"IP": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"}, underscore_separates_words=False
+    inner = RegexDetector(
+        builtins=False,
+        patterns={"IP": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"},
+        underscore_separates_words=False,
     )
     cached = CachedDetector(inner, max_size=10)
     ctx = Context()
@@ -95,7 +100,8 @@ def test_cached_detector_sync() -> None:
 
 @pytest.mark.asyncio
 async def test_cached_detector_empty_detection_cached() -> None:
-    inner = YamlDetector(
+    inner = RegexDetector(
+        builtins=False,
         patterns={"EMAIL": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"},
         underscore_separates_words=False,
     )
@@ -114,7 +120,8 @@ async def test_cached_detector_empty_detection_cached() -> None:
 
 
 def test_cached_detector_clear_and_properties() -> None:
-    inner = YamlDetector(
+    inner = RegexDetector(
+        builtins=False,
         patterns={"EMAIL": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"},
         underscore_separates_words=False,
     )
@@ -137,7 +144,11 @@ def test_cached_detector_clear_and_properties() -> None:
 
 def test_cache_does_not_keep_the_texts_it_saw() -> None:
     cached = CachedDetector(
-        YamlDetector(patterns={"EMAIL": r"u\d+@example\.com"}, underscore_separates_words=False),
+        RegexDetector(
+            builtins=False,
+            patterns={"EMAIL": r"u\d+@example\.com"},
+            underscore_separates_words=False,
+        ),
         max_size=100,
     )
     tracemalloc.start()
@@ -155,7 +166,9 @@ def test_cache_does_not_keep_the_texts_it_saw() -> None:
 
 def test_cache_takes_text_with_a_lone_surrogate() -> None:
     cached = CachedDetector(
-        YamlDetector(patterns={"EMAIL": r"u@example\.com"}, underscore_separates_words=False),
+        RegexDetector(
+            builtins=False, patterns={"EMAIL": r"u@example\.com"}, underscore_separates_words=False
+        ),
         max_size=10,
     )
     text = json.loads('"\\ud800 mail u@example.com"')  # valid JSON, not valid UTF-8
@@ -187,39 +200,38 @@ def test_detector_config_cache_coercion() -> None:
 
 def test_build_detector_cache_handling() -> None:
     # Explicit cache=True
-    d_cached = build_detector({"type": "regex", "cache": True})
+    d_cached = build_detector({"regex": {"cache": True}})
     assert isinstance(d_cached, CachedDetector)
     assert d_cached.max_size == 10000
 
     # Explicit cache=False
-    d_raw = build_detector({"type": "regex", "cache": False})
+    d_raw = build_detector({"regex": {"cache": False}})
     assert not isinstance(d_raw, CachedDetector)
     assert isinstance(d_raw, RegexDetector)
 
     # Explicit cache dict
-    d_custom = build_detector({"type": "regex", "cache": {"enabled": True, "max_size": 500}})
+    d_custom = build_detector({"regex": {"cache": {"enabled": True, "max_size": 500}}})
     assert isinstance(d_custom, CachedDetector)
     assert d_custom.max_size == 500
 
     # Explicit cache disabled dict
-    d_disabled = build_detector({"type": "regex", "cache": {"enabled": False}})
+    d_disabled = build_detector({"regex": {"cache": {"enabled": False}}})
     assert not isinstance(d_disabled, CachedDetector)
 
     # Build from settings
-    s_enabled = Settings(detector=DetectorConfig(cache=True))
+    s_enabled = Settings(detectors={"regex": DetectorConfig(cache=True)})
     d_from_s = build_detector_from(s_enabled)
     assert isinstance(d_from_s, CachedDetector)
 
-    s_disabled = Settings(detector=DetectorConfig(cache=False))
+    s_disabled = Settings(detectors={"regex": DetectorConfig(cache=False)})
     d_from_s_dis = build_detector_from(s_disabled)
     assert not isinstance(d_from_s_dis, CachedDetector)
 
 
-def test_env_detector_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PRIVYX_DETECTOR_CACHE", "false")
-    cfg = env_config()
-    assert cfg.get("detector", {}).get("cache") is False
+@pytest.mark.parametrize("variable", ["PRIVYX_DETECTOR_CACHE", "PRIVYX_DETECTORS__REGEX__CACHE"])
+def test_env_detector_cache(monkeypatch: pytest.MonkeyPatch, variable: str) -> None:
+    monkeypatch.setenv(variable, "false")
+    assert load_config().detectors["regex"].cache == DetectorCacheConfig(enabled=False)
 
-    monkeypatch.setenv("PRIVYX_DETECTOR_CACHE", "1")
-    cfg = env_config()
-    assert cfg.get("detector", {}).get("cache") is True
+    monkeypatch.setenv(variable, "1")
+    assert load_config().detectors["regex"].cache == DetectorCacheConfig(enabled=True)

@@ -64,14 +64,15 @@ def scan(path: Path, yes: bool, dry_run: bool) -> None:
         click.echo(f"{added.include_error}; fix it to use {TERMS_FILE}.", err=True)
     elif not added.included:
         click.echo(f"Add {TERMS_FILE} to the include list of {found.config_file} to use it.")
-    elif added.detector_list:
+    elif added.terms_unused:
         click.echo(
-            f"{found.config_file} gives detector as a list, which replaces the terms it "
-            f"includes; move the terms of {TERMS_FILE} into that list.",
+            f"{found.config_file} leaves out the terms it includes (a detector list, or "
+            f"detectors.regex turned off); move the terms of {TERMS_FILE} to a detector "
+            "that is on.",
             err=True,
         )
     if added.untrusted:
-        click.echo(f"Run `privyx trust` in {found.root} to use it.")
+        click.echo(f"Run `privyx config trust` in {found.root} to use it.")
 
 
 def _numbers(text: str, count: int) -> set[int]:

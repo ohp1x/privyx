@@ -32,8 +32,7 @@ TERMS = {"terms": {"PERSON": [NAME], "PROJECT": ["kestrel"]}}
 def _settings(**token: Any) -> Settings:
     return Settings(
         token={"label_format": LABELED, **token},
-        detector=TERMS,
-        audit={"enabled": False},
+        detectors={"regex": TERMS},
         anchor={"secret": ""},  # counter tokens, which the tests name
     )
 
@@ -70,7 +69,7 @@ async def test_labels_are_the_same_in_every_request() -> None:
 
 
 async def test_without_label_format_nothing_changes() -> None:
-    settings = Settings(detector=TERMS, audit={"enabled": False}, anchor={"secret": ""})
+    settings = Settings(detectors={"regex": TERMS}, anchor={"secret": ""})
     engine = await _engine(settings)
     masked = await engine.transform(f"{NAME} wrote to {EMAIL}")
     assert masked.text == "<PRIVYX_PERSON_1> wrote to <PRIVYX_EMAIL_2>"
@@ -107,7 +106,7 @@ async def test_an_unusable_label_setting_fails_at_startup(
     override: dict[str, Any], message: str
 ) -> None:
     with pytest.raises(ConfigError, match=message):
-        await build_engine(Settings(audit={"enabled": False}, **override))
+        await build_engine(Settings(**override))
 
 
 async def _labeled(
@@ -196,8 +195,7 @@ async def test_labels_follow_the_locale() -> None:
         Settings(
             token={"label_format": LABELED},
             operator={"locale": "id_ID", "seed": 3},
-            detector=TERMS,
-            audit={"enabled": False},
+            detectors={"regex": TERMS},
         )
     )
     session = await engine.get_or_create_session()
@@ -235,8 +233,7 @@ def _upstream(seen: list[dict[str, Any]]) -> httpx.AsyncClient:
 async def _apps(seen: list[dict[str, Any]], **proxy: Any) -> list[Any]:
     settings = Settings(
         token={"label_format": LABELED},
-        detector=TERMS,
-        audit={"enabled": False},
+        detectors={"regex": TERMS},
         proxy=proxy,
     )
     engine = await _engine(settings)

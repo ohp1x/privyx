@@ -1,4 +1,4 @@
-"""The pattern engine of the ``regex`` and ``yaml`` detectors.
+"""The pattern engine of the ``regex`` detector.
 
 The built-in entity patterns and the checks their matches must pass, the
 compiling of ``terms`` and ``patterns`` from a config into one pattern per
@@ -154,7 +154,7 @@ DEFAULT_PATTERNS: dict[str, str] = {
 OPTIONAL_PATTERNS: dict[str, str] = dict(catalog.OPTIONAL_PATTERNS)
 
 #: The built-ins ``enable`` accepts: the opt-in ones, and the checked ones a
-#: ``yaml`` detector lacks (a no-op in a ``regex`` detector, which has them).
+#: detector with ``builtins: false`` lacks (a no-op in one that has them).
 ENABLEABLE_PATTERNS: dict[str, str] = {**catalog.CHECKED_PATTERNS, **OPTIONAL_PATTERNS}
 
 
@@ -536,7 +536,7 @@ def _builtins(config: dict[str, Any]) -> dict[str, str]:
 
 def _pattern_options(config: dict[str, Any], patterns: dict[str, str]) -> dict[str, Any]:
     """The ``context``, ``entropy_threshold``, ``decode``, ``normalize``, and
-    ``underscore`` of a regex or yaml detector."""
+    ``underscore`` of a regex detector."""
     context = config.get("context") or {}
     unknown = sorted(set(context) - patterns.keys())
     if unknown:

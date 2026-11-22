@@ -42,9 +42,8 @@ async def test_harvest_masks_identity_in_safeguards(
     settings = Settings()
     if harvest:
         assert workspace.harvest(settings, Path.cwd()) == "1 PERSON, 0 .env value(s)"
-    configs = settings.detector if isinstance(settings.detector, list) else [settings.detector]
     engine = PrivacyEngine(
-        detector=build_detector([d.model_dump() for d in configs]),
+        detector=build_detector(settings.detectors),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),

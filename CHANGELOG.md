@@ -12,15 +12,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Config:** `operator.id_length` sets how many hex characters the id of an anchored `pseudonym`, an `encrypt`, or a `hash` token keeps, and `operator.text` what `redact` writes
 - **CLI:** `privyx features list` shows the optional features (`audit`, `metrics`, `tracing`, `directive`, `cache_control`, `budget`) and whether the config switches each on; `--events` adds the events each one listens to
 - **Plugins:** (experimental) a plugin can add agent types, secret resolvers (`secrets`), API dialects, and features. A feature hears a request before and after it is masked, and may change it, refuse it, or answer it there; it cannot write a credential header, and one that fails refuses the request. `privyx.testing` has a conformance suite for each
+- **Config:** the settings are grouped into `server` (`host`, `port`, `tls`, `workers`), `log` (`level`, `format`, `file`), `detectors` (named, each on or off; a `regex` one leaves out the built-in patterns with `builtins: false`), and `features` (such as `features.audit.path` and `features.audit.prices`); the traffic tap is `proxy.tap`
+- **Config:** every setting has an environment variable, `PRIVYX_` and its path with `__` between the names, such as `PRIVYX_SERVER__PORT`. A name that is no setting is an error, and so is an older variable given with a different value
+- **CLI:** `privyx config` has the subcommands `get`, `set`, `unset`, `explain`, `show`, `path`, `schema`, `validate`, `migrate`, `edit`, `trust`, `lint`, and `routes`. `set` and `unset` write `~/.privyx/settings.yaml`, or `.privyx/settings.yaml` with `--project`, which wins over the files written by hand beside it
+- **CLI:** `--json` on `doctor`, `run --dry-run`, `run --list`, `session list`, `audit stats`, `features list`, `plugin list`, `config get`, and `config explain`
+- **CLI:** `privyx features enable` and `disable` switch a feature from the next start, `privyx plugin list` names what each plugin adds, `privyx session token` shows what a token stands for, and `privyx detect --pattern` and `--entity` check a regex
+- **Proxy:** `server.workers`, or `privyx proxy --workers N`, serves with several processes, on a vault they share (`sqlite` or `redis`)
+- **Plugins:** (experimental) a listener hears `config.changed` when `privyx config` or `privyx features` writes a setting, with its key and file, never its value
 
 ### Changed
 
 - **Config:** `PRIVYX_PROVIDER` and `--provider` pick a named provider. `PRIVYX_PROVIDER`, and the `provider` a config file picks, no longer change the provider of a `privyx run` profile that names its own; `--provider` still does
 - **CLI:** `privyx run --dry-run` prints the profile's `Type:` where it printed `Adapter:`
+- **CLI:** `-c` and `--preset` are written before the command, as in `privyx -c FILE proxy`, and every command takes them
+- **CLI:** `privyx --help` and `--version` answer about four times faster, since they no longer load the commands
+- **CLI:** `privyx run --dry-run` names a setting by its new path, as in `Source server.host:`
 
 ### Deprecated
 
 - **Config:** `upstream_url` (write `provider.base_url`), `provider.openai_api_key`, `anthropic_api_key`, and `google_api_key` (write `providers.<name>.api_key`), `proxy.forward_client_auth`, `path_mapping`, `timeout`, `connect_timeout`, and `max_connections` (write them under `provider`), `token.id_length` and `operator.length` (write `operator.id_length`), `operator.token` (write `operator.text`), operator type `hash` (use `pseudonym` with `anchor.secret`), and an agent profile's `adapter` (write `type`) still work with a warning, and are removed in 0.4.0
+- **Config:** `host`, `port`, `tls`, `log_level`, `logging`, `log_file`, `detector`, detector type `yaml`, `audit`, `tracing`, `proxy.directive`, and `proxy.cache_control` keep working with a warning until 0.4.0. `privyx config migrate` prints a file with the new keys, and `--write` rewrites it, keeping a backup
+- **CLI:** `privyx pipe` (now `mask --stream` and `unmask --stream`), `install-hook` (`hook install`), `trust` and `lint` (`config trust`, `config lint`), `inspect` (`config routes`, `detect --pattern`, `session show`, `session token`), `config --show`, `--sources`, `--path`, and `--schema`, and `-c` or `--preset` after the command keep working with a warning until 0.4.0
 
 ### Fixed
 

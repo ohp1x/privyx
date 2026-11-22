@@ -1,6 +1,6 @@
 # Example: a proxy in front of Anthropic
 #
-#   privyx proxy -c configs/examples/anthropic.yaml
+#   privyx -c configs/examples/anthropic.yaml proxy
 #   ANTHROPIC_BASE_URL=http://127.0.0.1:8000 claude    # or any Anthropic client
 #
 # `privyx run claude` needs no config for this: its profile picks Anthropic.

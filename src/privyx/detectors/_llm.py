@@ -212,8 +212,8 @@ class LLMDetector(Detector):
 
     async def detect(self, text: str, context: Context) -> Detection:
         try:
-            # ponytail: every chunk is sent at once; bound it with a semaphore
-            # if a provider starts rate-limiting long prompts.
+            # Every chunk is sent at once; bound it with a semaphore if a
+            # provider starts rate-limiting long prompts.
             async with asyncio.timeout(self._timeout), asyncio.TaskGroup() as group:
                 tasks = [
                     group.create_task(self._scan(offset, chunk, context))
@@ -243,8 +243,8 @@ class LLMDetector(Detector):
     async def _scan(self, offset: int, chunk: str, context: Context) -> Detection:
         prompt = f"{self._instructions}\n\nTEXT:\n{chunk}"
         response = await self._loaded().complete(prompt)
-        # ponytail: ~4 characters per token, the same for every client; read
-        # the SDK's usage fields instead if billing needs exact numbers.
+        # About 4 characters per token, the same for every client; read the
+        # SDK's usage fields instead if billing needs exact numbers.
         context.counters["llm_calls"] += 1
         context.counters["llm_input_tokens"] += len(prompt) // 4
         context.counters["llm_output_tokens"] += len(response) // 4

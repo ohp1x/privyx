@@ -36,7 +36,7 @@ class MemoryVault(Vault):
         self._lock = asyncio.Lock()
 
     def _evict_expired(self) -> None:
-        # ponytail: O(n) sweep on every call; fine for a dev/single-process vault.
+        # An O(n) sweep on every call: fine for a dev or single-process vault.
         if self.options.ttl is None:
             return
         cutoff = time.time() - self.options.ttl

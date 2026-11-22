@@ -1,6 +1,6 @@
 """`privyx audit` command group — summarize and follow the audit trail.
 
-Reads the JSONL file at ``audit.path`` (or a FILE argument), so the common
+Reads the JSONL file at ``features.audit.path`` (or a FILE argument), so the common
 questions need no ``jq``.  The trail holds counts and entity types only, and
 these commands print nothing more than it does.
 """
@@ -19,8 +19,8 @@ from typing import Any, TextIO
 
 import click
 
+from privyx.cli._options import config_options, json_option
 from privyx.cli.commands.session import _duration, _ts
-from privyx.cli.config import config_options
 
 _FILE = click.argument("file", required=False, type=click.Path(dir_okay=False, path_type=Path))
 _ENVELOPE = frozenset({"schema_version", "time", "ts", "event", "request_id", "session_id"})
@@ -28,7 +28,10 @@ _ENVELOPE = frozenset({"schema_version", "time", "ts", "event", "request_id", "s
 
 @click.group("audit")
 def audit() -> None:
-    """Summarize and follow the audit trail (FILE defaults to audit.path)."""
+    """Summarize and follow the audit trail.
+
+    FILE defaults to features.audit.path.
+    """
 
 
 @audit.command("stats")
@@ -37,18 +40,35 @@ def audit() -> None:
 @click.option(
     "--since", callback=_duration, help="Only count events from the last 30m, 12h, 7d, 2w."
 )
-def stats(file: Path | None, config_path: str | None, since: int | None) -> None:
+@json_option
+def stats(file: Path | None, since: int | None, as_json: bool) -> None:
     """Summarize requests, errors, sessions, and masked entity types."""
     from privyx.app import Privyx
     from privyx.core import PrivyxError
 
     try:
-        found = Privyx(config_path).audit.totals(file, since=since)
+        found = Privyx().audit.totals(file, since=since)
     except (PrivyxError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     path, totals, skipped = found.path, found.stats, found.skipped
 
     events = totals.events
+    if as_json:
+        summary = {
+            "path": str(path),
+            "first": totals.first_ts,
+            "last": totals.last_ts,
+            "events": dict(events),
+            "errors": dict(totals.errors),
+            "entities": dict(totals.entities),
+            "restored": totals.restored,
+            "tokens": dict(totals.tokens),
+            "detector": dict(totals.detector),
+            "response_ms": totals.response_ms,
+            "skipped": skipped,
+        }
+        click.echo(json.dumps(summary, indent=2))
+        return
     if not events:
         click.echo(f"No audit events in {path}")
     else:
@@ -92,12 +112,12 @@ def stats(file: Path | None, config_path: str | None, since: int | None) -> None
     show_default=True,
     help="Keep printing events as they are written (Ctrl-C to stop).",
 )
-def tail(file: Path | None, config_path: str | None, lines: int, follow: bool) -> None:
+def tail(file: Path | None, lines: int, follow: bool) -> None:
     """Print recent audit events one readable line each, then follow new ones."""
-    path, fh = _open_log(file, config_path)
+    path, fh = _open_log(file)
     with fh:
-        # ponytail: reads the whole file to reach the last N lines; seek from
-        # the end instead if logs grow to gigabytes.
+        # Reads the whole file to reach the last N lines; seek from the end
+        # instead if logs grow to gigabytes.
         for line in deque(fh, maxlen=max(lines, 0)):
             click.echo(_pretty(line))
         if not follow:
@@ -132,8 +152,8 @@ def tail(file: Path | None, config_path: str | None, lines: int, follow: bool) -
     show_default=True,
     help="Keep showing records as they are written (Ctrl-C to stop).",
 )
-def watch(session_id: str | None, config_path: str | None, lines: int, follow: bool) -> None:
-    """Show what masking changed in each exchange, from the tap (audit.tap).
+def watch(session_id: str | None, lines: int, follow: bool) -> None:
+    """Show what masking changed in each exchange, from the tap (proxy.tap).
 
     One SESSION_ID, or every session.  Removed text is shown as [-...-], added
     text as {+...+}.  The tap holds original values, and so does this output.
@@ -141,13 +161,13 @@ def watch(session_id: str | None, config_path: str | None, lines: int, follow: b
     from privyx.app import Privyx
     from privyx.core import PrivyxError
 
-    audit = Privyx(config_path).audit
+    audit = Privyx().audit
     try:
         tapping = audit.tapping
     except PrivyxError as exc:
         raise click.ClickException(str(exc)) from exc
     if not tapping:
-        click.echo("audit.tap is off: nothing new is recorded (set audit.tap: true)", err=True)
+        click.echo("proxy.tap is off: nothing new is recorded (set proxy.tap: true)", err=True)
 
     def new_records() -> list[dict[str, Any]]:
         records = _read_new(audit.tap_files(session_id), offsets)
@@ -326,12 +346,12 @@ def _sse_text(text: str) -> str:
     return "".join(parts)
 
 
-def _open_log(file: Path | None, config_path: str | None) -> tuple[Path, TextIO]:
+def _open_log(file: Path | None) -> tuple[Path, TextIO]:
     from privyx.app import Privyx
     from privyx.core import PrivyxError
 
     try:
-        path = Privyx(config_path).audit.path(file)
+        path = Privyx().audit.path(file)
         return path, path.open(encoding="utf-8", errors="replace")
     except (PrivyxError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc

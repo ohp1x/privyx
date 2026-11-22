@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from privyx import load_config
-from privyx.config.env import env_config
-from privyx.config.schema import Settings, TLSConfig
+from privyx.config.schema import ServerConfig, Settings, TLSConfig
 
 
 def test_tls_config_defaults() -> None:
@@ -16,44 +15,51 @@ def test_tls_config_defaults() -> None:
     assert tls.certfile == ""
     assert tls.keyfile == ""
     assert not tls.enabled
-
-    settings = Settings()
-    assert not settings.is_tls
+    assert not Settings().server.tls.enabled
 
 
 def test_tls_config_enabled_when_both_set() -> None:
     tls = TLSConfig(certfile="/path/to/cert.pem", keyfile="/path/to/key.pem")
     assert tls.enabled
-
-    settings = Settings(tls=tls)
-    assert settings.is_tls
+    assert Settings(server=ServerConfig(tls=tls)).server.tls.enabled
 
 
-def test_tls_env_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PRIVYX_SSL_CERTFILE", "/path/to/cert.pem")
-    monkeypatch.setenv("PRIVYX_SSL_KEYFILE", "/path/to/key.pem")
-    monkeypatch.setenv("PRIVYX_SSL_KEYFILE_PASSWORD", "secret")
-    monkeypatch.setenv("PRIVYX_SSL_CA_CERTS", "/path/to/ca.pem")
+@pytest.mark.parametrize("prefix", ["SSL", "TLS", "SERVER__TLS_"])
+def test_tls_env_config(monkeypatch: pytest.MonkeyPatch, prefix: str) -> None:
+    for name, value in (
+        ("CERTFILE", "/path/to/cert.pem"),
+        ("KEYFILE", "/path/to/key.pem"),
+        ("KEYFILE_PASSWORD", "secret"),
+        ("CA_CERTS", "/path/to/ca.pem"),
+    ):
+        monkeypatch.setenv(f"PRIVYX_{prefix}_{name}", value)
 
-    cfg = env_config()
-    assert cfg["tls"]["certfile"] == "/path/to/cert.pem"
-    assert cfg["tls"]["keyfile"] == "/path/to/key.pem"
-    assert cfg["tls"]["keyfile_password"] == "secret"
-    assert cfg["tls"]["ca_certs"] == "/path/to/ca.pem"
+    tls = load_config().server.tls
 
-    settings = load_config()
-    assert settings.is_tls
-    assert settings.tls.certfile == "/path/to/cert.pem"
-    assert settings.tls.keyfile == "/path/to/key.pem"
+    assert tls.enabled
+    assert (tls.certfile, tls.keyfile) == ("/path/to/cert.pem", "/path/to/key.pem")
+    assert (tls.keyfile_password, tls.ca_certs) == ("secret", "/path/to/ca.pem")
 
 
 def test_tls_yaml_config(tmp_path: Path) -> None:
     cfg_file = tmp_path / "privyx_tls.yaml"
     cfg_file.write_text(
-        "tls:\n  certfile: /etc/ssl/cert.pem\n  keyfile: /etc/ssl/key.pem\n",
+        "server:\n  tls:\n    certfile: /etc/ssl/cert.pem\n    keyfile: /etc/ssl/key.pem\n",
         encoding="utf-8",
     )
-    settings = load_config(cfg_file)
-    assert settings.is_tls
-    assert settings.tls.certfile == "/etc/ssl/cert.pem"
-    assert settings.tls.keyfile == "/etc/ssl/key.pem"
+    tls = load_config(cfg_file).server.tls
+    assert tls.enabled
+    assert (tls.certfile, tls.keyfile) == ("/etc/ssl/cert.pem", "/etc/ssl/key.pem")
+
+
+def test_top_level_tls_is_read_with_a_warning(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "privyx_tls.yaml"
+    cfg_file.write_text(
+        "tls:\n  certfile: /etc/ssl/cert.pem\n  keyfile: /etc/ssl/key.pem\n", encoding="utf-8"
+    )
+    warnings: list[str] = []
+
+    tls = load_config(cfg_file, warnings=warnings).server.tls
+
+    assert tls.certfile == "/etc/ssl/cert.pem"
+    assert warnings == ["'tls' is deprecated; write 'server.tls' (removed in 0.4.0)"]

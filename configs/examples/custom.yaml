@@ -1,7 +1,7 @@
 # Example: a router or other OpenAI/Anthropic-compatible endpoint
 #
-#   privyx proxy -c configs/examples/custom.yaml
-#   privyx run -c configs/examples/custom.yaml --provider router claude
+#   privyx -c configs/examples/custom.yaml proxy
+#   privyx -c configs/examples/custom.yaml run --provider router claude
 #
 # The transparent proxy forwards to the origin of `base_url` and keeps the
 # client's own path.  Requests on the paths in `proxy.routes` are masked.

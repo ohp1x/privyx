@@ -312,7 +312,7 @@ def test_run_strips_base_path_and_follows_endpoint_with_path(
 
 def test_run_dry_run_routes_grok_with_and_without_prefix(tmp_path: Path) -> None:
     def route(*config: str) -> str:
-        result = CliRunner().invoke(cli, ["run", *config, "--dry-run", "grok"])
+        result = CliRunner().invoke(cli, [*config, "run", "--dry-run", "grok"])
         assert result.exit_code == 0, result.output
         return next(line for line in result.output.splitlines() if line.startswith("Routing:"))
 

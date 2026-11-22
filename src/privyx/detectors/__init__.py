@@ -10,23 +10,27 @@ from privyx.detectors._base import Detector
 if TYPE_CHECKING:
     from privyx import Privyx
     from privyx.detectors._llm import LLMDetector
+    from privyx.detectors._pattern import DEFAULT_PATTERNS
     from privyx.detectors._presidio import PresidioDetector
-    from privyx.detectors._regex import RegexDetector, YamlDetector
+    from privyx.detectors._regex import RegexDetector
 
-__all__ = ["Detector", "LLMDetector", "PresidioDetector", "RegexDetector", "YamlDetector"]
+__all__ = ["DEFAULT_PATTERNS", "Detector", "LLMDetector", "PresidioDetector", "RegexDetector"]
 
 #: The built-ins by type name, imported only when chosen.
 _BUILTINS = {
     "regex": "privyx.detectors._regex:RegexDetector",
-    "yaml": "privyx.detectors._regex:YamlDetector",
     "presidio": "privyx.detectors._presidio:PresidioDetector",
     "llm": "privyx.detectors._llm:LLMDetector",
 }
 
 
+#: The built-in patterns of the ``regex`` detector, by entity.
+_LAZY = {**_BUILTINS, "DEFAULT_PATTERNS": "privyx.detectors._pattern:DEFAULT_PATTERNS"}
+
+
 def __getattr__(name: str) -> Any:
     """PEP 562: ``from privyx.detectors import RegexDetector`` imports it on first use."""
-    return lazy_attribute(name, _BUILTINS, __name__)
+    return lazy_attribute(name, _LAZY, __name__)
 
 
 def setup(app: Privyx) -> None:

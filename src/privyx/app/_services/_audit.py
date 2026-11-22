@@ -35,17 +35,17 @@ class Audit:
 
     @property
     def enabled(self) -> bool:
-        """Whether the audit trail is written (``audit.enabled``)."""
-        return bool(self._app.settings.audit.enabled)
+        """Whether the audit trail is written (``features.audit``)."""
+        return "audit" in self._app.features.configured()
 
     @property
     def tapping(self) -> bool:
-        """Whether the tap records each masked exchange (``audit.tap``)."""
-        return bool(self._app.settings.audit.tap)
+        """Whether the tap records each masked exchange (``proxy.tap``)."""
+        return bool(self._app.settings.proxy.tap)
 
     def path(self, file: Path | None = None) -> Path:
-        """``file``, or the configured ``audit.path``."""
-        return file or Path(os.path.expanduser(self._app.settings.audit.path))
+        """``file``, or the configured ``features.audit.path``."""
+        return file or Path(os.path.expanduser(self._app.features.options("audit").path))
 
     def totals(self, file: Path | None = None, *, since: float | None = None) -> Totals:
         """The totals of the trail, of the last ``since`` seconds when given.
@@ -94,7 +94,7 @@ class Audit:
         """The tap files of ``session_id``, or of every session."""
         from privyx.proxy._tap import tap_file
 
-        directory = Path(os.path.expanduser(self._app.settings.audit.tap_dir))
+        directory = Path(os.path.expanduser(self._app.settings.proxy.tap_dir))
         if session_id is not None:
             return [tap_file(directory, session_id)]
         return sorted(directory.glob("*.jsonl")) if directory.is_dir() else []

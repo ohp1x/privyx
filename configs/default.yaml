@@ -4,8 +4,14 @@
 # this file as it is changes nothing.  Copy it to ~/.privyx/config.yaml (or a
 # project's privyx.yaml) and uncomment only what you want to change.
 #
-# Precedence: defaults < global file < trusted project files < environment
-# (PRIVYX_*) < CLI flags.  Reference docs: docs/guide/configuration.md.
+# Precedence: defaults < ~/.privyx/config.yaml < ~/.privyx/settings.yaml <
+# trusted project files (privyx.yaml, .privyx/config.yaml, then
+# .privyx/settings.yaml) < environment < CLI flags.  `privyx config set`
+# writes the settings.yaml files; it never changes a file written by hand.
+# Reference docs: docs/guide/configuration.md.
+#
+# Every setting has an environment variable: PRIVYX_ and its path with __
+# between the names, such as PRIVYX_SERVER__PORT or PRIVYX_FEATURES__DIRECTIVE.
 #
 # Any value may be ${NAME} or ${NAME:-fallback}, read from the environment.
 # Credential settings (api_key, secret, headers, env, ...) may also name a
@@ -17,15 +23,24 @@
 # include: []
 
 # --- Server and logging ---
-# host: 127.0.0.1
-# port: 8000
-# log_level: info          # debug | info | warning | error
-# logging: text            # console format: text | json
-# Debug log file (or PRIVYX_LOG_FILE).  It also receives third-party logs at
-# log_level.  At debug it holds raw vault rows (original values): it is
-# created 0600, keep it local. On POSIX, existing files must belong to you
-# with no permissions beyond 0600, or startup fails (fix with chmod 600).
-# log_file: ""
+# server:
+#   host: 127.0.0.1
+#   port: 8000
+#   workers: 1             # processes; more than one needs a sqlite or redis vault
+#   tls:                   # HTTPS when certfile and keyfile are set
+#     certfile: ""
+#     keyfile: ""
+#     keyfile_password: ""
+#     ca_certs: ""
+#
+# log:
+#   level: info            # debug | info | warning | error
+#   format: text           # console format: text | json
+#   # Debug log file.  It also receives third-party logs at log.level.  At
+#   # debug it holds raw vault rows (original values): it is created 0600,
+#   # keep it local.  On POSIX, an existing file must belong to you with no
+#   # permissions beyond 0600, or startup fails (fix with chmod 600).
+#   file: ""
 
 # --- Agent launch profiles (`privyx run NAME`) ---
 # Built-in profiles: claude, codex, openai, aider, pi, opencode, gemini, ollama,
@@ -40,7 +55,7 @@
 # agents:
 #
 # Named sets of Privyx settings, applied by an agent profile's presets list or
-# by --preset NAME on any command.  A preset takes any setting but agents,
+# by `privyx --preset NAME`.  A preset takes any setting but agents,
 # presets, include, provider, and providers.  Example:
 # {strict: {proxy: {passthrough_unknown: false}}}
 # presets: {}
@@ -95,15 +110,8 @@
 #   passthrough_unknown: true   # false: paths not in routes get 403
 #   dlp_check: true        # mask copies of masked values, refuse if one is left
 #                          # exact signed thinking remembered from upstream is exempt
-#   directive: false       # tell the model to keep placeholders as written
-#   cache_control: false   # mark a large Anthropic tools/system prefix for caching
-
-# --- TLS (HTTPS when certfile and keyfile are set) ---
-# tls:
-#   certfile: ""
-#   keyfile: ""
-#   keyfile_password: ""
-#   ca_certs: ""
+#   tap: false             # each masked exchange before and after masking; holds originals
+#   tap_dir: ~/.privyx/tap
 
 # --- Vault ---
 # Where sessions and their mappings live.
@@ -122,51 +130,54 @@
 # session:
 #   strategy: ephemeral
 
-# --- Detector ---
-# What counts as sensitive.  One mapping, or a list of them whose findings are
-# pooled.  The regex built-ins cover EMAIL, PHONE, CREDIT_CARD, IP_ADDRESS, SSN,
-# API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN, URL_CREDENTIAL, SECRET, crypto wallets,
-# and national IDs.  Each type
-# uses only its own settings below, plus cache and underscore_separates_words;
-# Privyx refuses the others.
-# detector:
-#   type: regex            # regex | yaml | presidio (privyx[presidio]) | llm
-#   # regex, yaml
-#   # Entity -> regex, merged over the built-ins.  A (?P<value>...) group masks
-#   # only that part.  Example, EMPLOYEE_ID: '\bEMP-\d{6}\b'
-#   patterns: {}
-#   # Entity -> literal strings, matched case-insensitively with word
-#   # boundaries.  Example, PERSON: [ann, bob].
-#   terms: {}
-#   merge_terms: true      # match terms and patterns for the same entity, terms first
-#   term_variants: true    # "Acme Corp" also matches acme-corp, acme_corp, ...
-#   underscore_separates_words: true  # acme is found in ACME_API_KEY
-#   # Entity -> words; a match counts only with one within five words.
-#   context: {}
-#   # Opt-in built-ins: HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10.  A yaml
-#   # detector also takes CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN, MY_NRIC,
-#   # ES_NIF, ES_NIE, UK_NHS, and IN_AADHAAR, which regex has built in.
-#   enable: []
-#   disable: []            # built-ins to turn off; inactive opt-in names are accepted too
-#   entropy_threshold: 3.0 # HIGH_ENTROPY: bits per character
-#   decode: false          # also scan split strings and Base64/hex/URL encoding
-#   normalize: false       # also scan fullwidth and zero-width characters folded
-#   cache:                 # or true / false
+# --- Detectors ---
+# What counts as sensitive: the detectors, run in this order, their findings
+# pooled.  An entry's type is its name unless it writes `type`, and `false`
+# turns it off (`regex: false`), so a second regex detector is written
+# `regex-2: {type: regex, ...}`.  The regex built-ins cover EMAIL, PHONE,
+# CREDIT_CARD, IP_ADDRESS, SSN, API_KEY, JWT, PRIVATE_KEY, AUTH_TOKEN,
+# URL_CREDENTIAL, SECRET, crypto wallets, and national IDs.  Each type uses
+# only its own settings below, plus enabled, cache, and
+# underscore_separates_words; Privyx refuses the others.
+# detectors:
+#   regex:
 #     enabled: true
-#     max_size: 10000
-#   # presidio
-#   language: en
-#   model: ""              # spaCy model; empty: {language}_core_web_sm
-#   entities: []           # empty: every recognizer
-#   score_threshold: 0.35
-#   # llm
-#   llm_provider: openai   # openai | anthropic
-#   llm_model: ""          # empty: a small default model per provider
-#   llm_api_key: ""        # empty: the SDK's own environment variable
-#   llm_instructions: ""   # empty: the built-in prompt
-#   llm_timeout: 30.0
-#   llm_max_chars: 4000
-#   llm_fallback_on_error: false  # true: built-in patterns when the LLM fails
+#     builtins: true       # false: only the patterns and terms below, and `enable`
+#     # Entity -> regex, merged over the built-ins.  A (?P<value>...) group masks
+#     # only that part.  Example, EMPLOYEE_ID: '\bEMP-\d{6}\b'
+#     patterns: {}
+#     # Entity -> literal strings, matched case-insensitively with word
+#     # boundaries.  Example, PERSON: [ann, bob].  `privyx scan` writes here.
+#     terms: {}
+#     merge_terms: true    # match terms and patterns for the same entity, terms first
+#     term_variants: true  # "Acme Corp" also matches acme-corp, acme_corp, ...
+#     underscore_separates_words: true  # acme is found in ACME_API_KEY
+#     # Entity -> words; a match counts only with one within five words.
+#     context: {}
+#     # Opt-in built-ins: HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10.  With
+#     # builtins: false, also CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN,
+#     # MY_NRIC, ES_NIF, ES_NIE, UK_NHS, and IN_AADHAAR.
+#     enable: []
+#     disable: []          # built-ins to turn off; inactive opt-in names are accepted too
+#     entropy_threshold: 3.0  # HIGH_ENTROPY: bits per character
+#     decode: false        # also scan split strings and Base64/hex/URL encoding
+#     normalize: false     # also scan fullwidth and zero-width characters folded
+#     cache:               # or true / false
+#       enabled: true
+#       max_size: 10000
+#   presidio:              # privyx[presidio]
+#     language: en
+#     model: ""            # spaCy model; empty: {language}_core_web_sm
+#     entities: []         # empty: every recognizer
+#     score_threshold: 0.35
+#   llm:
+#     llm_provider: openai # openai | anthropic
+#     llm_model: ""        # empty: a small default model per provider
+#     llm_api_key: ""      # empty: the SDK's own environment variable
+#     llm_instructions: "" # empty: the built-in prompt
+#     llm_timeout: 30.0
+#     llm_max_chars: 4000
+#     llm_fallback_on_error: false  # true: built-in patterns when the LLM fails
 
 # --- Policy ---
 # Which detections are masked: default masks all, strict only `allowed`.
@@ -204,24 +215,31 @@
 #   # <PRIVYX_PERSON_A81B3C9AEE08DE11:Alice Johnson>; restored by the id, never by the label.
 #   label_format: ""       # needs {id} and {label}; empty is off
 
-# --- Audit ---
-# PII-safe trail: entity types and counts, never content, as JSON lines.
-# audit:
-#   enabled: true
-#   path: ~/.privyx/audit.log
-#   tap: false             # each masked exchange before and after masking; holds originals
-#   tap_dir: ~/.privyx/tap
-#   # Model-id prefix -> USD per million tokens, for `privyx session show`.
-#   # Example, claude-sonnet: {input: 3, output: 15}
-#   prices: {}
-
-# --- Tracing (OpenTelemetry, privyx[otel]; exporter set by OTEL_* variables) ---
-# tracing:
-#   enabled: false
+# --- Features ---
+# Optional behavior, each on or off: `true`, `false`, or its options (on
+# unless they say enabled: false).  `privyx features list` shows them, and
+# `privyx features enable NAME` switches one on in ~/.privyx/settings.yaml.
+# features:
+#   # PII-safe trail: entity types and counts, never content, as JSON lines.
+#   audit:
+#     enabled: true
+#     path: ~/.privyx/audit.log
+#     # Model-id prefix -> USD per million tokens, for `privyx session show`.
+#     # Example, claude-sonnet: {input: 3, output: 15}
+#     prices: {}
+#   metrics: true          # counters at GET /metrics
+#   tracing: false         # OpenTelemetry spans (privyx[otel]; exporter set by OTEL_*)
+#   directive: false       # tell the model to keep placeholders as written
+#   cache_control: false   # mark a large Anthropic tools/system prefix for caching
+#   # A `privyx run` profile's budget (agents.<name>.budget) switches it on.
+#   budget:
+#     max_turns: null
+#     max_tokens: null
+#     profile: ""          # the profile named in the audit trail and the refusal
 
 # --- Plugins ---
-# Directories or .py files whose components become selectable as a `type`,
-# and modules (installed packages) whose setup(px) adds them.
+# Directories or .py files, and modules (installed packages), whose setup(app)
+# adds components that become selectable as a `type`.
 # plugins:
 #   enabled: true
 #   paths: []

@@ -1,4 +1,4 @@
-"""`privyx install-hook` and `privyx hook` — keep secrets and placeholders out of git."""
+"""`privyx hook` — git hooks that keep secrets and placeholders out of git."""
 
 from __future__ import annotations
 
@@ -8,13 +8,20 @@ from typing import TYPE_CHECKING
 
 import click
 
+from privyx.cli._options import deprecated
+
 if TYPE_CHECKING:
     from privyx.app import Privyx
 
 
-@click.command("install-hook")
-def install_hook() -> None:
-    """Install git hooks that stop a commit holding a secret or a Privyx placeholder.
+@click.group()
+def hook() -> None:
+    """Git hooks that stop a commit holding a secret or a Privyx placeholder."""
+
+
+@hook.command("install")
+def install() -> None:
+    """Install the git hooks in this repository.
 
     pre-commit checks the staged changes, commit-msg the commit message.  A
     hook that is already there is left alone: add the `privyx hook` line it
@@ -34,9 +41,12 @@ def install_hook() -> None:
         sys.exit(1)
 
 
-@click.group()
-def hook() -> None:
-    """The checks the hooks of `privyx install-hook` run."""
+@click.command("install-hook", hidden=True)
+@click.pass_context
+def install_hook(ctx: click.Context) -> None:
+    """Install the git hooks (use `privyx hook install`)."""
+    deprecated("`privyx install-hook`", "`privyx hook install`")
+    ctx.invoke(install)
 
 
 @hook.command("pre-commit")

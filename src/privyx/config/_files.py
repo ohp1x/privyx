@@ -1,9 +1,11 @@
 """The config files read: which ones, whether a local one is trusted, and reading one.
 
-``~/.privyx/config.yaml``, then the working directory's ``privyx.yaml`` and
-``.privyx/config.yaml`` once ``privyx trust`` recorded them, or the one file
-named with ``--config``.  The files a config file names in ``include`` come
-just below it.
+``~/.privyx/config.yaml`` and ``~/.privyx/settings.yaml``, then the working
+directory's ``privyx.yaml``, ``.privyx/config.yaml``, and
+``.privyx/settings.yaml`` once ``privyx config trust`` recorded them, or the
+one file named with ``--config``.  The files a config file names in
+``include`` come just below it.  A ``settings.yaml`` is the one ``privyx
+config set`` writes, so it wins over the files written by hand beside it.
 """
 
 from __future__ import annotations
@@ -14,12 +16,13 @@ import json
 import logging
 import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
-from privyx.config.env import discovery_disabled
+from privyx.config._env import discovery_disabled
 from privyx.core import ConfigError
 
 _log = logging.getLogger("privyx")
@@ -39,16 +42,35 @@ def _home_file(name: str) -> Path | None:
 def find_local_configs() -> list[Path]:
     """The working directory's own config files, low → high precedence.
 
-    ``privyx.yaml``, then ``.privyx/config.yaml``.  In the home directory the
-    second is ``~/.privyx/config.yaml`` itself, and is left out.
+    ``privyx.yaml``, ``.privyx/config.yaml``, then ``.privyx/settings.yaml``.
+    In the home directory the last two are the user's own files, and are left out.
     """
     cwd = Path.cwd()
-    home_config = _home_file("config.yaml")
+    home = [_home_file(name) for name in ("config.yaml", "settings.yaml")]
+    homes = {path.resolve() for path in home if path is not None}
     return [
         path
-        for path in (cwd / "privyx.yaml", cwd / ".privyx" / "config.yaml")
-        if path.is_file() and not (home_config and path.resolve() == home_config.resolve())
+        for path in (
+            cwd / "privyx.yaml",
+            cwd / ".privyx" / "config.yaml",
+            cwd / ".privyx" / "settings.yaml",
+        )
+        if path.is_file() and path.resolve() not in homes
     ]
+
+
+def managed_file(scope: str) -> Path:
+    """The file ``privyx config set`` writes in ``scope``: ``user`` or ``project``.
+
+    Raises:
+        ConfigError: If the user has no home directory.
+    """
+    if scope == "project":
+        return Path.cwd() / ".privyx" / "settings.yaml"
+    path = _home_file("settings.yaml")
+    if path is None:
+        raise ConfigError("no home directory to keep ~/.privyx/settings.yaml in")
+    return path
 
 
 def _read_bytes(path: Path) -> bytes:
@@ -75,7 +97,7 @@ def _fingerprint(path: Path) -> str:
 
 
 def _trusted() -> dict[str, str]:
-    """The files ``privyx trust`` recorded: resolved path → SHA-256 of the content."""
+    """The files ``privyx config trust`` recorded: resolved path → SHA-256 of the content."""
     store = _home_file("trusted.json")
     try:
         trusted = json.loads(store.read_text(encoding="utf-8")) if store else {}
@@ -114,8 +136,8 @@ def _config_paths(path: str | Path | None) -> tuple[list[Path], list[Path]]:
         return [Path(named)], []
     if discovery_disabled():
         return [], []
-    home_config = _home_file("config.yaml")
-    active = [home_config] if home_config and home_config.is_file() else []
+    home = [_home_file(name) for name in ("config.yaml", "settings.yaml")]
+    active = [path for path in home if path is not None and path.is_file()]
     untrusted: list[Path] = []
     for local in find_local_configs():
         (active if is_trusted(local) else untrusted).append(local)
@@ -238,6 +260,24 @@ class _UniqueKeyLoader(yaml.SafeLoader):  # type: ignore[misc]
                 )
             seen.add(key)
         return super().construct_mapping(node, deep)
+
+
+def key_line(path: Path, key: Sequence[str]) -> int | None:
+    """The line of ``path`` that writes ``key``, if it is written there as one mapping per name."""
+    try:
+        node = yaml.compose(path.read_text(encoding="utf-8"), Loader=yaml.SafeLoader)
+    except (OSError, yaml.YAMLError):
+        return None
+    line = None
+    for name in key:
+        if not isinstance(node, yaml.MappingNode):
+            return None
+        found = next((v for k, v in node.value if getattr(k, "value", None) == name), None)
+        if found is None:
+            return None
+        line = next(k for k, v in node.value if v is found).start_mark.line + 1
+        node = found
+    return line
 
 
 def read_yaml(path: Path, *, loader: type[yaml.SafeLoader] = _UniqueKeyLoader) -> dict[str, Any]:

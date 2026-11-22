@@ -96,7 +96,7 @@ def test_only_an_applied_preset_resolves_its_secret_references(
     settings = load_config(cfg, agent="claude")
     assert op == []
     assert settings.presets["anchored"]["anchor"]["secret"] == "op://dev/anthropic/credential"
-    shown = CliRunner().invoke(cli, ["config", "--show", "-c", str(cfg)])
+    shown = CliRunner().invoke(cli, ["-c", str(cfg), "config", "--show"])
     assert "op://" not in shown.output
     assert load_config(cfg, agent="claude", presets=["anchored"]).anchor.secret == KEY
     assert len(op) == 1
@@ -153,7 +153,7 @@ def test_a_resolved_secret_is_masked_in_config_show(
         "provider:\n  api_key: op://dev/anthropic/credential\n"
         "  headers:\n    authorization: op://dev/anthropic/credential\n",
     )
-    out = CliRunner().invoke(cli, ["config", "--show", "-c", str(cfg)]).output
+    out = CliRunner().invoke(cli, ["-c", str(cfg), "config", "show"]).output
     assert KEY not in out
     assert json.loads(out)["provider"]["api_key"] == "***"
 

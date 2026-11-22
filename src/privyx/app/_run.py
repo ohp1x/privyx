@@ -231,7 +231,7 @@ async def run_agent(
             server: Any = uvicorn.Server(
                 uvicorn.Config(
                     asgi,
-                    host=settings.host,
+                    host=settings.server.host,
                     port=port,
                     log_level="warning",  # the tool owns the terminal; stay quiet
                     ws="none",  # a WebSocket upgrade arrives as a plain HTTP request

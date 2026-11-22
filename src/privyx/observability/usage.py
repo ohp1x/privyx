@@ -38,7 +38,7 @@ _DETAILS = ("prompt_tokens_details", "input_tokens_details")
 _MODEL = re.compile(r"[\w.:/@-]{1,128}")
 
 #: Built-in prices in USD per million tokens: input, output, cache read, cache
-#: write (5-minute).  Matched by the longest model-id prefix; ``audit.prices``
+#: write (5-minute).  Matched by the longest model-id prefix; ``features.audit.prices``
 #: adds models or overrides these.  Estimates: check your provider's price list.
 PRICES: dict[str, tuple[float, float, float, float]] = {
     "claude-fable-5-1": (10.0, 50.0, 0.25, 12.5),
@@ -162,7 +162,7 @@ def cost(
 ) -> float | None:
     """Estimated USD cost of ``usage`` on ``model``, or ``None`` for an unknown model.
 
-    ``prices`` (``audit.prices``) are checked before :data:`PRICES`; each entry
+    ``prices`` (``features.audit.prices``) are checked before :data:`PRICES`; each entry
     has ``input`` and ``output``, and optionally ``cache_read`` (default a
     tenth of input) and ``cache_write`` (default 1.25 times input).
     """

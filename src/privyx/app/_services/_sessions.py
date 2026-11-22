@@ -23,6 +23,7 @@ from privyx.core import PrivyxError, Session
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
+    from privyx.token import LogicalToken
     from privyx.vaults import Vault
 
 #: Tap record fields kept in a forensic transcript: never ``before``/``restored``.
@@ -46,7 +47,7 @@ _MASKED_SIDE = (
 class Usage:
     """A session's responses in the audit trail, their tokens and estimated cost by model.
 
-    A model without a price in ``audit.prices`` costs ``None``.
+    A model without a price in ``features.audit.prices`` costs ``None``.
     """
 
     responses: int
@@ -70,6 +71,19 @@ class Exported:
     path: Path
     events: int
     transcript: int
+
+
+@dataclass(frozen=True)
+class TokenFound:
+    """What a token stands for: its parts, if it is one, and the sessions that hold it."""
+
+    #: The token read in the configured format, or ``None`` if it is not one.
+    parsed: LogicalToken | None
+    #: The configured format.
+    format: str
+    sessions: list[Session]
+    #: Seconds an idle session lives, or ``None``: it never expires.
+    ttl: int | None
 
 
 @dataclass(frozen=True)
@@ -98,6 +112,20 @@ class Sessions:
             sessions = await vault.list_sessions()
         return sorted(sessions, key=lambda s: s.updated_at, reverse=True)
 
+    async def find_token(self, token: str) -> TokenFound:
+        """The sessions whose mapping holds ``token``, and the token read in the configured format.
+
+        Raises:
+            PrivyxError: If the vault cannot be opened or listed.
+        """
+        from privyx.app._build import build_codec
+
+        settings = self._app.settings
+        sessions = [s for s in await self.list() if token in s.mapping]
+        parsed = build_codec(settings, self._app).parse(token)
+        ttl = settings.vault.model_dump().get("ttl")
+        return TokenFound(parsed, settings.token.format, sessions, ttl)
+
     async def get(self, session_id: str) -> SessionView:
         """Session ``session_id``: its vault record and its usage, either of them ``None``."""
         async with self._vault() as vault:
@@ -124,9 +152,9 @@ class Sessions:
         from privyx.version import __version__
 
         settings = self._app.settings
-        events = matching_lines(Path(settings.audit.path).expanduser(), session_id)
+        events = matching_lines(self._app.audit.path(), session_id)
         taps = matching_lines(
-            tap_file(Path(settings.audit.tap_dir).expanduser(), session_id), session_id
+            tap_file(Path(settings.proxy.tap_dir).expanduser(), session_id), session_id
         )
         transcript = [{k: t[k] for k in _MASKED_SIDE if k in t} for t in taps]
         if mappings is None and not events and not transcript:
@@ -215,10 +243,9 @@ class Sessions:
 
         ``None`` when the trail is off, missing, or has no response of the session.
         """
-        settings = self._app.settings
-        if not settings.audit.enabled:
+        if not self._app.audit.enabled:
             return None
-        path = Path(os.path.expanduser(settings.audit.path))
+        path = self._app.audit.path()
         responses = [
             e for e in matching_lines(path, session_id) if e.get("event") == "proxy.response"
         ]
@@ -232,7 +259,7 @@ class Sessions:
                 tokens.update({k: v for k, v in usage.items() if isinstance(v, int)})
         from privyx.observability.usage import cost
 
-        prices = settings.audit.prices
+        prices = self._app.features.options("audit").prices
         return Usage(
             len(responses),
             {model: dict(tokens) for model, tokens in by_model.items()},

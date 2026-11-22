@@ -50,7 +50,7 @@ def test_dry_run_is_side_effect_free(
     monkeypatch.setattr("sys.dont_write_bytecode", True)  # importing the plugin writes nothing
     before = set(tmp_path.rglob("*")) | set(home.rglob("*"))
     result = CliRunner().invoke(
-        cli, ["run", "-c", str(config), "--dry-run", "work", "--", "--flag", "value with spaces"]
+        cli, ["-c", str(config), "run", "--dry-run", "work", "--", "--flag", "value with spaces"]
     )
     assert result.exit_code == 0, result.output
     assert "Command: not-installed --flag 'value with spaces'" in result.output
@@ -86,7 +86,7 @@ def test_profile_alias_keeps_command_type(tmp_path: Path) -> None:
         "agents:\n  work:\n    command: claude\n    provider: anthropic\n"
         "    env_vars: [ANTHROPIC_BASE_URL]\n"
     )
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--dry-run", "work"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "work"])
     assert result.exit_code == 0, result.output
     assert "Command: claude --settings" in result.output
 
@@ -101,9 +101,9 @@ def test_cli_overrides_profile_and_environment(
     result = CliRunner().invoke(
         cli,
         [
-            "run",
             "-c",
             str(config),
+            "run",
             "--dry-run",
             "codex",
             "--provider",
@@ -148,9 +148,9 @@ def test_dry_run_masks_credentials(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         cli,
         [
-            "run",
             "-c",
             str(config),
+            "run",
             "--dry-run",
             "aider",
             "--",
@@ -177,7 +177,7 @@ def test_dry_run_masks_credentials(tmp_path: Path) -> None:
     ):
         assert secret not in result.output
     assert "router.example" in result.output
-    shown = CliRunner().invoke(cli, ["config", "--show", "-c", str(config)])
+    shown = CliRunner().invoke(cli, ["-c", str(config), "config", "show"])
     assert shown.exit_code == 0
     assert "url-password-value" not in shown.output
     assert "query-secret" not in shown.output
@@ -212,7 +212,7 @@ def test_command_preview_masks_key_flags_and_handles_invalid_urls() -> None:
 def test_list_includes_profiles(tmp_path: Path) -> None:
     config = tmp_path / "custom.yaml"
     config.write_text("agents:\n  work:\n    command: work-tool\n    env_vars: [WORK_BASE_URL]\n")
-    result = CliRunner().invoke(cli, ["run", "-c", str(config), "--list"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--list"])
     assert result.exit_code == 0, result.output
     assert "work" in result.output and "WORK_BASE_URL" in result.output
     assert "claude" in result.output

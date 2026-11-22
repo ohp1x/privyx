@@ -229,7 +229,7 @@ async def test_a_file_adds_a_component_of_each_kind(tmp_path: Path) -> None:
     paths = [str(_write(tmp_path, "kinds.py", KINDS))]
     settings = Settings(
         plugins={"paths": paths},
-        detector={"type": "license_plate"},
+        detectors={"license_plate": {"type": "license_plate"}},
         operator={"type": "uppercase"},
         policy={"type": "allow_all"},
         provider={"type": "echo"},
@@ -237,7 +237,7 @@ async def test_a_file_adds_a_component_of_each_kind(tmp_path: Path) -> None:
     )
     app = load_plugins(settings)
 
-    detection = await build_detector(settings.detector, app).detect("car PLATE", Context())
+    detection = await build_detector(settings.detectors, app).detect("car PLATE", Context())
     assert [s.entity_type for s in detection.spans] == ["LICENSE_PLATE"]
     assert type(build_operator(settings, app)).name == "uppercase"
     assert type(build_policy_from(settings, app)).name == "allow_all"
@@ -360,10 +360,10 @@ async def test_a_plugin_vault_is_opened_and_closed(tmp_path: Path) -> None:
 def test_options_check_the_plugin_options(tmp_path: Path) -> None:
     app = _loaded(tmp_path)
 
-    detector = build_detector({"type": "acme_id", "region": "US", "cache": False}, app)
+    detector = build_detector({"acme_id": {"region": "US", "cache": False}}, app)
     assert detector.options.region == "US"  # type: ignore[attr-defined]
     # The options of the built-in types are not the plugin's: left out, not refused.
-    detector = build_detector({"type": "acme_id", "terms": {"X": ["y"]}, "cache": False}, app)
+    detector = build_detector({"acme_id": {"terms": {"X": ["y"]}, "cache": False}}, app)
     assert type(detector).name == "acme_id"
 
 
@@ -371,12 +371,13 @@ def test_a_misspelled_plugin_option_names_the_key_not_the_value(tmp_path: Path) 
     app = _loaded(tmp_path)
 
     with pytest.raises(ConfigError) as caught:
-        build_detector({"type": "acme_id", "regoin": "sk-" + "secret-value"}, app)
+        build_detector({"acme_id": {"regoin": "sk-" + "secret-value"}}, app)
     assert str(caught.value) == (
-        "unknown setting 'detector.regoin' (did you mean 'region'?) for detector type 'acme_id'"
+        "unknown setting 'detectors.acme_id.regoin' (did you mean 'region'?) "
+        "for detector type 'acme_id'"
     )
-    with pytest.raises(ConfigError, match=r"invalid setting 'detector.region'") as caught:
-        build_detector({"type": "acme_id", "region": "sk-" + "secret-value"}, app)
+    with pytest.raises(ConfigError, match=r"invalid setting 'detectors.acme_id.region'") as caught:
+        build_detector({"acme_id": {"region": "sk-" + "secret-value"}}, app)
     assert "secret-value" not in str(caught.value)
 
 
@@ -412,34 +413,36 @@ def test_a_layer_that_changes_type_drops_the_plugin_options_below(
 ) -> None:
     (home / ".privyx").mkdir()
     (home / ".privyx" / "config.yaml").write_text(
-        json.dumps({"detector": {"type": "acme_id", "region": "EU"}}), encoding="utf-8"
+        json.dumps({"detectors": {"own": {"type": "acme_id", "region": "EU"}}}), encoding="utf-8"
     )
     monkeypatch.setenv("PRIVYX_DETECTOR_CACHE", "false")
 
-    settings = load_config(extra={"detector": {"type": "regex"}})
+    own = load_config(extra={"detectors": {"own": {"type": "regex"}}}).detectors["own"]
 
-    assert settings.detector.type == "regex"  # type: ignore[union-attr]
-    assert "region" not in (settings.detector.model_extra or {})  # type: ignore[union-attr]
+    assert own.type == "regex"
+    assert "region" not in (own.model_extra or {})
 
 
 def test_a_layer_that_keeps_the_type_keeps_the_plugin_options(home: Path) -> None:
     (home / ".privyx").mkdir()
     (home / ".privyx" / "config.yaml").write_text(
-        json.dumps({"detector": {"type": "acme_id", "region": "EU", "terms": {"P": ["kestrel"]}}}),
+        json.dumps(
+            {"detectors": {"own": {"type": "acme_id", "region": "EU", "terms": {"P": ["kestrel"]}}}}
+        ),
         encoding="utf-8",
     )
 
-    kept = load_config(extra={"detector": {"type": "acme_id", "prefix": "X"}}).detector
-    regex = load_config(extra={"detector": {"type": "regex"}}).detector
+    kept = load_config(extra={"detectors": {"own": {"type": "acme_id", "prefix": "X"}}})
+    regex = load_config(extra={"detectors": {"own": {"type": "regex"}}})
 
     # The terms stay as well: a built-in type's option, which the plugin is not given.
-    assert kept.model_extra == {  # type: ignore[union-attr]
+    assert kept.detectors["own"].model_extra == {
         "region": "EU",
         "prefix": "X",
         "terms": {"P": ["kestrel"]},
     }
     # Options some built-in type takes still merge, as in earlier releases.
-    assert regex.model_dump()["terms"] == {"P": ["kestrel"]}  # type: ignore[union-attr]
+    assert regex.detectors["own"].model_dump()["terms"] == {"P": ["kestrel"]}
 
 
 def test_options_below_the_default_type_are_kept_for_the_type_above(
@@ -512,7 +515,7 @@ def test_a_provider_gets_the_resolved_url_and_key(tmp_path: Path) -> None:
 
 
 def test_doctor_loads_plugins_from_modules(bundle: str) -> None:
-    from privyx.cli.commands.doctor import _check_plugins
+    from privyx.app._services._diagnostics import _check_plugins
 
     ok, detail = _check_plugins(Settings(plugins={"modules": [bundle]}), Privyx())
     assert ok and "bundle" in detail
@@ -529,11 +532,12 @@ def _valid(schema: dict[str, Any], data: dict[str, Any]) -> bool:
 def test_the_schema_checks_each_builtin_type_and_leaves_plugins_open() -> None:
     schema = json_schema()
 
-    assert not _valid(schema, {"detector": {"type": "regex", "regoin": "EU"}})
+    assert not _valid(schema, {"detectors": {"regex": {"regoin": "EU"}}})
     assert not _valid(schema, {"vault": {"dsnn": "x"}})  # the default type is built in
-    assert not _valid(schema, {"detector": [{"type": "regex"}, {"type": "yaml", "regoin": 1}]})
-    assert _valid(schema, {"detector": {"type": "acme_id", "region": "EU"}})
-    assert _valid(schema, {"detector": {"type": "${DETECTOR}", "region": "EU"}})
+    assert not _valid(schema, {"detectors": {"own": {"type": "regex", "regoin": 1}}})
+    assert _valid(schema, {"detectors": {"own": {"type": "acme_id", "region": "EU"}}})
+    assert _valid(schema, {"detectors": {"acme_id": {"region": "EU"}}})
+    assert _valid(schema, {"detectors": {"own": {"type": "${DETECTOR}", "region": "EU"}}})
 
 
 def test_the_schema_with_loaded_plugins_closes_type_and_checks_their_options(
@@ -541,11 +545,12 @@ def test_the_schema_with_loaded_plugins_closes_type_and_checks_their_options(
 ) -> None:
     schema = json_schema(_loaded(tmp_path))
 
-    assert _valid(schema, {"detector": {"type": "acme_id", "region": "US", "cache": False}})
-    assert not _valid(schema, {"detector": {"type": "acme_id", "regoin": "US"}})
-    assert not _valid(schema, {"detector": {"type": "acme_id", "region": "Mars"}})
-    assert not _valid(schema, {"detector": {"type": "acme"}})  # a misspelled type
-    assert _valid(schema, {"detector": {"type": "${DETECTOR}"}})
+    assert _valid(schema, {"detectors": {"acme_id": {"region": "US", "cache": False}}})
+    assert _valid(schema, {"detectors": {"own": {"type": "acme_id", "region": "US"}}})
+    assert not _valid(schema, {"detectors": {"acme_id": {"regoin": "US"}}})
+    assert not _valid(schema, {"detectors": {"acme_id": {"region": "Mars"}}})
+    assert not _valid(schema, {"detectors": {"own": {"type": "acme"}}})  # a misspelled type
+    assert _valid(schema, {"detectors": {"own": {"type": "${DETECTOR}"}}})
     assert _valid(schema, {"operator": {"type": "seen"}})
 
 
@@ -561,8 +566,8 @@ def test_config_schema_adds_the_plugins_the_config_loads(tmp_path: Path) -> None
     from privyx.cli.main import cli
 
     config = _config(tmp_path, {"plugins": {"paths": [str(_write(tmp_path, "p.py", CONFIGURED))]}})
-    plain = CliRunner().invoke(cli, ["config", "--schema"])
-    loaded = CliRunner().invoke(cli, ["config", "--schema", "-c", str(config)])
+    plain = CliRunner().invoke(cli, ["config", "schema"])
+    loaded = CliRunner().invoke(cli, ["-c", str(config), "config", "schema"])
 
     assert json.loads(plain.output) == json_schema()
     detector = json.loads(loaded.output)["$defs"]["DetectorConfig"]
@@ -586,7 +591,7 @@ def test_config_schema_asks_no_password_manager(
     config = _config(
         tmp_path, {"plugins": {"paths": paths}, "provider": {"api_key": "op://vault/item/key"}}
     )
-    result = CliRunner().invoke(cli, ["config", "--schema", "-c", str(config)])
+    result = CliRunner().invoke(cli, ["-c", str(config), "config", "schema"])
 
     detector = json.loads(result.output)["$defs"]["DetectorConfig"]
     assert "acme_id" in detector["properties"]["type"]["anyOf"][0]["enum"]
@@ -811,11 +816,11 @@ async def test_both_apps_serve_plugin_routes_before_their_own() -> None:
     # A plugin cannot take /health from Privyx.
     router.add_api_route("/health", lambda: {"status": "plugin"})
 
-    settings = Settings(audit={"enabled": False})
+    settings = Settings()
     engine, close = await build_engine(settings)
     proxy = build_pipeline(settings, engine, GenericProvider())
     transparent = create_app(proxy, settings, router)
-    gateway_settings = Settings(proxy={"mode": "gateway"}, audit={"enabled": False})
+    gateway_settings = Settings(proxy={"mode": "gateway"})
     provider = GenericProvider(base_url="https://up.test/v1/chat/completions")
     gateway_pipeline = build_pipeline(gateway_settings, engine, provider)
     gateway = create_app(gateway_pipeline, gateway_settings, router)
@@ -837,7 +842,7 @@ async def test_engine_uses_the_components_added_in_code(tmp_path: Path) -> None:
     from privyx.core import Detection
 
     config = _config(tmp_path, {"detector": [{"type": "regex"}, {"type": "codeword"}]})
-    px = Privyx(config, audit={"enabled": False}, anchor={"secret": ""})  # counter tokens
+    px = Privyx(config, anchor={"secret": ""})  # counter tokens
 
     @px.add
     class CodewordDetector(Detector):
@@ -859,9 +864,9 @@ async def test_engine_uses_the_components_added_in_code(tmp_path: Path) -> None:
 
 
 def test_overrides_win_over_the_config_file(tmp_path: Path) -> None:
-    px = Privyx(_config(tmp_path, {"port": 9001, "log_level": "debug"}), port=9002)
-    settings = px.settings
-    assert (settings.port, settings.log_level) == (9002, "debug")
+    config = _config(tmp_path, {"server": {"port": 9001}, "log": {"level": "debug"}})
+    settings = Privyx(config, server={"port": 9002}).settings
+    assert (settings.server.port, settings.log.level) == (9002, "debug")
 
 
 def test_serve_serves_the_proxy_with_routes_and_listeners(
@@ -873,7 +878,7 @@ def test_serve_serves_the_proxy_with_routes_and_listeners(
         answers.append((await _get(server.config.app, "/acme/ping")).json())
 
     monkeypatch.setattr("privyx.app._serve.serve_until", serve)
-    config = _config(tmp_path, {"plugins": {"modules": [bundle]}, "audit": {"enabled": False}})
+    config = _config(tmp_path, {"plugins": {"modules": [bundle]}, "features": {"audit": False}})
 
     Privyx(config).serve()
 
@@ -890,7 +895,7 @@ def test_a_starting_listener_that_fails_stops_the_server(
         served.append(True)
 
     monkeypatch.setattr("privyx.app._serve.serve_until", serve)
-    px = Privyx(_config(tmp_path, {"audit": {"enabled": False}}))
+    px = Privyx(_config(tmp_path, {"features": {"audit": False}}))
     stopped: list[str] = []
 
     @px.on(AppStarting)
@@ -913,7 +918,7 @@ DEFAULTS_PLUGIN = """
 def setup(app):
     app.defaults(
         agents={"goose": {"command": "goose", "provider": "openai", "env_vars": ["OPENAI_HOST"]}},
-        presets={"quiet": {"log_level": "warning"}},
+        presets={"quiet": {"log": {"level": "warning"}}},
     )
 """
 
@@ -928,7 +933,7 @@ def test_plugin_defaults_sit_below_every_config_file(tmp_path: Path) -> None:
 
     goose = settings.agents["goose"]
     assert (goose.command, goose.provider, goose.env_vars) == ("g2", "openai", ["OPENAI_HOST"])
-    assert settings.log_level == "warning"
+    assert settings.log.level == "warning"
 
 
 def test_plugin_defaults_cannot_take_a_built_in_profile(tmp_path: Path) -> None:

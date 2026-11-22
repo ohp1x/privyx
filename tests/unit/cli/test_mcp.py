@@ -135,8 +135,6 @@ def config(tmp_path: Path) -> Path:
         "vault:\n"
         "  type: sqlite\n"
         f"  dsn: sqlite+aiosqlite:///{tmp_path / 'privyx.db'}\n"
-        "detector:\n"
-        "  type: regex\n"
         "anchor:\n"  # counter tokens, which the tests name
         "  secret: ''\n",
         encoding="utf-8",
@@ -148,7 +146,7 @@ def _wrap(config: Path, log: Path, *server: str) -> subprocess.Popen[bytes]:
     command = server or (sys.executable, "-c", SERVER, str(log))
     return subprocess.Popen(
         [sys.executable, "-c", "from privyx.cli.main import cli; cli()"]
-        + ["mcp", "wrap", "-c", str(config), "--session", "s1", "--", *command],
+        + ["-c", str(config), "mcp", "wrap", "--session", "s1", "--", *command],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -273,13 +271,13 @@ def test_keeps_the_protocol_version_and_context_in_the_key(tmp_path: Path) -> No
     """With a date pattern and `context` words, as a config may have them."""
     config = tmp_path / "config.yaml"
     config.write_text(
-        "detector:\n"
-        "  type: regex\n"
-        "  patterns:\n"
-        "    DATE: '\\d{4}-\\d{2}-\\d{2}'\n"
-        "    EMPLOYEE_ID: '^EMP\\d{4}$'\n"
-        "  context:\n"
-        "    EMAIL: [owner]\n"
+        "detectors:\n"
+        "  regex:\n"
+        "    patterns:\n"
+        "      DATE: '\\d{4}-\\d{2}-\\d{2}'\n"
+        "      EMPLOYEE_ID: '^EMP\\d{4}$'\n"
+        "    context:\n"
+        "      EMAIL: [owner]\n"
         "anchor:\n"  # counter tokens, which the test names
         "  secret: ''\n",
         encoding="utf-8",
@@ -388,7 +386,7 @@ def test_stops_with_unread_server_output(config: Path, tmp_path: Path, stop: str
     script += "from privyx.cli.main import cli; cli()\n"
     log = tmp_path / "server.log"
     proc = subprocess.Popen(
-        [sys.executable, "-c", script, "mcp", "wrap", "-c", str(config), "--"]
+        [sys.executable, "-c", script, "-c", str(config), "mcp", "wrap", "--"]
         + [sys.executable, "-c", SERVER, str(log)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -456,7 +454,9 @@ def test_shares_the_session_with_another_writer(config: Path, tmp_path: Path) ->
     try:
         time.sleep(1.5)  # past start-up
         other = CliRunner().invoke(
-            cli, ["pipe", "-c", str(config), "--session", "s1"], input="alice@example.com\n"
+            cli,
+            ["-c", str(config), "mask", "--stream", "--session", "s1"],
+            input="alice@example.com\n",
         )
         assert other.stdout == "<PRIVYX_EMAIL_1>\n"
         _send(proc, "tools/call", arguments={"to": "<PRIVYX_EMAIL_1>"})
@@ -562,7 +562,7 @@ def test_a_reply_that_fails_to_mask_is_not_sent(config: Path, tmp_path: Path) ->
     )
     log = tmp_path / "server.log"
     proc = subprocess.Popen(
-        [sys.executable, "-c", script, "mcp", "wrap", "-c", str(config), "--"]
+        [sys.executable, "-c", script, "-c", str(config), "mcp", "wrap", "--"]
         + [sys.executable, "-c", SERVER, str(log)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -595,7 +595,7 @@ async def test_keys_made_one_are_an_error(operator: str, message: dict[str, Any]
 
     settings = Settings.model_validate(
         # Counter tokens, which the pseudonym case names.
-        {"detector": {"type": "regex"}, "operator": {"type": operator}, "anchor": {"secret": ""}}
+        {"operator": {"type": operator}, "anchor": {"secret": ""}}
     )
     engine, close = await build_engine(settings)
     try:
@@ -629,6 +629,6 @@ def test_restored_keys_made_one_stop_the_run(config: Path, tmp_path: Path) -> No
 
 
 def test_missing_command_fails(config: Path) -> None:
-    result = CliRunner().invoke(cli, ["mcp", "wrap", "-c", str(config), "--", "no-such-cmd-x"])
+    result = CliRunner().invoke(cli, ["-c", str(config), "mcp", "wrap", "--", "no-such-cmd-x"])
     assert result.exit_code == 1
     assert "cannot run no-such-cmd-x" in result.output

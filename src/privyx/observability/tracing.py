@@ -1,4 +1,4 @@
-"""OpenTelemetry spans per proxied request, opt-in (``tracing.enabled``).
+"""OpenTelemetry spans per proxied request, opt-in (``features.tracing``).
 
 Needs the ``otel`` extra (``pip install 'privyx[otel]'``); the exporter is set
 by the standard ``OTEL_*`` environment variables (``OTEL_EXPORTER_OTLP_ENDPOINT``,
@@ -51,7 +51,7 @@ def configure(enabled: bool) -> None:
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
     except ImportError as exc:
         raise ConfigError(
-            "tracing.enabled needs OpenTelemetry: pip install 'privyx[otel]'"
+            "features.tracing needs OpenTelemetry: pip install 'privyx[otel]'"
         ) from exc
     name = os.environ.get("OTEL_SERVICE_NAME") or "privyx"
     _provider = TracerProvider(resource=Resource.create({"service.name": name}))

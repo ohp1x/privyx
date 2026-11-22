@@ -7,18 +7,17 @@
 #
 # Every value below is a placeholder — replace it with your own.
 
-detector:
-  type: regex               # keeps the built-in patterns (personal data and secrets)
+detectors:
+  regex:                    # keeps the built-in patterns (personal data and secrets)
+    terms:
+      PERSON:       [ann, bob, annbob]
+      ORGANIZATION: [acme, initech]
+      URL:          ["https://git.internal.example/team"]
+      PROJECT:      [bluebird]          # any entity name works
 
-  terms:
-    PERSON:       [ann, bob, annbob]
-    ORGANIZATION: [acme, initech]
-    URL:          ["https://git.internal.example/team"]
-    PROJECT:      [bluebird]          # any entity name works
-
-  # `terms` and `patterns` are merged, so hand-written regexes still work.
-  patterns:
-    EMPLOYEE_ID: "\\bEMP-\\d{6}\\b"
+    # `terms` and `patterns` are merged, so hand-written regexes still work.
+    patterns:
+      EMPLOYEE_ID: "\\bEMP-\\d{6}\\b"
 
 operator:
   type: pseudonym
