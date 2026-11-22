@@ -110,19 +110,24 @@ async def _proxy(request: Request) -> Any:
             raw_path=(request.scope.get("raw_path") or b"").decode("latin-1") or None,
         )
     )
+    answer: Response
     if reply.stream is not None:
-        return _Streaming(
+        answer = _Streaming(
             reply.stream,
             status_code=reply.status_code,
             headers=reply.headers,
             media_type=reply.media_type,
         )
-    return Response(
-        content=reply.body or b"",
-        status_code=reply.status_code,
-        headers=reply.headers,
-        media_type=reply.media_type,
-    )
+    else:
+        answer = Response(
+            content=reply.body or b"",
+            status_code=reply.status_code,
+            headers=reply.headers,
+            media_type=reply.media_type,
+        )
+    for cookie in reply.set_cookies:
+        answer.headers.append("set-cookie", cookie)
+    return answer
 
 
 class _Streaming(StreamingResponse):

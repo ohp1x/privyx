@@ -167,6 +167,8 @@ class Reply:
     media_type: str | None = None
     body: bytes | None = None
     stream: AsyncIterator[str] | AsyncIterator[bytes] | None = None
+    #: Each ``Set-Cookie`` of the upstream's reply, sent as a header of its own.
+    set_cookies: list[str] = field(default_factory=list)
 
 
 def _error(status: int, body: dict[str, Any], headers: dict[str, str] | None = None) -> Reply:
@@ -793,7 +795,13 @@ class Pipeline:
             await response.aclose()
             if "content-length" in response.headers:
                 headers["content-length"] = response.headers["content-length"]
-            return Reply(response.status_code, headers, content_type or None, b"")
+            return Reply(
+                response.status_code,
+                headers,
+                content_type or None,
+                b"",
+                set_cookies=response.headers.get_list("set-cookie"),
+            )
         if is_stream:
             assert exchange.session is not None
             headers.pop("content-type", None)  # media_type carries it, avoid duplicate
@@ -824,6 +832,7 @@ class Pipeline:
             stream=AuditedStream(
                 chunks, response=response, cleanup=lambda: self._abandon(exchange)
             ),
+            set_cookies=response.headers.get_list("set-cookie"),
         )
 
     @asynccontextmanager
@@ -1060,7 +1069,13 @@ class Pipeline:
                 upstream=_tapped_body(upstream_data),
                 restored=_tapped_body(data),
             )
-        return Reply(response.status_code, headers, content_type or None, data)
+        return Reply(
+            response.status_code,
+            headers,
+            content_type or None,
+            data,
+            set_cookies=response.headers.get_list("set-cookie"),
+        )
 
     async def _restore_chunks(self, exchange: Exchange, chunks: list[Any]) -> list[Any] | None:
         """Restore a stream sent as one JSON array (Gemini's), counted in the audit.

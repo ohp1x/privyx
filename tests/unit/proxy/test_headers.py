@@ -80,3 +80,7 @@ def test_response_headers_drop_encoding_length_and_hop_by_hop() -> None:
     assert "content-length" not in out
     assert "transfer-encoding" not in out
     assert out["x-request-id"] == "r"
+
+
+def test_a_folded_set_cookie_is_not_relayed() -> None:
+    assert "set-cookie" not in filter_response_headers({"Set-Cookie": "a=1, b=2"})

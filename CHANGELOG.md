@@ -55,6 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Detection:** a card number written in groups right after another number, such as `4111-1111-1111-1111` in `row 7 4111-1111-1111-1111` or a card number after a phone number, is masked; before, all of it or its last groups reached the provider unmasked
 - **Detection:** a secret assigned inside a value Privyx leaves as it is, such as `client_secret=…` in `TOKEN_URL=https://auth.example.com/cb?client_secret=…`, is masked; before, the whole value reached the provider unmasked
 - **Detection:** a phone number written in groups right after another number, such as `0812 3456 7890` in `ref 2026 0812 3456 7890`, is masked whole, together with the numbers before it; before, its last group reached the provider unmasked
+- **Proxy:** a cookie an upstream sets is no longer kept and sent on the requests of other clients, which let a provider link them, and each `Set-Cookie` reaches the client as a header of its own instead of one folded line
 
 ## [0.2.3] - 2026-11-20
 
