@@ -46,6 +46,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** a batch reply whose body fails after its headers, such as on a read timeout, is answered `504`, or `502` for another failure, as an upstream that sends no response is, with a `proxy.error` event of phase `upstream`; before, the client got a `500` and the audit trail no error
 - **Vault:** a `vault.dsn` the sqlite vault does not read, such as `sqlite://:memory:` or `file::memory:`, is refused with the forms it takes; before, it became a file of that name in the working directory. `server.workers` above 1 also refuses a sqlite vault in memory (`:memory:`, or an empty path), which each process would keep to itself
 - **Proxy:** with `server.workers` above 1, the proxy warns once at startup that `GET /metrics` counts only the requests of the worker that answers each scrape, and how to scrape every worker or turn the feature off
+- **Config:** a profile on a named provider sends its requests and the client's token to that provider's `base_url` when a common `provider.base_url` is set beside it; before, they went to the common URL. A URL from a later layer, such as `--upstream` or `PRIVYX_UPSTREAM_URL`, still moves it, and now also moves a profile's `upstream` when the profile names no provider of its own
 
 ### Security
 
