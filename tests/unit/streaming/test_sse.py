@@ -102,6 +102,17 @@ def test_sse_decoder_emits_a_cr_terminated_event_at_once() -> None:
     assert [e.data for e in decoder.feed("\n\r\n")] == ["a"]
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_parse_sse_reads_any_line_ending_and_drops_an_unfinished_event(newline: str) -> None:
+    text = newline.join(["data: a", "", "data: b", "", "data: cut"])
+
+    assert [e.data for e in parse_sse(text)] == ["a", "b"]
+
+
+def test_parse_sse_returns_only_events_with_data() -> None:
+    assert parse_sse(": keep-alive\n\nid: 7\n\n") == []
+
+
 def test_sse_decoder_gives_comments_only_when_asked() -> None:
     text = ": one\n\n: two\ndata: a\n\n: three"
 

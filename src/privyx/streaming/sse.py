@@ -43,16 +43,7 @@ def parse_sse(chunk: str) -> list[SSEEvent]:
     partial block is discarded.  For a stream arriving in arbitrary pieces use
     :class:`SSEDecoder`, which carries the remainder across calls.
     """
-    events: list[SSEEvent] = []
-    # SSE events are separated by a blank line.  We split conservatively.
-    blocks = chunk.split("\n\n")
-    # The last block may be incomplete; if the chunk ends with "\n\n" it is
-    # complete.  We don't consume partial trailing blocks.
-    for block in blocks[:-1]:
-        event = _parse_block(block)
-        if event is not None:
-            events.append(event)
-    return events
+    return SSEDecoder().feed(chunk)
 
 
 class SSEDecoder:
