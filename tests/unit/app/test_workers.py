@@ -26,6 +26,42 @@ def test_a_vault_of_one_process_is_refused(monkeypatch: pytest.MonkeyPatch) -> N
         Privyx(server={"workers": 2}, features={"audit": False}).serve()
 
 
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        ":memory:",
+        "sqlite+aiosqlite:///:memory:",
+        "sqlite:///:memory:",
+        "",
+        "sqlite://:memory:",  # not a form the vault reads, as the two below
+        "file::memory:?cache=shared",
+        "sqlite+aiosqlite://",
+    ],
+)
+def test_a_sqlite_vault_of_one_process_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dsn: str
+) -> None:
+    monkeypatch.setattr("uvicorn.run", _never)
+    monkeypatch.chdir(tmp_path)
+    app = Privyx(
+        server={"workers": 2}, vault={"type": "sqlite", "dsn": dsn}, features={"audit": False}
+    )
+    with pytest.raises(ConfigError, match="processes share|not a form the sqlite vault reads"):
+        app.serve()
+    assert list(tmp_path.iterdir()) == []  # no file named after the DSN
+
+
+@pytest.mark.parametrize("dsn", ["{dir}/privyx.db", "privyx.db", "sqlite:///{dir}/privyx.db"])
+def test_a_sqlite_file_is_shared(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dsn: str) -> None:
+    served: list[int] = []
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: served.append(options["workers"]))
+    monkeypatch.setenv("PRIVYX_WORKER", "{}")  # restored when the test ends
+    monkeypatch.chdir(tmp_path)
+    vault = {"type": "sqlite", "dsn": dsn.format(dir=tmp_path)}
+    Privyx(server={"workers": 2, "port": 0}, vault=vault, features={"audit": False}).serve()
+    assert served == [2]
+
+
 def test_a_feature_with_state_in_its_instance_is_refused(
     monkeypatch: pytest.MonkeyPatch, sqlite: dict[str, Any]
 ) -> None:

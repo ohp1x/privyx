@@ -26,7 +26,7 @@
 # server:
 #   host: 127.0.0.1
 #   port: 8000
-#   workers: 1             # processes; more than one needs a sqlite or redis vault
+#   workers: 1             # processes; more than one needs a sqlite file or redis vault
 #   tls:                   # HTTPS when certfile and keyfile are set
 #     certfile: ""
 #     keyfile: ""

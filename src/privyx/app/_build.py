@@ -112,16 +112,24 @@ def build_anchor(settings: Settings, app: Privyx | None = None) -> Anchor | None
     return None if secret == "" and "secret" in type(anchor).Options.model_fields else anchor
 
 
-async def build_vault(settings: Settings, app: Privyx | None = None) -> tuple[Vault, Closer]:
-    """Build and open the configured vault, and a coroutine that closes it.
+def build_vault(settings: Settings, app: Privyx | None = None) -> Vault:
+    """Build the configured vault, not yet opened.
 
     Raises:
-        ConfigError: If the vault type is unknown, its options invalid, or its
-            optional extra is not installed.
+        ConfigError: If the vault type is unknown or its options invalid.
+    """
+    return _build(_app(app), Vault, settings.vault, "vault")
+
+
+async def open_vault(settings: Settings, app: Privyx | None = None) -> tuple[Vault, Closer]:
+    """:func:`build_vault`, opened, and a coroutine that closes it.
+
+    Raises:
+        ConfigError: As :func:`build_vault`, or if its optional extra is not installed.
         VaultError: If it cannot be opened.
     """
     app = _app(app)
-    vault = _build(app, Vault, settings.vault, "vault")
+    vault = build_vault(settings, app)
     await vault.open(_services(app, FormatCodec.default(), None))
     return vault, vault.close
 
@@ -230,7 +238,7 @@ async def build_engine(
 
         app = load_plugins(settings)
     anchor = build_anchor(settings, app)
-    vault = _build(app, Vault, settings.vault, "vault")
+    vault = build_vault(settings, app)
     codec = build_codec(settings, app)
     detector = build_detector(settings.detectors, app)
     policy = build_policy(settings, app)

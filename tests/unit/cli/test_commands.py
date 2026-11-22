@@ -736,10 +736,10 @@ def _age_session(config: Path, session_id: str, seconds: float) -> None:
     import asyncio
 
     from privyx import load_config
-    from privyx.app._build import build_vault
+    from privyx.app._build import open_vault
 
     async def _run() -> None:
-        vault, close = await build_vault(load_config(config))
+        vault, close = await open_vault(load_config(config))
         try:
             session = await vault.get(session_id)
             assert session is not None

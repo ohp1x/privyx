@@ -22,7 +22,7 @@ from privyx.app._build import (
     build_operator,
     build_policy,
     build_provider,
-    build_vault,
+    open_vault,
 )
 from privyx.app._plugins import load_plugins
 from privyx.app._schema import json_schema
@@ -348,7 +348,7 @@ def test_a_plugin_anchor_gets_its_secret_as_written(
 async def test_a_plugin_vault_is_opened_and_closed(tmp_path: Path) -> None:
     paths = [str(_write(tmp_path, "v.py", STRICT_VAULT))]
     settings = Settings(plugins={"paths": paths}, vault={"type": "shelf", "shelf": "a"})
-    vault, close = await build_vault(settings, load_plugins(settings))
+    vault, close = await open_vault(settings, load_plugins(settings))
     assert vault.opened and vault.options.shelf == "a"  # type: ignore[attr-defined]
     await close()
     assert vault.closed  # type: ignore[attr-defined]
@@ -400,7 +400,7 @@ async def test_a_plugin_vault_gets_none_of_the_builtin_options(
     settings = load_config(
         _config(tmp_path, {"plugins": {"paths": paths}, "vault": {"type": "shelf", "shelf": "a"}})
     )
-    vault, _ = await build_vault(settings, load_plugins(settings))
+    vault, _ = await open_vault(settings, load_plugins(settings))
 
     assert vault.options.shelf == "a"  # type: ignore[attr-defined]
 
@@ -498,11 +498,11 @@ async def test_an_option_named_like_a_builtin_one_keeps_its_own_default(tmp_path
     unset = load_config(_config(tmp_path, plain))
     # vault.dsn has a built-in default; it is not this plugin's value.
     with pytest.raises(ConfigError, match="invalid setting 'vault.dsn'"):
-        await build_vault(unset, load_plugins(unset))
+        await open_vault(unset, load_plugins(unset))
 
     given = {"plugins": {"paths": paths}, "vault": {"type": "timed", "dsn": "shelf://a"}}
     settings = load_config(_config(tmp_path, given))
-    vault, _ = await build_vault(settings, load_plugins(settings))
+    vault, _ = await open_vault(settings, load_plugins(settings))
     assert (vault.options.ttl, vault.options.dsn) == (86400, "shelf://a")  # type: ignore[attr-defined]
 
 
