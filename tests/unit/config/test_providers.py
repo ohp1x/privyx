@@ -297,3 +297,54 @@ def test_a_providers_own_url_does_not_replace_a_profiles_upstream(tmp_path: Path
     config = _beside_common(tmp_path / "c.yaml", {"base_url": OWN}, upstream=CLI_URL)
 
     assert resolve_base_url(load_config(config, agent="p")) == CLI_URL
+
+
+@pytest.mark.parametrize("where", ["profile", "provider"])
+def test_connection_fields_written_for_the_profile_win_over_the_common_ones(
+    where: str, tmp_path: Path
+) -> None:
+    own = {"forward_client_auth": True, "timeout": 7}
+    config = (
+        _beside_common(tmp_path / "c.yaml", {"base_url": OWN}, privyx={"provider": own})
+        if where == "profile"
+        else _beside_common(tmp_path / "c.yaml", {"base_url": OWN, **own})
+    )
+
+    settings = load_config(config, agent="p")
+
+    assert (settings.provider.forward_client_auth, settings.provider.timeout) == (True, 7)
+
+
+def test_common_connection_fields_still_reach_a_provider_that_leaves_them_open(
+    tmp_path: Path,
+) -> None:
+    settings = load_config(_beside_common(tmp_path / "c.yaml", {"base_url": OWN}), agent="p")
+
+    assert (settings.provider.forward_client_auth, settings.provider.timeout) == (False, 42)
+    assert resolve_api_key(settings) is None
+
+
+@pytest.mark.parametrize(
+    ("named", "agent", "warned"),
+    [
+        ({"base_url": OWN}, {}, True),
+        ({"base_url": OWN, "api_key": KEY}, {}, False),
+        ({"base_url": OWN, "forward_client_auth": True}, {}, False),
+        ({"base_url": OWN}, {"privyx": {"provider": {"forward_client_auth": True}}}, False),
+    ],
+    ids=["none", "key", "provider-flag", "profile-flag"],
+)
+def test_a_launch_that_would_send_no_credential_names_the_setting_to_write(
+    named: dict[str, object],
+    agent: dict[str, object],
+    warned: bool,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _beside_common(tmp_path / "c.yaml", named, **agent)
+
+    result = CliRunner().invoke(cli, ["-c", str(config), "run", "--dry-run", "p"])
+
+    assert result.exit_code == 0
+    assert ("agents.p.privyx.provider.forward_client_auth: true" in caplog.text) is warned
+    assert KEY not in caplog.text

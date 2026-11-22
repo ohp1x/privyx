@@ -15,6 +15,7 @@ feature.
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
 from collections import Counter
 from collections.abc import Awaitable, Callable
@@ -37,6 +38,8 @@ if TYPE_CHECKING:
 
 #: The counter's edge priority: outermost, so a request refused anywhere counts.
 _COUNTER = 1000
+
+_log = logging.getLogger("privyx")
 
 
 def expand(app: Privyx, target: str, args: tuple[str, ...]) -> tuple[str, tuple[str, ...]] | None:
@@ -117,6 +120,9 @@ def plan_launch(
     from privyx.providers import check_credential, held_credential
 
     check_credential(settings)
+    credentials = held_credential(settings)
+    if credentials is None and (warning := _no_credential(settings, name)):
+        _log.warning("%s", warning)
     return build_launch_plan(
         spec,
         argv,
@@ -124,10 +130,31 @@ def plan_launch(
         port,
         env_vars,
         upstream=_upstream,
-        credentials=held_credential(settings),
+        credentials=credentials,
         name=name,
         extra_env_vars=extra_env_vars,
         sources=sources,
+    )
+
+
+def _no_credential(settings: Settings, name: str) -> str | None:
+    """Why a launch whose provider holds no key would send no credential, if it would.
+
+    A warning, not an error: an upstream such as a local Ollama takes none.
+    """
+    if settings.proxy.mode == "gateway":
+        return (
+            "requests will reach the upstream without a credential: the gateway sends only "
+            "the provider's key, and it has none; if the upstream needs one, define a provider "
+            "with its base_url and api_key under 'providers' and select it"
+        )
+    if settings.provider.forward_client_auth:
+        return None
+    key = f"agents.{name}.privyx.provider" if name in settings.agents else "provider"
+    return (
+        "requests will reach the upstream without a credential: the provider has no key and "
+        f"forward_client_auth is false; write '{key}.forward_client_auth: true' to send the "
+        "agent's own"
     )
 
 
