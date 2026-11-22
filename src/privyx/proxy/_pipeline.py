@@ -70,7 +70,7 @@ from privyx.proxy._mask import (
     restore_response,
     transform_request,
 )
-from privyx.proxy._routing import detect_schema
+from privyx.proxy._routing import matched_route
 from privyx.proxy._session import resolve_session_id
 from privyx.proxy._streaming import AuditedStream
 from privyx.proxy._tap import Tap
@@ -389,8 +389,9 @@ class Pipeline:
         base = self._base(exchange)
         if isinstance(base, Reply):
             return base
-        schema = detect_schema(exchange.path, self._routes, self._versionless)
-        refused = self._route(exchange, schema)
+        route = matched_route(exchange.path, self._routes, self._versionless)
+        schema = None if route is None else self._routes[route]
+        refused = self._route(exchange, route, schema)
         if refused is not None:
             return refused
         read = await self._read_body(exchange)
@@ -444,7 +445,7 @@ class Pipeline:
         if isinstance(response, Reply):
             return response
         try:
-            return await self._answer(exchange, response, schema, url, transform_ms)
+            return await self._answer(exchange, response, route, schema, url, transform_ms)
         except BaseException:
             # Failed or cancelled before a reply took the response over.
             await response.aclose()
@@ -483,13 +484,12 @@ class Pipeline:
             )
         return origin + joined
 
-    def _route(self, exchange: Exchange, schema: str | None) -> Reply | None:
+    def _route(self, exchange: Exchange, route: str | None, schema: str | None) -> Reply | None:
         """Give ``exchange`` the dialect of its route; the refusal of a path without one."""
         if schema is not None:
             exchange.dialect = self._dialects[schema]
-            tracing.annotate(
-                exchange.span, **{"http.route": exchange.path, "privyx.schema": schema}
-            )
+            # The route, not the path: a `*` of it stands for a value of the client's.
+            tracing.annotate(exchange.span, **{"http.route": route, "privyx.schema": schema})
             return None
         self._audit.route_decision(allowed=self._passthrough_unknown, method=exchange.method)
         if not self._passthrough_unknown:
@@ -759,6 +759,7 @@ class Pipeline:
         self,
         exchange: Exchange,
         response: httpx.Response,
+        route: str | None,
         schema: str | None,
         url: str,
         transform_ms: float | None,
@@ -779,9 +780,10 @@ class Pipeline:
         tracing.annotate(exchange.span, **{"privyx.stream": is_stream})
         self._audit.request(
             method=exchange.method,
-            # An unmatched URL may itself contain PII. The route-decision
-            # event exposes the gap without copying a client-supplied path.
-            path=exchange.path if dialect is not None else "[unmatched]",
+            # A URL may itself contain PII, in a route's `*` too: the route is
+            # recorded, and the route-decision event exposes an unmatched one
+            # without copying a client-supplied path.
+            path=route if route is not None else "[unmatched]",
             schema=schema,
             status=response.status_code,
             session_id=sid,
