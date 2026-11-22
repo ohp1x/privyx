@@ -807,8 +807,12 @@ class Pipeline:
             )
         if is_stream:
             assert exchange.session is not None
-            headers.pop("content-type", None)  # media_type carries it, avoid duplicate
             headers.setdefault("cache-control", "no-cache")
+            if dialect is None and not exchange.session.mapping:
+                # Nothing to restore: the upstream's bytes, comments and ids included.
+                relaying = self._relay(exchange, response, stream=True)
+                return self._streaming(exchange, response, headers, content_type or None, relaying)
+            headers.pop("content-type", None)  # media_type carries it, avoid duplicate
             restoring = self._stream(exchange, response, exchange.session.mapping, lines=lines)
             return self._streaming(exchange, response, headers, lines or _SSE, restoring)
         if dialect is not None and _JSON in content_type:
@@ -970,14 +974,16 @@ class Pipeline:
                     tapped[1].append(out)
                 yield out
 
-    async def _relay(self, exchange: Exchange, response: httpx.Response) -> AsyncIterator[bytes]:
+    async def _relay(
+        self, exchange: Exchange, response: httpx.Response, *, stream: bool = False
+    ) -> AsyncIterator[bytes]:
         size = 0
 
         def ended(failure: BaseException | None, aborted: bool) -> None:
             if failure is None:
                 self._audit.response(
                     status=response.status_code,
-                    stream=False,
+                    stream=stream,
                     size=size,
                     restored=0,
                     session_id=exchange.session_id,

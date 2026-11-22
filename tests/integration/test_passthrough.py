@@ -197,3 +197,68 @@ async def test_an_upload_goes_upstream_as_it_arrives_with_its_length() -> None:
         # No body stays no body, rather than an empty chunked one.
         {"size": 0, "content-length": None, "transfer-encoding": None},
     ]
+
+
+RAW_SSE = b": keep-alive\n\nid: 7\nevent: tick\ndata: hello\n\n: keep-alive\n\ndata: bye\n\n"
+
+
+def _sse_proxy(upstream: Any) -> Pipeline:
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+    return Pipeline(engine, origin="https://up.test", client=client)
+
+
+async def test_an_sse_reply_with_nothing_to_restore_is_relayed_byte_for_byte() -> None:
+    proxy = _sse_proxy(
+        lambda _request: httpx.Response(
+            200, headers={"content-type": "text/event-stream; charset=utf-8"}, content=RAW_SSE
+        )
+    )
+    transport = httpx.ASGITransport(app=create_app(proxy))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://proxy.test") as client:
+        reply = await client.get("/v1/unrouted/stream")
+
+    assert reply.content == RAW_SSE
+    assert reply.headers["content-type"] == "text/event-stream; charset=utf-8"
+    assert reply.headers["cache-control"] == "no-cache"
+
+
+async def test_a_masked_query_echoed_in_an_unrouted_stream_is_still_restored() -> None:
+    def echo(request: httpx.Request) -> httpx.Response:
+        value = request.url.params["email"]
+        assert "ana@example.com" not in value
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=f": keep-alive\n\ndata: {value}\n\n".encode(),
+        )
+
+    transport = httpx.ASGITransport(app=create_app(_sse_proxy(echo)))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://proxy.test") as client:
+        reply = await client.get("/v1/unrouted/stream", params={"email": "ana@example.com"})
+
+    assert reply.content == b": keep-alive\n\ndata: ana@example.com\n\n"
+
+
+async def test_a_keep_alive_reaches_the_client_on_a_masking_route() -> None:
+    chunk = json.dumps({"choices": [{"delta": {"content": "hi"}}]})
+    body = f": keep-alive\n\nid: 7\ndata: {chunk}\n\ndata: [DONE]\n\n".encode()
+    proxy = _sse_proxy(
+        lambda _request: httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, content=body
+        )
+    )
+    transport = httpx.ASGITransport(app=create_app(proxy))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://proxy.test") as client:
+        reply = await client.post("/v1/chat/completions", json={"messages": []})
+
+    assert b": keep-alive\n\n" in reply.content
+    assert b"id: 7\n" in reply.content

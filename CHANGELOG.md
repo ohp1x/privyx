@@ -51,6 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Config:** `forward_client_auth`, `timeout`, and the other connection settings written in a profile's `privyx.provider` or its named provider win over the common ones; before, a common `forward_client_auth: false` made such a profile send no credential. `privyx run` now warns when a launch would send none, and names the setting to write
 - **Budget:** a stream that breaks counts the tokens it reported, so an agent whose streams keep failing no longer escapes `max_tokens`, and a launch may stop earlier for it. A broken stream that reported none does not stop the launch
 - **CLI:** `privyx session prune` keeps a session used after it was listed, or held by a request at that moment, and reports only the sessions it deleted
+- **Proxy:** SSE comments such as keep-alives, and the `id` of text events, reach the client, and a stream on an unmasked route with nothing to restore is relayed byte for byte
 
 ### Security
 

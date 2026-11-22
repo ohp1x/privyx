@@ -17,8 +17,13 @@ class SSEEvent:
     event: str | None = None
     id: str | None = None
     retry: int | None = None
+    #: A block's comment lines, as they came: such an event has no data.  Only
+    #: from a decoder asked for them (:class:`SSEDecoder`).
+    comment: str | None = None
 
     def to_str(self) -> str:
+        if self.comment is not None:
+            return f"{self.comment}\n\n"
         lines: list[str] = []
         if self.event:
             lines.append(f"event: {self.event}")
@@ -60,7 +65,8 @@ class SSEDecoder:
     terminator, so nothing is ever emitted.
 
     This decoder buffers across calls and emits an event only once its
-    terminating blank line has arrived.
+    terminating blank line has arrived.  With ``comments``, a block's comment
+    lines (a keep-alive) come first, as an event of their own.
 
     Example::
 
@@ -70,7 +76,8 @@ class SSEDecoder:
                 print(event.data)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, comments: bool = False) -> None:
+        self._comments = comments
         self._buffer = ""
         # The last chunk ended in CR, so an LF opening the next one is its pair.
         self._after_cr = False
@@ -101,18 +108,25 @@ class SSEDecoder:
         self._buffer = self._buffer.replace("\r\n", "\n").replace("\r", "\n")
         while "\n\n" in self._buffer:
             block, _, self._buffer = self._buffer.partition("\n\n")
-            event = _parse_block(block)
-            if event is not None:
-                events.append(event)
+            events += self._block(block)
         return events
 
     def flush(self) -> list[SSEEvent]:
         """Emit any final event left unterminated at end of stream."""
         remainder, self._buffer = self._buffer.strip("\n"), ""
-        if not remainder:
-            return []
-        event = _parse_block(remainder)
-        return [event] if event is not None else []
+        return self._block(remainder) if remainder else []
+
+    def _block(self, block: str) -> list[SSEEvent]:
+        """The events of one block: its comment lines, if asked for, and its event."""
+        events: list[SSEEvent] = []
+        if self._comments:
+            comment = "\n".join(line for line in block.split("\n") if line.startswith(":"))
+            if comment:
+                events.append(SSEEvent(data="", comment=comment))
+        event = _parse_block(block)
+        if event is not None:
+            events.append(event)
+        return events
 
 
 def _parse_block(block: str) -> SSEEvent | None:
