@@ -1000,8 +1000,22 @@ class Pipeline:
     ) -> Reply:
         dialect, sid = exchange.dialect, exchange.session_id
         assert dialect is not None and sid is not None
-        data = await response.aread()
-        await response.aclose()
+        try:
+            data = await response.aread()
+        except httpx.RequestError as exc:
+            # The headers came and the body did not: answered as no response is.
+            self._audit.error(
+                phase="upstream",
+                error_type=type(exc).__name__,
+                session_id=sid,
+                request_id=exchange.request_id,
+                status=response.status_code,
+                duration_ms=_elapsed_ms(exchange.started),
+            )
+            status, error_headers, error = upstream_failure(exc)
+            return _error(status, error, error_headers)
+        finally:
+            await response.aclose()
         restore_span = tracing.start("privyx.restore", exchange.span)
         meter = UsageMeter()
         upstream_data = data
