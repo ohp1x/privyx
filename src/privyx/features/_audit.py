@@ -1,8 +1,11 @@
 """The ``audit`` feature: the audit trail, one JSON line per notification.
 
 Each line is written and flushed as the notification is emitted, never
-queued, so the trail drops none.  The file is created owner-only: it names
-sessions and the upstream host, never a value.
+queued, and not synced to disk.  A line that cannot be written, on a full
+disk, is lost and the request goes on: the failure is logged and notified
+(:class:`~privyx.events.AuditWriteFailed`, which ``GET /metrics`` counts).  The
+file is created owner-only: it names sessions and the upstream host, never a
+value.
 """
 
 from __future__ import annotations
@@ -17,8 +20,8 @@ from typing import Any, TextIO
 from pydantic import Field
 
 from privyx.config.schema import ModelPrice
-from privyx.core import ConfigError, Services, listen
-from privyx.events import AuditEvent
+from privyx.core import ConfigError, EventBus, Services, listen
+from privyx.events import AuditEvent, AuditWriteFailed
 from privyx.features._base import Feature
 
 _log = logging.getLogger("privyx")
@@ -40,6 +43,7 @@ class AuditTrail(Feature):
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
         self._writer: TextIO | None = None
+        self._events: EventBus | None = None
         # One write() per line, so lines of concurrent requests never mix.
         self._lock = threading.Lock()
 
@@ -50,6 +54,7 @@ class AuditTrail(Feature):
             ConfigError: If ``path`` cannot be written.
         """
         self._writer = _append(self.options.path)
+        self._events = services.events
 
     async def close(self) -> None:
         writer, self._writer = self._writer, None
@@ -71,6 +76,8 @@ class AuditTrail(Feature):
                 writer.flush()
         except Exception:  # the trail must never break a request
             _log.exception("audit write failed")
+            if self._events is not None:
+                self._events.notify(AuditWriteFailed())
 
 
 def _append(where: str) -> TextIO:

@@ -142,6 +142,13 @@ class RunBudgetExceeded(AuditEvent):
     name: ClassVar[str] = "run.budget_exceeded"
 
 
+@dataclass(frozen=True, eq=False)
+class AuditWriteFailed(Notification):
+    """The trail could not write a record, which is lost; not a record itself."""
+
+    name: ClassVar[str] = "audit.write_failed"
+
+
 #: The fields of every record; the others are its event's own.
 _ENVELOPE = frozenset({"schema_version", "time", "ts", "event", "request_id", "session_id"})
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from privyx.core import listen
-from privyx.events import AuditEvent
+from privyx.events import AuditEvent, AuditWriteFailed
 from privyx.features._base import Feature
 
 
@@ -30,6 +30,8 @@ class AuditStats:
     tokens: Counter[str] = field(default_factory=Counter)
     restored: int = 0
     response_ms: float = 0.0
+    #: Records the audit trail could not write: they are in no log file.
+    write_failures: int = 0
     first_ts: float | None = None
     last_ts: float | None = None
 
@@ -101,6 +103,9 @@ class AuditStats:
             "# TYPE privyx_response_duration_seconds summary",
             f"privyx_response_duration_seconds_sum {self.response_ms / 1000}",
             f"privyx_response_duration_seconds_count {responses}",
+            "# HELP privyx_audit_write_failures_total Audit records the trail could not write.",
+            "# TYPE privyx_audit_write_failures_total counter",
+            f"privyx_audit_write_failures_total {self.write_failures}",
         ]
         return "\n".join(lines) + "\n"
 
@@ -132,3 +137,7 @@ class Metrics(Feature):
     def count(self, event: AuditEvent) -> None:
         # What the counters read of a record, without formatting its time.
         self.stats.add({"event": event.name, "ts": event.timestamp, **event.fields})
+
+    @listen(AuditWriteFailed)
+    def count_failure(self, event: AuditWriteFailed) -> None:
+        self.stats.write_failures += 1
