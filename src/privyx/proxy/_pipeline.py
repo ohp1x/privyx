@@ -157,7 +157,9 @@ class Reply:
     """What the pipeline answers an exchange with, for the adapter to send.
 
     Exactly one of ``body`` (a restored batch response) or ``stream`` (restored
-    SSE text, or the bytes of a response with nothing to restore) is set.
+    SSE text, or the bytes of a response with nothing to restore) is set.  A
+    ``stream`` holds the upstream response open: whoever sends it closes it
+    (``aclose()``) however sending ends, started or not.
     """
 
     status_code: int
@@ -368,8 +370,8 @@ class Pipeline:
             log_vault_failure(exc)
             return _error(503, VAULT_UNAVAILABLE_BODY)
         finally:
-            # A reply that streams owns the cleanup: FastAPI/client cancellation
-            # closes its generator even when nothing drains the upstream stream.
+            # A reply that streams owns the cleanup: whoever sends it closes it,
+            # however sending ends, even when nothing drains the upstream stream.
             if reply is None or reply.stream is None:
                 self._end_session(exchange)
             self._audit.end_request(token)
@@ -438,7 +440,12 @@ class Pipeline:
         response = await self._send(exchange, url, out_headers, out_body, params, auth)
         if isinstance(response, Reply):
             return response
-        return await self._answer(exchange, response, schema, url, transform_ms)
+        try:
+            return await self._answer(exchange, response, schema, url, transform_ms)
+        except BaseException:
+            # Failed or cancelled before a reply took the response over.
+            await response.aclose()
+            raise
 
     # -- routing -------------------------------------------------------------
 

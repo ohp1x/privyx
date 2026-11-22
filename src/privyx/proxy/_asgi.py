@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
+from starlette.types import Receive, Scope, Send
 
 from privyx.config.schema import ProxyConfig, Settings
 from privyx.core import Exchange
@@ -110,7 +111,7 @@ async def _proxy(request: Request) -> Any:
         )
     )
     if reply.stream is not None:
-        return StreamingResponse(
+        return _Streaming(
             reply.stream,
             status_code=reply.status_code,
             headers=reply.headers,
@@ -122,6 +123,23 @@ async def _proxy(request: Request) -> Any:
         headers=reply.headers,
         media_type=reply.media_type,
     )
+
+
+class _Streaming(StreamingResponse):
+    """A streamed reply whose chunks are closed however sending it ends.
+
+    Starlette leaves them as they are when a ``send`` fails or the request is
+    cancelled: a reply not started yet would keep its upstream response open,
+    and a started one would wait for the garbage collector.
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            aclose = getattr(self.body_iterator, "aclose", None)
+            if aclose is not None:
+                await aclose()
 
 
 def _path(scope: MutableMapping[str, Any]) -> str:
