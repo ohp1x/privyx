@@ -321,18 +321,16 @@ class Config:
         """The request paths masked, with the wire schema of each.
 
         Raises:
-            ConfigError: If the settings cannot be read, or a route names no dialect.
+            ConfigError: If the settings cannot be read, a route names no
+                dialect, or the gateway's provider type is unknown.
         """
-        from privyx.app._serve import dialect_types
+        from privyx.app._serve import masked_routes
         from privyx.providers import resolve_base_url
-        from privyx.proxy import served_routes
 
         settings = self._app.settings
         proxy = settings.proxy
-        table = dict(proxy.routes)
+        table = masked_routes(self._app, settings)
         if proxy.mode == "gateway":
-            kinds = dialect_types(self._app, table)
-            table = served_routes(table, kinds, google=settings.provider.type == "google")
             other = "404"
         elif proxy.passthrough_unknown:
             other = "forwarded unchanged, without masking"

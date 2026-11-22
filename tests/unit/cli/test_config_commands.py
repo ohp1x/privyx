@@ -394,6 +394,58 @@ def test_routes_shows_the_masked_paths(runner: CliRunner) -> None:
     assert "Other paths: forwarded unchanged, without masking" in result.output
 
 
+_RELAY = """
+from privyx.dialects import Dialect
+from privyx.providers import GoogleProvider
+
+
+class Relay(GoogleProvider):
+    name = "acme-relay"
+
+
+class Converse(Dialect):
+    name = "acme-converse"
+    content_keys = frozenset({"messages"})
+    default_routes = ("/model/*/converse",)
+
+
+def setup(app):
+    app.add(Relay)
+    app.add(Converse)
+"""
+
+
+def _relay_config(tmp_path: Path) -> Path:
+    plugin = tmp_path / "relay.py"
+    plugin.write_text(_RELAY, encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    written = {
+        "plugins": {"paths": [str(plugin)]},
+        "provider": {"type": "acme-relay", "base_url": "https://llm.example.com"},
+        "proxy": {"mode": "gateway"},
+    }
+    config.write_text(yaml.safe_dump(written), encoding="utf-8")
+    return config
+
+
+def test_routes_shows_what_the_proxy_serves(runner: CliRunner, tmp_path: Path) -> None:
+    result = runner.invoke(cli, ["-c", str(_relay_config(tmp_path)), "config", "routes"])
+
+    assert result.exit_code == 0, result.output
+    shown = [line.split() for line in result.output.splitlines()]
+    assert ["/*/models/*:generateContent", "gemini"] in shown  # the provider extends google's
+    assert ["/model/*/converse", "acme-converse"] in shown  # the plugin's dialect brought it
+
+
+def test_doctor_counts_what_the_proxy_serves(runner: CliRunner, tmp_path: Path) -> None:
+    result = runner.invoke(cli, ["-c", str(_relay_config(tmp_path)), "doctor", "--json"])
+
+    routes = next(c for c in json.loads(result.stdout) if c["name"] == "routes")
+    assert routes["ok"], routes
+    assert "/*/models/*:generateContent (gemini)" in routes["message"]
+    assert "/model/*/converse (acme-converse)" in routes["message"]
+
+
 def test_edit_opens_the_config_file_and_checks_it(
     runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -55,19 +55,11 @@ def compose(
             overlaps a masking route.
     """
     from privyx.app._plugins import load_plugins
-    from privyx.providers import GoogleProvider, Provider
-    from privyx.proxy import served_routes
     from privyx.proxy._asgi import create_app
 
     load_plugins(settings, app)
-    add_default_routes(app, settings)
+    routes = masked_routes(app, settings)
     kinds = dialect_types(app, settings.proxy.routes)
-    served = None
-    if settings.proxy.mode == "gateway":
-        provider = app.registry(Provider).get(settings.provider.type)
-        served = served_routes(
-            dict(settings.proxy.routes), kinds, google=issubclass(provider, GoogleProvider)
-        )
 
     @asynccontextmanager
     async def opened(router: FastAPI) -> AsyncIterator[None]:
@@ -78,7 +70,7 @@ def compose(
     router = create_app(
         settings=settings,
         router=app._router,
-        served=served,
+        served=routes if settings.proxy.mode == "gateway" else None,
         versionless=frozenset(name for name, kind in kinds.items() if kind.versionless),
         lifespan=opened if lifespan else None,
     )
@@ -216,6 +208,29 @@ def add_default_routes(app: Privyx, settings: Settings) -> None:
                     f"dialect {name!r} brings route {path}, which is {routes[path]!r}'s"
                 )
             routes[path] = name
+
+
+def masked_routes(app: Privyx, settings: Settings) -> dict[str, str]:
+    """The paths the proxy masks as ``settings`` have it, each with its dialect's name.
+
+    The default map with the routes plugin dialects bring; for the gateway,
+    only the ones it serves with the provider selected.
+
+    Raises:
+        ConfigError: If a dialect's route is a path the map has already, a
+            route names no dialect, or the gateway's provider type is unknown.
+    """
+    from privyx.providers import GoogleProvider, Provider
+    from privyx.proxy import served_routes
+
+    add_default_routes(app, settings)
+    routes = dict(settings.proxy.routes)
+    if settings.proxy.mode != "gateway":
+        return routes
+    provider = app.registry(Provider).get(settings.provider.type)
+    return served_routes(
+        routes, dialect_types(app, routes), google=issubclass(provider, GoogleProvider)
+    )
 
 
 def dialect_types(app: Privyx, routes: Mapping[str, str]) -> dict[str, type[Dialect]]:
