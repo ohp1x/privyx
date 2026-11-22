@@ -210,7 +210,8 @@ class Pipeline:
         passthrough_unknown: Forward paths missing from ``routes`` verbatim.  When
             false they are refused with 403, so nothing reaches the upstream
             unmasked.
-        forward_client_auth: Forward the client's ``Authorization`` / ``x-api-key``.
+        forward_client_auth: Forward the client's ``Authorization`` / ``x-api-key``
+            / ``Cookie``.
         client: Optional httpx client (owned by the caller when supplied); used by
             tests to inject a mock transport.
         timeout, connect_timeout, max_connections: For the client built when
