@@ -18,7 +18,7 @@ from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import _dlp
 from privyx.proxy._mask import restore_response, transform_request
-from privyx.proxy._routing import detect_schema
+from privyx.proxy._routing import detect_schema, matched_route
 from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
@@ -1387,3 +1387,22 @@ async def test_the_builtin_agents_metadata_is_masked_without_an_app() -> None:
     assert {"safeguards", "client_metadata"} <= proxy._metadata_keys  # noqa: SLF001
     assert "x-codex-turn-metadata" in proxy._masked_headers  # noqa: SLF001
     await proxy.close()
+
+
+def test_matched_route_names_the_route_a_path_means() -> None:
+    routes = {
+        "/v1/messages": "anthropic",
+        "/*/models/*:generateContent": "gemini",
+        "/projects/*/messages": "anthropic",
+    }
+
+    for path, route in (
+        ("/v1/messages", "/v1/messages"),
+        ("v1/v1/messages", "/v1/messages"),
+        ("/v1beta/models/m:generateContent", "/*/models/*:generateContent"),
+        ("/models/m:generateContent", "/*/models/*:generateContent"),
+        ("/projects/apollo/messages", "/projects/*/messages"),
+    ):
+        assert matched_route(path, routes, frozenset({"gemini"})) == route
+    assert matched_route("/models/m:generateContent", routes) is None
+    assert matched_route("/v1/models", routes) is None

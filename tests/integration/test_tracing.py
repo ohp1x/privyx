@@ -210,3 +210,28 @@ def test_turning_tracing_off_on_reload_stops_spans(monkeypatch: pytest.MonkeyPat
     tracing.configure(True)
     assert tracing.start("privyx.request") is not None
     tracing.configure(False)
+
+
+async def test_the_span_holds_the_route_not_a_value_of_the_path(spans: Any) -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={}))
+    )
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=MemoryVault(),
+    )
+    proxy = Pipeline(engine, origin="https://up.test", client=client)
+
+    await proxy.handle(
+        Exchange(
+            method="POST",
+            path=f"/v1beta/models/{EMAIL}:generateContent",
+            headers={},
+            body=b'{"contents":[]}',
+        )
+    )
+
+    root = next(s for s in spans.get_finished_spans() if s.name == "privyx.request")
+    assert root.attributes["http.route"] == "/*/models/*:generateContent"

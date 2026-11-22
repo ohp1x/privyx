@@ -29,19 +29,31 @@ def detect_schema(
     at Privyx) has the dialect of the route it means too, for the same reason,
     when that dialect is one of ``versionless``; see :func:`unversioned_routes`.
     """
+    route = matched_route(path, routes, versionless)
+    return None if route is None else routes[route]
+
+
+def matched_route(
+    path: str, routes: dict[str, str], versionless: frozenset[str] = frozenset()
+) -> str | None:
+    """The route of ``routes`` that ``path`` means, as it is written there, or ``None``.
+
+    Matched as :func:`detect_schema` says.  What the audit trail and a span
+    record for a path: a ``*`` of the route stands for a value of the client's.
+    """
     normalized = "/" + path.lstrip("/")
-    schema = routes.get(normalized)
-    if schema is None and normalized.startswith("/v1/v1/"):
-        schema = routes.get(normalized[3:])
-    if schema is None:
-        for pattern, route in _route_patterns(tuple(r for r in routes if "*" in r)):
-            if pattern.fullmatch(normalized):
-                return routes[route]
-        unversioned = unversioned_routes(routes, versionless)
-        for pattern, route in _route_patterns(tuple(unversioned)):
-            if pattern.fullmatch(normalized):
-                return unversioned[route]
-    return schema
+    if normalized in routes:
+        return normalized
+    if normalized.startswith("/v1/v1/") and normalized[3:] in routes:
+        return normalized[3:]
+    for pattern, route in _route_patterns(tuple(r for r in routes if "*" in r)):
+        if pattern.fullmatch(normalized):
+            return route
+    unversioned = _unversioned(routes, versionless)
+    for pattern, rest in _route_patterns(tuple(unversioned)):
+        if pattern.fullmatch(normalized):
+            return unversioned[rest]
+    return None
 
 
 def unversioned_routes(routes: dict[str, str], versionless: frozenset[str]) -> dict[str, str]:
@@ -49,8 +61,13 @@ def unversioned_routes(routes: dict[str, str], versionless: frozenset[str]) -> d
 
     Mapped to its dialect's name.
     """
+    return {rest: routes[route] for rest, route in _unversioned(routes, versionless).items()}
+
+
+def _unversioned(routes: dict[str, str], versionless: frozenset[str]) -> dict[str, str]:
+    """Each route of a ``versionless`` dialect, by its path without the API version."""
     return {
-        "/" + rest: schema
+        "/" + rest: route
         for route, schema in routes.items()
         if schema in versionless and (rest := route.lstrip("/").partition("/")[2])
     }
