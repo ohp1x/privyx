@@ -38,6 +38,7 @@ import asyncio
 import importlib
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
     from privyx.app._services._plugins import Plugins
     from privyx.app._services._sessions import Sessions
     from privyx.app._services._workspace import Workspace
+    from privyx.config import Loaded
     from privyx.config.schema import Settings
     from privyx.engine import PrivacyEngine
 
@@ -94,16 +96,6 @@ class Privyx:
         self._middleware: list[tuple[int, int, Callable[..., Any], dict[str, Any]]] = []
         self._loaded: Settings | None = None
         self._engine: PrivacyEngine | None = None
-        # The services, each made when first used.
-        self._masking: Masking | None = None
-        self._workspace: Workspace | None = None
-        self._sessions: Sessions | None = None
-        self._audit_service: Audit | None = None
-        self._features: Features | None = None
-        self._config_service: Config | None = None
-        self._diagnostics: Diagnostics | None = None
-        self._plugins: Plugins | None = None
-        self._inspection: Inspection | None = None
         self._modules: set[str] = set()
         self._files: set[Path] = set()
         #: What ``defaults()`` added, by section and name, and who added each.
@@ -255,19 +247,23 @@ class Privyx:
             self._loaded = self._load(self._config, extra=self._overrides or None)
         return self._loaded
 
-    def _load(
+    def _load(self, path: str | Path | None = None, **options: Any) -> Settings:
+        """The settings of :meth:`_read`, its warnings logged once per process."""
+        return self._read(path, **options).log_warnings().settings
+
+    def _read(
         self, path: str | Path | None = None, *, secrets: bool = True, **options: Any
-    ) -> Settings:
-        """:func:`privyx.config.load_config` with this app's types and plugins.
+    ) -> Loaded:
+        """:func:`privyx.config.read_config` with this app's types and plugins.
 
         The plugins the config names are set up first, then the defaults they
         add are merged below the config files, then the secret references
         are resolved, with the plugins' resolvers too; with ``secrets=False``
         they are left as written.
         """
-        from privyx.config import load_config
+        from privyx.config import read_config
 
-        return load_config(
+        return read_config(
             path,
             types=self._registries,
             setup=self._set_up,
@@ -350,6 +346,13 @@ class Privyx:
             return False
         return asyncio.run(serve(self, watch))
 
+    @staticmethod
+    def wait_for_change(paths: Sequence[Path]) -> None:
+        """Block until one of the files ``paths`` changes on disk."""
+        from privyx.app._serve import wait_for_change
+
+        asyncio.run(wait_for_change(paths))
+
     @asynccontextmanager
     async def engine(self) -> AsyncIterator[PrivacyEngine]:
         """The privacy engine, with this ``Privyx``'s components; they close on exit.
@@ -373,41 +376,33 @@ class Privyx:
             self._engine = None
             await close()
 
-    @property
+    @cached_property
     def config(self) -> Config:
         """The configuration: read, explain, change, check, migrate (experimental)."""
-        if self._config_service is None:
-            from privyx.app._services._config import Config
+        from privyx.app._services._config import Config
 
-            self._config_service = Config(self)
-        return self._config_service
+        return Config(self)
 
-    @property
+    @cached_property
     def diagnostics(self) -> Diagnostics:
         """The checks of ``privyx doctor`` and ``privyx config lint`` (experimental)."""
-        if self._diagnostics is None:
-            from privyx.app._services._diagnostics import Diagnostics
+        from privyx.app._services._diagnostics import Diagnostics
 
-            self._diagnostics = Diagnostics(self)
-        return self._diagnostics
+        return Diagnostics(self)
 
-    @property
+    @cached_property
     def inspection(self) -> Inspection:
         """Detection span by span, and regex checks, for ``privyx detect`` (experimental)."""
-        if self._inspection is None:
-            from privyx.app._services._masking import Inspection
+        from privyx.app._services._masking import Inspection
 
-            self._inspection = Inspection(self)
-        return self._inspection
+        return Inspection(self)
 
-    @property
+    @cached_property
     def plugins(self) -> Plugins:
         """The plugins the config loads, what they add, and the ones installed (experimental)."""
-        if self._plugins is None:
-            from privyx.app._services._plugins import Plugins
+        from privyx.app._services._plugins import Plugins
 
-            self._plugins = Plugins(self)
-        return self._plugins
+        return Plugins(self)
 
     def _types(self) -> Any:
         """This app's registries as the loader reads a config with them."""
@@ -415,50 +410,40 @@ class Privyx:
 
         return _Types(self._registries)
 
-    @property
+    @cached_property
     def masking(self) -> Masking:
         """Masking and restoring text and files, and detection (experimental)."""
-        if self._masking is None:
-            from privyx.app._services._masking import Masking
+        from privyx.app._services._masking import Masking
 
-            self._masking = Masking(self)
-        return self._masking
+        return Masking(self)
 
-    @property
+    @cached_property
     def workspace(self) -> Workspace:
         """The working directory: its scan, and the checks of its git hooks (experimental)."""
-        if self._workspace is None:
-            from privyx.app._services._workspace import Workspace
+        from privyx.app._services._workspace import Workspace
 
-            self._workspace = Workspace(self)
-        return self._workspace
+        return Workspace(self)
 
-    @property
+    @cached_property
     def sessions(self) -> Sessions:
         """The vault's sessions: list, show, export, prune (experimental)."""
-        if self._sessions is None:
-            from privyx.app._services._sessions import Sessions
+        from privyx.app._services._sessions import Sessions
 
-            self._sessions = Sessions(self)
-        return self._sessions
+        return Sessions(self)
 
-    @property
+    @cached_property
     def features(self) -> Features:
         """The features: which the settings switch on, those running, and their listeners."""
-        if self._features is None:
-            from privyx.app._services._features import Features
+        from privyx.app._services._features import Features
 
-            self._features = Features(self)
-        return self._features
+        return Features(self)
 
-    @property
+    @cached_property
     def audit(self) -> Audit:
-        """The audit trail and the tap: totals, recent events, records (experimental)."""
-        if self._audit_service is None:
-            from privyx.app._services._audit import Audit
+        """The audit trail and the tap: totals and records (experimental)."""
+        from privyx.app._services._audit import Audit
 
-            self._audit_service = Audit(self)
-        return self._audit_service
+        return Audit(self)
 
 
 def load_config(path: str | Path | None = None, **options: Any) -> Settings:
@@ -472,3 +457,8 @@ def load_config(path: str | Path | None = None, **options: Any) -> Settings:
             invalid, or a reference cannot be resolved.
     """
     return Privyx()._load(path, **options)
+
+
+def read_config(path: str | Path | None = None, **options: Any) -> Loaded:
+    """As :func:`load_config`, with where each setting came from and the warnings, not logged."""
+    return Privyx()._read(path, **options)

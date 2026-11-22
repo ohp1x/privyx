@@ -219,3 +219,33 @@ def test_private_modules_stay_in_their_package() -> None:
     assert new == [], "private modules imported from another package:\n" + "\n".join(new)
     fixed = sorted(ALLOWED_PRIVATE - found.keys())
     assert fixed == [], "no longer needed in ALLOWED_PRIVATE: " + ", ".join(map(str, fixed))
+
+
+def test_only_a_kind_branches_on_the_name_of_a_built_in_type() -> None:
+    from privyx.app import Privyx
+
+    names = {name for kind in Privyx()._registries.values() for name in kind.builtin_names()}
+    found = []
+    for module, path in MODULES.items():
+        if _place(module) in KINDS:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(), str(path))):
+            if (
+                isinstance(node, ast.Compare)
+                and isinstance(node.left, ast.Attribute)
+                and node.left.attr == "type"
+                and any(isinstance(c, ast.Constant) and c.value in names for c in node.comparators)
+            ):
+                found.append(f"{path.relative_to(SRC.parent)}:{node.lineno}")
+    assert found == [], "ask the component's class instead:\n" + "\n".join(found)
+
+
+def test_the_mcp_server_uses_nothing_of_the_cli() -> None:
+    found = [
+        f"{path.relative_to(SRC.parent)}:{line} -> {target}"
+        for module, path in MODULES.items()
+        if _package(module) == "mcp"
+        for line, target in _imports(ast.parse(path.read_text(), str(path)))
+        if _package(target) == "cli"
+    ]
+    assert found == []

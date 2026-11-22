@@ -102,6 +102,7 @@ async def running(
         ConfigError: If a component or a feature cannot be built or opened, or
             a listener of :class:`~privyx.events.AppStarting` fails.
     """
+    from privyx.agents import Agent, client_metadata
     from privyx.app._build import build_engine, open_provider
 
     async with AsyncExitStack() as stack:
@@ -117,7 +118,7 @@ async def running(
             audit,
             events=app._events,
             run_token=run_token,
-            agents=metadata(app),
+            agents=client_metadata(app.registry(Agent)),
             dialects={
                 name: kind() for name, kind in dialect_types(app, settings.proxy.routes).items()
             },
@@ -139,7 +140,7 @@ def build_pipeline(
     *,
     events: EventBus | None = None,
     run_token: str | None = None,
-    agents: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset()),
+    agents: tuple[frozenset[str], frozenset[str]] | None = None,
     dialects: Mapping[str, Dialect] | None = None,
 ) -> Pipeline:
     """The pipeline ``settings`` describe, for both proxy modes.
@@ -147,7 +148,7 @@ def build_pipeline(
     ``run_token`` is ``privyx run pi``'s: each request names its own upstream.
     ``events`` is the bus the request events go to, the app's.  ``agents``
     holds the request keys and headers clients describe their machine in
-    (:func:`metadata`), and ``dialects`` the dialect of each route
+    (:func:`~privyx.agents.client_metadata`), and ``dialects`` the dialect of each route
     (:func:`dialect_types`); by default, the built-ins.
 
     Raises:
@@ -160,6 +161,7 @@ def build_pipeline(
     proxy, upstream = settings.proxy, settings.provider
     gateway = proxy.mode == "gateway"
     mapping = upstream.path_mapping
+    metadata_keys, masked_headers = agents or (None, None)
     return Pipeline(
         engine,
         provider,
@@ -177,8 +179,8 @@ def build_pipeline(
         session_strategy=settings.session.strategy,
         tap=Tap(settings.proxy.tap_dir) if settings.proxy.tap else None,
         run_token=run_token,
-        metadata_keys=agents[0],
-        masked_headers=agents[1],
+        metadata_keys=metadata_keys,
+        masked_headers=masked_headers,
         dialects=dialects,
         events=events,
     )
@@ -245,13 +247,6 @@ def dialect_types(app: Privyx, routes: Mapping[str, str]) -> dict[str, type[Dial
     return {name: registry.get(name) for name in dict.fromkeys(routes.values())}
 
 
-def metadata(app: Privyx) -> tuple[frozenset[str], frozenset[str]]:
-    """The request keys and headers the clients of ``app``'s agents describe their machine in."""
-    from privyx.agents import Agent, client_metadata
-
-    return client_metadata(app.registry(Agent))
-
-
 def _tls(settings: Settings) -> dict[str, Any]:
     """uvicorn's TLS settings: none unless ``server.tls`` names a certificate."""
     tls = settings.server.tls
@@ -289,7 +284,7 @@ def serve_workers(app: Privyx) -> None:
 
     settings = app.settings
     workers = settings.server.workers
-    if settings.vault.type == "memory":
+    if not app.sessions.persistent:
         raise ConfigError(
             f"server.workers {workers} needs a vault the processes share; "
             "set vault.type to sqlite or redis"
@@ -467,12 +462,20 @@ def mtimes(paths: Sequence[Path]) -> tuple[int, ...] | None:
         return None
 
 
-async def _watch(paths: Sequence[Path], event: asyncio.Event) -> None:
-    """Set ``event`` once a file of ``paths`` changes on disk."""
+async def wait_for_change(paths: Sequence[Path]) -> None:
+    """Return once a file of ``paths`` changes on disk.
+
+    An mtime poll each second; watchfiles if that ever matters.
+    """
     last = mtimes(paths)
     while True:
         await asyncio.sleep(1.0)
         now = mtimes(paths)
         if now is not None and now != last:
-            event.set()
             return
+
+
+async def _watch(paths: Sequence[Path], event: asyncio.Event) -> None:
+    """Set ``event`` once a file of ``paths`` changes on disk."""
+    await wait_for_change(paths)
+    event.set()

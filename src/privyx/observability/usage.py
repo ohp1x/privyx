@@ -131,11 +131,6 @@ def _detector() -> Any:
     return RegexDetector(underscore_separates_words=False)
 
 
-def usage_tokens(fields: Mapping[str, int]) -> int:
-    """The tokens a reply's merged ``usage`` fields add up to."""
-    return fields.get("total_tokens") or sum(fields.get(key, 0) for key in _COUNTED)
-
-
 def normalize(fields: Mapping[str, int]) -> dict[str, int]:
     """``input`` (uncached), ``output``, ``cache_read``, ``cache_write`` from merged fields.
 

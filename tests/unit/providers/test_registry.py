@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from privyx import load_config
-from privyx.app import Privyx
+from privyx.app import Privyx, read_config
 from privyx.app._build import build_provider
 from privyx.app._serve import build_pipeline
 from privyx.core import ConfigError
@@ -48,7 +48,7 @@ def _engine() -> PrivacyEngine:
 async def test_the_gateway_client_follows_the_proxy_settings(ptype: str) -> None:
     proxy = {"mode": "gateway", "timeout": 42, "connect_timeout": 3, "max_connections": 7}
     settings = load_config(extra={"provider": {"type": ptype}, "proxy": proxy})
-    gateway = build_pipeline(settings, _engine(), build_provider(settings), AuditLogger(None))
+    gateway = build_pipeline(settings, _engine(), build_provider(settings), AuditLogger())
     assert gateway.gateway
     client = gateway._client  # noqa: SLF001
     assert client.timeout == httpx.Timeout(connect=3.0, read=42.0, write=42.0, pool=10.0)
@@ -156,7 +156,9 @@ def test_a_key_belongs_to_the_provider_it_is_written_for(
     warnings: list[str] = []
 
     def key(provider: object) -> str | None:
-        return resolve_api_key(load_config(extra={"provider": provider}, warnings=warnings))
+        loaded = read_config(extra={"provider": provider})
+        warnings.extend(loaded.warnings)
+        return resolve_api_key(loaded.settings)
 
     assert key("openai") == "specific"  # the built-in provider openai's own
     assert key("xai") is None  # another host, of the same type

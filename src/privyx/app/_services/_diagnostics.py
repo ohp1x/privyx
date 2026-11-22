@@ -18,15 +18,17 @@ import importlib.util
 import os
 import re
 import secrets
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from privyx.app import Privyx
     from privyx.config.schema import Settings
-    from privyx.core import Detection
+    from privyx.core import Detection, Session
     from privyx.detectors import Detector
+    from privyx.engine import PrivacyEngine
     from privyx.policies import Policy
 
 Check = Callable[["Settings", "Privyx"], tuple[bool, str]]
@@ -124,14 +126,14 @@ def _check_plugins(settings: Settings, app: Privyx) -> tuple[bool, str]:
 
 def _check_detector(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """The configured detector compiles and scans a diagnostic sample."""
-    from privyx.app._build import build_detector_from
+    from privyx.app._build import build_detector
 
-    detector = build_detector_from(settings, app)
-    _, result = asyncio.run(_probe_sample(settings, detector))
+    detector = build_detector(settings.detectors, app)
+    _, result = asyncio.run(_probe_sample(settings, app, detector))
     if not result.spans:
         sections = settings.active_detectors.values()
         if any(
-            section.type == "regex"
+            is_regex(app, section.type)
             and section.model_dump().get("builtins", True)
             and not any(
                 "EMAIL" in (section.model_dump().get(rules) or ())
@@ -145,8 +147,19 @@ def _check_detector(settings: Settings, app: Privyx) -> tuple[bool, str]:
     return (True, f"{settings.detector_type}: {len(result.spans)} span(s) {types}")
 
 
+def is_regex(app: Privyx, kind: str) -> bool:
+    """Whether detector type ``kind`` is the built-in ``regex`` one, whose options are known.
+
+    Not a plugin extending it, which may send what it scans elsewhere.
+    """
+    from privyx.detectors import Detector, RegexDetector
+
+    registry = app.registry(Detector)
+    return kind in registry and registry.get(kind) is RegexDetector
+
+
 async def _probe_sample(
-    settings: Settings, detector: Detector, policy: Policy | None = None
+    settings: Settings, app: Privyx, detector: Detector, policy: Policy | None = None
 ) -> tuple[str, Detection]:
     """Find a covered sample without assuming that every setup masks email.
 
@@ -160,7 +173,7 @@ async def _probe_sample(
     samples = ["mail alice@example.com"]
     sections = settings.active_detectors.values()
     # Composite detectors send every candidate to every member.
-    if all(section.type == "regex" for section in sections):
+    if all(is_regex(app, section.type) for section in sections):
         for section in sections:
             for terms in section.model_dump().get("terms", {}).values():
                 term = next((value for value in terms if value.strip()), "")
@@ -176,6 +189,24 @@ async def _probe_sample(
     return "", Detection()
 
 
+@asynccontextmanager
+async def _probing(settings: Settings, app: Privyx) -> AsyncIterator[tuple[PrivacyEngine, Session]]:
+    """The configured engine and a session of its own, deleted however the check ends."""
+    from privyx.app._build import build_engine
+    from privyx.core import Session
+
+    engine, close = await build_engine(settings, app)
+    session = Session()
+    try:
+        await engine.vault.create(session)
+        yield engine, session
+    finally:
+        try:
+            await engine.vault.delete(session.session_id)
+        finally:
+            await close()
+
+
 def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """Sensitive files (.db, audit log, anchor.key) must be owner-only (0600)."""
     import os
@@ -185,6 +216,7 @@ def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
         return (True, "skipped: non-posix platform")
 
     from privyx.security.keys import default_anchor_secret_path
+    from privyx.vaults import SQLiteVault, Vault
     from privyx.vaults._sqlite import sqlite_path
 
     candidates: list[Path] = [
@@ -195,7 +227,8 @@ def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
         Path("privyx.db-wal"),
         Path("privyx.db-shm"),
     ]
-    if settings.vault.type == "sqlite":
+    vaults = app.registry(Vault)
+    if settings.vault.type in vaults and vaults.get(settings.vault.type) is SQLiteVault:
         db_path = sqlite_path(settings.vault.model_dump()["dsn"])
         if db_path != ":memory:":
             candidates.extend([Path(db_path), Path(f"{db_path}-wal"), Path(f"{db_path}-shm")])
@@ -286,17 +319,12 @@ def _check_provider(settings: Settings, app: Privyx) -> tuple[bool, str]:
 def _check_proxy(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """A request payload survives the proxy with no PII left in it."""
     from privyx.agents import Agent, client_metadata
-    from privyx.app._build import build_engine
-    from privyx.core import Session
     from privyx.dialects import Dialect
     from privyx.proxy import transform_request
 
     async def _probe() -> tuple[bool, str]:
-        engine, close = await build_engine(settings, app)
-        session = Session()
-        try:
-            await engine.vault.create(session)
-            text, detection = await _probe_sample(settings, engine.detector, engine.policy)
+        async with _probing(settings, app) as (engine, session):
+            text, detection = await _probe_sample(settings, app, engine.detector, engine.policy)
             if not detection.spans:
                 return (True, "skipped: no diagnostic sample is masked by the detector and policy")
             payload = await transform_request(
@@ -319,11 +347,6 @@ def _check_proxy(settings: Settings, app: Privyx) -> tuple[bool, str]:
                 return (False, "diagnostic sample survived the request transform")
             count = len(stored.mapping) if stored else 0
             return (True, f"request transformed, {count} mapping(s) vaulted")
-        finally:
-            try:
-                await engine.vault.delete(session.session_id)
-            finally:
-                await close()
 
     return asyncio.run(_probe())
 
@@ -336,18 +359,13 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """
     import json
 
-    from privyx.app._build import build_engine
-    from privyx.core import Session
     from privyx.dialects import Dialect
     from privyx.streaming import SSEStreamAdapter, resolver_for, select_processor_factory
     from privyx.streaming.sse import parse_sse
 
     async def _probe() -> tuple[bool, str]:
-        engine, close = await build_engine(settings, app)
-        session = Session()
-        try:
-            await engine.vault.create(session)
-            text, detection = await _probe_sample(settings, engine.detector, engine.policy)
+        async with _probing(settings, app) as (engine, session):
+            text, detection = await _probe_sample(settings, app, engine.detector, engine.policy)
             if not detection.spans:
                 return (True, "skipped: no diagnostic sample is masked by the detector and policy")
             result = await engine.transform(text, session=session)
@@ -388,11 +406,6 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
             if restored != f"to {original} ok":
                 return (False, "stream did not restore the original value")
             return (True, "pseudonym restored across a split chunk")
-        finally:
-            try:
-                await engine.vault.delete(session.session_id)
-            finally:
-                await close()
 
     return asyncio.run(_probe())
 
@@ -559,20 +572,20 @@ class _Probe:
 
 
 async def _lint(app: Privyx) -> Lint:
-    from privyx.app._build import build_detector, build_policy_from
+    from privyx.app._build import build_detector, build_policy
     from privyx.app._plugins import load_plugins
     from privyx.config.schema import DetectorConfig
 
-    warnings: list[str] = []
-    settings = app._load(app._config, warnings=warnings)
+    loaded = app._read(app._config)
+    settings, warnings = loaded.settings, loaded.warnings
     load_plugins(settings, app)
     sections = settings.active_detectors
-    checked = {n: s.model_dump() for n, s in sections.items() if s.type == "regex"}
-    unchecked = [f"{n} ({s.type})" for n, s in sections.items() if s.type != "regex"]
+    checked = {n: s.model_dump() for n, s in sections.items() if is_regex(app, s.type)}
+    unchecked = [f"{n} ({s.type})" for n, s in sections.items() if not is_regex(app, s.type)]
     if not checked:
         return Lint(warnings, unchecked)
 
-    policy = build_policy_from(settings, app)
+    policy = build_policy(settings, app)
     off = frozenset(o for o in _OPTIONS if not all(c.get(o) for c in checked.values()))
     built: dict[frozenset[str], Detector] = {}
     where = (
@@ -605,7 +618,7 @@ async def _lint(app: Privyx) -> Lint:
         if fixes:
             return "Set " + joiner.join(f"{where}{o}: true" for o in fixes)
         if await masks(probe, off, None):
-            return f"Found, but {policy_reason(settings)}"
+            return f"Found, but {policy.reason()}"
         return "No option masks these; add them to the terms"
 
     listed = {
@@ -671,13 +684,3 @@ async def _missing(probe: _Probe, detector: Detector, policy: Policy | None) -> 
         detection = await policy.decide(detection, context)
     masked = {i for s in detection.merged(text).spans for i in range(s.start, s.end)}
     return probe.sensitive() - masked
-
-
-def policy_reason(settings: Settings) -> str:
-    """Why the configured policy leaves a detected span unmasked."""
-    policy = settings.policy
-    if policy.type == "strict":
-        allowed = policy.model_dump().get("allowed")
-        listed = "the types in policy.allowed" if allowed else "the built-in types"
-        return f"the strict policy masks only {listed}"
-    return f"the {policy.type} policy left it out"

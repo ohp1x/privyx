@@ -20,7 +20,7 @@ from privyx.app._build import (
     build_detector,
     build_engine,
     build_operator,
-    build_policy_from,
+    build_policy,
     build_provider,
     build_vault,
 )
@@ -240,7 +240,7 @@ async def test_a_file_adds_a_component_of_each_kind(tmp_path: Path) -> None:
     detection = await build_detector(settings.detectors, app).detect("car PLATE", Context())
     assert [s.entity_type for s in detection.spans] == ["LICENSE_PLATE"]
     assert type(build_operator(settings, app)).name == "uppercase"
-    assert type(build_policy_from(settings, app)).name == "allow_all"
+    assert type(build_policy(settings, app)).name == "allow_all"
     assert (
         build_provider(settings, app).url("/v1/x", stream=False) == "https://echo.example.com/v1/x"
     )

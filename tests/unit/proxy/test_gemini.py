@@ -518,7 +518,7 @@ async def _directed(payload: dict[str, Any], path: str) -> dict[str, Any]:
     async def masked(body: dict[str, Any]) -> None:
         Directive().add(RequestMasked("POST", path, Headers({}), body, dialect, sid, "req"))
 
-    return await transform_request(payload, engine, sid, dialect=dialect, path=path, masked=masked)
+    return await transform_request(payload, engine, sid, dialect=dialect, masked=masked)
 
 
 async def test_directive_goes_last_in_the_system_instruction() -> None:

@@ -11,11 +11,10 @@ from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.features import Metrics
-from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline
-from privyx.testing import listening
+from privyx.testing import audit_to, listening
 from privyx.vaults import MemoryVault
 
 USAGE = {
@@ -56,7 +55,7 @@ def _upstream(request: httpx.Request) -> httpx.Response:
 
 
 async def _proxy(buf: io.StringIO, metrics: Metrics | None = None) -> Pipeline:
-    audit = AuditLogger(buf, events=await listening(*([metrics] if metrics else [])))
+    audit = audit_to(buf, events=await listening(*([metrics] if metrics else [])))
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),

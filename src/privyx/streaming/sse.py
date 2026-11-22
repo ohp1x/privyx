@@ -114,11 +114,6 @@ class SSEDecoder:
         event = _parse_block(remainder)
         return [event] if event is not None else []
 
-    @property
-    def pending(self) -> str:
-        """Buffered text not yet forming a complete event."""
-        return self._buffer
-
 
 def _parse_block(block: str) -> SSEEvent | None:
     data_lines: list[str] = []

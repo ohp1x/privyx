@@ -26,8 +26,8 @@ from privyx.core import (
     TransformResult,
     apply_replacements,
 )
-from privyx.operators._base import ID_LENGTH, Operator
-from privyx.operators._restore import free_token, restore
+from privyx.operators._base import ID_LENGTH
+from privyx.operators._restore import TokenOperator, free_token
 from privyx.token.codec import LabelCodec
 from privyx.token.model import LogicalToken
 
@@ -35,7 +35,7 @@ from privyx.token.model import LogicalToken
 _LABEL_ATTEMPTS = 8
 
 
-class PseudonymOperator(Operator):
+class PseudonymOperator(TokenOperator):
     """Replace detected spans with deterministic pseudonym tokens.
 
     Each unique original value maps to a consistent token via the session's
@@ -56,7 +56,7 @@ class PseudonymOperator(Operator):
 
     name = "pseudonym"
 
-    class Options(Operator.Options):
+    class Options(TokenOperator.Options):
         #: Hex characters of an anchored token's id; a counter is unaffected.
         id_length: int = Field(default=ID_LENGTH, ge=6, le=64)
         seed: int | None = None  # determinism salt of the labels
@@ -225,15 +225,6 @@ class PseudonymOperator(Operator):
             (rest if words & _words(label) else best).append((label, written))
         return (*best, *rest)
 
-    def _encode(self, entity_type: str, identifier: str) -> str:
-        return self._codec.encode(
-            LogicalToken(
-                namespace=self._codec.namespace,
-                type=entity_type,
-                identifier=identifier,
-            )
-        )
-
     @staticmethod
     def _digest(anchored: str) -> str:
         """Reduce an anchor's output to its uppercase digest.
@@ -243,15 +234,6 @@ class PseudonymOperator(Operator):
         characters.
         """
         return anchored.rsplit("_", 1)[-1].upper()
-
-    async def deanonymize(
-        self,
-        text: str,
-        session: Session,
-        context: Context,
-    ) -> TransformResult:
-        """Restore all tokens in ``text`` using the session mapping."""
-        return restore(text, session, self._codec)
 
 
 def _words(text: str) -> set[str]:

@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from privyx import load_config
-from privyx.app import Privyx
+from privyx.app import Privyx, read_config
 from privyx.app._schema import json_schema
 from privyx.cli.main import cli
 from privyx.config.schema import NAMED, PLUGGABLE
@@ -74,8 +74,8 @@ def test_the_schema_takes_only_the_settings_of_the_type(config: dict, valid: boo
 def _load(tmp_path: Path, **files: str) -> list[str]:
     for name, text in files.items():
         (tmp_path / f"{name}.yaml").write_text(text)
-    warnings: list[str] = []
-    load_config(tmp_path / "top.yaml", warnings=warnings)
+    loaded = read_config(tmp_path / "top.yaml")
+    warnings = loaded.warnings
     return [w.replace(str(tmp_path.resolve()) + "/", "") for w in warnings]
 
 

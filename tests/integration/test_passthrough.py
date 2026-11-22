@@ -25,11 +25,11 @@ from privyx.config.schema import VaultConfig
 from privyx.core import Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline
 from privyx.proxy._asgi import create_app
+from privyx.testing import audit_to
 from privyx.vaults import MemoryVault
 
 CHUNK = b"x" * 65536
@@ -41,7 +41,7 @@ async def test_unknown_route_audit_never_records_client_content(
     allowed: bool, upstream_fails: bool
 ) -> None:
     trail = io.StringIO()
-    audit = AuditLogger(trail)
+    audit = audit_to(trail)
     seen = []
 
     def upstream(request: httpx.Request) -> httpx.Response:

@@ -9,8 +9,7 @@ from typing import Any
 
 import pytest
 
-from privyx.app import Privyx
-from privyx.app._serve import metadata
+from privyx.agents import builtin_metadata
 from privyx.core import LeakError, Session
 from privyx.detectors import RegexDetector
 from privyx.dialects import AnthropicDialect, Dialect, _anthropic, builtins
@@ -27,7 +26,7 @@ PHONE = "+1-555-0142"
 ROUTES = {"/v1/chat/completions": "openai", "/v1/messages": "anthropic"}
 
 #: The request keys and headers in which the built-in agents' clients describe their machine.
-AGENTS = dict(zip(("metadata_keys", "masked_headers"), metadata(Privyx()), strict=True))
+AGENTS = dict(zip(("metadata_keys", "masked_headers"), builtin_metadata(), strict=True))
 #: A new instance of each built-in dialect, by name.
 DIALECTS: dict[str, Dialect] = builtins()
 

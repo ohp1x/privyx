@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from privyx.agents import LaunchPlan
     from privyx.agents._plan import Target
     from privyx.app import Privyx
+    from privyx.config import Loaded
     from privyx.config.schema import Settings
 
 
@@ -50,8 +51,7 @@ def _run_settings(
     *,
     harvest: bool | None = None,
     agent: str | None = None,
-    sources: dict[str, str] | None = None,
-) -> Settings:
+) -> Loaded:
     extra: dict[str, Any] = {}
     if provider is not None:
         extra["provider"] = provider  # a named provider, over the profile's
@@ -65,7 +65,7 @@ def _run_settings(
     if no_anchor:
         # Below the config: an anchor set there still applies.
         base_extra["anchor"] = {"secret": ""}
-    return app._load(app._config, extra=extra, base_extra=base_extra, agent=agent, sources=sources)
+    return app._read(app._config, extra=extra, base_extra=base_extra, agent=agent).log_warnings()
 
 
 @click.command(
@@ -144,20 +144,17 @@ def run(
         raise click.UsageError("--json writes the plan of --dry-run or the list of --list")
 
     app = Privyx()
-    sources: dict[str, str] = {}
-    try:
-        settings = _run_settings(
-            app,
-            provider,
-            upstream,
-            session_strategy,
-            no_anchor,
-            harvest=harvest,
-            agent=target,
-            sources=sources,
-        )
-    except PrivyxError as exc:
-        raise click.ClickException(str(exc)) from exc
+
+    def read(name: str | None) -> Loaded:
+        try:
+            return _run_settings(
+                app, provider, upstream, session_strategy, no_anchor, harvest=harvest, agent=name
+            )
+        except PrivyxError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+    loaded = read(target)
+    settings, sources = loaded.settings, loaded.sources
 
     if list_targets:
         targets = sorted(settings.agents.items())
@@ -180,20 +177,8 @@ def run(
         raise click.UsageError(str(exc)) from exc
     if expanded is not None:
         target, args = expanded
-        sources = {}
-        try:
-            settings = _run_settings(
-                app,
-                provider,
-                upstream,
-                session_strategy,
-                no_anchor,
-                harvest=harvest,
-                agent=target,
-                sources=sources,
-            )
-        except PrivyxError as exc:
-            raise click.ClickException(str(exc)) from exc
+        loaded = read(target)
+        settings, sources = loaded.settings, loaded.sources
     try:
         spec = launch_target(app, settings, target, env_vars=env_vars, sources=sources)
     except PrivyxError as exc:
@@ -448,7 +433,7 @@ async def _run_target(
 
     app = app or Privyx()
     if settings is None:
-        settings = _run_settings(app, spec.provider, upstream, session_strategy, no_anchor)
+        settings = _run_settings(app, spec.provider, upstream, session_strategy, no_anchor).settings
     if plan is None:
         plan = plan_launch(spec, argv, settings, port, env_vars)
     # The child tool owns the terminal: log lines go to log.file if one is set,

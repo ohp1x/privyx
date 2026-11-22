@@ -22,8 +22,3 @@ def generate_id(prefix: str = "", length: int = 16) -> str:
 def request_id() -> str:
     """Generate a short request-scoped ID."""
     return generate_id("req", 12)
-
-
-def trace_id() -> str:
-    """Generate a trace ID (full UUID hex, no prefix)."""
-    return uuid.uuid4().hex

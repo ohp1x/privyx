@@ -11,6 +11,7 @@ import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
+from privyx.app import read_config
 from privyx.app._build import build_detector
 from privyx.cli.main import cli
 from privyx.config import is_trusted
@@ -131,8 +132,9 @@ def test_scan_writes_the_current_keys_and_loads_without_a_warning(
     assert runner.invoke(cli, ["scan", "--yes"]).exit_code == 0
 
     data = yaml.safe_load((repo / "privyx.d" / "terms.yaml").read_text(encoding="utf-8"))
-    warnings: list[str] = []
-    settings = load_config(warnings=warnings)
+    loaded = read_config()
+    warnings = loaded.warnings
+    settings = loaded.settings
 
     assert list(data) == ["detectors"] and list(data["detectors"]) == ["regex"]
     assert warnings == []

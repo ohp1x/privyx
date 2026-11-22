@@ -169,4 +169,4 @@ class Features:
         """What the app shares with a feature it opens under ``settings``."""
         from privyx.app._build import _services, build_codec
 
-        return _services(settings, self._app, build_codec(settings, self._app), None)
+        return _services(self._app, build_codec(settings, self._app), None)

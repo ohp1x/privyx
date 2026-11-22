@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import sys
-import time
-from pathlib import Path
 from typing import Any
 
 import click
@@ -110,7 +108,7 @@ def proxy(
             click.echo(f"Error: {exc}", err=True)
             if not watch_paths:
                 sys.exit(1)
-            _wait_for_change(watch_paths, _mtimes(watch_paths))
+            Privyx.wait_for_change(watch_paths)
 
         assert watch_paths  # only a watcher can ask for a restart
         while True:
@@ -121,21 +119,4 @@ def proxy(
             except PrivyxError as exc:
                 # A half-saved YAML must not kill it either.
                 click.echo(f"Error: {exc}", err=True)
-                _wait_for_change(watch_paths, _mtimes(watch_paths))
-
-
-def _mtimes(paths: list[Path]) -> tuple[int, ...] | None:
-    """Modification times, or ``None`` while a file is momentarily missing."""
-    try:
-        return tuple(path.stat().st_mtime_ns for path in paths)
-    except OSError:
-        return None
-
-
-def _wait_for_change(paths: list[Path], last: tuple[int, ...] | None) -> None:
-    # An mtime poll each second; watchfiles if that ever matters.
-    while True:
-        time.sleep(1.0)
-        now = _mtimes(paths)
-        if now is not None and now != last:
-            return
+                Privyx.wait_for_change(watch_paths)

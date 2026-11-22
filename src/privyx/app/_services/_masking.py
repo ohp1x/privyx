@@ -17,6 +17,7 @@ from privyx.core import Context, Detection, PrivyxError, Session, SessionNotFoun
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
+    from privyx.engine import PrivacyEngine
 
 #: Input formats.  ``auto`` looks at the input file's extension.
 FORMATS = ("auto", "text", "json", "jsonl")
@@ -72,7 +73,11 @@ class Masking:
     @staticmethod
     def format_of(fmt: str, path: str | None) -> str:
         """``fmt``, or with ``auto`` the format the extension of the input ``path`` says."""
-        return resolve_format(fmt, path)
+        if fmt != "auto":
+            return fmt
+        if path and path != "-":
+            return _EXTENSIONS.get(Path(path).suffix.lower(), "text")
+        return "text"
 
     async def detect(self, text: str, *, categories: list[str] | None = None) -> Findings:
         """The spans of ``text`` the configured detector and policy mask.
@@ -114,15 +119,7 @@ class Masking:
             held = (
                 session if session is not None else await engine.get_or_create_session(session_id)
             )
-
-            async def transform(leaf: str) -> str:
-                return (await engine.transform(leaf, session=held)).text
-
-            async def under(key: str, leaf: str) -> str:
-                # `{"password": "hunter2"}`: the value is a secret by its key.
-                return (await engine.transform(leaf, session=held, key=key)).text
-
-            return Masked(await apply(source, fmt, paths, transform, under), held)
+            return Masked(await apply(source, fmt, paths, *_maskers(engine, held)), held)
 
     async def unmask(
         self,
@@ -163,7 +160,7 @@ class Masking:
         the mapping, so it stays out of the vault and goes with the call.  When
         masking or ``write`` fails, the session is deleted.
         """
-        persistent = self._app.settings.vault.type != "memory"
+        persistent = self._app.sessions.persistent
         async with self._app.engine() as engine:
             if persistent:
                 sid = (await engine.get_or_create_session()).session_id
@@ -174,18 +171,9 @@ class Masking:
                 scope = contextlib.nullcontext(ephemeral)
             try:
                 async with scope as session:
-
-                    async def transform(leaf: str) -> str:
-                        return (await engine.transform(leaf, session=session, persist=False)).text
-
-                    async def under(key: str, leaf: str) -> str:
-                        # `{"password": "hunter2"}`: the value is a secret by its key.
-                        masked = await engine.transform(
-                            leaf, session=session, persist=False, key=key
-                        )
-                        return masked.text
-
-                    result = await apply(source, fmt, (), transform, under)
+                    result = await apply(
+                        source, fmt, (), *_maskers(engine, session, persist=False)
+                    )
                 if write is not None:
                     await write(result)
             except BaseException:
@@ -200,13 +188,21 @@ class Masking:
         return MaskedDocument(result, sid if persistent else None)
 
 
-def resolve_format(fmt: str, input_path: str | None) -> str:
-    """``fmt``, or with ``auto`` the format the input file's extension says."""
-    if fmt != "auto":
-        return fmt
-    if input_path and input_path != "-":
-        return _EXTENSIONS.get(Path(input_path).suffix.lower(), "text")
-    return "text"
+def _maskers(
+    engine: PrivacyEngine, session: Session, **options: Any
+) -> tuple[Transform, Callable[[str, str], Awaitable[str]]]:
+    """Masking of a leaf in ``session``, and of a leaf under a key.
+
+    ``{"password": "hunter2"}``: the value is a secret by its key.
+    """
+
+    async def transform(leaf: str) -> str:
+        return (await engine.transform(leaf, session=session, **options)).text
+
+    async def under(key: str, leaf: str) -> str:
+        return (await engine.transform(leaf, session=session, key=key, **options)).text
+
+    return transform, under
 
 
 async def apply(
@@ -318,29 +314,28 @@ class Inspection:
 
     async def spans(self, text: str, *, policy: bool = True) -> list[Spotted]:
         """The spans of ``text`` the configured detectors find, and the policy keeps."""
-        from privyx.app._build import build_detector_from, build_policy_from
+        detection, _ = await self._detected(text, policy)
+        return [_spotted(s) for s in detection.merged(text).spans]
+
+    async def _detected(self, text: str, policy: bool) -> tuple[Detection, Context]:
+        """What the configured detectors find in ``text`` and the policy keeps, and its context."""
+        from privyx.app._build import build_detector, build_policy
         from privyx.app._plugins import load_plugins
 
         settings = self._app.settings
         load_plugins(settings, self._app)
         context = Context()
-        detection = await build_detector_from(settings, self._app).detect(text, context)
+        detection = await build_detector(settings.detectors, self._app).detect(text, context)
         if policy:
-            detection = await build_policy_from(settings, self._app).decide(detection, context)
-        return [_spotted(s) for s in detection.merged(text).spans]
+            detection = await build_policy(settings, self._app).decide(detection, context)
+        return detection, context
 
     async def preview(self, text: str, *, policy: bool = True) -> str:
         """``text`` masked in a session of its own, which no vault keeps."""
-        from privyx.app._build import build_detector_from, build_policy_from, open_operator
-        from privyx.app._plugins import load_plugins
+        from privyx.app._build import open_operator
 
-        settings = self._app.settings
-        load_plugins(settings, self._app)
-        context = Context()
-        detection = await build_detector_from(settings, self._app).detect(text, context)
-        if policy:
-            detection = await build_policy_from(settings, self._app).decide(detection, context)
-        operator = await open_operator(settings, self._app)
+        detection, context = await self._detected(text, policy)
+        operator = await open_operator(self._app.settings, self._app)
         try:
             return (await operator.pseudonymize(text, detection, Session(), context)).text
         finally:
@@ -353,9 +348,9 @@ class Inspection:
         the one that found it; together they find what the configured
         detectors do.
         """
-        from privyx.app._build import build_detector, build_policy_from
+        from privyx.app._build import build_detector, build_policy
         from privyx.app._plugins import load_plugins
-        from privyx.app._services._diagnostics import policy_reason
+        from privyx.app._services._diagnostics import is_regex
         from privyx.core import BUILTIN_ENTITIES
 
         settings = self._app.settings
@@ -372,6 +367,7 @@ class Inspection:
             label = name if name == section.type else f"{name} ({section.type})"
             config = section.model_dump()
             options = _PatternOptions(config)
+            regex = is_regex(self._app, section.type)
             detection = await detect(name, config)
             plain = decoded = detection
             if options.decode or options.normalize:
@@ -387,7 +383,7 @@ class Inspection:
             # Merged with terms, a pattern's entity is credited to the terms they find alone.
             both = options.terms.keys() & options.patterns.keys() if options.merge_terms else set()
             by_terms: set[tuple[int, int, str]] = set()
-            if both and section.type == "regex":
+            if both and regex:
                 # The terms alone: no pattern of theirs, nor the built-in it replaced.
                 patterns = {k: v for k, v in options.patterns.items() if k not in both}
                 builtin = both & BUILTIN_ENTITIES
@@ -404,15 +400,14 @@ class Inspection:
             for s in detection.spans:
                 where = (s.start, s.end, s.entity_type)
                 merged = where in by_terms and s.entity_type in both
-                reason = f"{label}: {_origin(section.type, options, s.entity_type, merged)}"
+                reason = f"{label}: {_origin(regex, options, s.entity_type, merged)}"
                 if where not in direct:
                     reason += ", once joined or decoded" if where in hidden else ", once folded"
                 found.append((s, reason))
 
         raw = Detection([span for span, _ in found])
-        kept = raw
-        if policy:
-            kept = await build_policy_from(settings, self._app).decide(raw, context)
+        chosen = build_policy(settings, self._app) if policy else None
+        kept = await chosen.decide(raw, context) if chosen is not None else raw
         masked = kept.merged(text).spans
         explained = []
         for span in raw.merged(text).spans:
@@ -420,7 +415,8 @@ class Inspection:
             # The masked spans lie within the shown ones: the policy only drops spans.
             parts = [m for m in masked if _overlap(m, span)]
             if not parts:
-                outcome = f"not masked: {policy_reason(settings)}"
+                assert chosen is not None  # only a policy drops a span
+                outcome = f"not masked: {chosen.reason()}"
             elif sum(m.length for m in parts) == span.length:
                 outcome = "masked"
             else:
@@ -464,11 +460,12 @@ class Inspection:
 
     def patterns(self) -> dict[str, str]:
         """Entity → regex of every regex detector that is on, built-ins included."""
+        from privyx.app._services._diagnostics import is_regex
         from privyx.detectors._pattern import _builtins, _enabled, _patterns_from
 
         patterns: dict[str, str] = {}
         for section in self._app.settings.active_detectors.values():
-            if section.type != "regex":
+            if not is_regex(self._app, section.type):
                 continue
             config = section.model_dump()
             own = {**_enabled(config), **_patterns_from(config)}
@@ -495,15 +492,16 @@ class _PatternOptions:
         self.builtins = bool(config.get("builtins", True))
 
 
-def _origin(kind: str, options: _PatternOptions, entity: str, by_terms: bool) -> str:
+def _origin(regex: bool, options: _PatternOptions, entity: str, by_terms: bool) -> str:
     """Which rule of a detector found a span: a pattern, a term list, or a built-in.
 
+    ``regex``: it is the built-in ``regex`` detector, the only one with rules.
     ``by_terms``: the terms find the span alone, which decides for an entity
     whose terms and pattern are merged.
     """
     from privyx.detectors import DEFAULT_PATTERNS
 
-    if kind != "regex":
+    if not regex:
         return entity
     if entity in options.patterns and not by_terms:
         return f"pattern {entity}"

@@ -29,7 +29,10 @@ from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.proxy import Pipeline  # noqa: E402
 from privyx.proxy._asgi import create_app  # noqa: E402
-from privyx.testing import listening  # noqa: E402
+from privyx.testing import (
+    audit_to,
+    listening,  # noqa: E402
+)
 from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "alice@example.com"
@@ -167,7 +170,7 @@ async def test_chat_paths_without_v1_are_masked() -> None:
 async def _metrics(buf: io.StringIO | None = None) -> tuple[AuditLogger, Metrics]:
     """An audit logger writing to ``buf``, and the metrics feature hearing it."""
     metrics = Metrics()
-    return AuditLogger(buf, events=await listening(metrics)), metrics
+    return audit_to(buf, events=await listening(metrics)), metrics
 
 
 async def test_metrics_count_proxied_exchanges() -> None:
@@ -224,7 +227,7 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
 async def test_a_leak_found_by_dlp_check_is_a_422_never_forwarded() -> None:
     seen: list[bytes] = []
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine = _engine()
     engine.dlp_check = True
     proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
@@ -359,7 +362,7 @@ async def test_an_ephemeral_request_never_touches_the_vault(stream: bool) -> Non
     for name in ("create", "get", "save", "delete", "list_sessions"):
         setattr(vault, name, lambda *args, _name=name: calls.append(_name))
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),

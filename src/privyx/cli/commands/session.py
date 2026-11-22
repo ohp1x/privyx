@@ -265,6 +265,6 @@ def _mask(value: str) -> str:
 
 
 def _ts(epoch: float) -> str:
-    from datetime import datetime
+    from privyx.events import local_time
 
-    return datetime.fromtimestamp(epoch).isoformat(timespec="seconds")
+    return local_time(epoch)

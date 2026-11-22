@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from privyx import load_config
+from privyx.app import read_config
 from privyx.core import ConfigError
 
 
@@ -23,7 +24,9 @@ def test_a_path_with_double_underscores_sets_the_setting(monkeypatch: pytest.Mon
     monkeypatch.setenv("PRIVYX_VAULT__TTL", "60")
     sources: dict[str, str] = {}
 
-    settings = load_config(sources=sources)
+    loaded = read_config()
+    sources = loaded.sources
+    settings = loaded.settings
 
     assert settings.server.port == 8001  # read by the type of the setting
     assert settings.features["directive"].enabled is True

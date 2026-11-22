@@ -43,17 +43,6 @@ def test_adapter_extracts_the_field_it_names() -> None:
     assert adapter.extract_delta(event) == "Hello"
 
 
-def test_adapter_roundtrip() -> None:
-    adapter = SSEStreamAdapter(data_path=OPENAI_TEXT)
-    original = SSEEvent(
-        data='{"choices": [{"delta": {"content": "x"}}]}',
-        event="chat.completion.chunk",
-    )
-    wrapped = adapter.wrap_delta("Hello", original)
-    parsed = parse_sse(wrapped.to_str())[0]
-    assert adapter.extract_delta(parsed) == "Hello"
-
-
 def test_sse_decoder_incremental_chunks() -> None:
     from privyx.streaming.sse import SSEDecoder
 

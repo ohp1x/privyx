@@ -102,6 +102,17 @@ class Sessions:
     def vault_type(self) -> str:
         return str(self._app.settings.vault.type)
 
+    @property
+    def persistent(self) -> bool:
+        """Whether the vault's sessions outlive this process.
+
+        An unknown type counts as persistent: building it reports the error.
+        """
+        from privyx.vaults import Vault
+
+        registry = self._app.registry(Vault)
+        return self.vault_type not in registry or registry.get(self.vault_type).persistent
+
     async def list(self) -> list[Session]:
         """The live sessions, most recently active first.
 

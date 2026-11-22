@@ -33,3 +33,7 @@ class StrictPolicy(Policy):
             if span.entity_type in self._allowed:
                 filtered.spans.append(span)
         return filtered
+
+    def reason(self) -> str:
+        listed = "the types in policy.allowed" if self.options.allowed else "the built-in types"
+        return f"the {self.name} policy masks only {listed}"

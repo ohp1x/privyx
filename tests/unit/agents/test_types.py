@@ -9,8 +9,9 @@ import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
-from privyx.app import Privyx
-from privyx.app._serve import metadata
+from privyx.agents import Agent as AgentKind
+from privyx.agents import client_metadata
+from privyx.app import Privyx, read_config
 from privyx.cli.main import cli
 from privyx.core import ConfigError
 
@@ -25,7 +26,9 @@ def test_adapter_is_read_as_the_type_with_a_warning(tmp_path: Path) -> None:
     config = _config(tmp_path, {"agents": {"work": {"command": "wrap", "adapter": "codex"}}})
     warnings: list[str] = []
 
-    settings = load_config(config, warnings=warnings)
+    loaded = read_config(config)
+    warnings = loaded.warnings
+    settings = loaded.settings
 
     assert settings.agents["work"].type == "codex"
     assert "adapter" not in (settings.agents["work"].model_extra or {})
@@ -38,7 +41,9 @@ def test_adapter_auto_leaves_the_type_to_the_command(tmp_path: Path) -> None:
     config = _config(tmp_path, {"agents": {"mine": {"command": "/opt/codex", "adapter": "auto"}}})
     warnings: list[str] = []
 
-    assert load_config(config, warnings=warnings).agents["mine"].type == "codex"
+    loaded = read_config(config)
+    warnings = loaded.warnings
+    assert loaded.settings.agents["mine"].type == "codex"
     assert warnings == ["'agents.mine.adapter' is deprecated; leave out 'type' (removed in 0.4.0)"]
 
 
@@ -99,8 +104,8 @@ def test_a_plugin_brings_its_agent_type_and_profile(tmp_path: Path) -> None:
     assert "OPENAI_HOST=http://127.0.0.1:<auto>" in result.output
     app = Privyx(config)
     assert app.settings.plugins.paths  # reading them set the plugins up
-    assert "goose_machine" in metadata(app)[0]
-    assert {"safeguards", "client_metadata"} <= metadata(app)[0]
+    assert "goose_machine" in client_metadata(app.registry(AgentKind))[0]
+    assert {"safeguards", "client_metadata"} <= client_metadata(app.registry(AgentKind))[0]
 
 
 def test_an_unknown_type_fails_when_its_profile_runs(tmp_path: Path) -> None:

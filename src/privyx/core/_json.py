@@ -136,20 +136,3 @@ def value_spans(key: str, value: str, spans: list[Span]) -> list[Span]:
             if first < last:
                 out.append(Span(first, last, span.entity_type, value[first:last]))
     return out
-
-
-def walk_paths(value: Any) -> list[tuple[str, Any]]:
-    """Return a flat list of ``(json_path, value)`` for every node."""
-    results: list[tuple[str, Any]] = []
-
-    def _walk(node: Any, path: str) -> None:
-        results.append((path, node))
-        if isinstance(node, dict):
-            for key, child in node.items():
-                _walk(child, f"{path}.{key}")
-        elif isinstance(node, list):
-            for index, child in enumerate(node):
-                _walk(child, f"{path}[{index}]")
-
-    _walk(value, "$")
-    return results

@@ -11,9 +11,8 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
-from privyx.app import Privyx
+from privyx.agents import builtin_metadata
 from privyx.app._build import build_detector
-from privyx.app._serve import metadata
 from privyx.cli.main import cli
 from privyx.config.schema import Settings
 from privyx.engine import PrivacyEngine
@@ -53,7 +52,7 @@ async def test_harvest_masks_identity_in_safeguards(
         "messages": [],
         "safeguards": [{"classifier_context": {"user_identity": "alice"}}],
     }
-    keys = metadata(Privyx())[0]
+    keys = builtin_metadata()[0]
     out = await transform_request(payload, engine, session.session_id, metadata_keys=keys)
     value = out["safeguards"][0]["classifier_context"]["user_identity"]
     assert value.startswith("<PRIVYX_PERSON_") if harvest else value == "alice"

@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 from privyx import load_config
-from privyx.app._build import build_detector_from, build_policy_from
+from privyx.app._build import build_detector, build_policy
 from privyx.core import Context
 from privyx.detectors import Detector
 from privyx.policies import Policy, StrictPolicy
 
 CONFIGS = Path(__file__).parents[3] / "configs"
-NO_CONFIG = build_detector_from(load_config(None))
+NO_CONFIG = build_detector(load_config(None).detectors)
 
 # Fake values, assembled here so the source holds no literal key-shaped string.
 A = "Zq7Xw2Lp9Rt4Vb6Nm1Kc8Hd3Js5Gf0Ay"
@@ -145,7 +145,7 @@ async def test_secret_is_masked(text: str, secret: str) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "policy",
-    [build_policy_from(load_config(CONFIGS / "strict.yaml")), StrictPolicy()],
+    [build_policy(load_config(CONFIGS / "strict.yaml")), StrictPolicy()],
     ids=["strict.yaml", "empty allowed"],
 )
 async def test_strict_policy_keeps_builtin_secrets(policy: Policy) -> None:

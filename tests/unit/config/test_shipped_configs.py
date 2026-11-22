@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from privyx import load_config
 from privyx.app import Privyx
-from privyx.app._build import build_detector_from, build_policy_from
+from privyx.app._build import build_detector, build_policy
 from privyx.config.defaults import DEFAULT_FEATURES
 from privyx.config.schema import NAMED, PLUGGABLE, DetectorConfig, Settings
 from privyx.core import Context
@@ -127,7 +127,7 @@ def test_strict_yaml_keeps_the_destination_and_run_defaults() -> None:
 @pytest.mark.asyncio
 async def test_strict_yaml_masks_your_own_terms() -> None:
     settings = load_config(STRICT, extra={"detectors": {"regex": {"terms": {"PERSON": ["ann"]}}}})
-    detection = await build_detector_from(settings).detect("ask ann", Context())
-    decision = await build_policy_from(settings).decide(detection, Context())
+    detection = await build_detector(settings.detectors).detect("ask ann", Context())
+    decision = await build_policy(settings).decide(detection, Context())
 
     assert [s.entity_type for s in decision.spans] == ["PERSON"]

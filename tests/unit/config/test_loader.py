@@ -13,7 +13,8 @@ from pathlib import Path
 import pytest
 
 from privyx import load_config
-from privyx.app._build import build_detector_from
+from privyx.app import read_config
+from privyx.app._build import build_detector
 from privyx.config import active_config_paths, find_local_configs, is_trusted, trust
 from privyx.core import ConfigError, Context
 
@@ -135,7 +136,7 @@ async def test_a_detector_without_builtins_sees_only_its_own_patterns(tmp_path: 
         "detectors:\n  regex:\n    builtins: false\n    patterns: {CODE: 'X\\d+'}\n",
         encoding="utf-8",
     )
-    detector = build_detector_from(load_config(cfg))
+    detector = build_detector(load_config(cfg).detectors)
     detection = await detector.detect("X12 mail a@b.io", Context())
     assert [span.entity_type for span in detection.spans] == ["CODE"]
 
@@ -143,7 +144,7 @@ async def test_a_detector_without_builtins_sees_only_its_own_patterns(tmp_path: 
 async def test_regex_detector_keeps_the_builtin_patterns(tmp_path: Path) -> None:
     cfg = tmp_path / "c.yaml"
     cfg.write_text("detectors:\n  regex:\n    patterns: {CODE: 'X\\d+'}\n", encoding="utf-8")
-    detector = build_detector_from(load_config(cfg))
+    detector = build_detector(load_config(cfg).detectors)
     detection = await detector.detect("X12 mail a@b.io", Context())
     assert sorted(span.entity_type for span in detection.spans) == ["CODE", "EMAIL"]
 
@@ -438,8 +439,9 @@ def test_include_merges_files_below_the_including_one(tmp_path: Path) -> None:
         "include: ['./privyx.d/*.yaml', terms.yaml]\nsession:\n  strategy: client\n"
         "vault:\n  ttl: 300\n",
     )
-    sources: dict[str, str] = {}
-    settings = load_config(cfg, sources=sources)
+    loaded = read_config(cfg)
+    sources = loaded.sources
+    settings = loaded.settings
     assert settings.vault.ttl == 300  # the including file wins
     assert settings.vault.type == "memory"  # the later include wins over the earlier
     assert settings.detectors["regex"].model_dump()["terms"] == {"PROJECT": ["bluebird"]}

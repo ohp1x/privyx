@@ -36,10 +36,10 @@ from privyx.detectors import Detector, RegexDetector
 from privyx.detectors._cache import CachedDetector
 from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
-from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline, transform_request
+from privyx.testing import audit_to
 from privyx.vaults import MemoryVault
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -116,7 +116,7 @@ async def request_case(
     body: bytes, *, cached: bool, iterations: int, profile: Path | None = None
 ) -> dict[str, Any]:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine, close = await build_engine(Settings.model_validate(DEFAULTS), audit=audit)
     detector = engine.detector
     assert isinstance(detector, CachedDetector)

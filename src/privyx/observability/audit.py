@@ -7,8 +7,8 @@ feature writes them as JSON lines, and the ``metrics`` feature counts them.
 
 - ``request_id`` correlates every event of one proxied exchange; ``null`` for
   standalone library / CLI calls that run outside a request scope.
-- ``event`` is one of :class:`~privyx.events.AuditEventType`, the single source
-  of truth for the vocabulary.
+- ``event`` is the name of an :class:`~privyx.events.AuditEvent` class: those
+  classes are the vocabulary.
 
 The trail is **PII-safe by construction**: the typed helpers accept only entity
 *types*, *counts*, and non-PII scalars.  Raw detected text, original values, and
@@ -31,20 +31,28 @@ failure can never break a request.
 
 from __future__ import annotations
 
-import logging
-import threading
 import time
 from collections.abc import Mapping
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, TextIO
+from typing import Any
 
 from privyx.core import EventBus
-from privyx.events import AUDIT_EVENTS, SCHEMA_VERSION, AuditEvent, AuditEventType
+from privyx.events import (
+    SCHEMA_VERSION,
+    AuditEvent,
+    ProxyBlocked,
+    ProxyError,
+    ProxyPassthrough,
+    ProxyRequest,
+    ProxyResponse,
+    SessionCreated,
+    SessionDeleted,
+    SessionRestore,
+    SessionTransform,
+)
 
-__all__ = ["SCHEMA_VERSION", "AuditEvent", "AuditEventType", "AuditLogger"]
-
-_log = logging.getLogger("privyx")
+__all__ = ["SCHEMA_VERSION", "AuditEvent", "AuditLogger"]
 
 
 @dataclass(slots=True)
@@ -71,30 +79,21 @@ class AuditLogger:
     """Emit PII-safe audit notifications to an event bus.
 
     Args:
-        writer: Also append each record to this open text stream as a JSON
-            line, as the ``audit`` feature does: a ``StringIO`` in a test.
-        events: The bus the notifications go to, the app's.  Without it nor a
-            writer, every method is a no-op, so callers need no ``if audit:``
-            guards.
+        events: The bus the notifications go to, the app's.  Without it, every
+            method is a no-op, so callers need no ``if audit:`` guards.
     """
 
-    def __init__(self, writer: TextIO | None = None, *, events: EventBus | None = None) -> None:
-        self._writer = writer
+    def __init__(self, *, events: EventBus | None = None) -> None:
         self._events = events
-        self._lock = threading.Lock()
         #: Requests sent upstream on a masking route, counted as they go out,
         #: so one still awaiting its response counts too.
         self.routed = 0
         #: Requests forwarded with a body on a path outside the masking routes.
         self.unmasked_bodies = 0
 
-    @property
-    def enabled(self) -> bool:
-        return self._writer is not None or self._events is not None
-
     def emit(
         self,
-        event: str,
+        event: type[AuditEvent],
         *,
         session_id: str | None = None,
         request_id: str | None = None,
@@ -105,8 +104,7 @@ class AuditLogger:
         ``request_id`` / ``session_id`` fall back to the active request scope when
         not given, so an event emitted deep in the engine still correlates.
         """
-        cls = AUDIT_EVENTS[event]
-        if self._writer is None and (self._events is None or not self._events.wants(cls)):
+        if self._events is None or not self._events.wants(event):
             return  # nobody hears it: no record is built
         scope = _scope.get()
         if scope is not None:
@@ -114,19 +112,11 @@ class AuditLogger:
                 request_id = scope.request_id
             if session_id is None:
                 session_id = scope.session_id
-        record = cls(
-            timestamp=time.time(), session_id=session_id, request_id=request_id, fields=fields
+        self._events.notify(
+            event(
+                timestamp=time.time(), session_id=session_id, request_id=request_id, fields=fields
+            )
         )
-        if self._events is not None:
-            self._events.notify(record)
-        writer = self._writer
-        if writer is not None:
-            try:
-                with self._lock:
-                    writer.write(record.to_json() + "\n")
-                    writer.flush()
-            except Exception:  # audit must never break the request path
-                _log.exception("audit write failed")
 
     # -- request correlation / aggregation --------------------------------
 
@@ -161,15 +151,12 @@ class AuditLogger:
         if scope is None or (scope.transform_n == 0 and not scope.detector_counts):
             return 0
         total = scope.transform_n
-        extra: dict[str, Any] = (
-            {"detector_counts": scope.detector_counts} if scope.detector_counts else {}
-        )
         self.emit(
-            AuditEventType.SESSION_TRANSFORM,
+            SessionTransform,
             session_id=scope.session_id,
             entity_counts=dict(scope.transform_counts),
             transformations=total,
-            **extra,
+            **_present(detector_counts=scope.detector_counts or None),
         )
         scope.transform_counts = {}
         scope.detector_counts = {}
@@ -183,7 +170,7 @@ class AuditLogger:
             return 0
         total = scope.restore_n
         self.emit(
-            AuditEventType.SESSION_RESTORE,
+            SessionRestore,
             session_id=scope.session_id,
             transformations=total,
         )
@@ -200,7 +187,7 @@ class AuditLogger:
         from the request; see :mod:`privyx.proxy.session`), or ``ephemeral`` (a
         fresh per-request id).
         """
-        self.emit(AuditEventType.SESSION_CREATED, session_id=session_id, source=source)
+        self.emit(SessionCreated, session_id=session_id, source=source)
 
     def session_deleted(
         self,
@@ -217,7 +204,7 @@ class AuditLogger:
         deletion, so the event never claims that a failed cleanup succeeded.
         """
         self.emit(
-            AuditEventType.SESSION_DELETED,
+            SessionDeleted,
             session_id=session_id,
             request_id=request_id,
             reason=reason,
@@ -265,13 +252,12 @@ class AuditLogger:
             if scope.session_id is None:
                 scope.session_id = session_id
             return
-        extra: dict[str, Any] = {"detector_counts": counters} if counters else {}
         self.emit(
-            AuditEventType.SESSION_TRANSFORM,
+            SessionTransform,
             session_id=session_id,
             entity_counts=entity_counts,
             transformations=transformations,
-            **extra,
+            **_present(detector_counts=counters or None),
         )
 
     def restore(
@@ -293,7 +279,7 @@ class AuditLogger:
                 scope.session_id = session_id
             return
         self.emit(
-            AuditEventType.SESSION_RESTORE,
+            SessionRestore,
             session_id=session_id,
             request_id=request_id,
             transformations=transformations,
@@ -310,7 +296,7 @@ class AuditLogger:
         if safe_method not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}:
             safe_method = "OTHER"
         self.emit(
-            AuditEventType.PROXY_PASSTHROUGH if allowed else AuditEventType.PROXY_BLOCKED,
+            ProxyPassthrough if allowed else ProxyBlocked,
             method=safe_method,
             reason=reason,
             body_masked=False,
@@ -337,11 +323,8 @@ class AuditLogger:
         ``transform_ms`` is the part of it spent masking the request, when a
         body was masked.
         """
-        fields: dict[str, Any] = {}
-        if transform_ms is not None:
-            fields["transform_ms"] = transform_ms
         self.emit(
-            AuditEventType.PROXY_REQUEST,
+            ProxyRequest,
             session_id=session_id,
             request_id=request_id,
             method=method,
@@ -351,7 +334,7 @@ class AuditLogger:
             stream=stream,
             duration_ms=duration_ms,
             upstream=upstream,
-            **fields,
+            **_present(transform_ms=transform_ms),
         )
 
     def response(
@@ -379,27 +362,21 @@ class AuditLogger:
         upstream reported (see :func:`privyx.observability.usage.normalize`)
         and ``model`` the model id it named.
         """
-        fields: dict[str, Any] = {
-            "status": status,
-            "stream": stream,
-            "restored": restored,
-            "duration_ms": duration_ms,
-        }
-        if size is not None:
-            fields["bytes"] = size
-        if frames is not None:
-            fields["frames"] = frames
-        if aborted:
-            fields["aborted"] = True
-        if usage is not None:
-            fields["usage"] = dict(usage)
-        if model is not None:
-            fields["model"] = model
         self.emit(
-            AuditEventType.PROXY_RESPONSE,
+            ProxyResponse,
             session_id=session_id,
             request_id=request_id,
-            **fields,
+            status=status,
+            stream=stream,
+            restored=restored,
+            duration_ms=duration_ms,
+            **_present(
+                bytes=size,
+                frames=frames,
+                aborted=aborted or None,
+                usage=None if usage is None else dict(usage),
+                model=model,
+            ),
         )
 
     def error(
@@ -419,28 +396,17 @@ class AuditLogger:
         ``error_type`` is the exception's *class name* — never its message, which
         could carry payload text.
         """
-        fields: dict[str, Any] = {"phase": phase, "error_type": error_type}
-        if status is not None:
-            fields["status"] = status
-        if duration_ms is not None:
-            fields["duration_ms"] = duration_ms
-        if listener is not None:
-            fields["listener"] = listener  # the feature's listener that failed: no value
         self.emit(
-            AuditEventType.PROXY_ERROR,
+            ProxyError,
             session_id=session_id,
             request_id=request_id,
-            **fields,
+            phase=phase,
+            error_type=error_type,
+            # The feature's listener that failed: its name, no value.
+            **_present(status=status, duration_ms=duration_ms, listener=listener),
         )
 
-    def close(self) -> None:
-        """Flush and close the writer; safe to call more than once."""
-        writer = self._writer
-        if writer is None:
-            return
-        self._writer = None
-        try:
-            writer.flush()
-            writer.close()
-        except Exception:  # pragma: no cover - defensive
-            _log.exception("audit close failed")
+
+def _present(**fields: Any) -> dict[str, Any]:
+    """``fields`` without the ones left out of a record: those that are ``None``."""
+    return {name: value for name, value in fields.items() if value is not None}

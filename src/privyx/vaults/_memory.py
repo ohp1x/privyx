@@ -21,6 +21,7 @@ class MemoryVault(Vault):
     """
 
     name = "memory"
+    persistent = False
 
     class Options(Vault.Options):
         # Idle expiry in seconds, measured from a session's last transform.  Unset

@@ -14,7 +14,7 @@ from privyx.core import ConfigError, EventBus, listened
 from privyx.events import SessionTransform
 from privyx.features import AuditTrail, Feature, Metrics
 from privyx.observability.audit import SCHEMA_VERSION, AuditLogger
-from privyx.testing import services
+from privyx.testing import audit_to, services
 
 
 async def _logger(*features: Feature) -> AuditLogger:
@@ -63,7 +63,7 @@ def test_audit_event_to_json_has_versioned_envelope() -> None:
 
 def test_emit_writes_one_json_line_per_event() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     audit.session_created("ses_1", source="header")
     audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
@@ -83,7 +83,7 @@ def test_emit_writes_one_json_line_per_event() -> None:
 
 def test_request_scope_aggregates_transform_and_restore() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     token = audit.begin_request("req_abc")
     audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
@@ -109,7 +109,7 @@ def test_request_scope_aggregates_transform_and_restore() -> None:
 
 def test_end_request_flushes_pending_aggregates() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     token = audit.begin_request("req_x")
     audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
@@ -125,7 +125,7 @@ def test_end_request_flushes_pending_aggregates() -> None:
 
 def test_session_deleted_event_is_pii_safe() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     audit.session_deleted(
         "ses_1",
@@ -145,7 +145,7 @@ def test_session_deleted_event_is_pii_safe() -> None:
 
 def test_response_event_fields() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     audit.response(
         status=200,
@@ -168,7 +168,7 @@ def test_response_event_fields() -> None:
 
 def test_error_event_records_class_not_message() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     try:
         raise ValueError("boom alice@example.com")
@@ -191,8 +191,7 @@ def test_error_event_records_class_not_message() -> None:
 
 
 def test_disabled_logger_is_a_noop() -> None:
-    audit = AuditLogger(None)
-    assert audit.enabled is False
+    audit = AuditLogger()
     # No writer, no error, nothing recorded — including the new helpers.
     audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
     audit.request(
@@ -214,7 +213,7 @@ def test_write_failure_does_not_propagate() -> None:
         def write(self, s: str) -> int:
             raise OSError("disk full")
 
-    audit = AuditLogger(_Boom())
+    audit = audit_to(_Boom())
     # Must not raise — an audit failure can never break the request path.
     audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
 
@@ -222,7 +221,7 @@ def test_write_failure_does_not_propagate() -> None:
 def test_transform_records_counts_not_content() -> None:
     """The transform helper takes a histogram, so raw PII cannot leak into the trail."""
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     audit.transform("ses_1", entity_counts={"EMAIL": 1}, transformations=1)
 
@@ -233,7 +232,7 @@ def test_transform_records_counts_not_content() -> None:
 
 def test_request_event_fields() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     audit.request(
         method="POST",
@@ -262,7 +261,6 @@ async def test_the_audit_feature_writes_the_trail(tmp_path: Path) -> None:
     trail = AuditTrail(path=str(path))
     audit = await _logger(trail)
     try:
-        assert audit.enabled is True
         audit.session_created("ses_1")
     finally:
         await trail.close()
@@ -313,7 +311,7 @@ async def test_an_unwritable_audit_path_is_a_config_error(tmp_path: Path) -> Non
 
 def test_no_op_transform_and_restore_are_not_recorded() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
 
     audit.transform("ses_1", entity_counts={}, transformations=0)
     audit.restore("ses_1", transformations=0)
@@ -355,7 +353,7 @@ async def test_detector_counts_are_recorded_even_without_a_transformation() -> N
     """An LLM call costs tokens and a fallback must be visible, masked or not."""
     buf = io.StringIO()
     metrics = Metrics()
-    audit = AuditLogger(buf, events=(await _logger(metrics))._events)
+    audit = audit_to(buf, events=(await _logger(metrics))._events)
 
     token = audit.begin_request("req_1")
     audit.transform("ses_1", entity_counts={}, transformations=0, detector_counts={"llm_calls": 1})

@@ -22,7 +22,7 @@ from privyx.core import ConfigError
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
-    from privyx.config.schema import Settings
+    from privyx.config import Loaded
 
 #: The layers below the files: what a key is set to when no file writes it.
 _BUILT_IN = ("defaults", "plugin defaults", "run defaults")
@@ -98,13 +98,13 @@ class Config:
 
         return active_config_paths(self._app._config)
 
-    def show(self, *, sources: dict[str, str] | None = None) -> Settings:
-        """The settings, read again; ``sources`` receives each key's layer.
+    def show(self) -> Loaded:
+        """The settings, read again, with the layer of each key.
 
         Raises:
             ConfigError: If they cannot be read.
         """
-        return self._app._load(self._app._config, sources=sources)
+        return self._app._read(self._app._config).log_warnings()
 
     def get(self, key: str, *, masked: bool = False) -> Any:
         """The value of ``key``, such as ``server.port``; secret references as written.
@@ -130,12 +130,9 @@ class Config:
         from privyx.config import ALIASES, env_name, resolve
         from privyx.security import redact
 
-        sources: dict[str, str] = {}
-        written: dict[str, list[str]] = {}
-        settings = self._app._load(
-            self._app._config, secrets=False, sources=sources, written=written
-        )
-        data = settings.model_dump(mode="json")
+        loaded = self._app._read(self._app._config, secrets=False).log_warnings()
+        sources, written = loaded.sources, loaded.written
+        data = loaded.settings.model_dump(mode="json")
         parts = split(key, data)
         value = _lookup(redact(data), parts, key)
         dotted = ".".join(parts)
@@ -230,9 +227,7 @@ class Config:
         Raises:
             ConfigError: If they are not valid.
         """
-        warnings: list[str] = []
-        self._app._load(path or self._app._config, secrets=False, warnings=warnings)
-        return warnings
+        return self._app._read(path or self._app._config, secrets=False).warnings
 
     def migrate(self, path: Path, *, write: bool = False) -> Migrated:
         """Config file ``path`` written the 0.3.0 way; with ``write``, also to the file.
@@ -385,7 +380,7 @@ class Config:
         the project is, since the user just wrote it.  A file outside the
         config in use is checked alone, without loading the plugins it names.
         """
-        from privyx.config import active_config_paths, load_config, trust
+        from privyx.config import active_config_paths, read_config, trust
         from privyx.core import PrivyxError
         from privyx.events import ConfigChanged
 
@@ -419,9 +414,9 @@ class Config:
                 trust(target)
             read = read or real in {p.resolve() for p in active_config_paths(self._app._config)}
             if read or not content:
-                self._app._load(self._app._config, secrets=False, written=written, warnings=[])
+                written = self._app._read(self._app._config, secrets=False).written
             else:
-                load_config(target, types=self._app._registries, written=written, warnings=[])
+                written = read_config(target, types=self._app._registries).written
         except (PrivyxError, OSError) as exc:
             if before is None:
                 real.unlink(missing_ok=True)

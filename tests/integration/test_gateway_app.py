@@ -32,7 +32,10 @@ from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.providers import GenericProvider  # noqa: E402
 from privyx.proxy import Pipeline  # noqa: E402
 from privyx.proxy._asgi import create_app  # noqa: E402
-from privyx.testing import listening  # noqa: E402
+from privyx.testing import (
+    audit_to,
+    listening,  # noqa: E402
+)
 from privyx.vaults import MemoryVault  # noqa: E402
 
 EMAIL = "alice@example.com"
@@ -166,7 +169,7 @@ def _stream_client(engine: PrivacyEngine, audit: AuditLogger) -> tuple[httpx.Asy
 def _audited_engine(
     buf: io.StringIO, vault: MemoryVault | None = None
 ) -> tuple[PrivacyEngine, AuditLogger]:
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -240,7 +243,7 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
 
     seen.clear()
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     vault = MemoryVault()
     engine = PrivacyEngine(
         detector=_Broken(),
@@ -417,7 +420,7 @@ async def test_an_ephemeral_request_never_touches_the_vault(stream: bool) -> Non
 @pytest.mark.asyncio
 async def test_gateway_stream_cleanup_deletes_after_drain() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     vault = MemoryVault()
     engine = PrivacyEngine(
         detector=RegexDetector(),

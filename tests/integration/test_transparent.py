@@ -18,22 +18,22 @@ from typing import Any
 import httpx
 import pytest
 
+from privyx.agents import builtin_metadata
 from privyx.anchors import HMACAnchor
-from privyx.app import Privyx
-from privyx.app._serve import metadata
+from privyx.app._serve import build_pipeline
+from privyx.config.schema import Settings
 from privyx.core import DetectorError, Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.providers import GenericProvider
 from privyx.proxy import Pipeline
-from privyx.testing import opened
+from privyx.testing import audit_to, opened
 from privyx.vaults import MemoryVault
 
 #: The request keys and headers in which the built-in agents' clients describe their machine.
-AGENTS = dict(zip(("metadata_keys", "masked_headers"), metadata(Privyx()), strict=True))
+AGENTS = dict(zip(("metadata_keys", "masked_headers"), builtin_metadata(), strict=True))
 
 
 EMAIL = "alice@example.com"
@@ -383,6 +383,20 @@ async def test_codex_turn_metadata_header_is_masked_with_the_body() -> None:
     ]
 
 
+async def test_a_pipeline_built_without_agents_masks_the_built_in_metadata() -> None:
+    capture: list[httpx.Request] = []
+    settings = Settings(provider={"base_url": "https://up.test"})
+    proxy = build_pipeline(settings, _engine(), GenericProvider())
+    await proxy.close()
+    proxy._client = _mock_client(capture)
+
+    await proxy.handle(
+        Exchange("GET", "v1/models", {"x-codex-turn-metadata": _codex_metadata()}, b"")
+    )
+
+    assert EMAIL not in capture[0].headers["x-codex-turn-metadata"]
+
+
 @pytest.mark.parametrize("path", ["v1/responses", "v1/models"], ids=["routed", "unrouted"])
 async def test_codex_turn_metadata_header_is_masked_without_a_body(path: str) -> None:
     # A request without a body carries the header too.
@@ -528,7 +542,7 @@ async def test_a_header_that_cannot_be_masked_is_never_forwarded() -> None:
 
 
 def _audited_proxy(buf: io.StringIO, client: httpx.AsyncClient) -> Pipeline:
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -705,7 +719,7 @@ async def test_ephemeral_stream_session_is_deleted_when_closed_early(pulled: int
 
 async def test_sticky_session_is_retained_and_not_deleted() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -839,7 +853,7 @@ async def _turn(proxy: Pipeline, messages: list[dict[str, Any]]) -> Any:
 
 async def test_conversation_strategy_reuses_one_session_across_turns() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
@@ -888,7 +902,7 @@ async def test_conversation_strategy_isolates_distinct_conversations() -> None:
 
 async def test_default_strategy_is_ephemeral_and_audited() -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     engine = PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),

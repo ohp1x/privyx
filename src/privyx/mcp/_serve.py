@@ -365,15 +365,14 @@ async def _call(name: str, args: dict[str, Any], app: Privyx, root: Path) -> dic
 
 
 async def _status(app: Privyx) -> str:
-    from privyx.cli.commands.audit import _breakdown
-    from privyx.cli.commands.session import _ts
+    from privyx.events import breakdown, local_time
     from privyx.features import AuditStats
 
     lines = ["Privyx status, which never holds the masked values:", ""]
     vault = app.sessions.vault_type
-    if vault == "memory":
+    if not app.sessions.persistent:
         lines.append(
-            "Vault: memory, which each privyx process keeps to itself: "
+            f"Vault: {vault}, which each privyx process keeps to itself: "
             "the proxy's sessions are not listed"
         )
     else:
@@ -387,7 +386,8 @@ async def _status(app: Privyx) -> str:
             mappings = sum(len(s.mapping) for s in sessions)
             lines.append(f"Vault: {vault}, {len(sessions)} session(s), {mappings} mapping(s)")
             lines += [
-                f"  {s.session_id}  last active {_ts(s.updated_at)}  {len(s.mapping)} mapping(s)"
+                f"  {s.session_id}  last active {local_time(s.updated_at)}  "
+                f"{len(s.mapping)} mapping(s)"
                 for s in sessions[:_RECENT]
             ]
             if len(sessions) > _RECENT:
@@ -409,12 +409,12 @@ async def _status(app: Privyx) -> str:
     else:
         period = ""
         if totals.first_ts is not None and totals.last_ts is not None:
-            period = f", {_ts(totals.first_ts)} to {_ts(totals.last_ts)}"
+            period = f", {local_time(totals.first_ts)} to {local_time(totals.last_ts)}"
         lines += [
             f"Audit trail: {events.total()} event(s){period}",
             f"  Requests: {events['proxy.request']}, "
-            f"errors: {events['proxy.error']}{_breakdown(totals.errors)}",
-            f"  Masked: {totals.entities.total()} entities{_breakdown(totals.entities)}",
+            f"errors: {events['proxy.error']}{breakdown(totals.errors)}",
+            f"  Masked: {totals.entities.total()} entities{breakdown(totals.entities)}",
             f"  Restored: {totals.restored} pseudonyms",
         ]
     if skipped:
@@ -425,7 +425,7 @@ async def _status(app: Privyx) -> str:
 def _audit_tail(app: Privyx) -> str:
     from collections import deque
 
-    from privyx.cli.commands.audit import _line
+    from privyx.events import record_line
 
     if not app.audit.enabled:
         return "The Privyx audit trail is off (features.audit.enabled is false)."
@@ -435,7 +435,7 @@ def _audit_tail(app: Privyx) -> str:
             # A line that is not a record is left out, not shown as written.
             if record is not None:
                 with contextlib.suppress(Exception):
-                    recent.append(_line(record))
+                    recent.append(record_line(record))
     except FileNotFoundError:
         pass
     except OSError as exc:
