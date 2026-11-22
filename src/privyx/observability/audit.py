@@ -389,12 +389,14 @@ class AuditLogger:
         status: int | None = None,
         duration_ms: float | None = None,
         listener: str | None = None,
+        usage: Mapping[str, int] | None = None,
     ) -> None:
         """A proxied exchange failed.
 
         ``phase`` is where it broke (``upstream`` / ``stream`` / ``response``) and
         ``error_type`` is the exception's *class name* — never its message, which
-        could carry payload text.
+        could carry payload text.  ``usage`` is the token counts a stream
+        reported before it broke.
         """
         self.emit(
             ProxyError,
@@ -403,7 +405,12 @@ class AuditLogger:
             phase=phase,
             error_type=error_type,
             # The feature's listener that failed: its name, no value.
-            **_present(status=status, duration_ms=duration_ms, listener=listener),
+            **_present(
+                status=status,
+                duration_ms=duration_ms,
+                listener=listener,
+                usage=None if usage is None else dict(usage),
+            ),
         )
 
 

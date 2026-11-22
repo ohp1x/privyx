@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** `server.workers`, or `privyx proxy --workers N`, serves with several processes, on a vault they share (`sqlite` or `redis`)
 - **Plugins:** (experimental) a listener hears `config.changed` when `privyx config` or `privyx features` writes a setting, with its key and file, never its value
 - **Audit:** `GET /metrics` counts the audit records the trail could not write, such as on a full disk, as `privyx_audit_write_failures_total`; the request still goes on and the failure is still logged
+- **Plugins:** (experimental) a listener hears `request.ended` when an exchange is over, however it went: replied, failed, refused, or abandoned
 
 ### Changed
 
@@ -48,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** with `server.workers` above 1, the proxy warns once at startup that `GET /metrics` counts only the requests of the worker that answers each scrape, and how to scrape every worker or turn the feature off
 - **Config:** a profile on a named provider sends its requests and the client's token to that provider's `base_url` when a common `provider.base_url` is set beside it; before, they went to the common URL. A URL from a later layer, such as `--upstream` or `PRIVYX_UPSTREAM_URL`, still moves it, and now also moves a profile's `upstream` when the profile names no provider of its own
 - **Config:** `forward_client_auth`, `timeout`, and the other connection settings written in a profile's `privyx.provider` or its named provider win over the common ones; before, a common `forward_client_auth: false` made such a profile send no credential. `privyx run` now warns when a launch would send none, and names the setting to write
+- **Budget:** a stream that breaks counts the tokens it reported, so an agent whose streams keep failing no longer escapes `max_tokens`, and a launch may stop earlier for it. A broken stream that reported none does not stop the launch
 
 ### Security
 

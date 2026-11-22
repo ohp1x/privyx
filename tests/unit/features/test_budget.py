@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import httpx
@@ -12,7 +13,7 @@ import pytest
 from privyx.core import EventBus, Exchange, listened
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.events import RunBudgetExceeded
+from privyx.events import RequestReceived, RunBudgetExceeded
 from privyx.features import Budget
 from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
@@ -232,3 +233,100 @@ def test_a_limit_must_be_positive() -> None:
 
     with pytest.raises(ValidationError):
         Budget(max_turns=0)
+
+
+class _Breaks(httpx.AsyncByteStream):
+    """A stream that sends ``first``, then loses the connection."""
+
+    def __init__(self, first: bytes) -> None:
+        self.first = first
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self.first
+        raise httpx.ReadError("connection lost")
+
+
+def _breaking(first: bytes) -> Upstream:
+    def reply(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=_Breaks(first)
+        )
+
+    return reply
+
+
+async def test_a_stream_that_breaks_counts_the_tokens_it_reported() -> None:
+    proxy, budget, _ = await _proxy(_breaking(ANTHROPIC_SSE), max_tokens=100)
+
+    with pytest.raises(httpx.ReadError):
+        await _send(proxy, "/v1/messages", {"stream": True})
+
+    assert (budget.tokens, budget.unmeasured, budget._pending) == (125, False, set())
+    assert (await _send(proxy, "/v1/messages", {"stream": True}))[0] == 400
+
+
+async def test_a_stream_that_breaks_without_usage_is_not_unmeasured() -> None:
+    proxy, budget, stopped = await _proxy(
+        _breaking(b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'), max_tokens=100
+    )
+    request = {"stream": True, "messages": [], "stream_options": {"include_usage": False}}
+
+    for _ in range(2):
+        with pytest.raises(httpx.ReadError):
+            await _send(proxy, "/v1/chat/completions", request)
+
+    assert (budget.tokens, budget.unmeasured, budget._pending) == (0, False, set())
+    assert not stopped
+
+
+async def test_a_turn_that_times_out_stays_pending_no_longer() -> None:
+    def upstream(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    proxy, budget, _ = await _proxy(upstream, max_tokens=100)
+
+    assert [(await _send(proxy, "/v1/messages"))[0] for _ in range(3)] == [504, 504, 504]
+    assert budget._pending == set()
+
+
+async def test_a_turn_cancelled_before_its_reply_stays_pending_no_longer() -> None:
+    sent = asyncio.Event()
+
+    async def upstream(_request: httpx.Request) -> httpx.Response:
+        sent.set()
+        await asyncio.Event().wait()
+        raise AssertionError("cancelled before this")
+
+    proxy, budget, _ = await _proxy(upstream, max_tokens=100)  # type: ignore[arg-type]
+    turn = asyncio.create_task(_send(proxy, "/v1/messages"))
+    await sent.wait()
+    assert len(budget._pending) == 1
+
+    turn.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await turn
+
+    assert budget._pending == set()
+
+
+async def test_a_reply_closed_before_it_is_read_stays_pending_no_longer() -> None:
+    proxy, budget, _ = await _proxy(_reply(ANTHROPIC_SSE, "text/event-stream"), max_tokens=100)
+    raw = json.dumps({"stream": True, "messages": []}).encode()
+
+    reply = await proxy.handle(Exchange(method="POST", path="/v1/messages", headers={}, body=raw))
+    assert len(budget._pending) == 1
+    await reply.stream.aclose()  # type: ignore[union-attr]
+
+    assert budget._pending == set()
+
+
+async def test_a_turn_another_listener_refuses_stays_pending_no_longer() -> None:
+    proxy, budget, _ = await _proxy(_reply(b"{}", "application/json"), max_tokens=100)
+
+    def refuse(event: RequestReceived) -> None:
+        event.reject(403, "no", "refused")
+
+    proxy._events.add(RequestReceived, refuse, priority=-1)  # after the budget
+
+    assert (await _send(proxy, "/v1/messages"))[0] == 403
+    assert budget._pending == set()

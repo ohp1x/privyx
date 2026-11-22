@@ -108,14 +108,18 @@ class ProxyResponse(AuditEvent):
     @property
     def usage(self) -> Mapping[str, int] | None:
         """The tokens the upstream reported: input, output, cache_read, cache_write."""
-        usage = self.fields.get("usage")
-        return usage if isinstance(usage, Mapping) else None
+        return _usage(self.fields)
 
 
 class ProxyError(AuditEvent):
-    """An exchange failed: the phase, and the error's class name."""
+    """An exchange failed: the phase, the error's class name, and any usage reported first."""
 
     name: ClassVar[str] = "proxy.error"
+
+    @property
+    def usage(self) -> Mapping[str, int] | None:
+        """The tokens a stream reported before it broke."""
+        return _usage(self.fields)
 
 
 class ProxyPassthrough(AuditEvent):
@@ -151,6 +155,12 @@ class AuditWriteFailed(Notification):
 
 #: The fields of every record; the others are its event's own.
 _ENVELOPE = frozenset({"schema_version", "time", "ts", "event", "request_id", "session_id"})
+
+
+def _usage(fields: Mapping[str, Any]) -> Mapping[str, int] | None:
+    """The ``usage`` of a record's fields, if it has one."""
+    usage = fields.get("usage")
+    return usage if isinstance(usage, Mapping) else None
 
 
 def local_time(epoch: float) -> str:
