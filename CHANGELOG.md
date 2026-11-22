@@ -43,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** a reply is restored with the mapping its request was masked with, without reading the session vault again: a session deleted or expired while the upstream answers no longer leaves tokens in the reply, and a vault that fails then no longer turns a reply the upstream already served into a 503. Deleting a session, or its TTL running out, applies to the requests sent after it
 - **Proxy:** a reply's upstream response is closed however the reply ends; before, a client that went away before a streamed reply started, a write to the client that failed, or a request cancelled while its batch reply was read left the upstream connection open, and the request's ephemeral session without its `session.deleted` record
 - **Proxy:** a batch reply whose body fails after its headers, such as on a read timeout, is answered `504`, or `502` for another failure, as an upstream that sends no response is, with a `proxy.error` event of phase `upstream`; before, the client got a `500` and the audit trail no error
+- **Vault:** a `vault.dsn` the sqlite vault does not read, such as `sqlite://:memory:` or `file::memory:`, is refused with the forms it takes; before, it became a file of that name in the working directory. `server.workers` above 1 also refuses a sqlite vault in memory (`:memory:`, or an empty path), which each process would keep to itself
 
 ### Security
 

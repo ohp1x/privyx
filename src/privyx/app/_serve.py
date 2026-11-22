@@ -272,8 +272,9 @@ def serve_workers(app: Privyx) -> None:
     a factory of its own.  The vault must be one they all share.
 
     Raises:
-        ConfigError: If the vault is ``memory``, a feature keeps state in its
-            instance, code added to ``app``, or the app cannot be built.
+        ConfigError: If the vault keeps its sessions in one process (``memory``,
+            or a sqlite ``:memory:``), a feature keeps state in its instance,
+            code added to ``app``, or the app cannot be built.
     """
     import uvicorn
 
@@ -287,7 +288,7 @@ def serve_workers(app: Privyx) -> None:
     if not app.sessions.persistent:
         raise ConfigError(
             f"server.workers {workers} needs a vault the processes share; "
-            "set vault.type to sqlite or redis"
+            "set vault.type to redis, or to sqlite with a file in vault.dsn"
         )
     registry = app.registry(Feature)
     for name, options in app.features.configured(settings).items():

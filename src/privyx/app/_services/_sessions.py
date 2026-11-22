@@ -104,14 +104,17 @@ class Sessions:
 
     @property
     def persistent(self) -> bool:
-        """Whether the vault's sessions outlive this process.
+        """Whether the vault's sessions outlive this process, as its options say.
 
-        An unknown type counts as persistent: building it reports the error.
+        A vault that cannot be built counts as persistent: opening it reports why.
         """
-        from privyx.vaults import Vault
+        from privyx.app._build import build_vault
+        from privyx.core import ConfigError
 
-        registry = self._app.registry(Vault)
-        return self.vault_type not in registry or registry.get(self.vault_type).persistent
+        try:
+            return build_vault(self._app.settings, self._app).persistent
+        except ConfigError:
+            return True
 
     async def list(self) -> list[Session]:
         """The live sessions, most recently active first.
@@ -234,7 +237,7 @@ class Sessions:
         The vault of the app's open engine, when one is open: a server holds
         one connection for all its calls.
         """
-        from privyx.app._build import build_vault
+        from privyx.app._build import open_vault
         from privyx.app._plugins import load_plugins
 
         if self._app._engine is not None:
@@ -243,7 +246,7 @@ class Sessions:
         settings = self._app.settings
         # Register plugin component types so a configured plugin vault resolves.
         load_plugins(settings, self._app)
-        vault, close = await build_vault(settings, self._app)
+        vault, close = await open_vault(settings, self._app)
         try:
             yield vault
         finally:

@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from privyx.core import Session, VaultError
+from privyx.core import ConfigError, Session, VaultError
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.testing import audit_to, services
-from privyx.vaults._sqlite import SQLiteVault
+from privyx.vaults._sqlite import SQLiteVault, sqlite_path
 
 
 async def test_writes_through_a_wal_journal(tmp_path: Path) -> None:
@@ -193,3 +193,37 @@ async def test_opening_a_new_file_waits_for_another_process_switching_it_to_wal(
         assert await vault._execute("PRAGMA journal_mode") == [("wal",)]
     finally:
         await vault.close()
+
+
+@pytest.mark.parametrize(
+    ("dsn", "path"),
+    [
+        ("/var/lib/privyx/privyx.db", "/var/lib/privyx/privyx.db"),
+        ("privyx.db", "privyx.db"),
+        ("sqlite+aiosqlite:///privyx.db", "privyx.db"),
+        ("sqlite+aiosqlite:////var/lib/privyx/privyx.db", "/var/lib/privyx/privyx.db"),
+        ("sqlite:///privyx.db", "privyx.db"),
+        (":memory:", ":memory:"),
+        ("sqlite+aiosqlite:///:memory:", ":memory:"),
+        ("sqlite:///:memory:", ":memory:"),
+        ("", ":memory:"),
+    ],
+)
+def test_a_dsn_names_a_file_or_this_process_memory(dsn: str, path: str) -> None:
+    assert sqlite_path(dsn) == path
+    assert SQLiteVault(dsn=dsn).persistent is (path != ":memory:")
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "sqlite://:memory:",
+        "file::memory:?cache=shared",
+        "sqlite:///file::memory:?cache=shared",
+        "sqlite+aiosqlite://",
+    ],
+)
+def test_a_url_of_another_form_is_refused(dsn: str) -> None:
+    """Read as a path, each made a file of that name in the working directory."""
+    with pytest.raises(ConfigError, match=r"sqlite\+aiosqlite:///PATH, or :memory:"):
+        SQLiteVault(dsn=dsn)

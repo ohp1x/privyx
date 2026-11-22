@@ -18,7 +18,7 @@ from privyx.cli._options import config_options
     "--workers",
     default=None,
     type=click.IntRange(1),
-    help="Server processes; more than one needs a sqlite or redis vault.",
+    help="Server processes; more than one needs a sqlite file or redis vault.",
 )
 @click.option("--upstream", "-u", default=None, help="Upstream provider URL")
 @click.option(

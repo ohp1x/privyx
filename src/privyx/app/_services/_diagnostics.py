@@ -272,11 +272,11 @@ def _check_vault(settings: Settings, app: Privyx) -> tuple[bool, str]:
     This is where a bad DSN, a missing driver or an unreachable Redis shows up
     — all of which otherwise surface only at the first request.
     """
-    from privyx.app._build import build_vault
+    from privyx.app._build import open_vault
     from privyx.core import Session
 
     async def _probe() -> tuple[bool, str]:
-        vault, close = await build_vault(settings, app)
+        vault, close = await open_vault(settings, app)
         session = Session()
         try:
             # An arbitrary mapping entry: the vault stores opaque key→value pairs

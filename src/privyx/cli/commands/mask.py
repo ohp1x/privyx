@@ -115,9 +115,9 @@ def mask(
         app = Privyx()
         if not map_path and not app.sessions.persistent:
             click.echo(
-                "Warning: vault type is 'memory', so the mapping is gone when this process "
-                "exits and this output can never be unmasked. Pass --map FILE, or configure "
-                "a sqlite/redis vault.",
+                "Warning: the vault keeps its sessions in this process's memory, so the mapping "
+                "is gone when it exits and this output can never be unmasked. Pass --map FILE, "
+                "or configure a sqlite file or redis vault.",
                 err=True,
             )
         masked = asyncio.run(
@@ -294,8 +294,8 @@ async def _stream(session_id: str | None, restore: bool) -> None:
     app = Privyx()
     if not restore and not app.sessions.persistent:
         click.echo(
-            "Warning: vault type is 'memory', so this output can never be restored. "
-            "Configure a sqlite/redis vault to keep the mapping.",
+            "Warning: the vault keeps its sessions in this process's memory, so this output "
+            "can never be restored. Configure a sqlite file or redis vault to keep the mapping.",
             err=True,
         )
     async with app.engine() as engine:

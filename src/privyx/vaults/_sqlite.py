@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -20,7 +21,7 @@ from typing import Any
 
 from pydantic import Field
 
-from privyx.core import Services, VaultError
+from privyx.core import ConfigError, Services, VaultError
 from privyx.vaults._base import StoredVault
 
 #: A commit appends to the write-ahead log instead of syncing the database and
@@ -81,6 +82,7 @@ class SQLiteVault(StoredVault):
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
         self._dsn = sqlite_path(self.options.dsn)
+        self.persistent = self._dsn != ":memory:"
         self._ttl = self.options.ttl
         self._db: Any = None
         self._next_sweep = 0.0  # time.monotonic() of the next TTL sweep
@@ -271,9 +273,22 @@ class SQLiteVault(StoredVault):
 
 
 def sqlite_path(dsn: str) -> str:
-    """The file of ``dsn``: a bare path or a SQLAlchemy-style URL; ``~`` is the home directory."""
+    """The file of ``dsn``: a bare path or a SQLAlchemy-style URL; ``~`` is the home directory.
+
+    ``:memory:`` for a database in this process's memory: ``:memory:``, or an
+    empty path.
+
+    Raises:
+        ConfigError: If ``dsn`` is a URL of another form, such as ``sqlite://:memory:``.
+    """
+    path = dsn
     for prefix in ("sqlite+aiosqlite:///", "sqlite:///"):
-        if dsn.startswith(prefix):
-            dsn = dsn[len(prefix) :]
+        if path.startswith(prefix):
+            path = path[len(prefix) :]
             break
-    return os.path.expanduser(dsn)
+    if re.match(r"[A-Za-z][A-Za-z0-9+.-]+:", path):  # a URL scheme; a drive (C:) is a path
+        raise ConfigError(
+            f"vault.dsn {dsn!r} is not a form the sqlite vault reads; "
+            "write a path, sqlite+aiosqlite:///PATH, or :memory:"
+        )
+    return os.path.expanduser(path) or ":memory:"
