@@ -75,6 +75,34 @@ def test_a_feature_with_state_in_its_instance_is_refused(
         app.serve()
 
 
+@pytest.mark.parametrize(
+    ("workers", "metrics", "warned"),
+    [(2, {}, 1), (2, {"enabled": False}, 0), (1, {}, 0)],
+    ids=["workers", "metrics off", "one worker"],
+)
+def test_metrics_of_one_worker_of_several_are_warned_of_once(
+    monkeypatch: pytest.MonkeyPatch,
+    sqlite: dict[str, Any],
+    caplog: pytest.LogCaptureFixture,
+    workers: int,
+    metrics: dict[str, Any],
+    warned: int,
+) -> None:
+    from privyx.app import _serve
+
+    async def one_process(app: Privyx, watch: Any = ()) -> bool:
+        return False  # served without a socket
+
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: None)
+    monkeypatch.setattr(_serve, "serve", one_process)
+    monkeypatch.setenv("PRIVYX_WORKER", "{}")  # restored when the test ends
+    features = {"audit": False, "metrics": metrics}
+    Privyx(server={"workers": workers, "port": 0}, vault=sqlite, features=features).serve()
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("GET /metrics counts only" in m for m in messages) == warned
+
+
 def test_what_code_added_cannot_reach_the_workers(
     monkeypatch: pytest.MonkeyPatch, sqlite: dict[str, Any]
 ) -> None:

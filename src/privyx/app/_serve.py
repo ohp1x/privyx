@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import signal
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from privyx.observability.audit import AuditLogger
     from privyx.providers import Provider
     from privyx.proxy import Pipeline
+
+_log = logging.getLogger("privyx")
 
 #: Seconds the requests still in flight get to finish on SIGTERM or a --reload
 #: restart; then they are cancelled, which still deletes their ephemeral
@@ -291,7 +294,8 @@ def serve_workers(app: Privyx) -> None:
             "set vault.type to redis, or to sqlite with a file in vault.dsn"
         )
     registry = app.registry(Feature)
-    for name, options in app.features.configured(settings).items():
+    features = app.features.configured(settings)
+    for name, options in features.items():
         if registry.get(options.get("type", name)).single_process:
             raise ConfigError(
                 f"feature {name!r} keeps its state in one process; "
@@ -304,6 +308,13 @@ def serve_workers(app: Privyx) -> None:
         )
     configure_logging(settings)
     asyncio.run(_trial(app, settings))  # a config that cannot be built fails here, once
+    if "metrics" in features:  # the feature GET /metrics serves; each worker counts its own
+        _log.warning(
+            "server.workers %d: GET /metrics counts only the requests of the worker that "
+            "answers the scrape; serve one worker per port to scrape each, or set "
+            "features.metrics.enabled: false",
+            workers,
+        )
     config = str(Path(app._config).absolute()) if app._config is not None else None
     os.environ[_WORKER] = json.dumps(
         {"config": config, "overrides": app._overrides, "presets": list(CHOSEN_PRESETS.get())}
