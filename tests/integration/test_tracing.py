@@ -122,41 +122,33 @@ async def test_a_reply_closed_before_it_is_read_still_ends_its_span(spans: Any, 
     assert root.attributes["privyx.aborted"] is True
 
 
-async def test_a_failed_restore_ends_its_span_and_records_the_503(spans: Any) -> None:
-    from privyx.core import VaultError
-
-    class FailingVault(MemoryVault):
-        broken = False
-
-        async def get(self, session_id: str) -> Any:
-            if self.broken:
-                raise VaultError("down")
-            return await super().get(session_id)
-
-    vault = FailingVault()
+async def test_a_failed_restore_ends_its_span(spans: Any) -> None:
+    class FailingOperator(PseudonymOperator):
+        async def deanonymize(self, text: str, session: Any, context: Any) -> Any:
+            raise RuntimeError("down")
 
     def upstream(request: httpx.Request) -> httpx.Response:
-        vault.broken = True  # the vault fails between the request and the reply
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     engine = PrivacyEngine(
-        detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=FailingOperator(),
+        vault=MemoryVault(),
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
     proxy = Pipeline(engine, origin="https://up.test", client=client)
     body = json.dumps({"messages": [{"role": "user", "content": "hi"}]}).encode()
 
-    result = await proxy.handle(
-        Exchange(
-            method="POST", path="v1/chat/completions", headers={"x-privyx-session": "s"}, body=body
+    with pytest.raises(RuntimeError):
+        await proxy.handle(
+            Exchange(method="POST", path="v1/chat/completions", headers={}, body=body)
         )
-    )
 
-    assert result.status_code == 503
     finished = {s.name: s for s in spans.get_finished_spans()}
-    assert finished["privyx.restore"].attributes["error.type"] == "VaultError"
+    assert finished["privyx.restore"].attributes["error.type"] == "RuntimeError"
     root = finished["privyx.request"]
-    assert root.attributes["http.response.status_code"] == 503
+    assert root.attributes["error.type"] == "RuntimeError"
     assert root.status.status_code.name == "ERROR"
 
 

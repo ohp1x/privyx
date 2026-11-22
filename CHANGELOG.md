@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Detection:** a URL password with a symbol in it, such as `p!ss` in `https://alice:p!ss@db.example.com`, is masked as the password alone; before, the host after it was masked with it, as an email address
 - **Detection:** the built-in `SECRET` pattern took quadratic time on a long run of assignments to secret-looking names that ends in a call, such as `token=token=…()`, so 100 KB of it in a request froze the proxy, and every other request and stream, for ~9 s; it now scans the same input in ~80 ms and finds the same secrets. A custom `SECRET` pattern with `name` and `value` groups now also leaves an unquoted value followed by `(` unmasked, as the built-in one does
 - **Vault:** processes that share a vault and an `anchor.secret` lock a session to save it, as they already did without the secret, so two requests of one session saved at the same moment keep both their values; before, one save could drop the values the other added, and their tokens were no longer restored. Requests of one session in different processes now wait for each other, up to 10 s
+- **Proxy:** a reply is restored with the mapping its request was masked with, without reading the session vault again: a session deleted or expired while the upstream answers no longer leaves tokens in the reply, and a vault that fails then no longer turns a reply the upstream already served into a 503. Deleting a session, or its TTL running out, applies to the requests sent after it
 
 ### Security
 
