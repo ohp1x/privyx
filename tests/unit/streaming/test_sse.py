@@ -100,3 +100,17 @@ def test_sse_decoder_emits_a_cr_terminated_event_at_once() -> None:
     # The LF opening the next chunk paired the last CR: not a blank line.
     assert decoder.feed("\ndata: a\r") == []
     assert [e.data for e in decoder.feed("\n\r\n")] == ["a"]
+
+
+def test_sse_decoder_gives_comments_only_when_asked() -> None:
+    text = ": one\n\n: two\ndata: a\n\n: three"
+
+    plain = SSEDecoder()
+    assert [e.data for e in plain.feed(text) + plain.flush()] == ["a"]
+    kept = SSEDecoder(comments=True)
+    assert [e.to_str() for e in kept.feed(text) + kept.flush()] == [
+        ": one\n\n",
+        ": two\n\n",
+        "data: a\n\n",
+        ": three\n\n",
+    ]

@@ -747,3 +747,47 @@ def test_a_held_back_chat_tail_keeps_the_rest_of_its_choice() -> None:
     events = _events(_run(router, _openai_frame({"id": "c1", "choices": [choice]})))
 
     assert events[-1]["choices"] == [{**choice, "delta": {"content": TOKEN[:6]}}]
+
+
+def _chat(text: str) -> str:
+    return f"data: {json.dumps({'choices': [{'delta': {'content': text}}]})}\n\n"
+
+
+@pytest.mark.parametrize(
+    ("fmt", "frame"),
+    [
+        (OpenAIStreamAdapter, _chat),
+        (
+            AnthropicStreamAdapter,
+            lambda text: (
+                "event: content_block_delta\ndata: "
+                + json.dumps(
+                    {
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": {"type": "text_delta", "text": text},
+                    }
+                )
+                + "\n\n"
+            ),
+        ),
+    ],
+    ids=["openai", "anthropic"],
+)
+def test_a_comment_inside_a_token_goes_out_and_the_token_stays_whole(fmt: Any, frame: Any) -> None:
+    adapter = fmt()
+    body = frame(TOKEN[:6]) + ": keep-alive\n\n" + frame(TOKEN[6:])
+
+    out = _run(_router(adapter, {TOKEN: ORIG}), body)
+
+    assert ": keep-alive\n\n" in out
+    assert _collect_text(out, adapter) == ORIG
+
+
+def test_a_plain_text_event_keeps_its_id_and_a_comment_stays() -> None:
+    codec = FormatCodec.default()
+    router = StreamRouter(codec, {TOKEN: ORIG}.get)
+
+    out = _run(router, f": hello\n\nid: 7\nevent: tick\ndata: to {TOKEN}\n\n")
+
+    assert out == f": hello\n\nevent: tick\nid: 7\ndata: to {ORIG}\n\n"

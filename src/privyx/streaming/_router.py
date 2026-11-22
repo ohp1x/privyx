@@ -80,7 +80,7 @@ class StreamRouter:
         self._resolve = resolve
         self._make_processor = make_processor or (lambda: TokenStreamProcessor(codec, resolve))
 
-        self._decoder = SSEDecoder()
+        self._decoder = SSEDecoder(comments=True)
         self._utf8 = codecs.getincrementaldecoder("utf-8")("replace")
 
         self._text = self._make_processor()
@@ -127,7 +127,7 @@ class StreamRouter:
 
     def _wrap_text(self, text: str, template: SSEEvent) -> str:
         """``text`` as a frame like ``template``, the latest event of visible text."""
-        return SSEEvent(data=text, event=template.event).to_str()
+        return replace(template, data=text).to_str()
 
     def _flush_text_tail(self) -> list[str]:
         """Held-back visible text, as frames."""
@@ -143,6 +143,9 @@ class StreamRouter:
     # -- shared ------------------------------------------------------------
 
     def _handle(self, event: SSEEvent) -> list[str]:
+        if event.comment is not None:
+            # A keep-alive may come in the middle of a token: held-back text stays held.
+            return [event.to_str()]
         if event.data.strip() == DONE:
             self._pending_terminal.append(event.to_str())
             return []
