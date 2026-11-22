@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from collections.abc import Callable
 from typing import Any
 
 import httpx
+import pytest
 
 from privyx.core import EventBus, Exchange
 from privyx.detectors import RegexDetector
@@ -139,17 +141,43 @@ async def test_a_received_answer_is_sent_as_it_is() -> None:
     assert proxy.sent == []
 
 
-async def test_a_masked_answer_is_restored_like_an_upstream_reply() -> None:
+@pytest.mark.parametrize(
+    "headers", [{}, {"x-privyx-session": "ses_sticky"}], ids=["ephemeral", "sticky"]
+)
+async def test_a_masked_answer_is_restored_like_an_upstream_reply(headers: dict[str, str]) -> None:
+    """With the pseudonyms the request just got, in a sticky session too."""
+
     def answer(event: RequestMasked) -> None:
         event.respond(200, {"choices": [{"message": event.body["messages"][-1]}]})
 
     proxy = _Proxy((RequestMasked, answer))
 
-    status, reply = await proxy.post(CHAT)
+    status, reply = await proxy.post(CHAT, **headers)
 
     assert status == 200
     assert reply["choices"][0]["message"]["content"] == f"mail {EMAIL}"
     assert proxy.sent == []
+
+
+async def test_a_masked_listener_does_not_hold_the_session() -> None:
+    """Another request of the session is masked while a slow listener of the first one waits."""
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def slow(event: RequestMasked) -> None:
+        if not entered.is_set():
+            entered.set()
+            await release.wait()
+
+    proxy = _Proxy((RequestMasked, slow))
+    sticky = {"x-privyx-session": "ses_sticky"}
+    first = asyncio.create_task(proxy.post(CHAT, **sticky))
+    await entered.wait()
+
+    status, _ = await asyncio.wait_for(proxy.post(CHAT, **sticky), timeout=2)
+
+    release.set()
+    assert status == 200
+    assert (await first)[0] == 200
 
 
 async def test_a_listener_cannot_write_a_credential_header() -> None:

@@ -33,8 +33,11 @@ class Exchange:
     #: The API format of the route; ``None`` outside the masking routes.
     dialect: Dialect | None = None
     session_id: str | None = None
-    #: The session, when it lasts this one exchange and no vault holds it.
-    ephemeral: Session | None = None
+    #: The session that masks the request and restores its reply, as it was
+    #: when the request went out: the vault is not read after that.
+    session: Session | None = None
+    #: Whether the session lasts this one exchange, and no vault holds it.
+    ephemeral: bool = False
     #: The id in each audit record of this exchange.
     request_id: str = ""
     #: When it began, a ``time.perf_counter()`` mark.

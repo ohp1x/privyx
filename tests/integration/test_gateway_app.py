@@ -268,18 +268,12 @@ async def test_a_masking_failure_is_a_503_audited_and_never_forwarded() -> None:
     assert await vault.list_sessions() == []
 
 
-def _flaky_vault(method: str, nth: int) -> MemoryVault:
-    """A vault whose ``nth`` call of ``method`` fails, like a Redis that stops answering."""
+def _flaky_vault(method: str) -> MemoryVault:
+    """A vault whose ``method`` fails, like a Redis that stops answering."""
     vault = MemoryVault()
-    real = getattr(vault, method)
-    calls = 0
 
     async def flaky(*args: Any) -> Any:
-        nonlocal calls
-        calls += 1
-        if calls == nth:
-            raise VaultError("redis vault: Timeout reading from socket")
-        return await real(*args)
+        raise VaultError("redis vault: Timeout reading from socket")
 
     setattr(vault, method, flaky)
     return vault
@@ -287,32 +281,28 @@ def _flaky_vault(method: str, nth: int) -> MemoryVault:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("method", "nth", "stream", "forwarded"),
+    "method",
     [
-        ("get", 1, False, False),  # looking the session up
-        ("create", 1, False, False),  # creating it
-        ("save", 1, False, False),  # saving the request's pseudonyms
-        ("get", 3, True, True),  # reading them to restore a stream, after the upstream call
-        ("get", 3, False, True),  # ... or a batch reply
+        "get",  # looking the session up
+        "create",  # creating it
+        "save",  # saving the request's pseudonyms
     ],
 )
-async def test_a_vault_failure_is_a_503_audited(
-    method: str, nth: int, stream: bool, forwarded: bool
-) -> None:
+async def test_a_vault_failure_is_a_503_audited(method: str) -> None:
     seen.clear()
     buf = io.StringIO()
-    engine, audit = _audited_engine(buf, _flaky_vault(method, nth))
-    client, _ = (_stream_client if stream else _client)(engine, audit)
+    engine, audit = _audited_engine(buf, _flaky_vault(method))
+    client, _ = _client(engine, audit)
     async with client:
         response = await client.post(
             "/v1/messages",
-            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+            json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
             headers={"x-privyx-session": "ses_sticky"},  # an ephemeral one skips the vault
         )
 
     assert response.status_code == 503
     assert response.json()["error"]["type"] == "privyx_vault_unavailable"
-    assert bool(seen) is forwarded
+    assert seen == []
     errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
     assert [(e["phase"], e["error_type"]) for e in errors] == [("vault", "VaultError")]
 

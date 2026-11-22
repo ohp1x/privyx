@@ -15,8 +15,9 @@ The flow of one exchange (:meth:`Pipeline.handle`):
    query, then check that no masked value is left: direct calls, so privacy
    never depends on what else is registered;
 4. send the request upstream with the provider's credential;
-5. restore the reply, structurally for JSON, event by event for a stream, and
-   relay anything else as it arrives.
+5. restore the reply with the session the request was masked with, so the
+   vault is not called once the request is sent: structurally for JSON, event
+   by event for a stream, and relay anything else as it arrives.
 
 Sessions are resolved from the ``x-privyx-session`` header when present and are
 otherwise **ephemeral per request**: a request is pseudonymized and its reply
@@ -52,6 +53,7 @@ from privyx.core import (
     ListenerError,
     Rejected,
     Responded,
+    Session,
     Stop,
     VaultError,
 )
@@ -135,7 +137,7 @@ LISTENER_FAILED_MESSAGE = (
 
 #: Body of the 503 returned when the session vault fails (Redis down or not
 #: answering, a SQLite error).  Fail-closed like a scan failure: without the
-#: session, a request cannot be masked and a reply cannot be restored.
+#: session, a request cannot be masked, so it is not forwarded.
 VAULT_UNAVAILABLE_BODY = {
     "error": {
         "type": "privyx_vault_unavailable",
@@ -529,9 +531,11 @@ class Pipeline:
         )
         if source == "ephemeral":
             # It lives for this request only, so it never touches the vault.
-            session = exchange.ephemeral = self._engine.ephemeral_session()
+            session = self._engine.ephemeral_session()
+            exchange.ephemeral = True
         else:
             session = await self._engine.get_or_create_session(resolved_id, source=source)
+        exchange.session = session
         exchange.session_id = session.session_id
         self._audit.set_session(session.session_id)
         return session.session_id
@@ -650,13 +654,17 @@ class Pipeline:
                 )  # fmt: skip
                 await self._events.emit(event)
 
+        def held(session: Session) -> None:
+            exchange.session = session  # the reply is restored with its new pseudonyms
+
         transform_span = tracing.start("privyx.transform", exchange.span)
         try:
             transformed = await transform_request(
                 payload or {},
                 self._engine,
                 sid,
-                session=exchange.ephemeral,
+                session=exchange.session if exchange.ephemeral else None,
+                on_session=held,
                 headers=headers,
                 params=params,
                 dialect=exchange.dialect,
@@ -673,7 +681,7 @@ class Pipeline:
             if isinstance(stop, Responded) and isinstance(stop.body, dict):
                 # Answered after masking: restored as an upstream reply is.
                 stop.body = await restore_response(
-                    stop.body, self._engine, sid, session=exchange.ephemeral, dialect=dialect
+                    stop.body, self._engine, sid, session=exchange.session, dialect=dialect
                 )
             return self._stopped(stop, dialect)
         except ListenerError as exc:
@@ -780,16 +788,10 @@ class Pipeline:
                 headers["content-length"] = response.headers["content-length"]
             return Reply(response.status_code, headers, content_type or None, b"")
         if is_stream:
-            try:
-                # Read before the 200 goes out, so a failing vault is a 503.
-                stored = exchange.ephemeral or await self._engine.vault.get(sid)
-            except VaultError:
-                await response.aclose()
-                raise
-            mapping = stored.mapping if stored is not None else {}
+            assert exchange.session is not None
             headers.pop("content-type", None)  # media_type carries it, avoid duplicate
             headers.setdefault("cache-control", "no-cache")
-            restoring = self._stream(exchange, response, mapping, lines=lines)
+            restoring = self._stream(exchange, response, exchange.session.mapping, lines=lines)
             return self._streaming(exchange, response, headers, lines or _SSE, restoring)
         if dialect is not None and _JSON in content_type:
             return await self._batch_reply(exchange, response, headers, content_type)
@@ -979,8 +981,8 @@ class Pipeline:
 
         No I/O, so a cancelled stream cannot interrupt it, and nothing to fail.
         """
-        if exchange.ephemeral is not None:
-            self._engine.end_ephemeral_session(exchange.ephemeral, request_id=exchange.request_id)
+        if exchange.ephemeral and exchange.session is not None:
+            self._engine.end_ephemeral_session(exchange.session, request_id=exchange.request_id)
 
     async def _batch_reply(
         self,
@@ -1006,9 +1008,9 @@ class Pipeline:
                     restored = await self._restore_chunks(exchange, payload)
                 else:
                     restored = await restore_response(
-                        payload, self._engine, sid, session=exchange.ephemeral, dialect=dialect
+                        payload, self._engine, sid, session=exchange.session, dialect=dialect
                     )
-            except BaseException as exc:  # the vault failed: answered with 503
+            except BaseException as exc:
                 tracing.end(restore_span, error=exc)
                 raise
             if restored is not None:
@@ -1046,18 +1048,15 @@ class Pipeline:
         is generated.  ``None`` for a format that sends no such stream: the body
         is relayed as it came.
         """
-        dialect, sid = exchange.dialect, exchange.session_id
-        assert dialect is not None and sid is not None
-        stored = exchange.ephemeral or await self._engine.vault.get(sid)
-        operator, mapping = self._engine.operator, stored.mapping if stored is not None else {}
+        dialect, sid, session = exchange.dialect, exchange.session_id, exchange.session
+        assert dialect is not None and sid is not None and session is not None
+        operator, mapping = self._engine.operator, session.mapping
         counted = _Restored()
         resolve = counted.counting(resolver_for(operator, mapping))
         make = select_processor_factory(operator, self._engine.codec, resolve, mapping)
         objects = _objects(dialect, make)
         if objects is None:
             return None
-        if stored is None:
-            return chunks
         restored = restore_chunks(chunks, objects)
         self._audit.restore(sid, transformations=counted.count)
         return restored

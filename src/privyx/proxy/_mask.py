@@ -65,6 +65,7 @@ async def transform_request(
     session_id: str,
     *,
     session: Session | None = None,
+    on_session: Callable[[Session], None] | None = None,
     headers: dict[str, str] | None = None,
     params: list[tuple[str, Any]] | None = None,
     dialect: Dialect | None = None,
@@ -92,7 +93,9 @@ async def transform_request(
 
     ``session``, an :meth:`~privyx.engine.PrivacyEngine.ephemeral_session`,
     is used as is: no lock, no vault read or write.  Otherwise ``session_id`` is
-    held through :meth:`~privyx.engine.PrivacyEngine.session_scope`.
+    held through :meth:`~privyx.engine.PrivacyEngine.session_scope` while the
+    request is masked, and ``on_session`` gets the session it holds: with the
+    request's pseudonyms in it, it restores the reply without another vault read.
 
     The caller's ``payload`` is never mutated (the walk rebuilds every container
     it descends into; config values are shared, not copied).
@@ -145,6 +148,8 @@ async def transform_request(
         engine.session_scope(session_id) if session is None else nullcontext(session)
     )
     async with scope as held:
+        if on_session is not None:
+            on_session(held)
 
         async def transform(text: str) -> str:
             nonlocal written

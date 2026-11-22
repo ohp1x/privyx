@@ -295,35 +295,27 @@ async def test_dlp_check_finds_a_masked_value_in_a_query_parameter_name() -> Non
     assert seen == []
 
 
-def _flaky_vault(method: str, nth: int) -> MemoryVault:
-    """A vault whose ``nth`` call of ``method`` fails, like a Redis that stops answering."""
+def _flaky_vault(method: str) -> MemoryVault:
+    """A vault whose ``method`` fails, like a Redis that stops answering."""
     vault = MemoryVault()
-    real = getattr(vault, method)
-    calls = 0
 
     async def flaky(*args: Any) -> Any:
-        nonlocal calls
-        calls += 1
-        if calls == nth:
-            raise VaultError("redis vault: Timeout reading from socket")
-        return await real(*args)
+        raise VaultError("redis vault: Timeout reading from socket")
 
     setattr(vault, method, flaky)
     return vault
 
 
 @pytest.mark.parametrize(
-    ("method", "nth", "stream", "forwarded"),
+    "method",
     [
-        ("get", 1, False, False),  # looking the session up
-        ("create", 1, False, False),  # creating it
-        ("save", 1, False, False),  # saving the request's pseudonyms
-        ("get", 3, False, True),  # reading them to restore the reply
-        ("get", 3, True, True),  # ... of a stream, before its 200 goes out
+        "get",  # looking the session up
+        "create",  # creating it
+        "save",  # saving the request's pseudonyms
     ],
 )
 async def test_a_vault_failure_is_a_503_audited(
-    method: str, nth: int, stream: bool, forwarded: bool, caplog: pytest.LogCaptureFixture
+    method: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     seen: list[bytes] = []
     buf = io.StringIO()
@@ -332,27 +324,91 @@ async def test_a_vault_failure_is_a_503_audited(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
-        vault=_flaky_vault(method, nth),
+        vault=_flaky_vault(method),
         audit=audit,
     )
     proxy = Pipeline(engine, origin="https://up.test", client=_upstream(seen), audit=audit)
     async with _client(create_app(proxy, metrics=metrics)) as client:
         response = await client.post(
             "/v1/chat/completions",
-            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+            json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
             headers={"x-privyx-session": "ses_sticky"},  # an ephemeral one skips the vault
         )
         text = (await client.get("/metrics")).text
 
     assert response.status_code == 503
     assert response.json()["error"]["type"] == "privyx_vault_unavailable"
-    assert bool(seen) is forwarded
+    assert seen == []
     errors = [json.loads(line) for line in buf.getvalue().splitlines() if "proxy.error" in line]
     assert [(e["phase"], e["error_type"]) for e in errors] == [("vault", "VaultError")]
     assert 'privyx_proxy_errors_total{phase="vault"} 1' in text
     # One WARNING line; the traceback only at DEBUG.
     assert any("session vault" in r.getMessage() for r in caplog.records)
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING and r.exc_info]
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["batch", "stream"])
+async def test_a_sticky_reply_is_restored_without_the_vault(stream: bool) -> None:
+    """Restored with the session the request was masked with: no vault call once it is sent.
+
+    The session deleted or expired meanwhile, or the vault failing then,
+    neither leaves tokens in the reply nor fails a request the upstream served.
+    """
+    vault = MemoryVault()
+    expire = vault.delete
+    sent = False
+    after: list[str] = []
+
+    def failing_once_sent(name: str) -> None:
+        real = getattr(vault, name)
+
+        async def call(*args: Any) -> Any:
+            if sent:
+                after.append(name)
+                raise VaultError("redis vault: Timeout reading from socket")
+            return await real(*args)
+
+        setattr(vault, name, call)
+
+    for name in ("create", "get", "save", "delete", "list_sessions"):
+        failing_once_sent(name)
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        nonlocal sent
+        await expire("ses_sticky")  # while the upstream works
+        sent = True
+        content = json.loads(request.content)["messages"][-1]["content"]
+        if not stream:
+            return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+        frame = json.dumps({"choices": [{"delta": {"content": content}}]})
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=f"data: {frame}\n\ndata: [DONE]\n\n".encode(),
+        )
+
+    buf = io.StringIO()
+    audit = audit_to(buf)
+    engine = PrivacyEngine(
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=PseudonymOperator(),
+        vault=vault,
+        audit=audit,
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+    proxy = Pipeline(engine, origin="https://up.test", client=client, audit=audit)
+    async with _client(create_app(proxy)) as app:
+        response = await app.post(
+            "/v1/chat/completions",
+            json={"stream": stream, "messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+            headers={"x-privyx-session": "ses_sticky"},
+        )
+
+    assert response.status_code == 200
+    assert EMAIL in response.text and "<PRIVYX_" not in response.text
+    assert after == []
+    assert "proxy.error" not in buf.getvalue()
 
 
 @pytest.mark.parametrize("stream", [False, True], ids=["batch", "stream"])
