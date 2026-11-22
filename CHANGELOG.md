@@ -47,6 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Vault:** a `vault.dsn` the sqlite vault does not read, such as `sqlite://:memory:` or `file::memory:`, is refused with the forms it takes; before, it became a file of that name in the working directory. `server.workers` above 1 also refuses a sqlite vault in memory (`:memory:`, or an empty path), which each process would keep to itself
 - **Proxy:** with `server.workers` above 1, the proxy warns once at startup that `GET /metrics` counts only the requests of the worker that answers each scrape, and how to scrape every worker or turn the feature off
 - **Config:** a profile on a named provider sends its requests and the client's token to that provider's `base_url` when a common `provider.base_url` is set beside it; before, they went to the common URL. A URL from a later layer, such as `--upstream` or `PRIVYX_UPSTREAM_URL`, still moves it, and now also moves a profile's `upstream` when the profile names no provider of its own
+- **Config:** `forward_client_auth`, `timeout`, and the other connection settings written in a profile's `privyx.provider` or its named provider win over the common ones; before, a common `forward_client_auth: false` made such a profile send no credential. `privyx run` now warns when a launch would send none, and names the setting to write
 
 ### Security
 

@@ -15,9 +15,9 @@ elsewhere (a profile's ``upstream``, a common ``base_url`` while a profile
 selects another provider) moves the requests, never the credential: the
 provider refuses to start then (:func:`privyx.providers.check_credential`).
 
-A URL at the top fills a profile's provider only where that provider has
-none.  One the provider or the profile writes, in the same layer or a later
-one, is theirs; only a later layer's URL at the top (``--upstream``,
+What the top carries to a profile's provider fills what that provider leaves
+open.  A field the provider or the profile writes, in the same layer or a
+later one, is theirs; only a later layer's value at the top (``--upstream``,
 ``PRIVYX_UPSTREAM_URL``) moves it.
 """
 
@@ -99,10 +99,11 @@ def resolve_provider(
     pinned = False
 
     def settle(mapping: Mapping[str, Any]) -> None:
-        """Let the URL ``mapping`` writes of the provider in use replace the top's."""
-        if _given(mapping, "base_url") and not pinned:
-            dest.pop("base_url", None)
-            dest_sources.pop("base_url", None)
+        """Let what ``mapping`` writes of the provider in use replace what the top carried."""
+        for key in _DESTINATION:
+            if _given(mapping, key) and not (key == "base_url" and pinned):
+                dest.pop(key, None)
+                dest_sources.pop(key, None)
 
     def edit(name: str, mapping: Mapping[str, Any], source: str) -> bool:
         """Merge ``mapping`` into definition ``name``; whether it wrote a credential."""
@@ -156,11 +157,13 @@ def resolve_provider(
                 # and keeps what this layer writes for it.
                 mine = (data.get("providers") or {}).get(effective)
                 mine = mine if isinstance(mine, dict) else {}
-                moved = {key: mapping[key] for key in _DESTINATION if key in mapping}
-                if _given(mine, "base_url"):
-                    moved.pop("base_url", None)
+                moved = {
+                    key: mapping[key]
+                    for key in _DESTINATION
+                    if key in mapping and not _given(mine, key)
+                }
                 dest.update(moved)
-                dest_sources.update({".".join(leaf): source for leaf in leaves(moved)})
+                dest_sources.update(dict.fromkeys(moved, source))
                 pinned = pinned and "base_url" not in moved
         if "upstream" in projection:
             dest["base_url"] = projection["upstream"]
@@ -186,9 +189,9 @@ def resolve_provider(
     provider.update({key: value for key, value in dest.items() if key != "base_url"})
     provider["base_url"] = base
     sources = {f"provider.{path}": src for path, src in written.get(effective, {}).items()}
-    for path, src in dest_sources.items():
-        if path != "base_url":
-            sources[f"provider.{path}"] = src
+    for key, src in dest_sources.items():
+        if key != "base_url":
+            sources.update({f"provider.{'.'.join(leaf)}": src for leaf in leaves({key: dest[key]})})
     sources["provider.type"] = named_at  # where the provider in use was chosen
     for name, paths in written.items():
         if name:
