@@ -262,8 +262,6 @@ class AnchorSuite(ComponentSuite):
 
     #: Options with another key than :attr:`options`.
     other_options: ClassVar[dict[str, Any]] = {}
-    #: What :attr:`~privyx.anchors.Anchor.shared` is with :attr:`options`.
-    shared: ClassVar[bool] = True
 
     def _anchor(self, value: str, **options: Any) -> str:
         async def anchor() -> str:
@@ -282,9 +280,6 @@ class AnchorSuite(ComponentSuite):
             return
         other = self._anchor("alice@example.com", **self.other_options)
         assert self._anchor("alice@example.com") != other
-
-    def test_shared_follows_the_options(self) -> None:
-        assert self.create().shared is self.shared
 
 
 class VaultSuite(ComponentSuite):
@@ -384,6 +379,51 @@ class VaultSuite(ComponentSuite):
             except VaultError:
                 return
             raise AssertionError("save took a lock token after the lock was released")
+
+        self._with_vault(check)
+
+    def test_two_writers_of_one_session_keep_both_values(self) -> None:
+        """Two writers that read, add a value, and save under the lock both keep theirs.
+
+        A save writes the whole session: a lock that let the second writer
+        read before the first one saved would drop the first one's value.
+        Another vault on the same store reads both back.
+        """
+
+        async def check(vault: Any) -> None:
+            session = Session()
+            await vault.create(session)
+            sid = session.session_id
+            if not vault.persistent or vault.lock(sid) is None:
+                return  # this process's alone
+            first_holds, second_waits = asyncio.Event(), asyncio.Event()
+
+            async def first() -> None:
+                async with vault.lock(sid) as token:
+                    stored = await vault.get(sid)
+                    first_holds.set()
+                    await second_waits.wait()
+                    await asyncio.sleep(0.2)  # the second writer reads now, if the lock lets it
+                    stored.put("<PRIVYX_EMAIL_1>", "alice@example.com")
+                    await vault.save(stored, lock=token)
+
+            async def second() -> None:
+                await first_holds.wait()
+                second_waits.set()
+                async with vault.lock(sid) as token:
+                    stored = await vault.get(sid)
+                    stored.put("<PRIVYX_EMAIL_2>", "bob@example.com")
+                    await vault.save(stored, lock=token)
+
+            await asyncio.gather(first(), second())
+            again = await self.opened()
+            try:
+                stored = await again.get(sid)
+            finally:
+                await again.close()
+            assert stored is not None
+            assert stored.get("<PRIVYX_EMAIL_1>") == "alice@example.com"
+            assert stored.get("<PRIVYX_EMAIL_2>") == "bob@example.com"
 
         self._with_vault(check)
 

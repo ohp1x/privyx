@@ -64,12 +64,3 @@ class Operator(Component, kind="operator"):
         resolver that decrypts.
         """
         return mapping.get
-
-    @property
-    def value_derived(self) -> bool:
-        """Whether a token's id depends only on the value and a key every process shares.
-
-        Then processes sharing a vault mint the same token for a value, and
-        need not hold the session across processes.
-        """
-        return False

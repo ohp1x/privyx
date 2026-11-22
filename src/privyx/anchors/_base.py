@@ -19,8 +19,3 @@ class Anchor(Component, kind="anchor"):
     @abstractmethod
     async def anchor(self, text: str, context: Context) -> str:
         """The keyed derivation of ``text``."""
-
-    @property
-    def shared(self) -> bool:
-        """Whether every process sharing the vault anchors with this same key."""
-        return False
