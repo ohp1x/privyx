@@ -17,6 +17,7 @@ import hmac
 import json
 import logging
 from collections.abc import Mapping
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -169,10 +170,14 @@ def upstream_client(
     never narrower than its clients; httpx's default of 100 made request 101
     onward wait for a free connection and fail.  A connection that cannot be
     opened is retried twice; see :class:`_UpstreamClient`.
+
+    Its cookie jar accepts nothing: one client serves every caller, so a cookie
+    kept from one reply would go out on another caller's request.
     """
     return _UpstreamClient(
         timeout=httpx.Timeout(connect=connect_timeout, read=timeout, write=timeout, pool=10.0),
         limits=httpx.Limits(max_connections=max_connections, max_keepalive_connections=20),
+        cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])),
     )
 
 
