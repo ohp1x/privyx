@@ -81,7 +81,7 @@
 #   base_url: ""
 #   api_key: ""
 #   headers: {}            # extra headers on every upstream request
-#   forward_client_auth: true   # false: drop the client's key, send only the provider's
+#   forward_client_auth: true   # false: drop the client's key and cookies, send only the provider's
 #   # Transparent mode: origin sends a request path to the upstream's host,
 #   # dropping the upstream URL's own path.  prefix keeps that path and appends
 #   # the request path minus strip_prefix (`privyx run` strips the agent's
