@@ -341,6 +341,22 @@ async def test_metrics_count_every_event_without_the_trail() -> None:
     assert "privyx_response_duration_seconds_count 1" in text
 
 
+async def test_a_record_the_trail_cannot_write_is_counted(tmp_path: Path) -> None:
+    class FullDisk(io.StringIO):
+        def write(self, text: str) -> int:
+            raise OSError(28, "No space left on device")
+
+    trail, metrics = AuditTrail(path=str(tmp_path / "audit.log")), Metrics()
+    audit = await _logger(trail, metrics)
+    await trail.close()
+    trail._writer = FullDisk()
+
+    audit.session_created("ses_1")  # the request goes on
+
+    assert metrics.stats.write_failures == 1
+    assert "privyx_audit_write_failures_total 1" in metrics.stats.prometheus()
+
+
 async def test_prometheus_escapes_label_values() -> None:
     metrics = Metrics()
     audit = await _logger(metrics)

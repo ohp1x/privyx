@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -23,7 +24,7 @@ import httpx  # noqa: E402
 from privyx.core import DetectorError, VaultError  # noqa: E402
 from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
-from privyx.features import Metrics  # noqa: E402
+from privyx.features import AuditTrail, Metrics  # noqa: E402
 from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
@@ -185,6 +186,31 @@ async def test_metrics_count_proxied_exchanges() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/plain")
     assert 'privyx_audit_events_total{event="proxy.response"} 1' in response.text
+
+
+async def test_a_trail_that_cannot_write_fails_no_request(tmp_path: Path) -> None:
+    class FullDisk(io.StringIO):
+        def write(self, text: str) -> int:
+            raise OSError(28, "No space left on device")
+
+    trail, metrics = AuditTrail(path=str(tmp_path / "audit.log")), Metrics()
+    events = await listening(trail, metrics)
+    await trail.close()
+    trail._writer = FullDisk()  # the disk filled up after the start
+    audit = AuditLogger(events=events)
+    proxy = Pipeline(_engine(), origin="https://up.test", client=_upstream(), audit=audit)
+    async with _client(create_app(proxy, metrics=metrics)) as client:
+        response = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": f"mail {EMAIL}"}]},
+        )
+        text = (await client.get("/metrics")).text
+
+    assert response.status_code == 200
+    assert EMAIL in response.text
+    failed = sum(metrics.stats.events.values())  # every record of the exchange
+    assert failed > 0
+    assert f"privyx_audit_write_failures_total {failed}" in text
 
 
 class _BrokenDetector:

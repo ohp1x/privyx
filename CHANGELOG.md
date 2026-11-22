@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI:** `privyx features enable` and `disable` switch a feature from the next start, `privyx plugin list` names what each plugin adds, `privyx session token` shows what a token stands for, and `privyx detect --pattern` and `--entity` check a regex
 - **Proxy:** `server.workers`, or `privyx proxy --workers N`, serves with several processes, on a vault they share (`sqlite` or `redis`)
 - **Plugins:** (experimental) a listener hears `config.changed` when `privyx config` or `privyx features` writes a setting, with its key and file, never its value
+- **Audit:** `GET /metrics` counts the audit records the trail could not write, such as on a full disk, as `privyx_audit_write_failures_total`; the request still goes on and the failure is still logged
 
 ### Changed
 
