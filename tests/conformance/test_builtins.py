@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -59,7 +60,11 @@ class TestMemoryVault(VaultSuite):
 
 class TestSQLiteVault(VaultSuite):
     component = SQLiteVault
-    options = {"dsn": ":memory:"}
+
+    @pytest.fixture(autouse=True)
+    def _file(self, tmp_path: Path) -> None:
+        """A database file of its own per test, which a second vault can open too."""
+        self.options = {"dsn": str(tmp_path / "privyx.db")}
 
 
 @pytest.mark.skipif(

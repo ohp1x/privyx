@@ -87,11 +87,6 @@ class PseudonymOperator(TokenOperator):
             self._labels = FakeLabels(locale=self.options.locale or None, seed=self.options.seed)
         self._choices.cache_clear()
 
-    @property
-    def value_derived(self) -> bool:
-        """With an anchor whose key every process shares."""
-        return self._anchor is not None and self._anchor.shared
-
     async def pseudonymize(
         self,
         text: str,

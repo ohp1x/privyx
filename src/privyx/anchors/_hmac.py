@@ -39,11 +39,6 @@ class HMACAnchor(Anchor):
         """
         self._resolved()
 
-    @property
-    def shared(self) -> bool:
-        """``True`` for a secret written in the config; the ``auto`` key is each host's own."""
-        return self.options.secret != "auto"
-
     async def anchor(self, text: str, context: Context) -> str:
         mac = hmac.new(self._resolved(), text.encode(), hashlib.sha256)
         return f"PRIVYX_{mac.hexdigest()}"

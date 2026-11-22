@@ -13,11 +13,13 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 
+from privyx.anchors import HMACAnchor
 from privyx.core import Session, VaultError
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
+from privyx.testing import opened
 from privyx.vaults import RedisVault
 from privyx.vaults._redis import redis_client
 
@@ -96,16 +98,22 @@ async def test_recovers_when_redis_drops_the_connection(
     assert stored is not None and stored.session_id == session.session_id
 
 
-def _engine(vault: RedisVault) -> PrivacyEngine:
-    """An engine without an anchor: its counter tokens need the Redis lock."""
+async def _engine(vault: RedisVault, secret: str) -> PrivacyEngine:
+    """The engine of one replica; ``secret`` is its anchor's key, "" for counter tokens."""
+    anchor = HMACAnchor(secret=secret) if secret else None
     return PrivacyEngine(
-        detector=RegexDetector(), policy=DefaultPolicy(), operator=PseudonymOperator(), vault=vault
+        detector=RegexDetector(),
+        policy=DefaultPolicy(),
+        operator=await opened(PseudonymOperator(), anchor=anchor),
+        vault=vault,
     )
 
 
-async def test_two_replicas_on_one_session_mint_different_tokens(
-    vault: RedisVault, new_id: Callable[[], str]
+@pytest.mark.parametrize("secret", ["", "k" * 64])
+async def test_two_replicas_on_one_session_keep_both_values(
+    vault: RedisVault, new_id: Callable[[], str], secret: str
 ) -> None:
+    """Each takes the Redis lock, with counter tokens and with an anchor they share."""
     session_id = new_id()
 
     async def request(engine: PrivacyEngine, text: str) -> str:
@@ -114,8 +122,8 @@ async def test_two_replicas_on_one_session_mint_different_tokens(
             return (await engine.transform(text, session=session, persist=False)).text
 
     first, second = await asyncio.gather(
-        request(_engine(vault), "mail ana@example.com"),
-        request(_engine(vault), "mail bob@example.com"),
+        request(await _engine(vault, secret), "mail ana@example.com"),
+        request(await _engine(vault, secret), "mail bob@example.com"),
     )
 
     assert first.split()[1] != second.split()[1]

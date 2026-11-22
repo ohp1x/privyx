@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import contextlib
+import asyncio
 import io
 import json
-from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -468,37 +467,64 @@ async def test_transform_takes_spans_already_decided() -> None:
         await engine.transform("x", session=session, detection=Detection(), key="password")
 
 
-class _LockingVault(MemoryVault):
-    """A memory vault with the cross-process lock a Redis vault has."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.locked: list[str] = []
-
-    @contextlib.asynccontextmanager
-    async def lock(self, session_id: str) -> AsyncIterator[str]:
-        self.locked.append(session_id)
-        yield "token"
-
-    async def save(self, session: Session, *, lock: str | None = None) -> None:
-        await super().save(session)
-
-
-@pytest.mark.parametrize(("secret", "locked"), [("k" * 64, False), ("auto", True)])
-async def test_an_anchor_skips_the_shared_lock_only_with_one_key_for_all(
-    secret: str, locked: bool
-) -> None:
-    """A key every process shares makes pseudonyms value-derived; ``auto`` is each host's own."""
+async def _process(dsn: str, secret: str) -> PrivacyEngine:
+    """The engine of one process on the SQLite file ``dsn``; ``secret`` "" for no anchor."""
     from privyx.anchors import HMACAnchor
+    from privyx.vaults import SQLiteVault
 
-    vault = _LockingVault()
-    anchor = HMACAnchor(secret=secret)
-    engine = PrivacyEngine(
+    anchor = HMACAnchor(secret=secret) if secret else None
+    return PrivacyEngine(
         detector=RegexDetector(),
         policy=DefaultPolicy(),
         operator=await opened(PseudonymOperator(), anchor=anchor),
-        vault=vault,
+        vault=await opened(SQLiteVault(dsn=dsn)),
     )
-    async with engine.session_scope("s1"):
-        pass
-    assert bool(vault.locked) == locked
+
+
+@pytest.mark.parametrize("secret", ["k" * 64, "auto", ""])
+async def test_two_processes_saving_one_session_keep_both_values(
+    tmp_path: Path, secret: str
+) -> None:
+    """Each takes the vault's lock, whatever its anchor: a save writes the whole session."""
+    dsn = str(tmp_path / "privyx.db")
+    first, second = await _process(dsn, secret), await _process(dsn, secret)
+
+    async def mask(engine: PrivacyEngine, text: str) -> str:
+        async with engine.session_scope("s1") as session:
+            await asyncio.sleep(0.02)  # both read the session before either saves, unlocked
+            return (await engine.transform(text, session=session, persist=False)).text
+
+    try:
+        ana, bob = await asyncio.gather(
+            mask(first, "mail ana@example.com"), mask(second, "mail bob@example.com")
+        )
+        stored = await first.vault.get("s1")
+    finally:
+        await first.vault.close()
+        await second.vault.close()
+    assert stored is not None
+    assert stored.get(ana.split()[1]) == "ana@example.com"
+    assert stored.get(bob.split()[1]) == "bob@example.com"
+
+
+async def test_a_save_after_another_process_took_the_lock_over_is_refused(
+    tmp_path: Path,
+) -> None:
+    """With an anchor every process shares too: the stale holder neither saves nor unlocks."""
+    from privyx.vaults import SQLiteVault
+
+    engine = await _process(str(tmp_path / "privyx.db"), "k" * 64)
+    vault = engine.vault
+    assert isinstance(vault, SQLiteVault)
+    try:
+        with pytest.raises(VaultError, match="lock expired"):
+            async with engine.session_scope("s1") as session:
+                await engine.transform("mail ana@example.com", session=session, persist=False)
+                # This process stalled past its lease, and another one took the lock.
+                await vault._execute("UPDATE session_locks SET token = 'other'", commit=True)
+        stored = await vault.get("s1")
+        holder = await vault._execute("SELECT token FROM session_locks")
+    finally:
+        await vault.close()
+    assert stored is not None and not stored.mapping
+    assert holder == [("other",)]

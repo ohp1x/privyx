@@ -189,9 +189,10 @@ class PrivacyEngine:
         :meth:`transform` with ``persist=False``; it is saved once on a clean
         exit (not on an error — a request that failed to mask is not forwarded).
 
-        The lock keeps two requests of one session in this process from minting
-        the same counter pseudonym for different values and overwriting each
-        other's mapping on save.
+        A save writes the whole session, so two requests of one session take
+        turns: this process's lock, and the vault's :meth:`~privyx.vaults.Vault.lock`
+        for the processes sharing it.  Neither then drops the values the other
+        saved, nor mints the same counter pseudonym for a different value.
 
         ``require_existing`` raises :class:`SessionNotFoundError` when the
         session is gone (deleted or expired) instead of creating it again.
@@ -205,14 +206,11 @@ class PrivacyEngine:
                 raise SessionNotFoundError(f"session not found: {session_id}")
             return session
 
-        # The in-process lock covers one process.  Replicas sharing a Redis vault
-        # also take its lock, unless an anchor with one key for all of them
-        # makes pseudonyms value-derived: then they mint the same token anyway.
         lock = self._locks.get(session_id)
         if lock is None:
             lock = self._locks[session_id] = asyncio.Lock()
         vault = self._vault
-        shared = None if self._operator.value_derived else vault.lock(session_id)
+        shared = vault.lock(session_id)
         async with lock:
             if shared is not None:
                 async with shared as token:
