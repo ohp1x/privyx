@@ -12,7 +12,10 @@ import json
 import os
 import re
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import click
 import pytest
@@ -625,6 +628,65 @@ def test_session_prune_deletes_idle_sessions_and_audits(
     assert [(e["event"], e["session_id"], e["reason"], e["mapping_count"]) for e in events] == [
         ("session.deleted", idle, "prune", 1)
     ]
+
+
+def test_session_prune_keeps_a_session_used_since_it_was_listed(
+    runner: CliRunner, sqlite_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from privyx.vaults import SQLiteVault
+
+    audit_log = tmp_path / "audit.log"
+    monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(audit_log))
+    used, idle = _seed_session(sqlite_config), _seed_session(sqlite_config)
+    _age_session(sqlite_config, used, 8 * 86400)
+    _age_session(sqlite_config, idle, 8 * 86400)
+    listed = SQLiteVault.list_sessions
+
+    async def used_right_after(self: SQLiteVault) -> list[Any]:
+        sessions = await listed(self)
+        session = await self.get(used)
+        assert session is not None
+        session.touch()
+        await self.save(session)
+        return sessions
+
+    monkeypatch.setattr(SQLiteVault, "list_sessions", used_right_after)
+    prune = ["-c", str(sqlite_config), "session", "prune", "--older-than", "7d"]
+    result = runner.invoke(cli, prune)
+    monkeypatch.setattr(SQLiteVault, "list_sessions", listed)
+
+    assert result.exit_code == 0
+    assert "Pruned 1 session(s)" in result.output
+    assert used not in result.output
+    left = runner.invoke(cli, ["-c", str(sqlite_config), "session", "list"]).output
+    assert used in left and idle not in left
+    events = [json.loads(line) for line in audit_log.read_text().splitlines()]
+    assert [e["session_id"] for e in events] == [idle]
+
+
+def test_session_prune_leaves_a_session_a_request_holds(
+    runner: CliRunner, sqlite_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from privyx.core import SessionBusyError
+    from privyx.vaults import SQLiteVault
+
+    held = _seed_session(sqlite_config)
+    _age_session(sqlite_config, held, 8 * 86400)
+
+    @asynccontextmanager
+    async def busy(_self: SQLiteVault, session_id: str) -> AsyncIterator[str]:
+        raise SessionBusyError(f"timed out waiting for the session lock: {session_id}")
+        yield ""
+
+    lock = SQLiteVault.lock
+    monkeypatch.setattr(SQLiteVault, "lock", busy)
+    prune = ["-c", str(sqlite_config), "session", "prune", "--older-than", "7d"]
+    result = runner.invoke(cli, prune)
+    monkeypatch.setattr(SQLiteVault, "lock", lock)
+
+    assert result.exit_code == 0
+    assert "Pruned 0 session(s)" in result.output
+    assert held in runner.invoke(cli, ["-c", str(sqlite_config), "session", "list"]).output
 
 
 def _write_audit_log(path: Path) -> None:

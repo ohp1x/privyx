@@ -14,6 +14,7 @@ from privyx.core._errors import (
     LeakError,
     OperatorError,
     PrivyxError,
+    SessionBusyError,
     SessionNotFoundError,
     VaultError,
 )
@@ -72,6 +73,7 @@ __all__ = [
     "Responded",
     "Services",
     "Session",
+    "SessionBusyError",
     "SessionNotFoundError",
     "Span",
     "Stop",

@@ -19,6 +19,10 @@ class SessionNotFoundError(VaultError):
     """Raised when a session does not exist in the vault."""
 
 
+class SessionBusyError(VaultError):
+    """A session's lock was not free in time: another request is using it."""
+
+
 class DetectorError(PrivyxError):
     """Raised when a detector fails."""
 

@@ -58,7 +58,8 @@ class Vault(Component, kind="vault"):
         """Hold ``session_id`` across processes; :meth:`save` takes the token it yields.
 
         ``None``, the default, when the vault is this process's alone: the
-        engine's own lock is enough then.
+        engine's own lock is enough then.  Entering it raises
+        :class:`~privyx.core.SessionBusyError` when the lock is not free in time.
         """
         return None
 
