@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from privyx.core import PrivyxError, Session
+from privyx.core import PrivyxError, Session, SessionBusyError
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
@@ -88,7 +88,7 @@ class TokenFound:
 
 @dataclass(frozen=True)
 class Pruned:
-    """The sessions idle since before ``cutoff``, deleted unless it was a dry run."""
+    """The sessions idle since before ``cutoff``: those deleted, or a dry run's candidates."""
 
     sessions: list[Session]
     cutoff: float
@@ -211,24 +211,29 @@ class Sessions:
         """Delete the sessions idle at least ``older_than`` seconds, or with ``dry_run`` list them.
 
         Each deletion is written to the audit trail as ``session.deleted``
-        with ``reason: prune``, after it succeeded.
+        with ``reason: prune``, after it succeeded.  A session used since it
+        was listed, or held by a request right now, is kept.
         """
         cutoff = time.time() - older_than
         async with self._vault() as vault:
             stale = [s for s in await vault.list_sessions() if s.updated_at < cutoff]
             if dry_run:
                 return Pruned(stale, cutoff)
+            deleted: list[Session] = []
             # The audit trail alone, for the deletions.
             features = self._app.features.running(self._app.settings, only={"audit"})
             async with features as audit:
                 for s in stale:
-                    await vault.delete(s.session_id)
+                    session = await _delete_if_idle(vault, s.session_id, cutoff)
+                    if session is None:
+                        continue
+                    deleted.append(session)
                     # After the delete succeeds, so the trail never claims a
                     # deletion that failed (same contract as the proxy).
                     audit.session_deleted(
-                        s.session_id, reason="prune", mapping_count=len(s.mapping)
+                        session.session_id, reason="prune", mapping_count=len(session.mapping)
                     )
-        return Pruned(stale, cutoff)
+        return Pruned(deleted, cutoff)
 
     @asynccontextmanager
     async def _vault(self) -> AsyncIterator[Vault]:
@@ -279,6 +284,30 @@ class Sessions:
             {model: dict(tokens) for model, tokens in by_model.items()},
             {model: cost(model, tokens, prices) for model, tokens in by_model.items()},
         )
+
+
+async def _delete_if_idle(vault: Vault, session_id: str, cutoff: float) -> Session | None:
+    """Delete the session if it is still idle since ``cutoff``; the session deleted, if any.
+
+    Read again under the vault's lock, when it has one, since a request may
+    have used it after it was listed.
+    """
+
+    async def delete() -> Session | None:
+        session = await vault.get(session_id)
+        if session is None or session.updated_at >= cutoff:
+            return None
+        await vault.delete(session_id)
+        return session
+
+    lock = vault.lock(session_id)
+    if lock is None:
+        return await delete()
+    try:
+        async with lock:
+            return await delete()
+    except SessionBusyError:
+        return None  # a request holds it: it is in use
 
 
 def matching_lines(path: Path, session_id: str | None = None) -> list[dict[str, Any]]:

@@ -21,7 +21,7 @@ from typing import Any
 
 from pydantic import Field
 
-from privyx.core import ConfigError, Services, VaultError
+from privyx.core import ConfigError, Services, SessionBusyError, VaultError
 from privyx.vaults._base import StoredVault
 
 #: A commit appends to the write-ahead log instead of syncing the database and
@@ -220,7 +220,7 @@ class SQLiteVault(StoredVault):
         Yields the token :meth:`save` checks.  The lock is renewed every
         ``ttl / 3`` seconds while held, so a slow transform keeps it; a process
         that dies leaves a row another may take over after ``ttl``.  Waiting
-        longer than ``wait`` seconds for it raises :class:`VaultError`.
+        longer than ``wait`` seconds for it raises :class:`SessionBusyError`.
         """
         token = uuid.uuid4().hex
         deadline = time.monotonic() + wait
@@ -233,7 +233,7 @@ class SQLiteVault(StoredVault):
             commit=True,
         ):
             if time.monotonic() >= deadline:
-                raise VaultError(f"timed out waiting for the session lock: {session_id}")
+                raise SessionBusyError(f"timed out waiting for the session lock: {session_id}")
             await asyncio.sleep(0.05)
 
         async def renew() -> None:

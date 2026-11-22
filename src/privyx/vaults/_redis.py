@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
-from privyx.core import ConfigError, Services, VaultError
+from privyx.core import ConfigError, Services, SessionBusyError, VaultError
 from privyx.vaults._base import StoredVault
 
 if TYPE_CHECKING:
@@ -159,7 +159,7 @@ class RedisVault(StoredVault):
         Yields the token :meth:`save` checks.  The lock is renewed every
         ``ttl / 3`` seconds while held, so a slow transform keeps it; a process
         that dies lets it expire after ``ttl``.  Waiting longer than ``wait``
-        seconds for it raises :class:`VaultError`.
+        seconds for it raises :class:`SessionBusyError`.
         """
         from redis.exceptions import RedisError
 
@@ -171,7 +171,7 @@ class RedisVault(StoredVault):
                 if await self._client.set(key, token, ex=ttl, nx=True):
                     break
             if time.monotonic() >= deadline:
-                raise VaultError(f"timed out waiting for the session lock: {session_id}")
+                raise SessionBusyError(f"timed out waiting for the session lock: {session_id}")
             await asyncio.sleep(0.05)
 
         async def renew() -> None:
