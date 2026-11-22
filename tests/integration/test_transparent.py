@@ -13,6 +13,7 @@ import asyncio
 import io
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -809,6 +810,41 @@ async def test_no_upstream_response_is_named_by_status_and_type(
     assert result.headers.get("retry-after") == ("10" if status == 503 else None)
     # Expected conditions: one WARNING line, the traceback only at DEBUG.
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING and r.exc_info]
+
+
+@pytest.mark.parametrize(
+    ("failure", "status", "kind"),
+    [(httpx.ReadTimeout, 504, "timeout"), (httpx.RemoteProtocolError, 502, "unreachable")],
+)
+async def test_a_batch_body_that_fails_after_its_headers_is_answered_like_no_response(
+    failure: type[Exception], status: int, kind: str
+) -> None:
+    closed: list[bool] = []
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            raise failure("")
+            yield b""  # an async generator
+
+        async def aclose(self) -> None:
+            closed.append(True)
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "application/json"}, stream=Body())
+
+    buf = io.StringIO()
+    proxy = _audited_proxy(buf, httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
+
+    result = await _post_json(
+        proxy, "v1/chat/completions", {"messages": [{"role": "user", "content": EMAIL}]}
+    )
+
+    assert result.status_code == status
+    assert json.loads(result.body)["error"]["type"] == f"privyx_upstream_{kind}"
+    records = [json.loads(line) for line in buf.getvalue().splitlines()]
+    events = [(r["event"], r.get("phase")) for r in records]
+    assert events.index(("proxy.error", "upstream")) > events.index(("proxy.request", None))
+    assert closed
 
 
 async def test_session_header_reused_across_requests() -> None:
