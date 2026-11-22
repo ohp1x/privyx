@@ -399,6 +399,7 @@ def _check_streaming(settings: Settings, app: Privyx) -> tuple[bool, str]:
 
 def _check_routes(settings: Settings, app: Privyx) -> tuple[bool, str]:
     """Describe effective masking coverage and expose unmasked forwarding."""
+    from privyx.app._serve import masked_routes
     from privyx.config.schema import ProxyConfig
     from privyx.dialects import Dialect
 
@@ -417,12 +418,8 @@ def _check_routes(settings: Settings, app: Privyx) -> tuple[bool, str]:
     if not proxy.routes:
         return False, "no masking routes configured"
 
-    routes = proxy.routes
+    routes = masked_routes(app, settings)
     if proxy.mode == "gateway":
-        from privyx.proxy import served_routes
-
-        kinds = {name: registry.get(name) for name in set(routes.values())}
-        routes = served_routes(routes, kinds, google=settings.provider.type == "google")
         disposition = "unlisted paths return 404; auxiliary routes are not served"
     elif proxy.passthrough_unknown:
         disposition = (
