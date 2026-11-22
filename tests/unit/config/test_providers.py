@@ -204,3 +204,96 @@ def test_a_common_url_beside_a_profile_still_sends_it_there(
     monkeypatch.setenv("PRIVYX_ANTHROPIC_API_KEY", KEY)  # anthropic's key: for its own host
     with pytest.raises(ConfigError, match="would go to https://router.example.com"):
         check_credential(load_config(config, agent="acme"))
+
+
+OWN = "https://own.example.com"
+CLI_URL = "https://cli.example.com"
+
+
+def _beside_common(path: Path, named: dict[str, object], **agent: object) -> Path:
+    """Common connection settings, and profile ``p`` on provider ``work``, defined as ``named``."""
+    profile = {"command": "acme", "env_vars": ["ACME_URL"], "provider": "work", **agent}
+    return _file(
+        path,
+        {
+            "provider": {"base_url": ROUTER, "forward_client_auth": False, "timeout": 42},
+            "providers": {"work": {"type": "anthropic", **named}},
+            "agents": {"p": profile},
+        },
+    )
+
+
+def test_a_named_provider_keeps_its_url_and_key_beside_a_common_url(tmp_path: Path) -> None:
+    config = _beside_common(tmp_path / "c.yaml", {"base_url": OWN, "api_key": KEY})
+
+    settings = load_config(config, agent="p")
+
+    assert (resolve_base_url(settings), resolve_api_key(settings)) == (OWN, KEY)
+    check_credential(settings)
+
+
+def test_a_named_provider_without_a_url_takes_the_common_one(tmp_path: Path) -> None:
+    settings = load_config(_beside_common(tmp_path / "c.yaml", {"base_url": ""}), agent="p")
+
+    assert resolve_base_url(settings) == ROUTER
+
+
+def test_a_later_layers_url_still_moves_a_named_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _beside_common(tmp_path / "c.yaml", {"base_url": OWN})
+    keyed = _beside_common(tmp_path / "k.yaml", {"base_url": OWN, "api_key": KEY})
+    moved = {"upstream_url": CLI_URL}
+
+    assert resolve_base_url(load_config(config, agent="p", extra=moved)) == CLI_URL
+    with pytest.raises(ConfigError, match="would go to https://cli.example.com"):
+        check_credential(load_config(keyed, agent="p", extra=moved))
+    monkeypatch.setenv("PRIVYX_UPSTREAM_URL", CLI_URL)
+    assert resolve_base_url(load_config(config, agent="p")) == CLI_URL
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "url"),
+    [
+        ({"provider": {"base_url": ROUTER}}, {"providers": {"work": {"base_url": OWN}}}, OWN),
+        ({"providers": {"work": {"base_url": OWN}}}, {"provider": {"base_url": ROUTER}}, ROUTER),
+    ],
+    ids=["provider-later", "common-later"],
+)
+def test_between_files_the_later_url_wins(
+    first: dict[str, object],
+    second: dict[str, object],
+    url: str,
+    home: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    user = home / ".privyx" / "config.yaml"
+    user.parent.mkdir()
+    agents = {"p": {"command": "acme", "provider": "work"}}
+    _file(user, {"providers": {"work": {"type": "anthropic"}}, "agents": agents, **first})
+    trust(_file(tmp_path / "privyx.yaml", second))
+
+    assert resolve_base_url(load_config(agent="p")) == url
+
+
+@pytest.mark.parametrize("agent", [{}, {"provider": "anthropic"}], ids=["no-provider", "provider"])
+def test_the_upstream_flag_moves_a_profiles_upstream(
+    agent: dict[str, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _file(
+        tmp_path / "c.yaml", {"agents": {"p": {"command": "acme", "upstream": OWN, **agent}}}
+    )
+
+    assert resolve_base_url(load_config(config, agent="p")) == OWN
+    moved = load_config(config, agent="p", extra={"upstream_url": CLI_URL})
+    assert resolve_base_url(moved) == CLI_URL
+    monkeypatch.setenv("PRIVYX_UPSTREAM_URL", ROUTER)
+    assert resolve_base_url(load_config(config, agent="p")) == ROUTER
+
+
+def test_a_providers_own_url_does_not_replace_a_profiles_upstream(tmp_path: Path) -> None:
+    config = _beside_common(tmp_path / "c.yaml", {"base_url": OWN}, upstream=CLI_URL)
+
+    assert resolve_base_url(load_config(config, agent="p")) == CLI_URL

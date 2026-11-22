@@ -14,6 +14,11 @@ profile that selects another one does not take them.  A destination from
 elsewhere (a profile's ``upstream``, a common ``base_url`` while a profile
 selects another provider) moves the requests, never the credential: the
 provider refuses to start then (:func:`privyx.providers.check_credential`).
+
+A URL at the top fills a profile's provider only where that provider has
+none.  One the provider or the profile writes, in the same layer or a later
+one, is theirs; only a later layer's URL at the top (``--upstream``,
+``PRIVYX_UPSTREAM_URL``) moves it.
 """
 
 from __future__ import annotations
@@ -90,6 +95,14 @@ def resolve_provider(
     profiled = False
     dest: dict[str, Any] = {}
     dest_sources: dict[str, str] = {}
+    # dest's URL is the profile's `upstream`: its provider's own URL does not replace it.
+    pinned = False
+
+    def settle(mapping: Mapping[str, Any]) -> None:
+        """Let the URL ``mapping`` writes of the provider in use replace the top's."""
+        if _given(mapping, "base_url") and not pinned:
+            dest.pop("base_url", None)
+            dest_sources.pop("base_url", None)
 
     def edit(name: str, mapping: Mapping[str, Any], source: str) -> bool:
         """Merge ``mapping`` into definition ``name``; whether it wrote a credential."""
@@ -110,7 +123,7 @@ def resolve_provider(
             if own or source == "CLI" or not profiled:
                 effective = chosen
                 named_at = source
-                dest, dest_sources = {}, {}
+                dest, dest_sources, pinned = {}, {}, False
         # The profile's own choice, above the layer's common one; the layer's
         # common URL below still sends it there, unless the profile has one too.
         projection = projections.get(source, {})
@@ -118,10 +131,14 @@ def resolve_provider(
             effective = str(projection["provider"])
             named_at = source
             profiled = True
-            dest, dest_sources = {}, {}
+            dest, dest_sources, pinned = {}, {}, False
         for name, mapping in (data.get("providers") or {}).items():
-            if isinstance(mapping, dict) and edit(str(name), mapping, source):
+            if not isinstance(mapping, dict):
+                continue
+            if edit(str(name), mapping, source):
                 keyed.add(str(name))
+            if str(name) == effective:
+                settle(mapping)
         url = data.get("upstream_url")
         if isinstance(value, dict) or url:
             mapping = dict(value) if isinstance(value, dict) else {}
@@ -130,14 +147,25 @@ def resolve_provider(
             target = effective if own else top
             if edit(target, mapping, source):
                 keyed.add(target)
-            if target != effective:
-                # The profile's provider goes there, without this credential.
+            if target == effective:
+                # A later layer's URL at the top moves a profile's `upstream` too.
+                pinned = pinned and (own or not _given(mapping, "base_url"))
+                settle(mapping)
+            else:
+                # The profile's provider goes there, without this credential,
+                # and keeps what this layer writes for it.
+                mine = (data.get("providers") or {}).get(effective)
+                mine = mine if isinstance(mine, dict) else {}
                 moved = {key: mapping[key] for key in _DESTINATION if key in mapping}
+                if _given(mine, "base_url"):
+                    moved.pop("base_url", None)
                 dest.update(moved)
                 dest_sources.update({".".join(leaf): source for leaf in leaves(moved)})
+                pinned = pinned and "base_url" not in moved
         if "upstream" in projection:
             dest["base_url"] = projection["upstream"]
             dest_sources["base_url"] = source
+            pinned = True
         for name in keyed:
             definition = defs[name]
             home[name] = (str(definition.get("base_url") or ""), str(definition.get("type") or ""))
@@ -200,6 +228,11 @@ def token_warnings(merged: Mapping[str, Any], sources: Mapping[str, str]) -> lis
         for key in (token if isinstance(token, dict) else {})
         if sources.get(f"token.{key}", "defaults") != "defaults"
     ]
+
+
+def _given(mapping: Mapping[str, Any], key: str) -> bool:
+    """Whether ``mapping`` gives ``key`` a value: an empty one leaves it open."""
+    return mapping.get(key) not in (None, "")
 
 
 def _held(definition: Mapping[str, Any]) -> bool:
