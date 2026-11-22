@@ -1,4 +1,4 @@
-"""The events of one exchange in the pipeline: received, and masked."""
+"""The events of one exchange in the pipeline: received, masked, and ended."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from privyx.core import Interceptable
+from privyx.core import Interceptable, Notification
 
 if TYPE_CHECKING:
     from privyx.dialects import Dialect
@@ -88,3 +88,15 @@ class RequestMasked(_Exchange):
     """
 
     name: ClassVar[str] = "request.masked"
+
+
+@dataclass(frozen=True, eq=False)
+class RequestEnded(Notification):
+    """An exchange is over, however it went: replied, failed, refused, or abandoned.
+
+    A listener that keeps something per request drops it here.  Not an audit
+    record: it says nothing the others do not.
+    """
+
+    name: ClassVar[str] = "request.ended"
+    request_id: str

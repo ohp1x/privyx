@@ -9,7 +9,11 @@ one is refused.
 A format whose streamed reply carries ``usage`` only when asked (OpenAI's Chat
 Completions) is asked, with a token limit.  A reply that still comes without
 usage leaves the token budget unmeasured, and the next turn is refused rather
-than counted as free.
+than counted as free.  A stream that breaks counts what it reported; without
+usage it is not unmeasured, so one network failure does not end the launch.
+
+Turns are not queued: parallel subagents keep running at once, so a limit can
+be passed by the turns in flight when it is reached.
 """
 
 from __future__ import annotations
@@ -20,7 +24,13 @@ from typing import Any
 from pydantic import Field
 
 from privyx.core import EventBus, Services, listen
-from privyx.events import ProxyResponse, RequestReceived, RunBudgetExceeded
+from privyx.events import (
+    ProxyError,
+    ProxyResponse,
+    RequestEnded,
+    RequestReceived,
+    RunBudgetExceeded,
+)
 from privyx.features._base import Feature
 
 
@@ -81,6 +91,16 @@ class Budget(Feature):
             self.tokens += sum(event.usage.values())
         elif 200 <= event.status < 300 and not event.aborted:
             self.unmeasured = True  # the next turn is refused
+
+    @listen(ProxyError)
+    def count_failed(self, event: ProxyError) -> None:
+        if event.request_id in self._pending:
+            self._pending.discard(event.request_id)
+            self.tokens += sum((event.usage or {}).values())
+
+    @listen(RequestEnded)
+    def forget(self, event: RequestEnded) -> None:
+        self._pending.discard(event.request_id)
 
     def _reached(self) -> tuple[str, str] | None:
         """The limit reached, as its audit name and a sentence, or ``None``."""

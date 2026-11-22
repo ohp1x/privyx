@@ -59,7 +59,7 @@ from privyx.core import (
 )
 from privyx.core import request_id as new_request_id
 from privyx.engine import PrivacyEngine
-from privyx.events import Headers, RequestMasked, RequestReceived
+from privyx.events import Headers, RequestEnded, RequestMasked, RequestReceived
 from privyx.observability import tracing
 from privyx.observability.audit import AuditLogger
 from privyx.observability.usage import UsageMeter
@@ -845,11 +845,13 @@ class Pipeline:
         response: httpx.Response,
         phase: str,
         ended: Callable[[BaseException | None, bool], None],
+        meter: UsageMeter | None = None,
     ) -> AsyncIterator[None]:
         """Deliver a reply in the block, then close ``response`` and end the exchange.
 
         ``ended(failure, aborted)`` hears how it went: ``failure`` is what
-        broke the reply, and ``aborted`` says the client went away first.
+        broke the reply, and ``aborted`` says the client went away first.  A
+        reply that breaks records what ``meter`` read of its usage until then.
         """
         failure: BaseException | None = None
         aborted = False
@@ -857,6 +859,8 @@ class Pipeline:
             yield
         except Exception as exc:
             failure = exc
+            if meter is not None:
+                meter.close()
             self._audit.error(
                 phase=phase,
                 error_type=type(exc).__name__,
@@ -864,6 +868,7 @@ class Pipeline:
                 request_id=exchange.request_id,
                 status=response.status_code,
                 duration_ms=_elapsed_ms(exchange.started),
+                usage=meter.usage if meter is not None else None,
             )
             raise
         except BaseException:
@@ -930,7 +935,7 @@ class Pipeline:
             tracing.annotate(restore_span, **{"privyx.restored": restored.count})
             tracing.end(restore_span, error=failure)
 
-        async with self._delivering(exchange, response, "stream", ended):
+        async with self._delivering(exchange, response, "stream", ended, meter):
             # Count restores by wrapping the resolver: a non-None lookup is one
             # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
             # faker's literal trie restore does not consult ``resolve``.)
@@ -996,12 +1001,15 @@ class Pipeline:
         self._end_session(exchange)
 
     def _end_session(self, exchange: Exchange) -> None:
-        """End the request's ephemeral session, if it has one.
+        """End the exchange: its ephemeral session, if it has one, and what listeners keep.
 
-        No I/O, so a cancelled stream cannot interrupt it, and nothing to fail.
+        Every way an exchange ends comes here, once.  No I/O, so a cancelled
+        stream cannot interrupt it, and nothing to fail.
         """
         if exchange.ephemeral and exchange.session is not None:
             self._engine.end_ephemeral_session(exchange.session, request_id=exchange.request_id)
+        if self._events.wants(RequestEnded):
+            self._events.notify(RequestEnded(exchange.request_id))
 
     async def _batch_reply(
         self,
