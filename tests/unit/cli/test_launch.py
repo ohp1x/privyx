@@ -11,7 +11,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from privyx import load_config
+from privyx.app import read_config
 from privyx.app._run import plan_launch as build_launch_plan
 from privyx.cli.commands.run import (
     _set_terminal_title,
@@ -198,8 +198,9 @@ def test_config_dump_and_preview_hide_custom_env_and_default_arg_credentials(
 def test_inherited_sources_are_visible_in_preview(tmp_path: Path) -> None:
     config = tmp_path / "profiles.yaml"
     config.write_text("agents:\n  work:\n    extends: claude\n    env: {CUSTOM_FLAG: enabled}\n")
-    sources: dict[str, str] = {}
-    settings = load_config(config, agent="work", sources=sources)
+    loaded = read_config(config, agent="work")
+    sources = loaded.sources
+    settings = loaded.settings
     plan = build_launch_plan(
         build_target(settings.agents["work"]),
         [],

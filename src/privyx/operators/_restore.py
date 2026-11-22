@@ -4,9 +4,32 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from privyx.core import OperatorError, Session, Transformation, TransformResult, apply_replacements
+from privyx.core import (
+    Context,
+    OperatorError,
+    Session,
+    Transformation,
+    TransformResult,
+    apply_replacements,
+)
+from privyx.operators._base import Operator
 from privyx.token import FormatCodec
 from privyx.token.codec import TokenIds
+from privyx.token.model import LogicalToken
+
+
+class TokenOperator(Operator):
+    """An operator whose substitutes are codec tokens, restored through the session."""
+
+    def _encode(self, entity_type: str, identifier: str) -> str:
+        """The token of ``entity_type`` with the id ``identifier``."""
+        return self._codec.encode(
+            LogicalToken(namespace=self._codec.namespace, type=entity_type, identifier=identifier)
+        )
+
+    async def deanonymize(self, text: str, session: Session, context: Context) -> TransformResult:
+        """Restore the tokens this session issued, and leave any other as it is."""
+        return restore(text, session, self._codec, resolve=self.build_resolver(session.mapping))
 
 
 def free_token(

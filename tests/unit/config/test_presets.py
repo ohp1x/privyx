@@ -10,6 +10,7 @@ import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
+from privyx.app import read_config
 from privyx.cli.main import cli
 from privyx.core import ConfigError
 
@@ -29,12 +30,14 @@ def _config(tmp_path: Path, data: dict[str, Any]) -> Path:
 def test_unused_presets_change_nothing(tmp_path: Path) -> None:
     agents = {"claude:work": {"upstream": "https://router.example.com"}}
     plain = _config(tmp_path, {"agents": agents})
-    plain_sources: dict[str, str] = {}
-    before = load_config(plain, agent="claude:work", sources=plain_sources)
+    loaded = read_config(plain, agent="claude:work")
+    plain_sources = loaded.sources
+    before = loaded.settings
     with_presets = tmp_path / "presets.yaml"
     with_presets.write_text(yaml.safe_dump({"agents": agents, "presets": PRESETS}))
-    sources: dict[str, str] = {}
-    after = load_config(with_presets, agent="claude:work", sources=sources)
+    loaded = read_config(with_presets, agent="claude:work")
+    sources = loaded.sources
+    after = loaded.settings
 
     assert after.model_dump(exclude={"presets"}) == before.model_dump(exclude={"presets"})
     assert {p: s for p, s in sources.items() if not p.startswith("presets.")} == {
@@ -60,7 +63,9 @@ def test_presets_apply_left_to_right_between_the_environment_and_the_cli(
     monkeypatch.setenv("PRIVYX_LOG_LEVEL", "critical")
     sources: dict[str, str] = {}
 
-    a = load_config(config, agent="claude:a", sources=sources)
+    loaded = read_config(config, agent="claude:a")
+    sources = loaded.sources
+    a = loaded.settings
     b = load_config(config, agent="claude:b")
     own = load_config(config, agent="claude:own")
     chosen = load_config(config, agent="claude:own", presets=["quiet"])
@@ -113,8 +118,9 @@ def test_presets_of_the_same_name_merge_across_files(tmp_path: Path) -> None:
         tmp_path,
         {"include": ["base.yaml"], "presets": {"debug": {"log": {"file": "/tmp/x.log"}}}},
     )
-    sources: dict[str, str] = {}
-    settings = load_config(config, agent="claude", presets=["debug"], sources=sources)
+    loaded = read_config(config, agent="claude", presets=["debug"])
+    sources = loaded.sources
+    settings = loaded.settings
     assert (settings.log.level, settings.log.file) == ("debug", "/tmp/x.log")
     assert sources["presets.debug.log.level"] == str(base.resolve())
 

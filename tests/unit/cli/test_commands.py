@@ -21,6 +21,7 @@ from click.testing import CliRunner
 from privyx.app import Privyx
 from privyx.cli.main import cli
 from privyx.secrets import KeychainResolver, OnePasswordResolver
+from privyx.testing import audit_to
 
 EMAIL = "alice@example.com"
 
@@ -697,11 +698,10 @@ def test_audit_stats_reads_the_configured_path(
 
 
 def test_audit_stats_counts_unknown_route_decisions(runner: CliRunner, tmp_path: Path) -> None:
-    from privyx.observability.audit import AuditLogger
 
     log = tmp_path / "audit.log"
     with log.open("w") as writer:
-        audit = AuditLogger(writer)
+        audit = audit_to(writer)
         audit.route_decision(allowed=True, method="POST")
         audit.route_decision(allowed=False, method="GET")
     result = runner.invoke(cli, ["audit", "stats", str(log)])
@@ -2787,18 +2787,18 @@ def test_proxy_reload_watches_every_config_file_in_use(
 
 
 def test_reload_notices_a_change_to_any_watched_file(tmp_path: Path) -> None:
-    from privyx.cli.commands.proxy import _mtimes
+    from privyx.app._serve import mtimes
 
     paths = [tmp_path / "a.yaml", tmp_path / "b.yaml"]
     for path in paths:
         path.write_text("port: 9001\n", encoding="utf-8")
-    before = _mtimes(paths)
+    before = mtimes(paths)
 
     os.utime(paths[1], ns=(1, 1))
-    assert _mtimes(paths) not in (None, before)
+    assert mtimes(paths) not in (None, before)
 
     paths[1].unlink()  # between an editor's delete and its write
-    assert _mtimes(paths) is None
+    assert mtimes(paths) is None
 
 
 def test_proxy_ssl_options_applied(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:

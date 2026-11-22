@@ -12,7 +12,7 @@ import json
 import os
 import re
 import time
-from collections import Counter, deque
+from collections import deque
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TextIO
@@ -23,7 +23,6 @@ from privyx.cli._options import config_options, json_option
 from privyx.cli.commands.session import _duration, _ts
 
 _FILE = click.argument("file", required=False, type=click.Path(dir_okay=False, path_type=Path))
-_ENVELOPE = frozenset({"schema_version", "time", "ts", "event", "request_id", "session_id"})
 
 
 @click.group("audit")
@@ -45,6 +44,7 @@ def stats(file: Path | None, since: int | None, as_json: bool) -> None:
     """Summarize requests, errors, sessions, and masked entity types."""
     from privyx.app import Privyx
     from privyx.core import PrivyxError
+    from privyx.events import breakdown
 
     try:
         found = Privyx().audit.totals(file, since=since)
@@ -80,7 +80,7 @@ def stats(file: Path | None, since: int | None, as_json: bool) -> None:
         click.echo(f"Events:     {events.total()}")
         click.echo(f"Requests:   {events['proxy.request']}")
         click.echo(f"Responses:  {responses}{avg}")
-        click.echo(f"Errors:     {events['proxy.error']}{_breakdown(totals.errors)}")
+        click.echo(f"Errors:     {events['proxy.error']}{breakdown(totals.errors)}")
         click.echo(f"Passthrough: {events['proxy.passthrough']} (body unmasked)")
         click.echo(f"Blocked:    {events['proxy.blocked']} (unknown route)")
         click.echo(
@@ -359,27 +359,14 @@ def _open_log(file: Path | None) -> tuple[Path, TextIO]:
 
 def _pretty(line: str) -> str:
     """One audit record as ``time  event  request  session  key=value …``."""
+    from privyx.events import record_line
+
     try:
         record = json.loads(line)
-        text = _line(record)
+        text = record_line(record)
     except Exception:  # not a record we can read: show it as written
         return line.rstrip("\n")
     return click.style(text, fg="red") if record["event"] == "proxy.error" else text
-
-
-def _line(record: dict[str, Any]) -> str:
-    """``record`` as one plain line; raises on a record it cannot read."""
-    extras = " ".join(f"{k}={_value(v)}" for k, v in record.items() if k not in _ENVELOPE)
-    return (
-        f"{_ts(record['ts'])}  {record['event']:<17}  {record.get('request_id') or '-':<16}  "
-        f"{record.get('session_id') or '-'}  {extras}"
-    )
-
-
-def _value(value: Any) -> str:
-    if isinstance(value, dict):  # entity_counts
-        return ",".join(f"{k}:{v}" for k, v in value.items())
-    return value if isinstance(value, str) else json.dumps(value)
 
 
 def _tokens(usage: Mapping[str, int]) -> str:
@@ -392,7 +379,3 @@ def _tokens(usage: Mapping[str, int]) -> str:
     )
     rate = cache_hit_rate(usage)
     return text if rate is None else f"{text} (cache hit rate {rate:.0%})"
-
-
-def _breakdown(counts: Counter[str]) -> str:
-    return f" ({', '.join(f'{k} {v}' for k, v in counts.most_common())})" if counts else ""

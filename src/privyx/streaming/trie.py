@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 
 class TrieNode:
     """A single node in the pseudonym trie."""
@@ -24,14 +22,6 @@ class TrieNode:
             node = child
         node.terminal = original
 
-    def has_prefix(self, token: str) -> bool:
-        node: TrieNode | None = self
-        for ch in token:
-            if node is None:
-                return False
-            node = node.children.get(ch)
-        return node is not None
-
 
 class PseudonymTrie:
     """Trie mapping pseudonyms → original values for streaming lookup."""
@@ -39,10 +29,6 @@ class PseudonymTrie:
     def __init__(self) -> None:
         self._root = TrieNode()
         self._longest = 0
-
-    @property
-    def longest_pseudonym(self) -> int:
-        return self._longest
 
     def add(self, pseudonym: str, original: str) -> None:
         self._root.add(pseudonym, original)
@@ -98,14 +84,3 @@ class PseudonymTrie:
                 best = (text[start : i + 1], node.terminal)
             i += 1
         return best
-
-    def prefixes(self) -> Iterator[str]:
-        """Yield all pseudonyms stored in the trie."""
-
-        def walk(node: TrieNode, prefix: str) -> Iterator[str]:
-            if node.terminal is not None:
-                yield prefix
-            for ch, child in node.children.items():
-                yield from walk(child, prefix + ch)
-
-        yield from walk(self._root, "")

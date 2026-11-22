@@ -12,10 +12,9 @@ import pytest
 from privyx.core import Session, VaultError
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
-from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
-from privyx.testing import services
+from privyx.testing import audit_to, services
 from privyx.vaults._sqlite import SQLiteVault
 
 
@@ -42,7 +41,7 @@ async def test_parallel_first_requests_create_one_session(tmp_path: Path) -> Non
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=vault,
-        audit=AuditLogger(audit),
+        audit=audit_to(audit),
     )
     try:
         sessions = await asyncio.gather(

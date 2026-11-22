@@ -45,10 +45,6 @@ from privyx.proxy._dlp import (
     find_leaks,
 )
 
-#: Request headers that carry the upstream credential: ``proxy.dlp_check`` does
-#: not look in them, as a key the user pasted into a prompt is also sent there.
-AUTH_HEADERS: frozenset[str] = CREDENTIAL_HEADERS
-
 #: Query parameter names used for authentication (never masked).
 AUTH_QUERY_PARAMS: frozenset[str] = frozenset({"key", "api_key", "api-key", "access_token"})
 
@@ -72,7 +68,6 @@ async def transform_request(
     headers: dict[str, str] | None = None,
     params: list[tuple[str, Any]] | None = None,
     dialect: Dialect | None = None,
-    path: str | None = None,
     metadata_keys: frozenset[str] | None = None,
     masked_headers: frozenset[str] | None = None,
     masked: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -119,27 +114,40 @@ async def transform_request(
     """
     dialect = dialect or _PLAIN
     prefix = dialect.prefix_keys
-    if metadata_keys is None or masked_headers is None:
-        from privyx.agents import builtin_metadata
-
-        keys, names = builtin_metadata()
-        metadata_keys = keys if metadata_keys is None else metadata_keys
-        masked_headers = names if masked_headers is None else masked_headers
+    metadata_keys, masked_headers = agent_metadata(metadata_keys, masked_headers)
 
     def rank(key: str) -> int:
         return len(prefix) + 1 if key in metadata_keys else _prefix_rank(key, prefix)
 
+    def sent(request: dict[str, Any]) -> list[Any]:
+        """What the leak check reads of a request about to be sent.
+
+        Not the credential headers: a key pasted into a prompt is sent there too.
+        """
+        return [
+            _searched(request, dialect.wrapped_keys),
+            [v for k, v in (headers or {}).items() if k.lower() not in CREDENTIAL_HEADERS],
+            [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS],
+        ]
+
     rebuilt: dict[str, Any] = {}
     replaced: dict[str, str] = {}  # what this request masked, for engine.dlp_check, and with what
     glued: set[str] = set()  # ... and which of it counts glued to other text too
-    written = [0]  # ... and how many values it replaced
+    written = 0  # ... and how many values it replaced
     texts: list[str] = []  # ... and each text as masked, in walk order
+    leak_check: dict[str, Any] = {
+        "underscore": engine.underscore_separates_words,
+        "codec": engine.codec,
+        "fixed": engine.operator.fixed_text,
+        "glued": glued,
+    }
     scope: AbstractAsyncContextManager[Session] = (
         engine.session_scope(session_id) if session is None else nullcontext(session)
     )
     async with scope as held:
 
         async def transform(text: str) -> str:
+            nonlocal written
             # `{"password": "hunter2"}`: a tool argument may be a secret by its key.
             key = text.key if isinstance(text, Keyed) else None
             result = await engine.transform(str(text), session=held, persist=False, key=key)
@@ -148,7 +156,7 @@ async def transform_request(
                     replaced.setdefault(t.original, t.replacement)
                     if _glued(t.original, t.entity_type):
                         glued.add(t.original)
-                written[0] += len(result.transformations)
+                written += len(result.transformations)
                 texts.append(result.text)
             return result.text
 
@@ -191,21 +199,8 @@ async def transform_request(
         def leaks(values: set[str]) -> set[str]:
             if not values:
                 return set()
-            sent = [
-                _searched(rebuilt, dialect.wrapped_keys),
-                [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
-            ]
-            sent += [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS]
-            return find_leaks(
-                sent,
-                values,
-                underscore=engine.underscore_separates_words,
-                codec=engine.codec,
-                fixed=engine.operator.fixed_text,
-                written=written[0],
-                glued=glued,
-                tools=_declared_names(payload, dialect.wrapped_keys),
-            )
+            tools = _declared_names(payload, dialect.wrapped_keys)
+            return find_leaks(sent(rebuilt), values, written=written, tools=tools, **leak_check)
 
         await walk(transform)
         if leaked := leaks(set(replaced)):
@@ -215,54 +210,42 @@ async def transform_request(
             masked_texts = iter(texts)
 
             async def with_copies(_: str) -> str:
-                text, count = _mask_copies(
-                    next(masked_texts),
-                    copies,
-                    underscore=engine.underscore_separates_words,
-                    codec=engine.codec,
-                    fixed=engine.operator.fixed_text,
-                    glued=glued,
-                )
-                written[0] += count
+                nonlocal written
+                text, count = _mask_copies(next(masked_texts), copies, **leak_check)
+                written += count
                 return text
 
             await walk(with_copies)
             if leaked := leaks(set(copies)):
                 raise LeakError(f"{len(leaked)} masked value(s) still in the request")
     result = {key: rebuilt[key] for key in payload}
-    masked_values = set(replaced)
     if masked is not None:
-        tools = _declared_names(payload, dialect.wrapped_keys)
-
-        def strings() -> list[str]:
-            """What the leak check reads of the request about to be sent."""
-            sent: list[Any] = [
-                _searched(result, dialect.wrapped_keys),
-                [v for k, v in (headers or {}).items() if k.lower() not in AUTH_HEADERS],
-                [[k, v] for k, v in params or [] if k.lower() not in AUTH_QUERY_PARAMS],
-            ]
-            return list(_strings(sent, tools))
-
-        check = engine.dlp_check and bool(masked_values)
-        checked = set(strings()) if check else set()
+        declared = _declared_names(payload, dialect.wrapped_keys)
+        check = engine.dlp_check and bool(replaced)
+        checked = set(_strings(sent(result), declared)) if check else set()
         await masked(result)
         if check:
             # Only what the listeners wrote: the rest was checked above.
-            added = [text for text in strings() if text not in checked]
-            leaked = find_leaks(
-                added,
-                masked_values,
-                underscore=engine.underscore_separates_words,
-                codec=engine.codec,
-                fixed=engine.operator.fixed_text,
-                glued=glued,
-            )
-            if leaked:
+            added = [text for text in _strings(sent(result), declared) if text not in checked]
+            if leaked := find_leaks(added, set(replaced), **leak_check):
                 raise LeakError(f"{len(leaked)} masked value(s) in what a listener added")
     # Only text remembered from an upstream response may bypass DLP: it
     # must match its signature. All client fields have been checked above.
     dialect.reinstate(result)
     return result
+
+
+def agent_metadata(
+    keys: frozenset[str] | None, headers: frozenset[str] | None
+) -> tuple[frozenset[str], frozenset[str]]:
+    """``keys`` and ``headers``, with the built-in agent types' for one left out."""
+    if keys is None or headers is None:
+        from privyx.agents import builtin_metadata
+
+        builtin_keys, builtin_headers = builtin_metadata()
+        keys = builtin_keys if keys is None else keys
+        headers = builtin_headers if headers is None else headers
+    return keys, headers
 
 
 def _unescaped(text: str) -> str:

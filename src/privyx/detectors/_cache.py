@@ -83,13 +83,6 @@ class CachedDetector(Detector):
         self._hits = 0
         self._misses = 0
 
-    def unwrap(self) -> Detector:
-        """Return the innermost non-cached detector."""
-        detector: Detector = self._inner
-        while isinstance(detector, CachedDetector):
-            detector = detector.inner
-        return detector
-
     def detect_sync(self, text: str, context: Context) -> Detection:
         """Synchronous detection with LRU cache lookup."""
         key = _key(text)

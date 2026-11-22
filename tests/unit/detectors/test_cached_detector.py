@@ -8,7 +8,7 @@ import tracemalloc
 import pytest
 
 from privyx import load_config
-from privyx.app._build import build_detector, build_detector_from
+from privyx.app._build import build_detector
 from privyx.config.schema import DetectorCacheConfig, DetectorConfig, Settings
 from privyx.core import Context
 from privyx.detectors import RegexDetector
@@ -128,7 +128,6 @@ def test_cached_detector_clear_and_properties() -> None:
     cached = CachedDetector(inner, max_size=50)
 
     assert cached.inner is inner
-    assert cached.unwrap() is inner
     assert cached.inner is inner
     assert cached.max_size == 50
 
@@ -220,11 +219,11 @@ def test_build_detector_cache_handling() -> None:
 
     # Build from settings
     s_enabled = Settings(detectors={"regex": DetectorConfig(cache=True)})
-    d_from_s = build_detector_from(s_enabled)
+    d_from_s = build_detector(s_enabled.detectors)
     assert isinstance(d_from_s, CachedDetector)
 
     s_disabled = Settings(detectors={"regex": DetectorConfig(cache=False)})
-    d_from_s_dis = build_detector_from(s_disabled)
+    d_from_s_dis = build_detector(s_disabled.detectors)
     assert not isinstance(d_from_s_dis, CachedDetector)
 
 

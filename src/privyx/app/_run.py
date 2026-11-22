@@ -114,7 +114,7 @@ def plan_launch(
         ConfigError: As :func:`~privyx.agents._plan.build_launch_plan`, or if
             the provider's credential would go to another origin than its own.
     """
-    from privyx.providers import check_credential
+    from privyx.providers import check_credential, held_credential
 
     check_credential(settings)
     return build_launch_plan(
@@ -124,7 +124,7 @@ def plan_launch(
         port,
         env_vars,
         upstream=_upstream,
-        credentials=_credentials(settings),
+        credentials=held_credential(settings),
         name=name,
         extra_env_vars=extra_env_vars,
         sources=sources,
@@ -139,13 +139,6 @@ def _upstream(settings: Settings) -> tuple[str, str]:
     if settings.proxy.mode == "gateway":
         return url, url
     return url, resolve_transparent_upstream(settings)
-
-
-def _credentials(settings: Settings) -> str | None:
-    """Which credentials of Privyx's own every upstream would receive, if any."""
-    from privyx.providers import held_credential
-
-    return held_credential(settings)
 
 
 class RequestCounter:
@@ -206,7 +199,13 @@ async def run_agent(
     import uvicorn
 
     from privyx.app._serve import compose, running
-    from privyx.events import AuditEvent, AuditEventType, ProxyBlocked, ProxyError, ProxyPassthrough
+    from privyx.events import (
+        AuditEvent,
+        ProxyBlocked,
+        ProxyError,
+        ProxyPassthrough,
+        RunUnproxied,
+    )
 
     profile = Path(plan.profile).name  # the base name, so the trail holds no user paths
     # What a request that never went upstream on a masking route came to.
@@ -253,12 +252,12 @@ async def run_agent(
                     # What a tool that ignores the proxy URL looks like from here, or
                     # one whose model requests take a path outside proxy.routes.
                     unproxied = {
-                        "passthrough": seen[AuditEventType.PROXY_PASSTHROUGH],
-                        "blocked": seen[AuditEventType.PROXY_BLOCKED],
-                        "failed": seen[AuditEventType.PROXY_ERROR],
+                        "passthrough": seen[ProxyPassthrough.name],
+                        "blocked": seen[ProxyBlocked.name],
+                        "failed": seen[ProxyError.name],
                     }
                     audit.emit(
-                        AuditEventType.RUN_UNPROXIED,
+                        RunUnproxied,
                         profile=profile,
                         requests=counter.requests,
                         **unproxied,

@@ -99,7 +99,7 @@ class PrivacyEngine:
         self._operator = operator
         self._vault = vault
         self._codec = codec or FormatCodec.default()
-        self._audit = audit or AuditLogger(None)
+        self._audit = audit or AuditLogger()
         self.dlp_check = dlp_check
         self.underscore_separates_words = underscore_separates_words
         # One lock per live session id; an entry disappears once nobody holds it.

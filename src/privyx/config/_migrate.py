@@ -8,9 +8,10 @@ and ``privyx config migrate`` writes a file with them (:func:`migrate`).
 from __future__ import annotations
 
 import difflib
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from typing import Any
 
+from privyx.config.providers import _DESTINATION, _TYPE_KEYS, TOKEN_OPERATORS
 from privyx.core import ConfigError
 
 #: Top-level keys that moved into a section of their own.
@@ -43,12 +44,64 @@ _SECTIONS: dict[str, dict[str, str]] = {
 #: The sections of named entries that ``true`` or ``false`` switches.
 _SWITCHED = ("detectors", "features")
 
+#: The ``proxy`` keys that moved to the provider.
+_MOVED_FROM_PROXY = _DESTINATION[1:]
+
+#: The values the deprecated ``adapter`` took.
+_ADAPTERS = ("auto", "env", "claude", "codex", "pi")
+
+#: The layers Privyx writes itself, and the environment, whose old names are
+#: aliases: their keys draw no warning.
+_QUIET = ("defaults", "plugin defaults", "run defaults", "environment")
+
+#: ... and for the provider and operator keys the command line too, whose
+#: ``--upstream`` is the current way to set the old ``upstream_url``.
+_QUIET_KEYS = (*_QUIET, "CLI")
+
+
+def translate_layer(
+    layer: Mapping[str, Any], below: Mapping[str, Any], source: str, deprecated: list[str]
+) -> dict[str, Any]:
+    """Layer ``source`` of a config with its old keys written the new way.
+
+    ``below`` holds the ``detectors`` of the layers below it (:func:`translate`).
+    The operator's keys wait for :func:`translate_operator`, once the type in
+    use is known.
+    """
+    data = translate(layer, below, deprecated=[] if source in _QUIET else deprecated)
+    return translate_keys(translate_adapters(data, deprecated), source, deprecated)
+
+
+def _each_patch(
+    data: dict[str, Any], fn: Callable[[dict[str, Any], str], dict[str, Any]]
+) -> dict[str, Any]:
+    """``data`` with ``fn(patch, prefix)`` applied to its presets and profiles' ``privyx``."""
+    presets = data.get("presets")
+    if isinstance(presets, dict):
+        data["presets"] = {
+            name: fn(dict(patch), f"presets.{name}.") if isinstance(patch, dict) else patch
+            for name, patch in presets.items()
+        }
+    agents = data.get("agents")
+    if isinstance(agents, dict):
+        data["agents"] = {
+            name: {**profile, "privyx": fn(dict(profile["privyx"]), f"agents.{name}.privyx.")}
+            if isinstance(profile, dict) and isinstance(profile.get("privyx"), dict)
+            else profile
+            for name, profile in agents.items()
+        }
+    return data
+
+
+def _renamed(prefix: str, old: str, new: str) -> str:
+    """The warning for key ``old``, now written ``new``; keys only, never a value."""
+    return f"{prefix + old!r} is deprecated; write {prefix + new!r} (removed in 0.4.0)"
+
 
 def translate(
     layer: Mapping[str, Any],
     below: Mapping[str, Any],
     *,
-    prefix: str = "",
     deprecated: list[str] | None = None,
 ) -> dict[str, Any]:
     """``layer``, its presets, and its profiles' ``privyx`` settings, with the old keys moved.
@@ -63,33 +116,10 @@ def translate(
         ConfigError: If a section that is gone holds a key it never took.
     """
     warnings: list[str] = [] if deprecated is None else deprecated
-    data = _translated(dict(layer), below, prefix, warnings)
+    data = _translated(dict(layer), below, "", warnings)
     # A preset or a profile applies over this layer's own detectors.
     detectors = _merge(dict(below), data.get("detectors"))
-    presets = data.get("presets")
-    if isinstance(presets, dict):
-        data["presets"] = {
-            name: _translated(dict(p), detectors, f"{prefix}presets.{name}.", warnings)
-            if isinstance(p, dict)
-            else p
-            for name, p in presets.items()
-        }
-    agents = data.get("agents")
-    if isinstance(agents, dict) and any(
-        isinstance(p, dict) and isinstance(p.get("privyx"), dict) for p in agents.values()
-    ):
-        data["agents"] = {
-            name: {
-                **profile,
-                "privyx": _translated(
-                    dict(profile["privyx"]), detectors, f"{prefix}agents.{name}.privyx.", warnings
-                ),
-            }
-            if isinstance(profile, dict) and isinstance(profile.get("privyx"), dict)
-            else profile
-            for name, profile in agents.items()
-        }
-    return data
+    return _each_patch(data, lambda patch, at: _translated(patch, detectors, at, warnings))
 
 
 def _translated(
@@ -100,24 +130,18 @@ def _translated(
     A new key takes the place of the old one, and one written beside it in
     the same layer wins over it.
     """
-
-    def moved(old: str, new: str) -> None:
-        warnings.append(
-            f"{prefix + old!r} is deprecated; write {prefix + new!r} (removed in 0.4.0)"
-        )
-
     out: dict[str, Any] = {}
     for key, value in data.items():
         if key in _MOVED:
             section, name = _MOVED[key]
-            moved(key, f"{section}.{name}")
+            warnings.append(_renamed(prefix, key, f"{section}.{name}"))
             _put(out, (section, name), value)
         elif key in _SECTIONS and isinstance(value, dict) and _SECTIONS[key].keys() & value.keys():
             keys = _SECTIONS[key]
             rest = {k: v for k, v in value.items() if k not in keys}
             for old, path in keys.items():
                 if old in value:
-                    moved(f"{key}.{old}", path.removesuffix(".enabled"))
+                    warnings.append(_renamed(prefix, f"{key}.{old}", path.removesuffix(".enabled")))
                     _put(out, path.split("."), value[old])
             if key == "proxy":
                 if rest:
@@ -162,6 +186,144 @@ def _translated(
                 )
                 written[name] = {**entry, "type": "regex", "builtins": False}
     return out
+
+
+def translate_adapters(layer: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    """``layer`` with each profile's deprecated ``adapter`` written as ``type``.
+
+    Done to each layer before the layers are merged, so a profile's ``adapter``
+    in a file still wins over the ``type`` of the profile it overrides.
+    ``auto`` is a ``type`` left out.  A warning naming the key path, never a
+    value, is added to ``warnings``.
+
+    Raises:
+        ConfigError: If an ``adapter`` is not one it took.
+    """
+    profiles = layer.get("agents")
+    if not isinstance(profiles, dict) or not any(
+        isinstance(profile, dict) and "adapter" in profile for profile in profiles.values()
+    ):
+        return layer
+    translated: dict[str, Any] = {}
+    for name, profile in profiles.items():
+        if isinstance(profile, dict) and "adapter" in profile:
+            profile = dict(profile)  # the layer's own dict is left as it is
+            adapter = profile.pop("adapter")
+            if adapter not in _ADAPTERS:
+                raise ConfigError(
+                    f"{f'agents.{name}.adapter'!r} must be one of {', '.join(_ADAPTERS)}"
+                )
+            if adapter != "auto":
+                profile.setdefault("type", adapter)
+            write = f"write 'type: {adapter}'" if adapter != "auto" else "leave out 'type'"
+            warnings.append(
+                f"{f'agents.{name}.adapter'!r} is deprecated; {write} (removed in 0.4.0)"
+            )
+        translated[name] = profile
+    return {**layer, "agents": translated}
+
+
+def translate_keys(layer: dict[str, Any], source: str, deprecated: list[str]) -> dict[str, Any]:
+    """``layer`` with the provider keys renamed in 0.3.0 written the new way.
+
+    Each one a config file writes adds a warning to ``deprecated``; the
+    environment's and the command line's are the current way to set them.
+    Profiles' ``privyx`` settings and presets are translated too.
+    """
+    found = [] if source in _QUIET_KEYS else deprecated
+    return _each_patch(
+        _provider_keys(layer, "", found), lambda patch, at: _provider_keys(patch, at, found)
+    )
+
+
+def _provider_keys(data: dict[str, Any], prefix: str, deprecated: list[str]) -> dict[str, Any]:
+    """``data``, one layer's settings or a patch of them, with the renamed keys moved."""
+    data = dict(data)
+    if "upstream_url" in data:
+        # Still read as the base URL of the selection.
+        deprecated.append(_renamed(prefix, "upstream_url", "provider.base_url"))
+    provider = data.get("provider")
+    if isinstance(provider, dict):
+        provider = dict(provider)
+        for name in _TYPE_KEYS:
+            key = f"{name}_api_key"
+            if key in provider:
+                value = provider.pop(key)
+                deprecated.append(_renamed(prefix, f"provider.{key}", f"providers.{name}.api_key"))
+                providers = data.setdefault("providers", {})
+                providers[name] = {**providers.get(name, {}), "api_key": value}
+        data["provider"] = provider
+    proxy = data.get("proxy")
+    if isinstance(proxy, dict) and any(key in proxy for key in _MOVED_FROM_PROXY):
+        proxy = dict(proxy)
+        moving = {key: proxy.pop(key) for key in _MOVED_FROM_PROXY if key in proxy}
+        for key in moving:
+            deprecated.append(_renamed(prefix, f"proxy.{key}", f"provider.{key}"))
+        data["proxy"] = proxy
+        if isinstance(provider, str):  # the layer selects one: its connection settings
+            providers = data.setdefault("providers", {})
+            providers[provider] = {**providers.get(provider, {}), **moving}
+        else:
+            data["provider"] = {**(provider or {}), **moving}
+    operator = data.get("operator")
+    if isinstance(operator, dict) and operator.get("type") == "hash":
+        deprecated.append(
+            f"{prefix + 'operator.type'!r} 'hash' is deprecated: anyone who guesses a value "
+            "can match its token; use 'pseudonym' with 'anchor.secret' (removed in 0.4.0)"
+        )
+    return data
+
+
+def translate_operator(
+    data: dict[str, Any], kind: str, source: str, deprecated: list[str]
+) -> dict[str, Any]:
+    """``data`` with the operator settings renamed in 0.3.0 written the new way.
+
+    Which ones are renamed depends on ``kind``, the operator type in use: a
+    plugin's operator may have a ``length`` or a ``token`` of its own.
+    Presets and profiles' ``privyx`` settings are translated with the type
+    they set, if any.
+    """
+    found = [] if source in _QUIET_KEYS else deprecated
+    return _each_patch(
+        _operator_keys(data, kind, "", found),
+        lambda patch, at: _operator_keys(patch, _operator_type(patch, kind), at, found),
+    )
+
+
+def _operator_type(patch: Mapping[str, Any], kind: str) -> str:
+    """The operator type ``patch`` sets, or ``kind``."""
+    operator = patch.get("operator")
+    own = operator.get("type") if isinstance(operator, dict) else None
+    return own if isinstance(own, str) else kind
+
+
+def _operator_keys(
+    data: dict[str, Any], kind: str, prefix: str, deprecated: list[str]
+) -> dict[str, Any]:
+    """``data`` with ``token.id_length``, and ``operator.length`` or ``.token``, moved."""
+    token = data.get("token")
+    operator = data.get("operator")
+    operator = dict(operator) if isinstance(operator, dict) else None
+    if isinstance(token, dict) and "id_length" in token:
+        token = dict(token)
+        length = token.pop("id_length")
+        data["token"] = token
+        if kind in TOKEN_OPERATORS:
+            deprecated.append(_renamed(prefix, "token.id_length", "operator.id_length"))
+            operator = {**(operator or {}), "id_length": length}
+        else:
+            deprecated.append(
+                f"{prefix + 'token.id_length'!r} is deprecated, and operator type {kind!r} "
+                "writes no id of a length; remove it (removed in 0.4.0)"
+            )
+    if operator is not None:
+        for old, new, owner in (("length", "id_length", "hash"), ("token", "text", "redact")):
+            if old in operator and kind == owner:
+                deprecated.append(_renamed(prefix, f"operator.{old}", f"operator.{new}"))
+                operator.setdefault(new, operator.pop(old))
+        data["operator"] = operator
+    return data
 
 
 def _merge(below: Any, above: Any) -> Any:
@@ -288,9 +450,6 @@ def migrate(
     holds the ``detectors`` of the files read below this one
     (:func:`detectors_of`): an old ``detector`` changed what they set.
     """
-    from privyx.config.agents import translate_adapters
-    from privyx.config.providers import translate_keys, translate_operator
-
     found: list[str] = [] if warnings is None else warnings
     layer = translate_adapters(dict(data), found)
     layer = translate(layer, {"regex": {}} if below is None else below, deprecated=found)
@@ -306,7 +465,7 @@ def migrate(
             named.setdefault("base_url", url)
         elif isinstance(provider, dict) or provider is None:
             layer["provider"] = {**(provider or {}), "base_url": url}
-    return _tidy(layer)
+    return _each_patch(_tidy(layer), lambda patch, _: _tidy(patch))
 
 
 def _tidy(data: dict[str, Any]) -> dict[str, Any]:
@@ -323,13 +482,4 @@ def _tidy(data: dict[str, Any]) -> dict[str, Any]:
                     entry = entry["enabled"]
             tidy[name] = entry
         data[section] = tidy
-    for name in ("presets",):
-        nested = data.get(name)
-        if isinstance(nested, dict):
-            data[name] = {k: _tidy(v) if isinstance(v, dict) else v for k, v in nested.items()}
-    agents = data.get("agents")
-    if isinstance(agents, dict):
-        for profile in agents.values():
-            if isinstance(profile, dict) and isinstance(profile.get("privyx"), dict):
-                profile["privyx"] = _tidy(profile["privyx"])
     return data

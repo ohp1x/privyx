@@ -35,7 +35,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -51,7 +52,6 @@ from privyx.core import (
     ListenerError,
     Rejected,
     Responded,
-    Session,
     Stop,
     VaultError,
 )
@@ -62,7 +62,12 @@ from privyx.observability import tracing
 from privyx.observability.audit import AuditLogger
 from privyx.observability.usage import UsageMeter
 from privyx.proxy._headers import filter_request_headers, filter_response_headers
-from privyx.proxy._mask import AUTH_QUERY_PARAMS, restore_response, transform_request
+from privyx.proxy._mask import (
+    AUTH_QUERY_PARAMS,
+    agent_metadata,
+    restore_response,
+    transform_request,
+)
 from privyx.proxy._routing import detect_schema
 from privyx.proxy._session import resolve_session_id
 from privyx.proxy._streaming import AuditedStream
@@ -260,17 +265,10 @@ class Pipeline:
         self._origin = origin.rstrip("/")
         self._strip_prefix = strip_prefix
         self._run_token = run_token
-        if metadata_keys is None or masked_headers is None:
-            from privyx.agents import builtin_metadata
-
-            keys, names = builtin_metadata()
-            metadata_keys = keys if metadata_keys is None else metadata_keys
-            masked_headers = names if masked_headers is None else masked_headers
-        self._metadata_keys = metadata_keys
-        self._masked_headers = masked_headers
+        self._metadata_keys, self._masked_headers = agent_metadata(metadata_keys, masked_headers)
         self._events = events or EventBus()
         self._tap = tap
-        self._audit = audit or AuditLogger(None)
+        self._audit = audit or AuditLogger()
         self._session_strategy = session_strategy
         routes = routes if routes is not None else ProxyConfig().routes
         self._dialects = dict(dialects) if dialects is not None else builtins()
@@ -328,11 +326,11 @@ class Pipeline:
         whole to be masked, any other is streamed upstream as it comes.
         """
         exchange.path = "/" + exchange.path.lstrip("/")
-        span = tracing.start(
+        span = exchange.span = tracing.start(
             "privyx.request", headers=exchange.headers, **{"http.request.method": exchange.method}
         )
         try:
-            result = await self._handle(exchange, span)
+            result = await self._scoped(exchange)
         except BaseException as exc:
             tracing.end(span, error=exc)
             raise
@@ -344,219 +342,101 @@ class Pipeline:
             tracing.end(span)
         return result
 
-    async def _handle(self, exchange: Exchange, span: Any) -> Reply:
-        start = time.perf_counter()
-        req_id = new_request_id()
+    async def _scoped(self, exchange: Exchange) -> Reply:
+        """The exchange in its audit scope; its session ends here unless its reply streams."""
+        exchange.started = time.perf_counter()
+        exchange.request_id = new_request_id()
         # Correlate every event of this exchange and aggregate its per-leaf
         # transform/restore into one line each; closed in the finally below (the
-        # streaming generator carries req_id explicitly, so it needs no scope).
-        token = self._audit.begin_request(req_id)
-        method, path, headers = exchange.method, exchange.path, exchange.headers
-        sid: str | None = None
-        ephemeral: Session | None = None
-        defer_cleanup = False
+        # streaming generator carries the request id itself, so it needs no scope).
+        token = self._audit.begin_request(exchange.request_id)
+        reply: Reply | None = None
         try:
-            if header(headers, "upgrade").lower() == "websocket":
-                # A WebSocket cannot be relayed here, so its frames could not be
-                # masked.  426 makes Codex fall back to HTTP at once; on another
-                # status it retries for seconds first, and gives up on a 400.
-                return _refusal(426, "privyx: WebSocket is not supported; use HTTP")
-            base = self._base(exchange)
-            if isinstance(base, Reply):
-                return base
-            name = detect_schema(path, self._routes, self._versionless)
-            exchange.dialect = dialect = self._dialects[name] if name is not None else None
-            if dialect is not None:
-                tracing.annotate(span, **{"http.route": path, "privyx.schema": name})
-            else:
-                self._audit.route_decision(allowed=self._passthrough_unknown, method=method)
-                if not self._passthrough_unknown:
-                    return _refusal(
-                        403,
-                        f"privyx: {path} is not in proxy.routes "
-                        "and proxy.passthrough_unknown is false",
-                    )
-                if header(headers, "content-length") not in ("", "0") or header(
-                    headers, "transfer-encoding"
-                ):
-                    self._audit.unmasked_bodies += 1
-
-            body, payload = exchange.body, None
-            if dialect is not None:
-                if not isinstance(body, bytes):
-                    body = b"".join([chunk async for chunk in body])
-                # Parse the body once, up front: the session strategy may
-                # fingerprint it (e.g. the first user message), and the transform
-                # reuses the parse.  Whatever its content type says (`curl -d`
-                # sends a form type): a routed body that is not a JSON object
-                # would go upstream unmasked.  The gateway's routes all take one.
-                payload = _loads(body) if body else None
-                if (body or self._gateway) and not isinstance(payload, dict):
-                    return _error(400, INVALID_BODY)
-                refused = dialect.refuse(payload) if isinstance(payload, dict) else None
-                if refused is not None:
-                    return _error(400, dialect.error_body(400, "privyx_invalid_request", refused))
-                exchange.body = payload
-            elif not isinstance(body, bytes) and not (
-                header(headers, "content-length") or header(headers, "transfer-encoding")
-            ):
-                body = b""  # none was sent; an empty stream would go out chunked
-
-            resolved_id, source = resolve_session_id(
-                self._session_strategy,
-                header_value=header(headers, "x-privyx-session") or None,
-                headers=headers,
-                payload=payload,
-                dialect=dialect,
-            )
-            if source == "ephemeral":
-                # It lives for this request only, so it never touches the vault.
-                session = ephemeral = self._engine.ephemeral_session()
-            else:
-                session = await self._engine.get_or_create_session(resolved_id, source=source)
-            exchange.session_id = sid = session.session_id
-            self._audit.set_session(sid)
-            if dialect is not None and isinstance(payload, dict):
-                answered = await self._received(exchange, payload, req_id, start)
-                if answered is not None:
-                    return answered
-                headers, payload = exchange.headers, exchange.body
-
-            stream = (
-                self._gateway
-                and dialect is not None
-                and dialect.wants_stream(path, payload, exchange.query)
-            )
-            out_headers, params, auth = self._outgoing(exchange, stream)
-            out_body: Any = body
-            transform_ms: float | None = None
-            # A masked header comes on body-less requests too, and on unrouted
-            # paths.
-            if (
-                isinstance(payload, dict)
-                or not self._masked_headers.isdisjoint(out_headers)
-                or params is not None
-            ):
-                transform_start = time.perf_counter()
-                masked = await self._mask(
-                    exchange, payload, out_headers, params, ephemeral, span, start, req_id
-                )
-                if isinstance(masked, Reply):
-                    return masked
-                transform_ms = _elapsed_ms(transform_start)
-                if isinstance(payload, dict):
-                    out_body = json.dumps(masked, ensure_ascii=False).encode("utf-8")
-                    if self._tap is not None:
-                        self._tap.record(
-                            sid,
-                            req_id,
-                            "request",
-                            path=path,
-                            schema=name,
-                            before=payload,
-                            after=masked,
-                        )
-            self._audit.flush_transform()
-
-            url = base if base is not None else self._provider_url(path, stream)
-            length = header(headers, "content-length")
-            if not isinstance(out_body, bytes) and length:
-                # Streamed unchanged, so its length still holds; without it
-                # httpx would send the body chunked.
-                out_headers["content-length"] = length
-            request = self._client.build_request(
-                method, url, headers=out_headers, content=out_body, params=params
-            )
-            upstream_span = tracing.start("privyx.upstream", span)
-            if dialect is not None:
-                self._audit.routed += 1
-            try:
-                response = await self._client.send(
-                    request, stream=True, auth=auth or httpx.USE_CLIENT_DEFAULT
-                )
-            except Exception as exc:
-                tracing.end(upstream_span, error=exc)
-                self._audit.error(
-                    phase="upstream",
-                    error_type=type(exc).__name__,
-                    session_id=sid,
-                    request_id=req_id,
-                    duration_ms=_elapsed_ms(start),
-                )
-                if not isinstance(exc, httpx.RequestError):
-                    raise
-                status, error_headers, error = upstream_failure(exc)
-                return _error(status, error, error_headers)
-
-            tracing.end(upstream_span)
-            resp_content_type = response.headers.get("content-type", "")
-            resp_headers = filter_response_headers(response.headers)
-            resp_headers["x-privyx-session"] = sid
-
-            # Restored as it streams: SSE, and the JSON lines of a format that streams them.
-            line_type = dialect.line_stream if dialect is not None else None
-            lines = line_type is not None and line_type in resp_content_type
-            is_stream = (_SSE in resp_content_type or lines) and method.upper() != "HEAD"
-            tracing.annotate(span, **{"privyx.stream": is_stream})
-            self._audit.request(
-                method=method,
-                # An unmatched URL may itself contain PII. The route-decision
-                # event exposes the gap without copying a client-supplied path.
-                path=path if dialect is not None else "[unmatched]",
-                schema=name,
-                status=response.status_code,
-                session_id=sid,
-                stream=is_stream,
-                duration_ms=_elapsed_ms(start),
-                upstream=urlsplit(url).netloc,
-                request_id=req_id,
-                transform_ms=transform_ms,
-            )
-
-            if method.upper() == "HEAD":
-                await response.aclose()
-                if "content-length" in response.headers:
-                    resp_headers["content-length"] = response.headers["content-length"]
-                return Reply(response.status_code, resp_headers, resp_content_type or None, b"")
-            if is_stream:
-                try:
-                    # Read before the 200 goes out, so a failing vault is a 503.
-                    stored = ephemeral or await self._engine.vault.get(sid)
-                except VaultError:
-                    await response.aclose()
-                    raise
-                # The generator owns cleanup: FastAPI/client cancellation closes
-                # it even when the caller does not drain the upstream stream.
-                defer_cleanup = True
-                mapping = stored.mapping if stored is not None else {}
-                return self._stream_reply(
-                    response, resp_headers, dialect, sid, mapping, req_id, start, ephemeral, span,
-                    lines=line_type if lines else None,
-                )  # fmt: skip
-            if dialect and _JSON in resp_content_type:
-                return await self._batch_reply(
-                    response, resp_headers, resp_content_type, sid, ephemeral, req_id, start,
-                    dialect=dialect, span=span,
-                )  # fmt: skip
-            defer_cleanup = True  # as for a stream
-            return self._relay_reply(
-                response, resp_headers, resp_content_type, sid, req_id, start, ephemeral, span
-            )
+            reply = await self._flow(exchange)
+            return reply
         except VaultError as exc:
-            tracing.annotate(span, **{"error.type": type(exc).__name__})
+            tracing.annotate(exchange.span, **{"error.type": type(exc).__name__})
             self._audit.error(
                 phase="vault",
                 error_type=type(exc).__name__,
-                session_id=sid,
-                request_id=req_id,
-                duration_ms=_elapsed_ms(start),
+                session_id=exchange.session_id,
+                request_id=exchange.request_id,
+                duration_ms=_elapsed_ms(exchange.started),
             )
             log_vault_failure(exc)
             return _error(503, VAULT_UNAVAILABLE_BODY)
         finally:
-            if not defer_cleanup:
-                self._end_session(ephemeral, req_id)
+            # A reply that streams owns the cleanup: FastAPI/client cancellation
+            # closes its generator even when nothing drains the upstream stream.
+            if reply is None or reply.stream is None:
+                self._end_session(exchange)
             self._audit.end_request(token)
+
+    async def _flow(self, exchange: Exchange) -> Reply:
+        """Route, mask, send, and restore: the steps in this module's docstring."""
+        if header(exchange.headers, "upgrade").lower() == "websocket":
+            # A WebSocket cannot be relayed here, so its frames could not be
+            # masked.  426 makes Codex fall back to HTTP at once; on another
+            # status it retries for seconds first, and gives up on a 400.
+            return _refusal(426, "privyx: WebSocket is not supported; use HTTP")
+        base = self._base(exchange)
+        if isinstance(base, Reply):
+            return base
+        schema = detect_schema(exchange.path, self._routes, self._versionless)
+        refused = self._route(exchange, schema)
+        if refused is not None:
+            return refused
+        read = await self._read_body(exchange)
+        if isinstance(read, Reply):
+            return read
+        body, payload = read
+        sid = await self._open_session(exchange, payload)
+        dialect = exchange.dialect
+        if dialect is not None and isinstance(payload, dict):
+            answered = await self._received(exchange, payload)
+            if answered is not None:
+                return answered
+            payload = exchange.body
+
+        stream = (
+            self._gateway
+            and dialect is not None
+            and dialect.wants_stream(exchange.path, payload, exchange.query)
+        )
+        out_headers, params, auth = self._outgoing(exchange, stream)
+        out_body: Any = body
+        transform_ms: float | None = None
+        # A masked header comes on body-less requests too, and on unrouted
+        # paths.
+        if (
+            isinstance(payload, dict)
+            or not self._masked_headers.isdisjoint(out_headers)
+            or params is not None
+        ):
+            transform_start = time.perf_counter()
+            masked = await self._mask(exchange, payload, out_headers, params)
+            if isinstance(masked, Reply):
+                return masked
+            transform_ms = _elapsed_ms(transform_start)
+            if isinstance(payload, dict):
+                out_body = json.dumps(masked, ensure_ascii=False).encode("utf-8")
+                if self._tap is not None:
+                    self._tap.record(
+                        sid,
+                        exchange.request_id,
+                        "request",
+                        path=exchange.path,
+                        schema=schema,
+                        before=payload,
+                        after=masked,
+                    )
+        self._audit.flush_transform()
+
+        url = base if base is not None else self._provider_url(exchange.path, stream)
+        response = await self._send(exchange, url, out_headers, out_body, params, auth)
+        if isinstance(response, Reply):
+            return response
+        return await self._answer(exchange, response, schema, url, transform_ms)
 
     # -- routing -------------------------------------------------------------
 
@@ -590,6 +470,71 @@ class Pipeline:
                 f"{prefix or '/'!r} or could leave it",
             )
         return origin + joined
+
+    def _route(self, exchange: Exchange, schema: str | None) -> Reply | None:
+        """Give ``exchange`` the dialect of its route; the refusal of a path without one."""
+        if schema is not None:
+            exchange.dialect = self._dialects[schema]
+            tracing.annotate(
+                exchange.span, **{"http.route": exchange.path, "privyx.schema": schema}
+            )
+            return None
+        self._audit.route_decision(allowed=self._passthrough_unknown, method=exchange.method)
+        if not self._passthrough_unknown:
+            return _refusal(
+                403,
+                f"privyx: {exchange.path} is not in proxy.routes "
+                "and proxy.passthrough_unknown is false",
+            )
+        if header(exchange.headers, "content-length") not in ("", "0") or header(
+            exchange.headers, "transfer-encoding"
+        ):
+            self._audit.unmasked_bodies += 1
+        return None
+
+    async def _read_body(self, exchange: Exchange) -> tuple[Any, Any] | Reply:
+        """The body to send and, on a masking route, its JSON; or the refusal of the body."""
+        body, dialect = exchange.body, exchange.dialect
+        if dialect is None:
+            if not isinstance(body, bytes) and not (
+                header(exchange.headers, "content-length")
+                or header(exchange.headers, "transfer-encoding")
+            ):
+                body = b""  # none was sent; an empty stream would go out chunked
+            return body, None
+        if not isinstance(body, bytes):
+            body = b"".join([chunk async for chunk in body])
+        # Parse the body once, up front: the session strategy may
+        # fingerprint it (e.g. the first user message), and the transform
+        # reuses the parse.  Whatever its content type says (`curl -d`
+        # sends a form type): a routed body that is not a JSON object
+        # would go upstream unmasked.  The gateway's routes all take one.
+        payload = _loads(body) if body else None
+        if (body or self._gateway) and not isinstance(payload, dict):
+            return _error(400, INVALID_BODY)
+        refused = dialect.refuse(payload) if isinstance(payload, dict) else None
+        if refused is not None:
+            return _error(400, dialect.error_body(400, "privyx_invalid_request", refused))
+        exchange.body = payload
+        return body, payload
+
+    async def _open_session(self, exchange: Exchange, payload: Any) -> str:
+        """Give ``exchange`` its session, and return the session's id."""
+        resolved_id, source = resolve_session_id(
+            self._session_strategy,
+            header_value=header(exchange.headers, "x-privyx-session") or None,
+            headers=exchange.headers,
+            payload=payload,
+            dialect=exchange.dialect,
+        )
+        if source == "ephemeral":
+            # It lives for this request only, so it never touches the vault.
+            session = exchange.ephemeral = self._engine.ephemeral_session()
+        else:
+            session = await self._engine.get_or_create_session(resolved_id, source=source)
+        exchange.session_id = session.session_id
+        self._audit.set_session(session.session_id)
+        return session.session_id
 
     def _provider_url(self, path: str, stream: bool) -> str:
         """The gateway's upstream URL: the provider's endpoint for ``path``."""
@@ -634,9 +579,7 @@ class Pipeline:
         # as the request goes out, over the body actually sent.
         return out_headers, params, None if key is not None else auth
 
-    async def _received(
-        self, exchange: Exchange, payload: dict[str, Any], request_id: str, start: float
-    ) -> Reply | None:
+    async def _received(self, exchange: Exchange, payload: dict[str, Any]) -> Reply | None:
         """Emit :class:`~privyx.events.RequestReceived`; the reply when a listener ends it.
 
         A listener may change the body and the headers in place; the exchange
@@ -648,14 +591,15 @@ class Pipeline:
         assert dialect is not None and sid is not None
         headers = {key.lower(): value for key, value in exchange.headers.items()}
         event = RequestReceived(
-            exchange.method, exchange.path, Headers(headers), payload, dialect, sid, request_id
-        )
+            exchange.method, exchange.path, Headers(headers), payload, dialect, sid,
+            exchange.request_id,
+        )  # fmt: skip
         try:
             await self._events.emit(event)
         except Stop as stop:
             return self._stopped(stop, dialect)
         except ListenerError as exc:
-            return self._listener_failed(exc, sid, request_id, start)
+            return self._listener_failed(exc, exchange)
         exchange.headers, exchange.body = headers, event.body
         return None
 
@@ -666,16 +610,14 @@ class Pipeline:
         assert isinstance(stop, Responded)
         return Reply(stop.status, stop.headers, _JSON, json.dumps(stop.body).encode())
 
-    def _listener_failed(
-        self, exc: ListenerError, session_id: str, request_id: str, start: float
-    ) -> Reply:
+    def _listener_failed(self, exc: ListenerError, exchange: Exchange) -> Reply:
         """Refuse an exchange whose listener failed: fail-closed, the listener named."""
         self._audit.error(
             phase="listener",
             error_type=type(exc.__cause__ or exc).__name__,
-            session_id=session_id,
-            request_id=request_id,
-            duration_ms=_elapsed_ms(start),
+            session_id=exchange.session_id,
+            request_id=exchange.request_id,
+            duration_ms=_elapsed_ms(exchange.started),
             listener=exc.listener,
         )
         _log.warning("request not forwarded: %s failed", exc.listener)
@@ -689,10 +631,6 @@ class Pipeline:
         payload: dict[str, Any] | None,
         headers: dict[str, str],
         params: list[tuple[str, Any]] | None,
-        ephemeral: Session | None,
-        span: Any,
-        start: float,
-        request_id: str,
     ) -> dict[str, Any] | Reply:
         """The request masked and checked, or the reply refusing it when that fails.
 
@@ -707,21 +645,21 @@ class Pipeline:
             async def hook(body: dict[str, Any]) -> None:
                 assert dialect is not None and sid is not None
                 event = RequestMasked(
-                    exchange.method, exchange.path, Headers(headers), body, dialect, sid, request_id
-                )
+                    exchange.method, exchange.path, Headers(headers), body, dialect, sid,
+                    exchange.request_id,
+                )  # fmt: skip
                 await self._events.emit(event)
 
-        transform_span = tracing.start("privyx.transform", span)
+        transform_span = tracing.start("privyx.transform", exchange.span)
         try:
             transformed = await transform_request(
                 payload or {},
                 self._engine,
                 sid,
-                session=ephemeral,
+                session=exchange.ephemeral,
                 headers=headers,
                 params=params,
                 dialect=exchange.dialect,
-                path=exchange.path,
                 metadata_keys=self._metadata_keys,
                 masked_headers=self._masked_headers,
                 masked=hook,
@@ -735,20 +673,20 @@ class Pipeline:
             if isinstance(stop, Responded) and isinstance(stop.body, dict):
                 # Answered after masking: restored as an upstream reply is.
                 stop.body = await restore_response(
-                    stop.body, self._engine, sid, session=ephemeral, dialect=dialect
+                    stop.body, self._engine, sid, session=exchange.ephemeral, dialect=dialect
                 )
             return self._stopped(stop, dialect)
         except ListenerError as exc:
             tracing.end(transform_span, error=exc)
-            return self._listener_failed(exc, sid, request_id, start)
+            return self._listener_failed(exc, exchange)
         except Exception as exc:
             tracing.end(transform_span, error=exc)
             self._audit.error(
                 phase="transform",
                 error_type=type(exc).__name__,
                 session_id=sid,
-                request_id=request_id,
-                duration_ms=_elapsed_ms(start),
+                request_id=exchange.request_id,
+                duration_ms=_elapsed_ms(exchange.started),
             )
             log_scan_failure(exc)
             status, error = scan_failure(exc)
@@ -756,80 +694,234 @@ class Pipeline:
         tracing.end(transform_span)
         return transformed
 
+    async def _send(
+        self,
+        exchange: Exchange,
+        url: str,
+        headers: dict[str, str],
+        body: Any,
+        params: list[tuple[str, Any]] | None,
+        auth: httpx.Auth | None,
+    ) -> httpx.Response | Reply:
+        """Send the masked request upstream; the reply when no response comes."""
+        length = header(exchange.headers, "content-length")
+        if not isinstance(body, bytes) and length:
+            # Streamed unchanged, so its length still holds; without it
+            # httpx would send the body chunked.
+            headers["content-length"] = length
+        request = self._client.build_request(
+            exchange.method, url, headers=headers, content=body, params=params
+        )
+        upstream_span = tracing.start("privyx.upstream", exchange.span)
+        if exchange.dialect is not None:
+            self._audit.routed += 1
+        try:
+            response = await self._client.send(
+                request, stream=True, auth=auth or httpx.USE_CLIENT_DEFAULT
+            )
+        except Exception as exc:
+            tracing.end(upstream_span, error=exc)
+            self._audit.error(
+                phase="upstream",
+                error_type=type(exc).__name__,
+                session_id=exchange.session_id,
+                request_id=exchange.request_id,
+                duration_ms=_elapsed_ms(exchange.started),
+            )
+            if not isinstance(exc, httpx.RequestError):
+                raise
+            status, error_headers, error = upstream_failure(exc)
+            return _error(status, error, error_headers)
+        tracing.end(upstream_span)
+        return response
+
     # -- replies -------------------------------------------------------------
 
-    def _stream_reply(
+    async def _answer(
         self,
+        exchange: Exchange,
+        response: httpx.Response,
+        schema: str | None,
+        url: str,
+        transform_ms: float | None,
+    ) -> Reply:
+        """The reply to ``response``: restored as it streams, restored whole, or relayed."""
+        dialect, sid = exchange.dialect, exchange.session_id
+        assert sid is not None
+        content_type = response.headers.get("content-type", "")
+        headers = filter_response_headers(response.headers)
+        headers["x-privyx-session"] = sid
+
+        # Restored as it streams: SSE, and the JSON lines of a format that streams them.
+        line_type = dialect.line_stream if dialect is not None else None
+        lines = line_type if line_type is not None and line_type in content_type else None
+        is_stream = (_SSE in content_type or lines is not None) and (
+            exchange.method.upper() != "HEAD"
+        )
+        tracing.annotate(exchange.span, **{"privyx.stream": is_stream})
+        self._audit.request(
+            method=exchange.method,
+            # An unmatched URL may itself contain PII. The route-decision
+            # event exposes the gap without copying a client-supplied path.
+            path=exchange.path if dialect is not None else "[unmatched]",
+            schema=schema,
+            status=response.status_code,
+            session_id=sid,
+            stream=is_stream,
+            duration_ms=_elapsed_ms(exchange.started),
+            upstream=urlsplit(url).netloc,
+            request_id=exchange.request_id,
+            transform_ms=transform_ms,
+        )
+
+        if exchange.method.upper() == "HEAD":
+            await response.aclose()
+            if "content-length" in response.headers:
+                headers["content-length"] = response.headers["content-length"]
+            return Reply(response.status_code, headers, content_type or None, b"")
+        if is_stream:
+            try:
+                # Read before the 200 goes out, so a failing vault is a 503.
+                stored = exchange.ephemeral or await self._engine.vault.get(sid)
+            except VaultError:
+                await response.aclose()
+                raise
+            mapping = stored.mapping if stored is not None else {}
+            headers.pop("content-type", None)  # media_type carries it, avoid duplicate
+            headers.setdefault("cache-control", "no-cache")
+            restoring = self._stream(exchange, response, mapping, lines=lines)
+            return self._streaming(exchange, response, headers, lines or _SSE, restoring)
+        if dialect is not None and _JSON in content_type:
+            return await self._batch_reply(exchange, response, headers, content_type)
+        # Nothing to restore: forwarded as it arrives.  Read whole first, like a
+        # restored one, a download of any size sat in memory and reached the
+        # client only after its last byte.
+        relaying = self._relay(exchange, response)
+        return self._streaming(exchange, response, headers, content_type or None, relaying)
+
+    def _streaming(
+        self,
+        exchange: Exchange,
         response: httpx.Response,
         headers: dict[str, str],
-        dialect: Dialect | None,
-        session_id: str,
-        mapping: dict[str, str],
-        request_id: str,
-        start: float,
-        ephemeral: Session | None,
-        span: Any = None,
-        *,
-        lines: str | None = None,
+        media_type: str | None,
+        chunks: AsyncIterator[Any],
     ) -> Reply:
-        """A streamed reply, restored as it arrives: SSE, or JSON lines of the type ``lines``."""
-        headers.pop("content-type", None)  # media_type carries it, avoid duplicate
-        headers.setdefault("cache-control", "no-cache")
-        stream_iter = self._stream(
-            response, dialect, session_id, mapping, request_id, start, ephemeral, span, lines=lines
-        )
+        """A reply sent as ``chunks`` arrive, cleaned up however the client leaves it."""
         return Reply(
             status_code=response.status_code,
             headers=headers,
-            media_type=lines or _SSE,
+            media_type=media_type,
             stream=AuditedStream(
-                stream_iter,
-                response=response,
-                cleanup=lambda: self._abandon(ephemeral, request_id, span),
+                chunks, response=response, cleanup=lambda: self._abandon(exchange)
             ),
         )
 
+    @asynccontextmanager
+    async def _delivering(
+        self,
+        exchange: Exchange,
+        response: httpx.Response,
+        phase: str,
+        ended: Callable[[BaseException | None, bool], None],
+    ) -> AsyncIterator[None]:
+        """Deliver a reply in the block, then close ``response`` and end the exchange.
+
+        ``ended(failure, aborted)`` hears how it went: ``failure`` is what
+        broke the reply, and ``aborted`` says the client went away first.
+        """
+        failure: BaseException | None = None
+        aborted = False
+        try:
+            yield
+        except Exception as exc:
+            failure = exc
+            self._audit.error(
+                phase=phase,
+                error_type=type(exc).__name__,
+                session_id=exchange.session_id,
+                request_id=exchange.request_id,
+                status=response.status_code,
+                duration_ms=_elapsed_ms(exchange.started),
+            )
+            raise
+        except BaseException:
+            # The client went away: the task was cancelled, or the stream closed.
+            aborted = True
+            raise
+        finally:
+            try:
+                await response.aclose()
+            finally:
+                ended(failure, aborted)
+                tracing.annotate(exchange.span, **{"privyx.aborted": aborted or None})
+                tracing.end(exchange.span, error=failure)
+                self._end_session(exchange)
+
     async def _stream(
         self,
+        exchange: Exchange,
         response: httpx.Response,
-        dialect: Dialect | None,
-        session_id: str,
         mapping: dict[str, str],
-        request_id: str,
-        start: float,
-        ephemeral: Session | None,
-        span: Any = None,
         *,
         lines: str | None = None,
     ) -> AsyncIterator[str]:
         """Restore a streamed reply: SSE events, or with ``lines`` JSON lines."""
-        restore_span = tracing.start("privyx.restore", span)
-        failure: BaseException | None = None
-        frames = 0
+        dialect, sid = exchange.dialect, exchange.session_id
+        assert sid is not None
+        restore_span = tracing.start("privyx.restore", exchange.span)
         status = response.status_code
-        restored = 0
+        frames = 0
+        restored = _Restored()
         meter = UsageMeter()
         # What the tap keeps, when it is on: the upstream's bytes and ours.
         tapped: tuple[list[bytes], list[str]] | None = ([], []) if self._tap and dialect else None
-        completed = aborted = False
-        try:
+
+        def ended(failure: BaseException | None, aborted: bool) -> None:
+            if failure is None:
+                meter.close()
+                self._audit.restore(
+                    sid, transformations=restored.count, request_id=exchange.request_id
+                )
+                self._audit.response(
+                    status=status,
+                    stream=True,
+                    frames=frames,
+                    restored=restored.count,
+                    session_id=sid,
+                    request_id=exchange.request_id,
+                    duration_ms=_elapsed_ms(exchange.started),
+                    aborted=aborted,
+                    usage=meter.usage,
+                    model=meter.model,
+                )
+                if self._tap is not None and tapped is not None:
+                    self._tap.record(
+                        sid,
+                        exchange.request_id,
+                        "response",
+                        status=status,
+                        stream=True,
+                        aborted=aborted,
+                        upstream=b"".join(tapped[0]).decode("utf-8", "replace"),
+                        restored="".join(tapped[1]),
+                    )
+            tracing.annotate(restore_span, **{"privyx.restored": restored.count})
+            tracing.end(restore_span, error=failure)
+
+        async with self._delivering(exchange, response, "stream", ended):
             # Count restores by wrapping the resolver: a non-None lookup is one
             # pseudonym reversed.  (Covers the codec path — pseudonym/hash/encrypt;
             # faker's literal trie restore does not consult ``resolve``.)
-            base_resolve = resolver_for(self._engine.operator, mapping)
-
-            def resolve(token: str) -> str | None:
-                nonlocal restored
-                original = base_resolve(token)
-                if original is not None:
-                    restored += 1
-                return original
-
+            resolve = restored.counting(resolver_for(self._engine.operator, mapping))
             codec = self._engine.codec
             make = select_processor_factory(self._engine.operator, codec, resolve, mapping)
             router: StreamRouter | LineRouter
             if lines and dialect is not None:
-                router = LineRouter(_objects(dialect, make))
+                objects = _objects(dialect, make)
+                if objects is None:
+                    raise TypeError(f"dialect {dialect.name!r} streams objects it cannot restore")
+                router = LineRouter(objects)
             elif dialect is not None:
                 router = dialect.stream(codec, resolve, make)
             else:
@@ -851,180 +943,70 @@ class Pipeline:
                 if tapped is not None:
                     tapped[1].append(out)
                 yield out
-            completed = True
-        except Exception as exc:
-            failure = exc
-            self._audit.error(
-                phase="stream",
-                error_type=type(exc).__name__,
-                session_id=session_id,
-                request_id=request_id,
-                status=status,
-                duration_ms=_elapsed_ms(start),
-            )
-            raise
-        except BaseException:
-            # The client went away: the task was cancelled, or the stream closed.
-            aborted = True
-            raise
-        finally:
-            try:
-                await response.aclose()
-            finally:
-                if completed or aborted:
-                    meter.close()
-                    self._audit.restore(session_id, transformations=restored, request_id=request_id)
-                    self._audit.response(
-                        status=status,
-                        stream=True,
-                        frames=frames,
-                        restored=restored,
-                        session_id=session_id,
-                        request_id=request_id,
-                        duration_ms=_elapsed_ms(start),
-                        aborted=aborted,
-                        usage=meter.usage,
-                        model=meter.model,
-                    )
-                    if self._tap is not None and tapped is not None:
-                        self._tap.record(
-                            session_id,
-                            request_id,
-                            "response",
-                            status=status,
-                            stream=True,
-                            aborted=aborted,
-                            upstream=b"".join(tapped[0]).decode("utf-8", "replace"),
-                            restored="".join(tapped[1]),
-                        )
-                tracing.annotate(restore_span, **{"privyx.restored": restored})
-                tracing.end(restore_span, error=failure)
-                tracing.annotate(span, **{"privyx.aborted": aborted or None})
-                tracing.end(span, error=failure)
-                self._end_session(ephemeral, request_id)
 
-    def _relay_reply(
-        self,
-        response: httpx.Response,
-        headers: dict[str, str],
-        content_type: str,
-        session_id: str,
-        request_id: str,
-        start: float,
-        ephemeral: Session | None,
-        span: Any = None,
-    ) -> Reply:
-        """Forward a response with nothing to restore as it arrives.
-
-        Read whole first, like a restored one, a download of any size sat in
-        memory and reached the client only after its last byte.
-        """
-        return Reply(
-            status_code=response.status_code,
-            headers=headers,
-            media_type=content_type or None,
-            stream=AuditedStream(
-                self._relay(response, session_id, request_id, start, ephemeral, span),
-                response=response,
-                cleanup=lambda: self._abandon(ephemeral, request_id, span),
-            ),
-        )
-
-    async def _relay(
-        self,
-        response: httpx.Response,
-        session_id: str,
-        request_id: str,
-        start: float,
-        ephemeral: Session | None,
-        span: Any = None,
-    ) -> AsyncIterator[bytes]:
+    async def _relay(self, exchange: Exchange, response: httpx.Response) -> AsyncIterator[bytes]:
         size = 0
-        failure: BaseException | None = None
-        completed = aborted = False
-        try:
+
+        def ended(failure: BaseException | None, aborted: bool) -> None:
+            if failure is None:
+                self._audit.response(
+                    status=response.status_code,
+                    stream=False,
+                    size=size,
+                    restored=0,
+                    session_id=exchange.session_id,
+                    request_id=exchange.request_id,
+                    duration_ms=_elapsed_ms(exchange.started),
+                    aborted=aborted,
+                )
+
+        async with self._delivering(exchange, response, "response", ended):
             async for chunk in response.aiter_bytes():
                 size += len(chunk)
                 yield chunk
-            completed = True
-        except Exception as exc:
-            failure = exc
-            self._audit.error(
-                phase="response",
-                error_type=type(exc).__name__,
-                session_id=session_id,
-                request_id=request_id,
-                status=response.status_code,
-                duration_ms=_elapsed_ms(start),
-            )
-            raise
-        except BaseException:
-            aborted = True  # the client went away
-            raise
-        finally:
-            try:
-                await response.aclose()
-            finally:
-                if completed or aborted:
-                    self._audit.response(
-                        status=response.status_code,
-                        stream=False,
-                        size=size,
-                        restored=0,
-                        session_id=session_id,
-                        request_id=request_id,
-                        duration_ms=_elapsed_ms(start),
-                        aborted=aborted,
-                    )
-                tracing.annotate(span, **{"privyx.aborted": aborted or None})
-                tracing.end(span, error=failure)
-                self._end_session(ephemeral, request_id)
 
-    def _abandon(self, ephemeral: Session | None, request_id: str, span: Any) -> None:
+    def _abandon(self, exchange: Exchange) -> None:
         """Clean up a reply the client closed before reading any of it.
 
         Its generator never started, so its ``finally`` does not run either.
         """
-        tracing.annotate(span, **{"privyx.aborted": True})
-        tracing.end(span)
-        self._end_session(ephemeral, request_id)
+        tracing.annotate(exchange.span, **{"privyx.aborted": True})
+        tracing.end(exchange.span)
+        self._end_session(exchange)
 
-    def _end_session(self, ephemeral: Session | None, request_id: str) -> None:
+    def _end_session(self, exchange: Exchange) -> None:
         """End the request's ephemeral session, if it has one.
 
         No I/O, so a cancelled stream cannot interrupt it, and nothing to fail.
         """
-        if ephemeral is not None:
-            self._engine.end_ephemeral_session(ephemeral, request_id=request_id)
+        if exchange.ephemeral is not None:
+            self._engine.end_ephemeral_session(exchange.ephemeral, request_id=exchange.request_id)
 
     async def _batch_reply(
         self,
+        exchange: Exchange,
         response: httpx.Response,
         headers: dict[str, str],
         content_type: str,
-        session_id: str,
-        ephemeral: Session | None,
-        request_id: str,
-        start: float,
-        dialect: Dialect | None = None,
-        span: Any = None,
     ) -> Reply:
+        dialect, sid = exchange.dialect, exchange.session_id
+        assert dialect is not None and sid is not None
         data = await response.aread()
         await response.aclose()
-        restore_span = tracing.start("privyx.restore", span)
+        restore_span = tracing.start("privyx.restore", exchange.span)
         meter = UsageMeter()
         upstream_data = data
         payload = _loads(data)
         meter.feed_json(payload)  # embeddings report usage too
-        if dialect is not None and dialect.restores_reply and isinstance(payload, dict | list):
+        if dialect.restores_reply and isinstance(payload, dict | list):
             try:
                 restored: Any
                 if isinstance(payload, list):
                     # A stream sent as one JSON array of chunks (Gemini's without SSE).
-                    restored = await self._restore_chunks(payload, dialect, session_id, ephemeral)
+                    restored = await self._restore_chunks(exchange, payload)
                 else:
                     restored = await restore_response(
-                        payload, self._engine, session_id, session=ephemeral, dialect=dialect
+                        payload, self._engine, sid, session=exchange.ephemeral, dialect=dialect
                     )
             except BaseException as exc:  # the vault failed: answered with 503
                 tracing.end(restore_span, error=exc)
@@ -1039,16 +1021,16 @@ class Pipeline:
             stream=False,
             size=len(data),
             restored=restored_n,
-            session_id=session_id,
-            request_id=request_id,
-            duration_ms=_elapsed_ms(start),
+            session_id=sid,
+            request_id=exchange.request_id,
+            duration_ms=_elapsed_ms(exchange.started),
             usage=meter.usage,
             model=meter.model,
         )
         if self._tap is not None:
             self._tap.record(
-                session_id,
-                request_id,
+                sid,
+                exchange.request_id,
                 "response",
                 status=response.status_code,
                 stream=False,
@@ -1057,45 +1039,54 @@ class Pipeline:
             )
         return Reply(response.status_code, headers, content_type or None, data)
 
-    async def _restore_chunks(
-        self, chunks: list[Any], dialect: Dialect, session_id: str, ephemeral: Session | None
-    ) -> list[Any] | None:
+    async def _restore_chunks(self, exchange: Exchange, chunks: list[Any]) -> list[Any] | None:
         """Restore a stream sent as one JSON array (Gemini's), counted in the audit.
 
         The array is read whole first: the client gets it at the end, not as it
         is generated.  ``None`` for a format that sends no such stream: the body
         is relayed as it came.
         """
-        stored = ephemeral or await self._engine.vault.get(session_id)
+        dialect, sid = exchange.dialect, exchange.session_id
+        assert dialect is not None and sid is not None
+        stored = exchange.ephemeral or await self._engine.vault.get(sid)
         operator, mapping = self._engine.operator, stored.mapping if stored is not None else {}
-        base_resolve = resolver_for(operator, mapping)
-        count = 0
-
-        def resolve(token: str) -> str | None:
-            nonlocal count
-            original = base_resolve(token)
-            count += original is not None
-            return original
-
+        counted = _Restored()
+        resolve = counted.counting(resolver_for(operator, mapping))
         make = select_processor_factory(operator, self._engine.codec, resolve, mapping)
-        full = make()
-        objects = dialect.objects(make, lambda text: full.feed(text) + full.flush())
+        objects = _objects(dialect, make)
         if objects is None:
             return None
         if stored is None:
             return chunks
         restored = restore_chunks(chunks, objects)
-        self._audit.restore(session_id, transformations=count)
+        self._audit.restore(sid, transformations=counted.count)
         return restored
 
 
+class _Restored:
+    """How many pseudonyms a resolver reversed."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def counting(self, resolve: Callable[[str], str | None]) -> Callable[[str], str | None]:
+        """``resolve``, counting each token it finds a value for."""
+
+        def counted(token: str) -> str | None:
+            original = resolve(token)
+            self.count += original is not None
+            return original
+
+        return counted
+
+
 def _objects(dialect: Dialect, make: Any) -> Any:
-    """``dialect``'s restorer of whole JSON objects, restoring whole strings with ``make``'s."""
+    """``dialect``'s restorer of whole JSON objects, with ``make``'s for whole strings.
+
+    ``None`` for a format that sends none.
+    """
     full = make()
-    objects = dialect.objects(make, lambda text: full.feed(text) + full.flush())
-    if objects is None:
-        raise TypeError(f"dialect {dialect.name!r} streams objects it cannot restore")
-    return objects
+    return dialect.objects(make, lambda text: full.feed(text) + full.flush())
 
 
 def scan_failure(exc: Exception) -> tuple[int, dict[str, Any]]:

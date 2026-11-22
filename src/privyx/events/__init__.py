@@ -7,11 +7,9 @@ and :class:`ConfigChanged`.
 """
 
 from privyx.events._app import AppStarting, AppStopping
-from privyx.events._audit import AUDIT_EVENTS as AUDIT_EVENTS
 from privyx.events._audit import (
     SCHEMA_VERSION,
     AuditEvent,
-    AuditEventType,
     ProxyBlocked,
     ProxyError,
     ProxyPassthrough,
@@ -23,6 +21,9 @@ from privyx.events._audit import (
     SessionDeleted,
     SessionRestore,
     SessionTransform,
+    breakdown,
+    local_time,
+    record_line,
 )
 from privyx.events._config import ConfigChanged
 from privyx.events._request import CREDENTIAL_HEADERS, Headers, RequestMasked, RequestReceived
@@ -33,7 +34,6 @@ __all__ = [
     "AppStarting",
     "AppStopping",
     "AuditEvent",
-    "AuditEventType",
     "ConfigChanged",
     "Headers",
     "ProxyBlocked",
@@ -49,4 +49,7 @@ __all__ = [
     "SessionDeleted",
     "SessionRestore",
     "SessionTransform",
+    "breakdown",
+    "local_time",
+    "record_line",
 ]

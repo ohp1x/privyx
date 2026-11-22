@@ -20,7 +20,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TextIO
 from urllib.parse import urlsplit
 
 from pydantic import ValidationError
@@ -36,7 +36,9 @@ from privyx.core import (
     VaultError,
     listened,
 )
+from privyx.events import AuditEvent
 from privyx.features import Feature
+from privyx.observability.audit import AuditLogger
 from privyx.token import FormatCodec
 
 
@@ -65,6 +67,17 @@ async def listening(*features: Component, **changes: Any) -> EventBus:
         for event, priority, listener in listened(feature):
             bus.add(event, listener, priority=priority)
     return bus
+
+
+def audit_to(stream: TextIO | None, *, events: EventBus | None = None) -> AuditLogger:
+    """An audit logger on ``events`` that also writes each record to ``stream``.
+
+    One JSON line per record, as the ``audit`` feature writes them.
+    """
+    bus = events or EventBus()
+    if stream is not None:
+        bus.add(AuditEvent, lambda event: print(event.to_json(), file=stream, flush=True))
+    return AuditLogger(events=bus)
 
 
 @contextmanager

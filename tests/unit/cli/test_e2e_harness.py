@@ -179,7 +179,7 @@ def test_seed_runs_on_the_defaults_with_terms_and_a_pattern_merged(
     run_harness: ModuleType, tmp_path: Path
 ) -> None:
     from privyx import load_config
-    from privyx.app._build import build_detector_from
+    from privyx.app._build import build_detector
     from privyx.core import Context
 
     run_harness.seed(tmp_path, {})
@@ -187,7 +187,7 @@ def test_seed_runs_on_the_defaults_with_terms_and_a_pattern_merged(
     base = yaml.safe_load(run_harness.CONFIG)
     assert set(base) == {"detectors"}  # every other setting is a default
     assert set(base["detectors"]["regex"]) == {"terms", "patterns"}
-    detector = build_detector_from(settings)
+    detector = build_detector(settings.detectors)
     assert detector.detect_sync("ordinary prose", Context()).spans == []
     # The pattern covers only the git user: the other term needs merge_terms.
     found = detector.detect_sync(f"{run_harness.PERSON} and {run_harness.GIT_USER}", Context())

@@ -27,11 +27,11 @@ from privyx.core import Context, Exchange, Session
 from privyx.detectors import RegexDetector
 from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
-from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline
 from privyx.streaming.deanonymizer import StreamingDeanonymizer
+from privyx.testing import audit_to
 from privyx.vaults import MemoryVault
 
 SAMPLE = (
@@ -133,7 +133,7 @@ async def bench_request(kb: int, new_content: bool, n: int = 10) -> tuple[float,
     the first turn of a conversation does; otherwise the detection cache hits.
     """
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     # Do not let user/project configuration or PRIVYX_* affect the baseline.
     engine, close = await build_engine(Settings.model_validate(DEFAULTS), audit=audit)
     reply = {"type": "message", "content": [{"type": "text", "text": "ok"}]}

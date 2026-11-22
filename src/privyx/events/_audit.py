@@ -10,10 +10,10 @@ Each is one record of the audit trail, under a versioned envelope::
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any, ClassVar
 
 from privyx.core import Notification
@@ -21,23 +21,6 @@ from privyx.core import Notification
 #: On-disk record schema version.  Bumped on a backward-incompatible change to
 #: the envelope or the vocabulary, so a reader can branch on it.
 SCHEMA_VERSION = 1
-
-
-class AuditEventType(StrEnum):
-    """The audit vocabulary: ``session.*`` for a session's masking, ``proxy.*`` for one
-    HTTP exchange, ``run.*`` for one ``privyx run`` launch."""
-
-    SESSION_CREATED = "session.created"
-    SESSION_TRANSFORM = "session.transform"
-    SESSION_RESTORE = "session.restore"
-    SESSION_DELETED = "session.deleted"
-    PROXY_REQUEST = "proxy.request"
-    PROXY_RESPONSE = "proxy.response"
-    PROXY_ERROR = "proxy.error"
-    PROXY_PASSTHROUGH = "proxy.passthrough"
-    PROXY_BLOCKED = "proxy.blocked"
-    RUN_UNPROXIED = "run.unproxied"
-    RUN_BUDGET_EXCEEDED = "run.budget_exceeded"
 
 
 def _iso(ts: float) -> str:
@@ -81,37 +64,37 @@ class AuditEvent(Notification):
 class SessionCreated(AuditEvent):
     """A session was created."""
 
-    name: ClassVar[str] = AuditEventType.SESSION_CREATED
+    name: ClassVar[str] = "session.created"
 
 
 class SessionTransform(AuditEvent):
     """Text was masked: entity counts per type."""
 
-    name: ClassVar[str] = AuditEventType.SESSION_TRANSFORM
+    name: ClassVar[str] = "session.transform"
 
 
 class SessionRestore(AuditEvent):
     """Pseudonyms were restored in a reply."""
 
-    name: ClassVar[str] = AuditEventType.SESSION_RESTORE
+    name: ClassVar[str] = "session.restore"
 
 
 class SessionDeleted(AuditEvent):
     """A session was removed from the vault."""
 
-    name: ClassVar[str] = AuditEventType.SESSION_DELETED
+    name: ClassVar[str] = "session.deleted"
 
 
 class ProxyRequest(AuditEvent):
     """A request went upstream, and the upstream answered with headers."""
 
-    name: ClassVar[str] = AuditEventType.PROXY_REQUEST
+    name: ClassVar[str] = "proxy.request"
 
 
 class ProxyResponse(AuditEvent):
     """A reply was delivered, or its stream ended early: status, size, usage."""
 
-    name: ClassVar[str] = AuditEventType.PROXY_RESPONSE
+    name: ClassVar[str] = "proxy.response"
 
     @property
     def status(self) -> int:
@@ -132,47 +115,57 @@ class ProxyResponse(AuditEvent):
 class ProxyError(AuditEvent):
     """An exchange failed: the phase, and the error's class name."""
 
-    name: ClassVar[str] = AuditEventType.PROXY_ERROR
+    name: ClassVar[str] = "proxy.error"
 
 
 class ProxyPassthrough(AuditEvent):
     """A request outside the masking routes was relayed unmasked."""
 
-    name: ClassVar[str] = AuditEventType.PROXY_PASSTHROUGH
+    name: ClassVar[str] = "proxy.passthrough"
 
 
 class ProxyBlocked(AuditEvent):
     """A request was refused before it went upstream."""
 
-    name: ClassVar[str] = AuditEventType.PROXY_BLOCKED
+    name: ClassVar[str] = "proxy.blocked"
 
 
 class RunUnproxied(AuditEvent):
     """A ``privyx run`` sent no request upstream on a masking route."""
 
-    name: ClassVar[str] = AuditEventType.RUN_UNPROXIED
+    name: ClassVar[str] = "run.unproxied"
 
 
 class RunBudgetExceeded(AuditEvent):
     """A ``privyx run`` budget was reached, and the next turn refused."""
 
-    name: ClassVar[str] = AuditEventType.RUN_BUDGET_EXCEEDED
+    name: ClassVar[str] = "run.budget_exceeded"
 
 
-#: Each audit notification class, by its name in the vocabulary.
-AUDIT_EVENTS: dict[str, type[AuditEvent]] = {
-    cls.name: cls
-    for cls in (
-        SessionCreated,
-        SessionTransform,
-        SessionRestore,
-        SessionDeleted,
-        ProxyRequest,
-        ProxyResponse,
-        ProxyError,
-        ProxyPassthrough,
-        ProxyBlocked,
-        RunUnproxied,
-        RunBudgetExceeded,
+#: The fields of every record; the others are its event's own.
+_ENVELOPE = frozenset({"schema_version", "time", "ts", "event", "request_id", "session_id"})
+
+
+def local_time(epoch: float) -> str:
+    """An epoch timestamp as local time, to the second."""
+    return datetime.fromtimestamp(epoch).isoformat(timespec="seconds")
+
+
+def record_line(record: Mapping[str, Any]) -> str:
+    """``record`` as one plain line; raises on a record it cannot read."""
+    extras = " ".join(f"{k}={_value(v)}" for k, v in record.items() if k not in _ENVELOPE)
+    return (
+        f"{local_time(record['ts'])}  {record['event']:<17}  "
+        f"{record.get('request_id') or '-':<16}  {record.get('session_id') or '-'}  {extras}"
     )
-}
+
+
+def _value(value: Any) -> str:
+    if isinstance(value, dict):  # entity_counts
+        return ",".join(f"{k}:{v}" for k, v in value.items())
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+def breakdown(counts: Counter[str]) -> str:
+    """``counts`` in parentheses, the largest first; nothing without any."""
+    return f" ({', '.join(f'{k} {v}' for k, v in counts.most_common())})" if counts else ""

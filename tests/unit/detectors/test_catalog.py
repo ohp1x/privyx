@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from privyx import load_config
-from privyx.app._build import build_detector, build_detector_from
+from privyx.app._build import build_detector
 from privyx.core import ConfigError, Context
 from privyx.detectors._catalog import _BASE58, shannon
 from privyx.policies import StrictPolicy
@@ -100,7 +100,7 @@ def test_without_builtins_enable_takes_wallets_and_national_ids() -> None:
 def test_disable_turns_wallets_and_national_ids_off(tmp_path: Path) -> None:
     config = tmp_path / "privyx.yaml"
     config.write_text(f"detectors:\n  regex:\n    disable: {CATALOG}\n")
-    detector = build_detector_from(load_config(config))
+    detector = build_detector(load_config(config).detectors)
     assert detector.detect_sync(WALLET_AND_IDS, Context()).spans == []
 
 

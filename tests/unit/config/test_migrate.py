@@ -10,6 +10,7 @@ import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
+from privyx.app import read_config
 from privyx.cli.main import cli
 from privyx.config import migrate
 from privyx.core import ConfigError
@@ -45,8 +46,9 @@ detector:
 def _load(tmp_path: Path, text: str, name: str = "c.yaml") -> tuple[object, list[str]]:
     path = tmp_path / name
     path.write_text(text, encoding="utf-8")
-    warnings: list[str] = []
-    return load_config(path, warnings=warnings), warnings
+    loaded = read_config(path)
+    warnings = loaded.warnings
+    return loaded.settings, warnings
 
 
 def test_the_old_keys_are_read_as_the_new_ones_with_a_warning(tmp_path: Path) -> None:
@@ -217,7 +219,9 @@ def test_an_old_key_in_a_profile_or_a_preset_is_read_too(tmp_path: Path) -> None
     path.write_text(text, encoding="utf-8")
     warnings: list[str] = []
 
-    quiet = load_config(path, agent="claude:quiet", warnings=warnings)
+    loaded = read_config(path, agent="claude:quiet")
+    warnings = loaded.warnings
+    quiet = loaded.settings
     verbose = load_config(path, presets=["verbose"])
 
     assert (quiet.log.level, verbose.log.level) == ("error", "debug")

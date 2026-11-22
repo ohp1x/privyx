@@ -40,7 +40,7 @@ async def test_run_and_other_commands_share_the_persisted_anchor(config: Path, h
     assert key.exists()
     expected = await HMACAnchor(secret=key.read_text()).anchor("alice@example.com", Context())
     assert await anchor.anchor("alice@example.com", Context()) == expected
-    run_settings = _run_settings(Privyx(), None, None, None, False)
+    run_settings = _run_settings(Privyx(), None, None, None, False).settings
     run_anchor = build_anchor(run_settings)
     assert run_anchor is not None
     await run_anchor.open(services())
@@ -59,7 +59,7 @@ async def test_run_still_provisions_the_secret_for_a_plugin_anchor_extending_hma
 
     app = Privyx()
     app.add(CustomAnchor)
-    settings = _run_settings(app, None, None, None, False)
+    settings = _run_settings(app, None, None, None, False).settings
     settings.anchor.type = "custom"
     anchor = build_anchor(settings, app)
     assert anchor is not None
@@ -77,7 +77,7 @@ async def test_configured_secret_overrides_run_default(
     config: Path, home: Path, secret: str
 ) -> None:
     await asyncio.to_thread(config.write_text, f"anchor:\n  secret: '{secret}'\n")
-    settings = _run_settings(Privyx(str(config)), None, None, None, False)
+    settings = _run_settings(Privyx(str(config)), None, None, None, False).settings
     anchor = build_anchor(settings)
     if secret:
         assert anchor is not None

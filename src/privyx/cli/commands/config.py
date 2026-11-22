@@ -83,13 +83,13 @@ def show_cmd(with_sources: bool) -> None:
     from privyx.core import PrivyxError
     from privyx.security import redact
 
-    origins: dict[str, str] = {}
     try:
-        settings = Privyx().config.show(sources=origins)
+        loaded = Privyx().config.show()
     except PrivyxError as exc:
         _fail(exc)
-    values = redact(settings.model_dump(mode="json"))
-    click.echo(json.dumps(_with_sources(values, origins) if with_sources else values, indent=2))
+    values = redact(loaded.settings.model_dump(mode="json"))
+    shown = _with_sources(values, loaded.sources) if with_sources else values
+    click.echo(json.dumps(shown, indent=2))
 
 
 def _with_sources(

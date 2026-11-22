@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from privyx import load_config
 from privyx.anchors import Anchor, HMACAnchor
+from privyx.app import read_config
 from privyx.app._build import build_anchor, build_operator, open_operator
 from privyx.config.schema import Settings
 from privyx.core import ConfigError, Context, Detection, OperatorError, Session, Span
@@ -259,7 +260,9 @@ def test_the_old_hash_length_still_works_with_a_warning(tmp_path: Path) -> None:
     config.write_text("operator:\n  type: hash\n  length: 8\n")
     warnings: list[str] = []
 
-    settings = load_config(config, warnings=warnings)
+    loaded = read_config(config)
+    warnings = loaded.warnings
+    settings = loaded.settings
 
     assert settings.operator.model_dump()["id_length"] == 8
     assert "'operator.length' is deprecated; write 'operator.id_length' (removed in 0.4.0)" in (
@@ -273,7 +276,9 @@ def test_the_old_redact_token_still_works_with_a_warning(tmp_path: Path) -> None
     config.write_text("operator:\n  type: redact\n  token: '[GONE]'\n")
     warnings: list[str] = []
 
-    operator = build_operator(load_config(config, warnings=warnings))
+    loaded = read_config(config)
+    warnings = loaded.warnings
+    operator = build_operator(loaded.settings)
 
     assert operator.fixed_text == "[GONE]"
     assert "'operator.token' is deprecated; write 'operator.text' (removed in 0.4.0)" in warnings

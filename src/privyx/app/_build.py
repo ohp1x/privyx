@@ -84,7 +84,7 @@ async def open_operator(settings: Settings, app: Privyx | None = None) -> Operat
     app = _app(app)
     anchor = build_anchor(settings, app)
     operator = build_operator(settings, app)
-    services = _services(settings, app, build_codec(settings, app), anchor)
+    services = _services(app, build_codec(settings, app), anchor)
     if anchor is not None:
         await anchor.open(services)
     await operator.open(services)
@@ -122,7 +122,7 @@ async def build_vault(settings: Settings, app: Privyx | None = None) -> tuple[Va
     """
     app = _app(app)
     vault = _build(app, Vault, settings.vault, "vault")
-    await vault.open(_services(settings, app, FormatCodec.default(), None))
+    await vault.open(_services(app, FormatCodec.default(), None))
     return vault, vault.close
 
 
@@ -166,12 +166,7 @@ def build_detector(
     return detectors[0] if len(detectors) == 1 else CompositeDetector(detectors)
 
 
-def build_detector_from(settings: Settings, app: Privyx | None = None) -> Detector:
-    """Build the configured detectors, run together when more than one is on."""
-    return build_detector(settings.detectors, app)
-
-
-def build_policy_from(settings: Settings, app: Privyx | None = None) -> Policy:
+def build_policy(settings: Settings, app: Privyx | None = None) -> Policy:
     """Build the configured policy."""
     return _build(_app(app), Policy, settings.policy, "policy")
 
@@ -205,7 +200,7 @@ async def open_provider(settings: Settings, app: Privyx | None = None) -> Provid
     """
     app = _app(app)
     provider = build_provider(settings, app)
-    await provider.open(_services(settings, app, FormatCodec.default(), None))
+    await provider.open(_services(app, FormatCodec.default(), None))
     return provider
 
 
@@ -237,10 +232,10 @@ async def build_engine(
     anchor = build_anchor(settings, app)
     vault = _build(app, Vault, settings.vault, "vault")
     codec = build_codec(settings, app)
-    detector = build_detector_from(settings, app)
-    policy = build_policy_from(settings, app)
+    detector = build_detector(settings.detectors, app)
+    policy = build_policy(settings, app)
     operator = build_operator(settings, app)
-    services = _services(settings, app, codec, anchor)
+    services = _services(app, codec, anchor)
     opened: list[Component] = []
     try:
         for component in (vault, anchor, operator, detector, policy):
@@ -301,9 +296,7 @@ def _build[C: Component](app: Privyx, kind: type[C], section: PluggableConfig, s
     return registry.build(section.type, options, setting=setting)
 
 
-def _services(
-    settings: Settings, app: Privyx, codec: FormatCodec, anchor: Anchor | None
-) -> Services:
+def _services(app: Privyx, codec: FormatCodec, anchor: Anchor | None) -> Services:
     """What ``app`` shares with the components it opens."""
     return Services(codec=codec, anchor=anchor, events=app._events)
 

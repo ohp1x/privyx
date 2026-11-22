@@ -19,6 +19,7 @@ from privyx.operators._pseudonym import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline
 from privyx.proxy._tap import Tap, tap_file
+from privyx.testing import audit_to
 from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
@@ -150,11 +151,10 @@ def test_forensic_export_keeps_only_the_masked_side(tmp_path: Path) -> None:
     import io
     import zipfile
 
-    from privyx.observability.audit import AuditLogger
 
     log = io.StringIO()
     proxy = _proxy(Tap(tmp_path / "tap"))
-    proxy._audit = AuditLogger(log)  # noqa: SLF001
+    proxy._audit = audit_to(log)  # noqa: SLF001
 
     async def exchanges() -> None:
         await _exchange(proxy)

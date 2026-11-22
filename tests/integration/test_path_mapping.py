@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from privyx.core import Exchange
+from privyx.testing import audit_to
 
 pytest.importorskip("fastapi")
 
@@ -25,7 +26,6 @@ from privyx.config.schema import Settings  # noqa: E402
 from privyx.core import ConfigError  # noqa: E402
 from privyx.detectors import RegexDetector  # noqa: E402
 from privyx.engine import PrivacyEngine  # noqa: E402
-from privyx.observability.audit import AuditLogger  # noqa: E402
 from privyx.operators._pseudonym import PseudonymOperator  # noqa: E402
 from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.providers import resolve_transparent_upstream  # noqa: E402
@@ -134,7 +134,7 @@ async def test_prefix_join(origin: str, prefix: str, path: str, url: str) -> Non
 async def test_prefix_refuses_paths_outside_or_ambiguous(path: str) -> None:
     seen: list[httpx.Request] = []
     trail = io.StringIO()
-    proxy = _proxy(seen, audit=AuditLogger(trail))
+    proxy = _proxy(seen, audit=audit_to(trail))
     response = await proxy.handle(Exchange(method="POST", path=path, headers={}, body=b"{}"))
     assert response.status_code == 404
     assert not seen

@@ -30,28 +30,17 @@ pseudonyms for :class:`StreamingDeanonymizer`, or the token codec for
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
 
 from privyx.streaming.recognizer import CodecRecognizer, Recognizer, TrieRecognizer
 from privyx.token.codec import FormatCodec, TokenIds
 
 
-@runtime_checkable
-class StreamDeanonymizer(Protocol):
-    """A stateful text deanonymizer fed one chunk at a time.
+class StreamDeanonymizer:
+    """A stateful text deanonymizer fed one chunk at a time: the hold-back scan loop.
 
-    Both :class:`StreamingDeanonymizer` (literal-value matching) and
-    :class:`TokenStreamProcessor` (codec-syntax matching) satisfy this, so a
-    caller can pick the restoration strategy without depending on which.
+    :class:`StreamingDeanonymizer` (literal-value matching) and
+    :class:`TokenStreamProcessor` (codec-syntax matching) give it its recognizer.
     """
-
-    def feed(self, chunk: str) -> str: ...
-
-    def flush(self) -> str: ...
-
-
-class _BufferedStream:
-    """The hold-back scan loop, parameterized by a recognizer."""
 
     def __init__(self, recognizer: Recognizer) -> None:
         self._recognizer = recognizer
@@ -74,20 +63,19 @@ class _BufferedStream:
         text = self._before + self._pending + chunk
         self._pending = ""
         recognizer = self._recognizer
-        find_candidate = getattr(recognizer, "find_candidate", None)
+        find_candidate = recognizer.find_candidate
         out: list[str] = []
         i = len(self._before)
         n = len(text)
         while i < n:
-            if find_candidate is not None:
-                cand = find_candidate(text, i)
-                if cand == -1:
-                    out.append(text[i:])
-                    i = n
-                    break
-                if cand > i:
-                    out.append(text[i:cand])
-                    i = cand
+            cand = find_candidate(text, i)
+            if cand == -1:
+                out.append(text[i:])
+                i = n
+                break
+            if cand > i:
+                out.append(text[i:cand])
+                i = cand
             if not final:
                 prefix_len = recognizer.longest_prefix_len(text, i)
                 if prefix_len > 0 and i + prefix_len == n:
@@ -106,7 +94,7 @@ class _BufferedStream:
         return "".join(out)
 
 
-class StreamingDeanonymizer(_BufferedStream):
+class StreamingDeanonymizer(StreamDeanonymizer):
     """Stateful deanonymizer that matches the pseudonyms a session has issued.
 
     Args:
@@ -114,15 +102,10 @@ class StreamingDeanonymizer(_BufferedStream):
     """
 
     def __init__(self, mapping: dict[str, str] | None = None) -> None:
-        self._trie = TrieRecognizer(mapping)
-        super().__init__(self._trie)
-
-    def update_mapping(self, mapping: dict[str, str]) -> None:
-        """Add or refresh pseudonym mappings mid-stream."""
-        self._trie.update(mapping)
+        super().__init__(TrieRecognizer(mapping))
 
 
-class TokenStreamProcessor(_BufferedStream):
+class TokenStreamProcessor(StreamDeanonymizer):
     """Stateful deanonymizer that recognizes tokens by the configured syntax.
 
     Args:

@@ -9,6 +9,7 @@ import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
+from privyx.app import read_config
 from privyx.cli.main import cli
 from privyx.config import trust
 from privyx.core import ConfigError
@@ -122,7 +123,9 @@ def test_the_old_upstream_keys_still_work_with_a_warning(tmp_path: Path) -> None
     )
     warnings: list[str] = []
 
-    settings = load_config(config, warnings=warnings)
+    loaded = read_config(config)
+    warnings = loaded.warnings
+    settings = loaded.settings
 
     assert resolve_base_url(settings) == ROUTER
     assert settings.providers["openai"].api_key == KEY
@@ -152,7 +155,9 @@ def test_the_environment_variables_of_the_upstream_give_no_warning(
         monkeypatch.setenv(name, value)
     warnings: list[str] = []
 
-    settings = load_config(warnings=warnings)
+    loaded = read_config()
+    warnings = loaded.warnings
+    settings = loaded.settings
 
     assert warnings == []
     assert (settings.provider.type, resolve_base_url(settings)) == ("anthropic", ROUTER)
@@ -165,7 +170,8 @@ def test_token_settings_an_operator_does_not_use_are_warned_about(tmp_path: Path
     )
     warnings: list[str] = []
 
-    load_config(config, warnings=warnings)
+    loaded = read_config(config)
+    warnings = loaded.warnings
 
     assert any(
         f"'token.namespace' from {config} has no effect: operator type 'faker'" in w

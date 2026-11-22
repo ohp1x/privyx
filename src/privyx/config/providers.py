@@ -22,6 +22,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from privyx.config._keys import leaves
 from privyx.core import ConfigError
 
 #: The fields that say where requests go, and how: a destination from
@@ -35,163 +36,11 @@ _DESTINATION = (
     "max_connections",
 )
 
-#: The ``proxy`` keys that moved to the provider.
-_MOVED_FROM_PROXY = _DESTINATION[1:]
-
-#: The provider types whose key had a key of its own on the provider.
+#: The provider types that had a key setting of their own on the provider.
 _TYPE_KEYS = ("openai", "anthropic", "google")
 
 #: Operators that issue placeholder tokens, which ``token.*`` shapes.
 TOKEN_OPERATORS = frozenset({"pseudonym", "hash", "encrypt"})
-
-
-def translate_keys(layer: dict[str, Any], source: str, deprecated: list[str]) -> dict[str, Any]:
-    """``layer`` with the provider and operator keys renamed in 0.3.0 written the new way.
-
-    Each one a config file writes adds a warning to ``deprecated``; the
-    environment's and the command line's are the current way to set them.
-    Profiles' ``privyx`` settings and presets are translated too.
-    """
-    warn = source not in ("environment", "CLI", "defaults", "run defaults", "plugin defaults")
-    layer = _translated(layer, "", deprecated if warn else [])
-    presets = layer.get("presets")
-    if isinstance(presets, dict):
-        layer["presets"] = {
-            name: _translated(dict(p), f"presets.{name}.", deprecated if warn else [])
-            if isinstance(p, dict)
-            else p
-            for name, p in presets.items()
-        }
-    agents = layer.get("agents")
-    if isinstance(agents, dict):
-        for name, profile in agents.items():
-            if isinstance(profile, dict) and isinstance(profile.get("privyx"), dict):
-                own = _translated(
-                    dict(profile["privyx"]), f"agents.{name}.privyx.", deprecated if warn else []
-                )
-                agents[name] = {**profile, "privyx": own}
-    return layer
-
-
-def _translated(data: dict[str, Any], prefix: str, deprecated: list[str]) -> dict[str, Any]:
-    """``data``, one layer's settings or a patch of them, with the renamed keys moved."""
-
-    def moved(old: str, new: str) -> None:
-        deprecated.append(
-            f"{prefix + old!r} is deprecated; write {prefix + new!r} (removed in 0.4.0)"
-        )
-
-    data = dict(data)
-    if "upstream_url" in data:
-        moved("upstream_url", "provider.base_url")  # still read as the base URL of the selection
-    provider = data.get("provider")
-    if isinstance(provider, dict):
-        provider = dict(provider)
-        for name in _TYPE_KEYS:
-            key = f"{name}_api_key"
-            if key in provider:
-                value = provider.pop(key)
-                moved(f"provider.{key}", f"providers.{name}.api_key")
-                providers = data.setdefault("providers", {})
-                providers[name] = {**providers.get(name, {}), "api_key": value}
-        data["provider"] = provider
-    proxy = data.get("proxy")
-    if isinstance(proxy, dict) and any(key in proxy for key in _MOVED_FROM_PROXY):
-        proxy = dict(proxy)
-        moving = {key: proxy.pop(key) for key in _MOVED_FROM_PROXY if key in proxy}
-        for key in moving:
-            moved(f"proxy.{key}", f"provider.{key}")
-        data["proxy"] = proxy
-        if isinstance(provider, str):  # the layer selects one: its connection settings
-            providers = data.setdefault("providers", {})
-            providers[provider] = {**providers.get(provider, {}), **moving}
-        else:
-            data["provider"] = {**(provider or {}), **moving}
-    operator = data.get("operator")
-    if isinstance(operator, dict) and operator.get("type") == "hash":
-        deprecated.append(
-            f"{prefix + 'operator.type'!r} 'hash' is deprecated: anyone who guesses a value "
-            "can match its token; use 'pseudonym' with 'anchor.secret' (removed in 0.4.0)"
-        )
-    return data
-
-
-def translate_operator(
-    data: dict[str, Any], kind: str, source: str, deprecated: list[str]
-) -> dict[str, Any]:
-    """``data`` with the operator settings renamed in 0.3.0 written the new way.
-
-    Which ones are renamed depends on ``kind``, the operator type in use: a
-    plugin's operator may have a ``length`` or a ``token`` of its own.
-    Presets and profiles' ``privyx`` settings are translated with the type
-    they set, if any.
-    """
-    warn = source not in ("environment", "CLI", "defaults", "run defaults", "plugin defaults")
-    data = _operator_keys(data, kind, "", deprecated if warn else [])
-    presets = data.get("presets")
-    if isinstance(presets, dict):
-        data["presets"] = {
-            name: _operator_keys(
-                dict(p), _kind(p, kind), f"presets.{name}.", deprecated if warn else []
-            )
-            if isinstance(p, dict)
-            else p
-            for name, p in presets.items()
-        }
-    agents = data.get("agents")
-    if isinstance(agents, dict):
-        agents = dict(agents)
-        for name, profile in agents.items():
-            own = profile.get("privyx") if isinstance(profile, dict) else None
-            if isinstance(own, dict):
-                prefix = f"agents.{name}.privyx."
-                own = _operator_keys(
-                    dict(own), _kind(own, kind), prefix, deprecated if warn else []
-                )
-                agents[name] = {**profile, "privyx": own}
-        data["agents"] = agents
-    return data
-
-
-def _kind(patch: Mapping[str, Any], kind: str) -> str:
-    """The operator type ``patch`` sets, or ``kind``."""
-    operator = patch.get("operator")
-    own = operator.get("type") if isinstance(operator, dict) else None
-    return own if isinstance(own, str) else kind
-
-
-def _operator_keys(
-    data: dict[str, Any], kind: str, prefix: str, deprecated: list[str]
-) -> dict[str, Any]:
-    """``data`` with ``token.id_length``, and ``operator.length`` or ``.token``, moved."""
-
-    def moved(old: str, new: str) -> None:
-        deprecated.append(
-            f"{prefix + old!r} is deprecated; write {prefix + new!r} (removed in 0.4.0)"
-        )
-
-    token = data.get("token")
-    operator = data.get("operator")
-    operator = dict(operator) if isinstance(operator, dict) else None
-    if isinstance(token, dict) and "id_length" in token:
-        token = dict(token)
-        length = token.pop("id_length")
-        data["token"] = token
-        if kind in TOKEN_OPERATORS:
-            moved("token.id_length", "operator.id_length")
-            operator = {**(operator or {}), "id_length": length}
-        else:
-            deprecated.append(
-                f"{prefix + 'token.id_length'!r} is deprecated, and operator type {kind!r} "
-                "writes no id of a length; remove it (removed in 0.4.0)"
-            )
-    if operator is not None:
-        for old, new, owner in (("length", "id_length", "hash"), ("token", "text", "redact")):
-            if old in operator and kind == owner:
-                moved(f"operator.{old}", f"operator.{new}")
-                operator.setdefault(new, operator.pop(old))
-        data["operator"] = operator
-    return data
 
 
 @dataclass
@@ -246,8 +95,8 @@ def resolve_provider(
         """Merge ``mapping`` into definition ``name``; whether it wrote a credential."""
         defs[name] = merge(defs.get(name, {}), dict(mapping))
         paths = written.setdefault(name, {})
-        for path in _paths(mapping):
-            paths[path] = source
+        for leaf in leaves(mapping):
+            paths[".".join(leaf)] = source
         return bool(mapping.get("api_key")) or bool(mapping.get("headers"))
 
     for source, data in layers:
@@ -285,7 +134,7 @@ def resolve_provider(
                 # The profile's provider goes there, without this credential.
                 moved = {key: mapping[key] for key in _DESTINATION if key in mapping}
                 dest.update(moved)
-                dest_sources.update(dict.fromkeys(_paths(moved), source))
+                dest_sources.update({".".join(leaf): source for leaf in leaves(moved)})
         if "upstream" in projection:
             dest["base_url"] = projection["upstream"]
             dest_sources["base_url"] = source
@@ -357,14 +206,3 @@ def _held(definition: Mapping[str, Any]) -> bool:
     """Whether ``definition`` holds a credential: a key, or a header, whose name says nothing."""
     headers = definition.get("headers")
     return bool(definition.get("api_key")) or (isinstance(headers, dict) and any(headers.values()))
-
-
-def _paths(mapping: Mapping[str, Any], prefix: str = "") -> list[str]:
-    """The dotted paths of the leaves of ``mapping``."""
-    found: list[str] = []
-    for key, value in mapping.items():
-        if isinstance(value, dict) and value:
-            found += _paths(value, f"{prefix}{key}.")
-        else:
-            found.append(f"{prefix}{key}")
-    return found

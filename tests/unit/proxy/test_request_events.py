@@ -13,10 +13,10 @@ from privyx.core import EventBus, Exchange
 from privyx.detectors import RegexDetector
 from privyx.engine import PrivacyEngine
 from privyx.events import ProxyResponse, RequestMasked, RequestReceived
-from privyx.observability.audit import AuditLogger
 from privyx.operators import PseudonymOperator
 from privyx.policies import DefaultPolicy
 from privyx.proxy import Pipeline
+from privyx.testing import audit_to
 from privyx.vaults import MemoryVault
 
 EMAIL = "alice@example.com"
@@ -32,7 +32,7 @@ class _Proxy:
         bus = EventBus()
         for event, listener in listeners:
             bus.add(event, listener)
-        audit = AuditLogger(self.trail, events=bus)
+        audit = audit_to(self.trail, events=bus)
         engine = PrivacyEngine(
             detector=RegexDetector(),
             policy=DefaultPolicy(),

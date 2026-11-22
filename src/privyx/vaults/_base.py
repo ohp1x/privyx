@@ -11,13 +11,16 @@ import json
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
-from typing import final
+from typing import ClassVar, final
 
 from privyx.core import Component, Session, VaultError
 
 
 class Vault(Component, kind="vault"):
     """Where sessions are kept: create, read, save, and delete one by id."""
+
+    #: Whether a session outlives this process, so another one can read it.
+    persistent: ClassVar[bool] = True
 
     @abstractmethod
     async def create(self, session: Session) -> None:

@@ -41,34 +41,3 @@ class SSEStreamAdapter:
             else:
                 return ""
         return node if isinstance(node, str) else ""
-
-    def wrap_delta(self, delta: str, original: SSEEvent | None = None) -> SSEEvent:
-        """Re-wrap a transformed delta into an SSE event.
-
-        If ``original`` is provided and the data is JSON, the transformed
-        delta is spliced back into the original payload.
-        """
-        if original is None or self._data_path is None:
-            return SSEEvent(data=delta, event=original.event if original else None)
-        try:
-            import json
-
-            payload = json.loads(original.data)
-        except json.JSONDecodeError:
-            return SSEEvent(data=delta, event=original.event)
-        node: Any = payload
-        for key in self._data_path[:-1]:
-            if isinstance(node, dict):
-                node = node.get(key)
-            elif isinstance(node, list):
-                try:
-                    node = node[int(key)]
-                except (ValueError, IndexError):
-                    return SSEEvent(data=delta, event=original.event)
-        node[self._data_path[-1]] = delta
-        return SSEEvent(
-            data=json.dumps(payload, separators=(",", ":")),
-            event=original.event,
-            id=original.id,
-            retry=original.retry,
-        )

@@ -23,13 +23,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 from privyx.streaming.trie import PseudonymTrie
 from privyx.token.codec import FormatCodec, TokenIds
 
 
-@runtime_checkable
 class Recognizer(Protocol):
     """Decides where tokens are and what they become, one position at a time."""
 

@@ -113,7 +113,7 @@ def mask(
             sys.exit(1)
         loaded = _load_map(map_path) if map_path and Path(map_path).exists() else None
         app = Privyx()
-        if not map_path and app.settings.vault.type == "memory":
+        if not map_path and not app.sessions.persistent:
             click.echo(
                 "Warning: vault type is 'memory', so the mapping is gone when this process "
                 "exits and this output can never be unmasked. Pass --map FILE, or configure "
@@ -292,7 +292,7 @@ async def _stream(session_id: str | None, restore: bool) -> None:
     from privyx.core import Context, SessionNotFoundError
 
     app = Privyx()
-    if not restore and app.settings.vault.type == "memory":
+    if not restore and not app.sessions.persistent:
         click.echo(
             "Warning: vault type is 'memory', so this output can never be restored. "
             "Configure a sqlite/redis vault to keep the mapping.",

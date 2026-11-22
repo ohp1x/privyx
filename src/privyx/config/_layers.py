@@ -19,6 +19,8 @@ from __future__ import annotations
 import difflib
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,7 +28,7 @@ from privyx.config._env import env_config
 from privyx.config._files import _config_layers, _config_paths
 from privyx.config._interpolate import _DEFERRED, _interpolate, _settle
 from privyx.config._keys import leaves
-from privyx.config._migrate import translate
+from privyx.config._migrate import translate_layer, translate_operator
 from privyx.config._presets import (
     CHOSEN_PRESETS,
     _check_overrides,
@@ -34,14 +36,9 @@ from privyx.config._presets import (
     _preset_layers,
 )
 from privyx.config._unused import _UNUSED_WARNED, _raise_unknown, _unknown_keys, _unused
-from privyx.config.agents import profile_type, resolve_profiles, translate_adapters
+from privyx.config.agents import profile_type, resolve_profiles
 from privyx.config.defaults import DEFAULTS
-from privyx.config.providers import (
-    resolve_provider,
-    token_warnings,
-    translate_keys,
-    translate_operator,
-)
+from privyx.config.providers import Resolved, resolve_provider, token_warnings
 from privyx.config.schema import NAMED, PLUGGABLE, AgentConfig, PluggableConfig, Settings
 from privyx.core import ConfigError
 
@@ -181,22 +178,53 @@ def _named(merged: dict[str, Any]) -> None:
             }
 
 
-def load_config(
+@dataclass
+class Loaded:
+    """A config read: its settings, where each came from, and what to say about it."""
+
+    settings: Settings
+    #: Each setting's dotted path, with the layer that won.
+    sources: dict[str, str]
+    #: Old keys, and settings that have no effect: names, never values.
+    warnings: list[str]
+    #: The layers read, lowest first.
+    layers: list[tuple[str, dict[str, Any]]]
+
+    @cached_property
+    def written(self) -> dict[str, list[str]]:
+        """Each setting's dotted path, with every layer that writes it, lowest first."""
+        found: dict[str, list[str]] = {}
+        for source, data in self.layers:
+            for leaf in leaves(data):
+                found.setdefault(".".join(leaf), []).append(source)
+        return found
+
+    def log_warnings(self) -> Loaded:
+        """Log each warning, once per process."""
+        for warning in self.warnings:
+            if warning not in _UNUSED_WARNED:
+                _UNUSED_WARNED.add(warning)
+                _log.warning("%s", warning)
+        return self
+
+
+def load_config(path: str | Path | None = None, **options: Any) -> Settings:
+    """The settings of :func:`read_config`, its warnings logged once per process."""
+    return read_config(path, **options).log_warnings().settings
+
+
+def read_config(
     path: str | Path | None = None,
     *,
     extra: dict[str, Any] | None = None,
     base_extra: dict[str, Any] | None = None,
     agent: str | None = None,
     presets: Sequence[str] | None = None,
-    sources: dict[str, str] | None = None,
-    written: dict[str, list[str]] | None = None,
     secrets: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     setup: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-    defaults: dict[str, Any] | None = None,
-    warnings: list[str] | None = None,
     defaults_only: bool = False,
     types: Mapping[str, Registry[Any]],
-) -> Settings:
+) -> Loaded:
     """Load and merge configuration into validated :class:`Settings`.
 
     Precedence, low → high: built-in defaults < ``base_extra`` < YAML files <
@@ -215,19 +243,15 @@ def load_config(
     ``presets``, then its ``privyx`` settings, then ``presets`` come just
     below ``extra``; without a profile, just ``presets``.  ``presets`` defaults
     to :data:`CHOSEN_PRESETS`.
-    ``sources`` optionally receives dotted field paths -> winning layer, and
-    ``written`` each path -> every layer that writes it, lowest first.
     ``secrets`` resolves the secret references of the merged config; without
     it they are left as written (``op://...``), so no password manager is asked.
     ``setup``, given the merged files, environment, and ``extra``, sets up
     the plugins they name and returns the defaults those add (agent profiles,
-    presets): when there are some, the config is read again with them as
-    ``defaults``, just above Privyx's own.  A plugin a preset or a profile
-    names is not set up here.
+    presets): when there are some, the config is read again with them just
+    above Privyx's own.  A plugin a preset or a profile names is not set up here.
     A setting a section's type does not use (:func:`_unused`) is an error when
     written beside the type; masking keys from another layer that no detector
-    uses are logged, once per process, or appended to ``warnings`` when it is
-    given.
+    uses are warnings.
     ``defaults_only`` reads no file and no environment: the settings as
     they are when nothing is written.
     ``types`` holds the registry of each section's components, by section
@@ -238,25 +262,68 @@ def load_config(
     if presets is None:
         presets = CHOSEN_PRESETS.get()
     known = _Types(types)
-    merged: dict[str, Any] = {}
-    origins: dict[str, str] = {}
-    layers: list[tuple[str, dict[str, Any]]] = []
+    read = _read_layers(path, extra, base_extra, None, defaults_only, known)
+    if setup is not None and (added := setup(read.merged)):
+        read = _read_layers(path, extra, base_extra, added, defaults_only, known)
+    layers, deprecated = read.layers, read.deprecated
 
-    deprecated: list[str] = []
+    # The operator settings renamed for the type in use, now that it is known.
+    operator = read.merged.get("operator")
+    kind = operator.get("type") if isinstance(operator, dict) else None
+    kind = kind if isinstance(kind, str) else "pseudonym"
+    layers[:] = [(src, translate_operator(data, kind, src, deprecated)) for src, data in layers]
+    merged = translate_operator(read.merged, kind, "defaults", [])
+    _named(merged)
+    # A misspelled key would otherwise be dropped without a word, and the
+    # setting it meant to change (a detector's terms, say) silently not apply.
+    _raise_unknown(_unknown_keys(Settings, merged, known))
+    _check_presets(merged, presets, known)
+
+    profiles, inherited = _apply_profile(merged, layers, read.origins, agent, presets, known)
+    merged, origins, resolved = _effective(layers, profiles, inherited, agent, known)
+    refused, unused = _unused(layers, merged, origins, known)
+    if refused:
+        raise ConfigError("; ".join(refused))
+    warnings = (
+        list(dict.fromkeys(deprecated))
+        + resolved.warnings
+        + token_warnings(merged, origins)
+        + unused
+    )
+    settings = _validated(_with_secrets(merged, agent, secrets), known)
+    settings._home = resolved.home
+    return Loaded(settings, origins, warnings, layers)
+
+
+@dataclass
+class _Read:
+    """The config's layers, lowest first, each with its old keys written the new way."""
+
+    layers: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    merged: dict[str, Any] = field(default_factory=dict)
+    origins: dict[str, str] = field(default_factory=dict)
+    deprecated: list[str] = field(default_factory=list)
+
+
+def _read_layers(
+    path: str | Path | None,
+    extra: dict[str, Any] | None,
+    base_extra: dict[str, Any] | None,
+    defaults: dict[str, Any] | None,
+    defaults_only: bool,
+    known: _Types,
+) -> _Read:
+    """Every layer from the defaults to ``extra``, ``defaults`` being what plugins add."""
+    read = _Read()
 
     def apply(data: dict[str, Any], source: str) -> None:
-        nonlocal merged
-        quiet = source in ("defaults", "plugin defaults", "run defaults", "environment")
-        below = merged.get("detectors")
-        data = translate(
-            data,
-            below if isinstance(below, dict) else {},
-            deprecated=[] if quiet else deprecated,
+        below = read.merged.get("detectors")
+        data = translate_layer(
+            data, below if isinstance(below, dict) else {}, source, read.deprecated
         )
-        data = translate_keys(translate_adapters(data, deprecated), source, deprecated)
-        layers.append((source, data))
-        _record_sources(data, source, origins, base=merged)
-        merged = _deep_merge(merged, data, known)
+        read.layers.append((source, data))
+        _record_sources(data, source, read.origins, base=read.merged)
+        read.merged = _deep_merge(read.merged, data, known)
 
     apply(DEFAULTS, "defaults")
     if defaults:
@@ -276,71 +343,69 @@ def load_config(
             apply(_interpolate(data, file), str(file.resolve()))
 
     if not defaults_only:
-        apply(env_config(merged, known), "environment")
-
+        apply(env_config(read.merged, known), "environment")
     if extra:
         apply(extra, "CLI")
-    if setup is not None and (added := setup(merged)):
-        return load_config(
-            path,
-            extra=extra,
-            base_extra=base_extra,
-            agent=agent,
-            presets=presets,
-            sources=sources,
-            written=written,
-            secrets=secrets,
-            defaults=added,
-            warnings=warnings,
-            defaults_only=defaults_only,
-            types=types,
-        )
+    return read
 
-    # The operator settings renamed for the type in use, now that it is known.
-    operator = merged.get("operator")
-    kind = operator.get("type") if isinstance(operator, dict) else None
-    kind = kind if isinstance(kind, str) else "pseudonym"
-    layers[:] = [(src, translate_operator(data, kind, src, deprecated)) for src, data in layers]
-    merged = translate_operator(merged, kind, "defaults", [])
-    _named(merged)
-    # A misspelled key would otherwise be dropped without a word, and the
-    # setting it meant to change (a detector's terms, say) silently not apply.
-    _raise_unknown(_unknown_keys(Settings, merged, known))
-    _check_presets(merged, presets, known)
 
+def _apply_profile(
+    merged: dict[str, Any],
+    layers: list[tuple[str, dict[str, Any]]],
+    origins: dict[str, str],
+    agent: str | None,
+    presets: Sequence[str],
+    known: _Types,
+) -> tuple[Any, dict[str, str]]:
+    """The profiles resolved, and the layer of each field a profile has.
+
+    The presets and ``privyx`` settings that apply go into ``layers``, just
+    below the command line.
+    """
     profiles = merged.get("agents")
-    selected: Any = None
-    inherited_sources: dict[str, str] = {}
-    if isinstance(profiles, dict):
-        _apply_colon_inheritance(profiles)
-        profiles, inherited_sources = resolve_profiles(profiles, origins, known)
-        _check_overrides(profiles, known)
-        _check_types(profiles, known)
-        if agent in profiles:
-            profiles[agent] = _settle(profiles[agent], expand=True)
-        selected = profiles.get(agent) if agent else None
-        own = selected.get("presets") if isinstance(selected, dict) else None
-        override = selected.get("privyx") if isinstance(selected, dict) else None
-        patches = _preset_layers(merged, own if isinstance(own, list) else [])
-        if isinstance(override, dict) and override:
-            patches.append((f"agents.{agent}.privyx", override))
-        patches += _preset_layers(merged, presets)
-        at = next((i for i, (source, _) in enumerate(layers) if source == "CLI"), len(layers))
-        layers[at:at] = patches
+    if not isinstance(profiles, dict):
+        return profiles, {}
+    _apply_colon_inheritance(profiles)
+    profiles, inherited = resolve_profiles(profiles, origins, known)
+    _check_overrides(profiles, known)
+    _check_types(profiles, known)
+    if agent in profiles:
+        profiles[agent] = _settle(profiles[agent], expand=True)
+    selected = profiles.get(agent) if agent else None
+    own = selected.get("presets") if isinstance(selected, dict) else None
+    override = selected.get("privyx") if isinstance(selected, dict) else None
+    patches = _preset_layers(merged, own if isinstance(own, list) else [])
+    if isinstance(override, dict) and override:
+        patches.append((f"agents.{agent}.privyx", override))
+    patches += _preset_layers(merged, presets)
+    at = next((i for i, (source, _) in enumerate(layers) if source == "CLI"), len(layers))
+    layers[at:at] = patches
+    return profiles, inherited
+
+
+def _effective(
+    layers: list[tuple[str, dict[str, Any]]],
+    profiles: Any,
+    inherited: dict[str, str],
+    agent: str | None,
+    known: _Types,
+) -> tuple[dict[str, Any], dict[str, str], Resolved]:
+    """The settings merged with the profile's in place, their origins, and the provider."""
+    selected = profiles.get(agent) if agent and isinstance(profiles, dict) else None
     # The selected profile's provider and upstream, at the layer each comes from.
     projections: dict[str, dict[str, Any]] = {}
     if isinstance(selected, dict):
         for name in ("provider", "upstream"):
-            layer = inherited_sources.get(f"agents.{agent}.{name}")
+            layer = inherited.get(f"agents.{agent}.{name}")
             if layer is not None:
                 projections.setdefault(layer, {})[name] = selected[name]
     # Where requests go is the provider's, chosen across the layers below; the
     # rest is merged again here, so the profile's settings land at their layer.
     effective: dict[str, Any] = {}
-    effective_sources: dict[str, str] = {}
+    origins: dict[str, str] = {}
     for source, data in layers:
         rest = {k: v for k, v in data.items() if k not in ("provider", "providers", "upstream_url")}
-        _record_sources(rest, source, effective_sources, base=effective)
+        _record_sources(rest, source, origins, base=effective)
         effective = _deep_merge(effective, rest, known)
     resolved = resolve_provider(
         layers,
@@ -353,31 +418,20 @@ def load_config(
     effective["provider"] = resolved.provider
     effective["providers"] = resolved.providers
     effective["upstream_url"] = resolved.upstream_url
-    effective_sources.update(resolved.sources)
+    origins.update(resolved.sources)
     if isinstance(profiles, dict):
         effective["agents"] = profiles
-        effective_sources.update(inherited_sources)
-    merged, origins = effective, effective_sources
-    _named(merged)
+        origins.update(inherited)
+    _named(effective)
+    return effective, origins, resolved
 
-    if sources is not None:
-        sources.clear()
-        sources.update(origins)
-    if written is not None:
-        written.clear()
-        for source, data in layers:
-            for leaf in leaves(data):
-                written.setdefault(".".join(leaf), []).append(source)
-    refused, unused = _unused(layers, merged, origins, known)
-    if refused:
-        raise ConfigError("; ".join(refused))
-    unused = (
-        list(dict.fromkeys(deprecated))
-        + resolved.warnings
-        + token_warnings(merged, origins)
-        + unused
-    )
 
+def _with_secrets(
+    merged: dict[str, Any],
+    agent: str | None,
+    secrets: Callable[[dict[str, Any]], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """``merged`` with its deferred settings settled and its secret references resolved."""
     merged = _settle(merged, expand=False)
     # Another profile's deferred settings keep their secret references as
     # written, so a command does not open a password manager for them.
@@ -395,6 +449,15 @@ def load_config(
         merged["agents"][name].update(values)
     if definitions is not None:
         merged["presets"] = definitions
+    return merged
+
+
+def _validated(merged: dict[str, Any], known: _Types) -> Settings:
+    """The settings of ``merged``, each built-in type's options checked.
+
+    Raises:
+        ConfigError: If a value is invalid.
+    """
     named = merged.get("providers")
     if isinstance(named, dict):
         merged["providers"] = {
@@ -413,17 +476,9 @@ def load_config(
                 for name, entry in entries.items()
             }
     try:
-        settings = Settings(**merged)
+        return Settings(**merged)
     except Exception as exc:  # pydantic ValidationError
         raise ConfigError(f"invalid configuration: {exc}") from exc
-    settings._home = resolved.home
-    if warnings is not None:
-        warnings.extend(unused)
-    for warning in unused:
-        if warnings is None and warning not in _UNUSED_WARNED:
-            _UNUSED_WARNED.add(warning)
-            _log.warning("%s", warning)
-    return settings
 
 
 def _check_types(profiles: dict[str, Any], types: _Types) -> None:

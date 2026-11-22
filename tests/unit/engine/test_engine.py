@@ -10,16 +10,16 @@ from pathlib import Path
 
 import pytest
 
+from privyx.app import read_config
 from privyx.core import Session, SessionNotFoundError, VaultError
 from privyx.detectors import RegexDetector
 from privyx.detectors._pattern import DEFAULT_PATTERNS
 from privyx.engine import PrivacyEngine
 from privyx.engine._engine import KEY_PROBE_LIMIT
-from privyx.observability.audit import AuditLogger
 from privyx.operators._pseudonym import PseudonymOperator
 from privyx.operators._redact import RedactOperator
 from privyx.policies import DefaultPolicy, StrictPolicy
-from privyx.testing import opened
+from privyx.testing import audit_to, opened
 from privyx.vaults import MemoryVault
 
 
@@ -122,7 +122,7 @@ async def test_engine_emits_pii_safe_audit_events() -> None:
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
-        audit=AuditLogger(buf),
+        audit=audit_to(buf),
     )
     session = await engine.get_or_create_session()
     await engine.transform("mail alice@example.com", session=session)
@@ -154,7 +154,7 @@ async def test_transform_with_a_key_finds_what_only_the_key_tells() -> None:
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
-        audit=AuditLogger(buf),
+        audit=audit_to(buf),
     )
     session = await engine.get_or_create_session()
 
@@ -190,7 +190,7 @@ async def test_transform_detects_only_a_short_value_with_its_key() -> None:
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
-        audit=AuditLogger(io.StringIO()),
+        audit=audit_to(io.StringIO()),
     )
     session = await engine.get_or_create_session()
     short = "x" * KEY_PROBE_LIMIT
@@ -211,7 +211,7 @@ async def test_delete_session_audits_after_vault_delete() -> None:
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=vault,
-        audit=AuditLogger(buf),
+        audit=audit_to(buf),
     )
     session = await engine.get_or_create_session()
     await engine.transform("mail alice@example.com", session=session)
@@ -267,7 +267,7 @@ async def test_delete_missing_session_is_noop() -> None:
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
-        audit=AuditLogger(buf),
+        audit=audit_to(buf),
     )
 
     assert (
@@ -292,7 +292,7 @@ async def test_delete_session_failure_does_not_audit_deleted() -> None:
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=vault,
-        audit=AuditLogger(buf),
+        audit=audit_to(buf),
     )
     session = await engine.get_or_create_session()
 
@@ -319,7 +319,7 @@ async def test_llm_fallback_reaches_the_transform_audit_event() -> None:
         policy=DefaultPolicy(),
         operator=PseudonymOperator(),
         vault=MemoryVault(),
-        audit=AuditLogger(buf),
+        audit=audit_to(buf),
     )
 
     result = await engine.transform("mail ann@example.com")
@@ -402,13 +402,14 @@ def test_operator_id_length_outside_6_to_64_is_rejected(length: int) -> None:
 
 
 def test_the_old_token_id_length_moves_to_the_operator_with_a_warning(tmp_path: Path) -> None:
-    from privyx import load_config
 
     config = tmp_path / "privyx.yaml"
     config.write_text("token:\n  id_length: 8\n")
     warnings: list[str] = []
 
-    settings = load_config(config, warnings=warnings)
+    loaded = read_config(config)
+    warnings = loaded.warnings
+    settings = loaded.settings
 
     assert settings.operator.model_dump()["id_length"] == 8
     assert "'token.id_length' is deprecated; write 'operator.id_length' (removed in 0.4.0)" in (

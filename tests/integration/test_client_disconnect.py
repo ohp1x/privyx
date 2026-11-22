@@ -31,7 +31,7 @@ from privyx.policies import DefaultPolicy  # noqa: E402
 from privyx.providers import GenericProvider  # noqa: E402
 from privyx.proxy import Pipeline  # noqa: E402
 from privyx.proxy._asgi import create_app  # noqa: E402
-from privyx.testing import services
+from privyx.testing import audit_to, services
 from privyx.vaults._sqlite import SQLiteVault  # noqa: E402
 
 STREAMS = 80
@@ -108,7 +108,7 @@ async def _drop_before_headers(client: httpx.AsyncClient, url: str) -> None:
 @pytest.mark.parametrize("early", [False, True], ids=["mid-stream", "before-headers"])
 async def test_dropped_streams_leave_no_session(mode: str, path: str, early: bool) -> None:
     buf = io.StringIO()
-    audit = AuditLogger(buf)
+    audit = audit_to(buf)
     vault = SQLiteVault(dsn=":memory:")
     await vault.open(services())
     engine = PrivacyEngine(

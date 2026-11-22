@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from privyx import load_config
+from privyx.app import read_config
 from privyx.config.schema import ServerConfig, Settings, TLSConfig
 
 
@@ -59,7 +60,9 @@ def test_top_level_tls_is_read_with_a_warning(tmp_path: Path) -> None:
     )
     warnings: list[str] = []
 
-    tls = load_config(cfg_file, warnings=warnings).server.tls
+    loaded = read_config(cfg_file)
+    warnings = loaded.warnings
+    tls = loaded.settings.server.tls
 
     assert tls.certfile == "/etc/ssl/cert.pem"
     assert warnings == ["'tls' is deprecated; write 'server.tls' (removed in 0.4.0)"]

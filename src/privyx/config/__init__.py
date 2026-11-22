@@ -23,7 +23,7 @@ if TYPE_CHECKING:
         trust,
     )
     from privyx.config._keys import Key, env_name, parse, resolve, typed
-    from privyx.config._layers import load_config
+    from privyx.config._layers import Loaded, load_config, read_config
     from privyx.config._migrate import detectors_of, migrate
     from privyx.config._presets import CHOSEN_PRESETS
 
@@ -31,6 +31,7 @@ __all__ = [
     "ALIASES",
     "CHOSEN_PRESETS",
     "Key",
+    "Loaded",
     "active_config_paths",
     "detectors_of",
     "discovery_disabled",
@@ -43,6 +44,7 @@ __all__ = [
     "managed_file",
     "migrate",
     "parse",
+    "read_config",
     "read_yaml",
     "resolve",
     "trust",
@@ -65,7 +67,9 @@ _LAZY = {
     "parse": "privyx.config._keys:parse",
     "resolve": "privyx.config._keys:resolve",
     "typed": "privyx.config._keys:typed",
+    "Loaded": "privyx.config._layers:Loaded",
     "load_config": "privyx.config._layers:load_config",
+    "read_config": "privyx.config._layers:read_config",
     "migrate": "privyx.config._migrate:migrate",
     "detectors_of": "privyx.config._migrate:detectors_of",
     "CHOSEN_PRESETS": "privyx.config._presets:CHOSEN_PRESETS",

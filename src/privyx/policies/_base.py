@@ -26,6 +26,10 @@ class Policy(Component, kind="policy"):
         """:meth:`decide`, without awaiting anything."""
         raise NotImplementedError
 
+    def reason(self) -> str:
+        """Why this policy leaves a detected span unmasked, as ``privyx detect`` says it."""
+        return f"the {self.name} policy left it out"
+
 
 def _overrides(cls: type, *methods: str) -> bool:
     """Whether ``cls`` defines one of ``methods`` below its kind's base class."""

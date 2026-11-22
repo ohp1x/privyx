@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from privyx import load_config
+from privyx.app import read_config
 from privyx.config import trust
 from privyx.config.defaults import DEFAULT_AGENTS
 from privyx.core import ConfigError
@@ -49,8 +50,9 @@ def test_profile_layers_and_sources(
         )
     )
     trust(project)
-    sources: dict[str, str] = {}
-    settings = load_config(agent="codex", sources=sources)
+    loaded = read_config(agent="codex")
+    sources = loaded.sources
+    settings = loaded.settings
     assert settings.agents["codex"].command == "codex-work"
     assert settings.agents["codex"].base_path == "/global"
     assert settings.agents["codex"].env_vars == ["PROJECT_BASE_URL"]
@@ -67,16 +69,18 @@ def test_profile_layers_and_sources(
     monkeypatch.setenv("PRIVYX_UPSTREAM_URL", "https://env.example")
     monkeypatch.setenv("PRIVYX_PROVIDER", "anthropic")
     monkeypatch.setenv("PRIVYX_AGENTS", json.dumps({"codex": {"base_path": "/env"}}))
-    settings = load_config(agent="codex", sources=sources)
+    loaded = read_config(agent="codex")
+    sources = loaded.sources
+    settings = loaded.settings
     assert settings.upstream_url == "https://env.example"
     assert settings.provider.type == "openai"  # the profile's: PRIVYX_PROVIDER is the top's
     assert settings.agents["codex"].base_path == "/env"
     assert sources["upstream_url"] == "environment"
-    settings = load_config(
+    loaded = read_config(
         agent="codex",
-        sources=sources,
         extra={"upstream_url": "https://cli.example", "provider": "generic"},
     )
+    settings, sources = loaded.settings, loaded.sources
     assert resolve_base_url(settings) == "https://cli.example"
     assert settings.provider.type == "generic"  # --provider picks over the profile
     assert sources["provider.base_url"] == "CLI"
@@ -231,8 +235,9 @@ def test_inheritance_resolves_final_parent_and_preserves_child_origins(
         )
     )
     trust(project)
-    sources: dict[str, str] = {}
-    settings = load_config(agent="work", sources=sources)
+    loaded = read_config(agent="work")
+    sources = loaded.sources
+    settings = loaded.settings
     profile = settings.agents["work"]
     assert profile.command == "company-wrapper"
     assert profile.type == "claude"
@@ -360,8 +365,9 @@ def test_child_transport_override_survives_a_later_parent_update(
         )
     )
     trust(project)
-    sources: dict[str, str] = {}
-    settings = load_config(agent="work", sources=sources)
+    loaded = read_config(agent="work")
+    sources = loaded.sources
+    settings = loaded.settings
     assert settings.provider.type == "openai"
     assert settings.upstream_url == "https://child.example"
     assert sources["upstream_url"] == str(global_file)
@@ -401,7 +407,9 @@ def test_profile_privyx_settings_sit_between_the_environment_and_the_cli(
     monkeypatch.setenv("PRIVYX_SESSION_STRATEGY", "client")
     sources: dict[str, str] = {}
 
-    strict = load_config(config, agent="claude:strict", sources=sources)
+    loaded = read_config(config, agent="claude:strict")
+    sources = loaded.sources
+    strict = loaded.settings
     stricter = load_config(config, agent="claude:stricter")
     flag = load_config(config, agent="claude:strict", extra={"operator": {"type": "redact"}})
     plain = load_config(config, agent="claude")

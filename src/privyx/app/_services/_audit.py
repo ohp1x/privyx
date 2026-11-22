@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,14 +66,6 @@ class Audit:
             except (KeyError, TypeError, ValueError):
                 skipped += 1
         return Totals(path, stats, skipped)
-
-    def recent(self, count: int, file: Path | None = None) -> list[dict[str, Any]]:
-        """The last ``count`` records of the trail; a line that is not one is left out.
-
-        Raises:
-            OSError: If the trail cannot be read.
-        """
-        return list(deque((r for r in self.records(file) if r is not None), maxlen=count))
 
     def records(self, file: Path | None = None) -> Iterator[dict[str, Any] | None]:
         """Each line of the trail as a record, or ``None`` for one that is not.
