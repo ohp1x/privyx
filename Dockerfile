@@ -41,18 +41,73 @@ RUN groupadd -r -g 1000 privyx && \
     useradd -r -u 1000 -g privyx -m -d /home/privyx -s /bin/bash privyx
 
 # The anchor key goes on the /data volume, so tokens outlive the container.
-ENV PATH="/app/.venv/bin:$PATH" \
+ENV PATH="/app/bin:/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PRIVYX_ANCHOR_KEY_PATH=/data/anchor.key \
-    PRIVYX_HOST=0.0.0.0 \
-    PRIVYX_PORT=8000 \
-    PRIVYX_AUDIT_PATH=/data/privyx-audit.log \
-    PRIVYX_VAULT_DSN=sqlite+aiosqlite:////data/privyx.db
+    PRIVYX_ANCHOR_KEY_PATH=/data/anchor.key
 
 WORKDIR /app
 
 COPY --from=builder --chown=privyx:privyx /app/.venv /app/.venv
+
+# The image's defaults, each only when neither name of its setting is given,
+# in any case: as ENV, they would conflict with the other name.  A compose file
+# adds its own as DEFAULT_PRIVYX_*, and values it fixes as FIXED_PRIVYX_*.
+# `privyx` is first on PATH, so that `docker exec` reads the same vault and
+# audit trail as the proxy.
+COPY --chmod=755 <<'EOF' /app/bin/privyx-env
+# As the loader reads a name: `PRIVYX_` exactly, then the path in any case.
+given() { env -0 | sed -zn 's/^PRIVYX_\([^=]*\)=..*/\1/p' | grep -qzix "$1"; }
+fixed() {
+    [ -n "$3" ] || return 0
+    for name in $(env -0 | sed -zn 's/^PRIVYX_\([^=]*\)=.*/\1/p' | grep -zix "$2" | tr '\0' ' '); do
+        unset "PRIVYX_$name"
+    done
+    export "PRIVYX_$1=$3"
+}
+default() {
+    eval "current=\${PRIVYX_$1:-}"
+    [ -n "$current$3" ] || return 0
+    given "$2" || export "PRIVYX_$1=${current:-$3}"
+}
+fixed HOST SERVER__HOST "${FIXED_PRIVYX_HOST:-}"
+fixed PORT SERVER__PORT "${FIXED_PRIVYX_PORT:-}"
+default HOST SERVER__HOST 0.0.0.0
+default PORT SERVER__PORT 8000
+default AUDIT_PATH FEATURES__AUDIT__PATH /data/privyx-audit.log
+default VAULT_DSN VAULT__DSN sqlite+aiosqlite:////data/privyx.db
+default UPSTREAM_URL PROVIDER__BASE_URL "${DEFAULT_PRIVYX_UPSTREAM_URL:-}"
+default VAULT VAULT__TYPE "${DEFAULT_PRIVYX_VAULT:-}"
+default REDIS_URL VAULT__REDIS_URL "${DEFAULT_PRIVYX_REDIS_URL:-}"
+default VAULT_TTL VAULT__TTL "${DEFAULT_PRIVYX_VAULT_TTL:-}"
+default SESSION_STRATEGY SESSION__STRATEGY "${DEFAULT_PRIVYX_SESSION_STRATEGY:-}"
+default LOG_LEVEL LOG__LEVEL "${DEFAULT_PRIVYX_LOG_LEVEL:-}"
+default AUDIT_ENABLED FEATURES__AUDIT__ENABLED "${DEFAULT_PRIVYX_AUDIT_ENABLED:-}"
+EOF
+
+COPY --chmod=755 <<'EOF' /app/bin/privyx
+#!/bin/sh
+. /app/bin/privyx-env
+exec /app/.venv/bin/privyx "$@"
+EOF
+
+# Reads the port from the environment, where the defaults above always put it,
+# by the type of the setting: no config file, plugin, or secret is loaded.
+COPY --chmod=755 <<'EOF' /app/bin/privyx-health
+#!/bin/sh
+. /app/bin/privyx-env
+exec python -c '
+import os, urllib.request
+from pydantic import TypeAdapter
+def is_port(name):
+    return name == "PRIVYX_PORT" or (
+        name.startswith("PRIVYX_") and name[7:].upper() == "SERVER__PORT"
+    )
+raw = next(v for k, v in os.environ.items() if v and is_port(k))
+port = TypeAdapter(int).validate_python(raw)
+urllib.request.urlopen(f"http://127.0.0.1:{port}/health")
+'
+EOF
 
 COPY --chown=privyx:privyx configs/ /app/configs/
 COPY --chown=privyx:privyx plugins/ /app/plugins/
@@ -67,7 +122,7 @@ VOLUME ["/data"]
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import os, urllib.request; port = os.environ.get('PRIVYX_PORT', '8000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health')" || exit 1
+    CMD ["/app/bin/privyx-health"]
 
 ENTRYPOINT ["privyx"]
 CMD ["proxy"]

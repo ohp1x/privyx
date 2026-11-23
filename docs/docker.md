@@ -53,6 +53,16 @@ Common settings come from environment variables:
 | `PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH` | PII-safe audit trail (default `/data/privyx-audit.log`) |
 | `PRIVYX_SSL_CERTFILE`, `PRIVYX_SSL_KEYFILE` | Serve HTTPS directly |
 
+Each setting also has a name built from its path, such as `PRIVYX_SERVER__PORT`
+for `PRIVYX_PORT`. Either name overrides the image's default host, port, audit
+path, and vault DSN, and the healthcheck follows the port they set. Both names
+with different values stop the container at startup. The `privyx` command
+applies these defaults and those of `docker-compose.yml`, so Python code that
+imports `privyx` in the container sets its own. With `docker-compose.yml`, a
+path name in `.env` takes any case after its `PRIVYX_` prefix, but a value from
+the shell reaches the container only for the names that file lists, spelled as
+there.
+
 For everything else (detectors, custom patterns, routes, operators), mount a
 YAML config and point `PRIVYX_CONFIG` at it:
 
