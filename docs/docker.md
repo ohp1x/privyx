@@ -97,7 +97,8 @@ docker run -d -p 127.0.0.1:8000:8000 \
 - `docker stop` gives requests still running 5 s to finish, then cuts them off
   and deletes their sessions, well within the 10 s Docker waits before it
   kills the container.
-- `GET /health` answers `{"status": "ok"}`; the image's `HEALTHCHECK` uses it.
+- `GET /health` answers `{"status": "ok"}`; the image's `HEALTHCHECK` uses it,
+  over HTTPS when the container serves TLS itself.
 - `GET /metrics` serves request, error, and masked-entity counters in the
   Prometheus text format. Like `/health` it needs no key, so publish the port
   only where those counts may be seen.
