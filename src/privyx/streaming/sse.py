@@ -6,6 +6,7 @@ transformation.  The privacy engine only ever sees the ``data`` payload.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 
 
@@ -17,9 +18,19 @@ class SSEEvent:
     event: str | None = None
     id: str | None = None
     retry: int | None = None
-    #: A block's comment lines, as they came: such an event has no data.  Only
+    #: Lines forwarded as they came, in an event with no data: a block's
+    #: comments, and the ``id`` and ``retry`` of a block without data.  Only
     #: from a decoder asked for them (:class:`SSEDecoder`).
     comment: str | None = None
+
+    def controls(self) -> list[str]:
+        """The ``id`` and ``retry`` lines; an empty ``id`` resets the client's."""
+        lines: list[str] = []
+        if self.id is not None:
+            lines.append(f"id: {self.id}")
+        if self.retry is not None:
+            lines.append(f"retry: {self.retry}")
+        return lines
 
     def to_str(self) -> str:
         if self.comment is not None:
@@ -27,10 +38,7 @@ class SSEEvent:
         lines: list[str] = []
         if self.event:
             lines.append(f"event: {self.event}")
-        if self.id:
-            lines.append(f"id: {self.id}")
-        if self.retry is not None:
-            lines.append(f"retry: {self.retry}")
+        lines += self.controls()
         for data_line in self.data.split("\n"):
             lines.append(f"data: {data_line}")
         return "\n".join(lines) + "\n\n"
@@ -57,7 +65,8 @@ class SSEDecoder:
 
     This decoder buffers across calls and emits an event only once its
     terminating blank line has arrived.  With ``comments``, a block's comment
-    lines (a keep-alive) come first, as an event of their own.
+    lines (a keep-alive) come first, as an event of their own, with the
+    ``id`` and ``retry`` of a block that has no data.
 
     Example::
 
@@ -108,13 +117,18 @@ class SSEDecoder:
         return self._block(remainder) if remainder else []
 
     def _block(self, block: str) -> list[SSEEvent]:
-        """The events of one block: its comment lines, if asked for, and its event."""
+        """The events of one block: the lines kept as they came, if asked for, and its event."""
         events: list[SSEEvent] = []
-        if self._comments:
-            comment = "\n".join(line for line in block.split("\n") if line.startswith(":"))
-            if comment:
-                events.append(SSEEvent(data="", comment=comment))
         event = _parse_block(block)
+        if self._comments:
+            kept = [
+                line
+                for line in block.split("\n")
+                if line.startswith(":")
+                or (event is None and line.partition(":")[0] in ("id", "retry"))
+            ]
+            if kept:
+                events.append(SSEEvent(data="", comment="\n".join(kept)))
         if event is not None:
             events.append(event)
         return events
@@ -137,13 +151,12 @@ def _parse_block(block: str) -> SSEEvent | None:
             data_lines.append(value)
         elif field == "event":
             event_name = value
-        elif field == "id":
+        elif field == "id" and "\0" not in value:  # a client ignores one with a NUL
             event_id = value
-        elif field == "retry":
-            try:
+        elif field == "retry" and value.isascii() and value.isdigit():
+            # Digits only, as a client reads it: `+5` must not become `5`.
+            with contextlib.suppress(ValueError):  # more digits than int() converts
                 retry = int(value)
-            except ValueError:
-                retry = None
     if not data_lines:
         return None
     return SSEEvent(

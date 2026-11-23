@@ -147,9 +147,25 @@ class StreamRouter:
             # A keep-alive may come in the middle of a token: held-back text stays held.
             return [event.to_str()]
         if event.data.strip() == DONE:
-            self._pending_terminal.append(event.to_str())
-            return []
-        return self._event(event)
+            self._hold_terminal(event)
+            frames: list[str] = []
+        else:
+            frames = self._event(event)
+        # An event held back, or rebuilt without them, still moves the client's id.
+        unsent = [
+            line
+            for line in event.controls()
+            if not any(line in frame.split("\n") for frame in frames)
+        ]
+        if unsent:
+            frames = [*frames, SSEEvent(data="", comment="\n".join(unsent)).to_str()]
+        # A format keeps the event as a template: later frames must not repeat them.
+        event.id = event.retry = None
+        return frames
+
+    def _hold_terminal(self, event: SSEEvent) -> None:
+        """Keep ``event`` for the end, without its id and retry, which go out now."""
+        self._pending_terminal.append(replace(event, id=None, retry=None).to_str())
 
     def _passthrough(self, event: SSEEvent, *, drain: bool = True) -> list[str]:
         """Forward an event that is not restored delta by delta.
