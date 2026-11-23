@@ -208,7 +208,7 @@ class AnthropicStream(StreamRouter):
         ptype = payload.get("type")
 
         if ptype == "message_stop":
-            self._pending_terminal.append(event.to_str())
+            self._hold_terminal(event)
             return []
 
         if ptype == "content_block_start":

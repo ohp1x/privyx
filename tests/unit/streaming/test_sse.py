@@ -125,3 +125,40 @@ def test_sse_decoder_gives_comments_only_when_asked() -> None:
         "data: a\n\n",
         ": three\n\n",
     ]
+
+
+def test_sse_decoder_keeps_a_block_of_only_id_or_retry_when_asked() -> None:
+    text = "id: 41\n\nretry: 5000\n\nid:\nevent: ignored\n\ndata: a\n\n"
+
+    assert [e.data for e in SSEDecoder().feed(text)] == ["a"]
+    assert [e.to_str() for e in SSEDecoder(comments=True).feed(text)] == [
+        "id: 41\n\n",
+        "retry: 5000\n\n",
+        "id:\n\n",
+        "data: a\n\n",
+    ]
+
+
+def test_an_empty_id_is_written_so_it_resets_the_clients() -> None:
+    assert parse_sse("id:\ndata: a\n\n")[0].to_str() == "id: \ndata: a\n\n"
+
+
+@pytest.mark.parametrize("value", ["+5", "-5", "5_0", "５", "x"])
+def test_a_retry_a_client_would_ignore_is_not_rewritten(value: str) -> None:
+    assert parse_sse(f"retry: {value}\ndata: a\n\n")[0].retry is None
+
+
+@pytest.mark.parametrize("invalid", ["x", "+5", "9" * 5000])
+def test_an_invalid_retry_leaves_the_last_valid_one(invalid: str) -> None:
+    assert parse_sse(f"retry: 5000\nretry: {invalid}\ndata: a\n\n")[0].retry == 5000
+
+
+def test_an_id_with_a_nul_leaves_the_last_valid_one() -> None:
+    assert parse_sse("id: 7\nid: a\0b\ndata: a\n\n")[0].id == "7"
+
+
+def test_a_very_long_retry_does_not_stop_the_stream() -> None:
+    text = f"retry: {'9' * 5000}\n\ndata: a\n\n"
+
+    assert [e.data for e in SSEDecoder().feed(text)] == ["a"]
+    assert SSEDecoder(comments=True).feed(text)[-1].data == "a"

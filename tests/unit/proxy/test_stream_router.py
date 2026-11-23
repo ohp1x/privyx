@@ -791,3 +791,122 @@ def test_a_plain_text_event_keeps_its_id_and_a_comment_stays() -> None:
     out = _run(router, f": hello\n\nid: 7\nevent: tick\ndata: to {TOKEN}\n\n")
 
     assert out == f": hello\n\nevent: tick\nid: 7\ndata: to {ORIG}\n\n"
+
+
+def _client_state(raw: str) -> tuple[str, int | None, int]:
+    """The last event id, the retry, and the events a client following the SSE rules has."""
+    buffer, last, retry, data, events = "", "", None, False, 0
+    for line in raw.split("\n"):
+        if not line:
+            last = buffer
+            events, data = events + data, False
+        elif not line.startswith(":"):
+            field, _, value = line.partition(":")
+            value = value.removeprefix(" ")
+            if field == "data":
+                data = True
+            elif field == "id":
+                buffer = value
+            elif field == "retry" and value.isdigit():
+                retry = int(value)
+    return last, retry, events
+
+
+_TEXT_FRAMES = {
+    "openai": (
+        OpenAIStreamAdapter,
+        lambda t: "data: " + json.dumps({"choices": [{"index": 0, "delta": {"content": t}}]}),
+    ),
+    "anthropic": (
+        AnthropicStreamAdapter,
+        lambda t: (
+            "event: content_block_delta\ndata: "
+            + json.dumps(
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": t},
+                }
+            )
+        ),
+    ),
+    "responses": (
+        _responses,
+        lambda t: (
+            "event: response.output_text.delta\ndata: "
+            + json.dumps(
+                {
+                    "type": "response.output_text.delta",
+                    "item_id": "i",
+                    "output_index": 0,
+                    "content_index": 0,
+                    "delta": t,
+                }
+            )
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(_TEXT_FRAMES))
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "{a}\n\nid: 41\n\n{b}\n\n",
+        "retry: 5000\n\n{a}\n\n{b}\n\n",
+        "id: 42\n{a}\n\nid:\n{b}\n\n",
+        "id: 42\n{a}\n\nid: 43\n\n{b}\n\n",
+    ],
+)
+def test_the_client_ends_with_the_id_and_retry_the_upstream_sent(name: str, shape: str) -> None:
+    fmt, frame = _TEXT_FRAMES[name]
+    body = shape.format(a=frame("one "), b=frame("two"))
+
+    out = _run(_router(fmt(), {}), body)
+
+    assert _client_state(out) == _client_state(body)
+
+
+@pytest.mark.parametrize("name", list(_TEXT_FRAMES))
+def test_a_control_block_inside_a_token_leaves_the_token_whole(name: str) -> None:
+    fmt, frame = _TEXT_FRAMES[name]
+    body = f"{frame(TOKEN[:6])}\n\nid: 9\n\nretry: 70\n\n{frame(TOKEN[6:])}\n\n"
+
+    out = _run(_router(fmt(), {TOKEN: ORIG}), body)
+
+    assert ORIG in out  # restored in one piece
+    assert _client_state(out) == ("9", 70, 1)
+
+
+@pytest.mark.parametrize("name", list(_TEXT_FRAMES))
+def test_the_id_of_an_event_held_back_still_reaches_the_client(name: str) -> None:
+    fmt, frame = _TEXT_FRAMES[name]
+    body = f"id: 5\n{frame(TOKEN[:6])}\n\n{frame(TOKEN[6:])}\n\n"
+
+    out = _run(_router(fmt(), {TOKEN: ORIG}), body)
+
+    assert ORIG in out
+    assert _client_state(out)[0] == "5"
+
+
+def test_a_held_tail_does_not_bring_back_an_older_id() -> None:
+    fmt, frame = _TEXT_FRAMES["openai"]
+
+    out = _run(_router(fmt(), {}), f"id: 1\n{frame('end <PRIVYX_EMA')}\n\nid: 2\n\n")
+
+    assert _client_state(out)[0] == "2"
+
+
+@pytest.mark.parametrize(
+    ("fmt", "terminal"),
+    [
+        (OpenAIStreamAdapter, "data: [DONE]"),
+        (AnthropicStreamAdapter, 'event: message_stop\ndata: {"type":"message_stop"}'),
+    ],
+    ids=["openai", "anthropic"],
+)
+def test_a_terminal_event_goes_last_without_bringing_back_its_id(fmt: Any, terminal: str) -> None:
+    out = _run(_router(fmt(), {}), f"id: 9\nretry: 70\n{terminal}\n\nid: 10\n\n")
+
+    assert _client_state(out) == ("10", 70, 1)
+    assert out.endswith(f"{terminal}\n\n")
