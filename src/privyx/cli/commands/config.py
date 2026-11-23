@@ -284,8 +284,16 @@ def migrate(file: Path | None, write: bool) -> None:
     except PrivyxError as exc:
         _fail(exc)
     for migrated in done:
+        if migrated.left:
+            click.echo(
+                f"{migrated.file}: left {', '.join(migrated.left)} as written: moving it could "
+                "change what a profile or preset with another operator type uses; "
+                "write the value in each profile or preset",
+                err=True,
+            )
         if not migrated.renamed:
-            click.echo(f"{migrated.file}: nothing to migrate", err=True)
+            if not migrated.left:
+                click.echo(f"{migrated.file}: nothing to migrate", err=True)
             continue
         if migrated.backup is not None:
             click.echo(

@@ -52,6 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Budget:** a stream that breaks counts the tokens it reported, so an agent whose streams keep failing no longer escapes `max_tokens`, and a launch may stop earlier for it. A broken stream that reported none does not stop the launch
 - **CLI:** `privyx session prune` keeps a session used after it was listed, or held by a request at that moment, and reports only the sessions it deleted
 - **Proxy:** SSE comments such as keep-alives, and the `id` of text events, reach the client, and a stream on an unmasked route with nothing to restore is relayed byte for byte
+- **Config:** the old `operator.length`, `operator.token`, and `token.id_length` apply to the operator type in use when a profile, a preset, or another file picks it, and `token.id_length` no longer sizes a `hash`, so token ids stay what they were in 0.2; `privyx config migrate` leaves such a key as written, and names it, when moving it would change what a profile or preset uses
 
 ### Security
 

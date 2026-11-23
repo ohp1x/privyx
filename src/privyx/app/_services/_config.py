@@ -12,7 +12,7 @@ import contextlib
 import os
 import stat
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -74,6 +74,8 @@ class Migrated:
     renamed: list[str]
     #: Where the file was kept as it was, when it was rewritten.
     backup: Path | None = None
+    #: The old operator keys left as written: moving them could change a profile or preset.
+    left: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -235,7 +237,8 @@ class Config:
         The file is kept first as ``<name>.bak``, or a numbered one when that
         exists, with its permissions.  Project files trusted before stay
         trusted.  Comments are not kept.  A file with nothing to rename is
-        left as it is.
+        left as it is, as is an old operator key a profile or a preset would
+        read differently once moved (``left``).
 
         Raises:
             ConfigError: If the file cannot be read or written.
@@ -243,11 +246,14 @@ class Config:
         from privyx.config import migrate, read_yaml, trust
 
         found: list[str] = []
-        data = migrate(read_yaml(path), found, below=self._below(path))
-        renamed = list(dict.fromkeys(found))
+        left: list[str] = []
+        written = read_yaml(path)
+        data = migrate(written, found, below=self._below(path), left=left)
+        # `operator.type: hash` warns but has no new spelling: alone it renames nothing.
+        renamed = list(dict.fromkeys(found)) if data != written else []
         text = _dump(data) if data else ""
         if not write or not renamed:
-            return Migrated(path, text, renamed)
+            return Migrated(path, text, renamed, left=left)
         trusted = _covering(path)
         real = path.resolve()
         try:
@@ -258,7 +264,7 @@ class Config:
             raise ConfigError(f"cannot write {path}: {exc.strerror or exc}") from exc
         for file in trusted:
             trust(file)
-        return Migrated(path, text, renamed, backup)
+        return Migrated(path, text, renamed, backup, left)
 
     def _below(self, path: Path) -> dict[str, Any]:
         """The ``detectors`` of the files read below ``path``.
