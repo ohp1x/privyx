@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from functools import cached_property
 from pathlib import Path
@@ -97,6 +97,11 @@ class Privyx:
         self._middleware: list[tuple[int, int, Callable[..., Any], dict[str, Any]]] = []
         self._loaded: Settings | None = None
         self._engine: PrivacyEngine | None = None
+        self._close_engine: Callable[[], Awaitable[None]] | None = None
+        #: How many ``engine()`` contexts hold it; the last one out closes it.
+        self._engine_users = 0
+        self._engine_gate: tuple[asyncio.AbstractEventLoop, asyncio.Lock] | None = None
+        self._engine_closing: set[asyncio.Future[None]] = set()
         self._modules: set[str] = set()
         self._files: set[Path] = set()
         #: What ``defaults()`` added, by section and name, and who added each.
@@ -356,26 +361,41 @@ class Privyx:
 
     @asynccontextmanager
     async def engine(self) -> AsyncIterator[PrivacyEngine]:
-        """The privacy engine, with this ``Privyx``'s components; they close on exit.
+        """The privacy engine, with this ``Privyx``'s components.
 
-        Inside another ``engine()`` of this app, the same engine, which the
-        outer one closes: a server holds one open for all its calls.
+        Every context open at once shares one engine, nested or in parallel
+        tasks, and the last one to leave closes it: a server holds one open
+        for all its calls.
         """
         from privyx.app._build import build_engine
         from privyx.app._plugins import load_plugins
 
-        if self._engine is not None:
-            yield self._engine
-            return
-        settings = self.settings
-        load_plugins(settings, self)
-        engine, close = await build_engine(settings, self)
-        self._engine = engine
+        async with self._engine_lock():
+            if self._engine is None:
+                settings = self.settings
+                load_plugins(settings, self)
+                self._engine, self._close_engine = await build_engine(settings, self)
+            engine = self._engine
+            self._engine_users += 1
         try:
             yield engine
         finally:
-            self._engine = None
-            await close()
+            self._engine_users -= 1
+            if not self._engine_users:
+                close, self._engine, self._close_engine = self._close_engine, None, None
+                assert close is not None  # set with the engine
+                # A task of its own: a cancelled caller must not leave the vault open.
+                closing = asyncio.ensure_future(close())
+                self._engine_closing.add(closing)
+                closing.add_done_callback(self._engine_closing.discard)
+                await asyncio.shield(closing)
+
+    def _engine_lock(self) -> asyncio.Lock:
+        """The lock of the running event loop: a ``Privyx`` may outlive a loop."""
+        loop = asyncio.get_running_loop()
+        if self._engine_gate is None or self._engine_gate[0] is not loop:
+            self._engine_gate = (loop, asyncio.Lock())
+        return self._engine_gate[1]
 
     @cached_property
     def config(self) -> Config:

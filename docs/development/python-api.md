@@ -32,7 +32,7 @@ in code. Serve it, or take only the engine or a service for your program.
 | `app.settings` | The settings, read once. |
 | `app.serve()` | Serves the proxy until stopped, as `privyx proxy` does, with the routes and listeners. |
 | `app.asgi()` | The same app for another ASGI server: `uvicorn --factory acme.app:make_app`, where `make_app` returns `Privyx(...).asgi()`. A parent app that mounts it must run its lifespan. |
-| `app.engine()` | An async context manager that yields the privacy engine with the components added; they are closed on exit. See [Python library](python-library.md) for its calls. |
+| `app.engine()` | An async context manager that yields the privacy engine with the components added. Contexts open at once share it, and the last to leave closes it. See [Python library](python-library.md) for its calls. |
 
 Components added with `app.add` sit beside those from `plugins.paths` and
 `plugins.modules`; two with the same name in one kind stop startup. Each

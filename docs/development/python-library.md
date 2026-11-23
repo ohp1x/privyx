@@ -31,7 +31,8 @@ those settings describe.
 --8<-- "examples/from_config.py"
 ```
 
-`app.engine()` is an async context manager: it closes the components on exit.
+`app.engine()` is an async context manager. Contexts open at once, nested or in
+parallel tasks, share one engine, and the last to leave closes its components.
 
 Everything a config file can do works here: word lists, patterns, Presidio,
 the `encrypt` operator, a SQLite or Redis vault, plugins.

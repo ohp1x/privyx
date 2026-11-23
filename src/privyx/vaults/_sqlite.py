@@ -134,6 +134,9 @@ class SQLiteVault(StoredVault):
             # An open connection's thread would keep the process from exiting.
             await self.close()
             raise VaultError(f"cannot open the sqlite vault {self._dsn}: {exc}") from exc
+        except BaseException:  # cancelled while preparing it: the same thread
+            await self.close()
+            raise
 
     async def close(self) -> None:
         if self._db is not None:
