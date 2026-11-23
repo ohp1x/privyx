@@ -37,7 +37,7 @@ def create_app(
     served: dict[str, str] | None = None,
     versionless: frozenset[str] | None = None,
     lifespan: Callable[[Any], Any] | None = None,
-    metrics: Metrics | None = None,
+    metrics: Metrics | Callable[[], Metrics | None] | None = None,
 ) -> FastAPI:
     """The FastAPI app serving ``pipeline``.
 
@@ -55,8 +55,9 @@ def create_app(
             version, which plugin routes must stay off too; by default the
             ``pipeline``'s.
         lifespan: The app's lifespan, as FastAPI takes it.
-        metrics: The metrics feature ``GET /metrics`` serves, at
-            ``app.state.metrics``; without it, the route answers 404.
+        metrics: The metrics feature ``GET /metrics`` serves, or a function
+            giving the one running now, at ``app.state.metrics``; without
+            one, the route answers 404.
 
     Raises:
         ConfigError: If a plugin route overlaps a masking route.
@@ -84,6 +85,7 @@ def create_app(
     @app.get("/metrics", response_class=PlainTextResponse)
     async def serve_metrics(request: Request) -> str:
         feature = request.app.state.metrics
+        feature = feature() if callable(feature) else feature
         if feature is None:
             raise HTTPException(404, "the metrics feature is off")
         return str(feature.stats.prometheus())

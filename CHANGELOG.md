@@ -58,6 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Docker:** the defaults of the image and `docker-compose.yml` give way to either name of a setting, so `PRIVYX_SERVER__PORT` or `PRIVYX_VAULT__DSN` no longer stops the container as a conflict, and the healthcheck follows the port in use
 - **Plugins:** (experimental) an `app.features.enable()` that is refused leaves the running feature on; before, it had already switched it off. A feature replaced while serving hears every event, and `tracing` stays on
 - **Config:** `privyx config migrate` reads the old operator keys by the operator type of the whole config chain, so a key whose type is picked in another file is rewritten, or removed when that type never read it
+- **Proxy:** `GET /metrics` serves the metrics feature running now, when one is switched or replaced while the proxy serves
 
 ### Security
 

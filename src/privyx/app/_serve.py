@@ -129,7 +129,7 @@ async def running(
         stack.push_async_callback(pipeline.close)
         router.state.pipeline = pipeline
         router.state.engine = engine
-        router.state.metrics = app.features.get("metrics")
+        router.state.metrics = lambda: app.features.get("metrics")
         await app._events.emit(AppStarting())
         stack.push_async_callback(app._events.emit, AppStopping())
         yield pipeline
