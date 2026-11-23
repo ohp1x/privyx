@@ -243,12 +243,14 @@ class Config:
         Raises:
             ConfigError: If the file cannot be read or written.
         """
-        from privyx.config import migrate, read_yaml, trust
+        from privyx.config import detectors_of, env_operator_types, migrate, read_yaml, trust
 
         found: list[str] = []
         left: list[str] = []
         written = read_yaml(path)
-        data = migrate(written, found, below=self._below(path), left=left)
+        below, above = self._around(path)
+        others = [*below, *above, env_operator_types()]
+        data = migrate(written, found, below=detectors_of(below), left=left, others=others)
         # `operator.type: hash` warns but has no new spelling: alone it renames nothing.
         renamed = list(dict.fromkeys(found)) if data != written else []
         text = _dump(data) if data else ""
@@ -266,19 +268,23 @@ class Config:
             trust(file)
         return Migrated(path, text, renamed, backup, left)
 
-    def _below(self, path: Path) -> dict[str, Any]:
-        """The ``detectors`` of the files read below ``path``.
+    def _around(self, path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """What the files read below ``path`` and above it hold, each lowest first.
 
         Those of the config in use when ``path`` is one of its files, else
-        the files ``path`` itself includes.
+        the files ``path`` itself includes, with none above.
         """
-        from privyx.config import active_config_paths, detectors_of, read_yaml
+        from privyx.config import active_config_paths, read_yaml
 
         active = active_config_paths(self._app._config)
         names = [file.resolve() for file in active]
         real = path.resolve()
-        chain = active[: names.index(real)] if real in names else active_config_paths(path)[:-1]
-        return detectors_of(read_yaml(file) for file in chain)
+        if real not in names:
+            return [read_yaml(file) for file in active_config_paths(path)[:-1]], []
+        at = names.index(real)
+        return [read_yaml(file) for file in active[:at]], [
+            read_yaml(file) for file in active[at + 1 :]
+        ]
 
     def schema(self) -> dict[str, Any]:
         """The config file's JSON Schema, with the types of the plugins the config loads.

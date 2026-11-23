@@ -121,6 +121,31 @@ def env_config(merged: Mapping[str, Any], types: _Types) -> dict[str, Any]:
     return cfg
 
 
+def env_operator_types() -> dict[str, Any]:
+    """The operator types the environment picks, as presets of a config layer.
+
+    For ``privyx config migrate``: they apply over the files only while they
+    are set, so a key one of them reads cannot be judged by the files alone.
+    """
+    picked = {
+        value
+        for variable, value in os.environ.items()
+        if value
+        and variable.startswith("PRIVYX_")
+        and f"__{variable.removeprefix('PRIVYX_').upper()}".endswith("__OPERATOR__TYPE")
+    }
+    layer: dict[str, Any] = {
+        "presets": {f"environment-{kind}": {"operator": {"type": kind}} for kind in picked}
+    }
+    try:
+        agents = json.loads(_env("AGENTS") or "{}")
+    except json.JSONDecodeError:
+        return layer  # reported when the config is read
+    if isinstance(agents, dict):
+        layer["agents"] = agents
+    return layer
+
+
 def _with_env_types(
     merged: Mapping[str, Any], given: Mapping[str, tuple[str, Any]], types: _Types
 ) -> dict[str, Any]:

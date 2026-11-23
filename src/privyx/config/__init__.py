@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from privyx.core import lazy_attribute
 
 if TYPE_CHECKING:
-    from privyx.config._env import ALIASES, discovery_disabled
+    from privyx.config._env import ALIASES, discovery_disabled, env_operator_types
     from privyx.config._files import (
         active_config_paths,
         find_local_configs,
@@ -36,6 +36,7 @@ __all__ = [
     "detectors_of",
     "discovery_disabled",
     "env_name",
+    "env_operator_types",
     "find_local_configs",
     "included_files",
     "is_trusted",
@@ -54,6 +55,7 @@ __all__ = [
 _LAZY = {
     "ALIASES": "privyx.config._env:ALIASES",
     "discovery_disabled": "privyx.config._env:discovery_disabled",
+    "env_operator_types": "privyx.config._env:env_operator_types",
     "active_config_paths": "privyx.config._files:active_config_paths",
     "find_local_configs": "privyx.config._files:find_local_configs",
     "included_files": "privyx.config._files:included_files",

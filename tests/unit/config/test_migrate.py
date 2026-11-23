@@ -608,7 +608,7 @@ def test_migrate_leaves_a_key_a_profile_or_preset_would_read_differently(
     section, name = key.split(".")
     assert name in written[section]
     assert f"left {key} as written" in result.stderr
-    assert "in each profile or preset" in result.stderr
+    assert "where that type is picked" in result.stderr
     assert _effective(path) == before
 
 
@@ -687,3 +687,236 @@ def test_migrate_moves_a_key_every_type_in_the_file_reads_the_same(
     assert "as written" not in result.stderr
     assert yaml.safe_load(path.read_text(encoding="utf-8"))["operator"] == new
     assert _effective(path) == before
+
+
+@pytest.mark.parametrize(
+    ("base", "main", "target", "written"),
+    [
+        (
+            {"operator": {"type": "redact"}},
+            {"operator": {"token": "[HIDDEN]"}},
+            "main.yaml",
+            {"operator": {"text": "[HIDDEN]"}},
+        ),
+        (
+            {"operator": {"type": "hash"}},
+            {"operator": {"length": 8}},
+            "main.yaml",
+            {"operator": {"type": "hash", "id_length": 8}},
+        ),
+        (
+            {"operator": {"token": "[HIDDEN]"}},
+            {"operator": {"type": "redact"}},
+            "base.yaml",
+            {"operator": {"text": "[HIDDEN]"}},
+        ),
+        (
+            {"operator": {"type": "redact"}},
+            {"token": {"id_length": 8}},
+            "main.yaml",
+            {"token": {}},
+        ),
+    ],
+    ids=["token-over-type", "length-over-type", "token-under-type", "unused-id-length"],
+)
+def test_migrate_reads_old_keys_by_the_type_of_the_whole_chain(
+    tmp_path: Path,
+    base: dict[str, object],
+    main: dict[str, object],
+    target: str,
+    written: dict[str, object],
+) -> None:
+    (tmp_path / "base.yaml").write_text(yaml.safe_dump(base), encoding="utf-8")
+    path = tmp_path / "main.yaml"
+    path.write_text(yaml.safe_dump({"include": ["base.yaml"], **main}), encoding="utf-8")
+    file = tmp_path / target
+    before = _operator(load_config(path))
+    app = Privyx(config=path)
+
+    first = app.config.migrate(file, write=True)
+
+    assert first.renamed
+    data = yaml.safe_load(file.read_text(encoding="utf-8"))
+    assert {k: v for k, v in data.items() if k != "include"} == written
+    assert _operator(load_config(path)) == before
+    old = [w for w in read_config(path).warnings if "operator.t" in w or "id_length" in w]
+    assert [w for w in old if "'hash'" not in w] == []
+    assert app.config.migrate(file, write=True).renamed == []
+
+
+def test_migrate_keeps_an_unused_key_that_covers_one_in_another_file(tmp_path: Path) -> None:
+    (tmp_path / "base.yaml").write_text(
+        "operator: {type: pseudonym, length: 20}\n", encoding="utf-8"
+    )
+    path = tmp_path / "main.yaml"
+    path.write_text("include: [base.yaml]\noperator: {length: 30}\n", encoding="utf-8")
+    before = _operator(load_config(path))
+
+    migrated = Privyx(config=path).config.migrate(path, write=True)
+
+    assert migrated.left == ["operator.length"]
+    assert _operator(load_config(path)) == before
+
+
+def test_migrate_keeps_a_key_the_type_from_the_environment_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "base.yaml").write_text("operator: {type: redact}\n", encoding="utf-8")
+    path = tmp_path / "main.yaml"
+    path.write_text("include: [base.yaml]\ntoken: {id_length: 20}\n", encoding="utf-8")
+    monkeypatch.setenv("PRIVYX_OPERATOR__TYPE", "pseudonym")
+    before = _operator(load_config(path))
+    assert before == ("pseudonym", 20)
+
+    migrated = Privyx(config=path).config.migrate(path, write=True)
+
+    assert migrated.left == ["token.id_length"]
+    assert _operator(load_config(path)) == before
+    monkeypatch.delenv("PRIVYX_OPERATOR__TYPE")
+    assert _operator(load_config(path))[0] == "redact"  # still loads without it
+
+
+@pytest.mark.parametrize(
+    ("lower", "upper", "key"),
+    [
+        ("{type: pseudonym, token: '[HIDDEN]'}", "redact", "operator.token"),
+        ("{type: pseudonym, length: 20}", "hash", "operator.length"),
+    ],
+)
+def test_migrate_names_a_key_only_the_type_above_reads(
+    tmp_path: Path, lower: str, upper: str, key: str
+) -> None:
+    base = tmp_path / "base.yaml"
+    base.write_text(f"operator: {lower}\n", encoding="utf-8")
+    path = tmp_path / "main.yaml"
+    path.write_text(f"include: [base.yaml]\noperator: {{type: {upper}}}\n", encoding="utf-8")
+    written = base.read_text(encoding="utf-8")
+    before = _operator(load_config(path))
+
+    migrated = Privyx(config=path).config.migrate(base, write=True)
+
+    assert migrated.left == [key]
+    assert migrated.renamed == []
+    assert base.read_text(encoding="utf-8") == written
+    assert _operator(load_config(path)) == before
+
+
+def test_migrate_leaves_a_length_when_a_written_type_would_refuse_its_neighbor(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "base.yaml").write_text("operator: {type: hash}\n", encoding="utf-8")
+    path = tmp_path / "main.yaml"
+    path.write_text(
+        "include: [base.yaml]\noperator: {length: 8, text: '[REDACTED]'}\n", encoding="utf-8"
+    )
+    before = _operator(load_config(path))
+    assert before == ("hash", 8)
+
+    migrated = Privyx(config=path).config.migrate(path, write=True)
+
+    assert migrated.left == ["operator.length"]
+    assert _operator(load_config(path)) == before
+
+
+@pytest.mark.parametrize(
+    ("base", "main", "target", "value", "key"),
+    [
+        (
+            'operator: {type: "${EXAMPLE_OPERATOR}"}\n',
+            "token: {id_length: 20}\n",
+            "main.yaml",
+            "pseudonym",
+            "token.id_length",
+        ),
+        (
+            "operator: {type: pseudonym, token: '[HIDDEN]'}\n",
+            'operator: {type: "${EXAMPLE_OPERATOR}"}\n',
+            "base.yaml",
+            "redact",
+            "operator.token",
+        ),
+        (
+            "log: {level: info}\n",
+            "operator: {type: \"${EXAMPLE_OPERATOR}\", token: '[HIDDEN]'}\n",
+            "main.yaml",
+            "redact",
+            "operator.token",
+        ),
+    ],
+    ids=["type-in-another-file", "type-above-reads-it", "type-in-the-file"],
+)
+def test_migrate_keeps_a_key_while_a_type_is_a_reference(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    base: str,
+    main: str,
+    target: str,
+    value: str,
+    key: str,
+) -> None:
+    (tmp_path / "base.yaml").write_text(base, encoding="utf-8")
+    path = tmp_path / "main.yaml"
+    path.write_text("include: [base.yaml]\n" + main, encoding="utf-8")
+    monkeypatch.setenv("EXAMPLE_OPERATOR", value)
+    file = tmp_path / target
+    written = file.read_text(encoding="utf-8")
+    before = _operator(load_config(path))
+
+    migrated = Privyx(config=path).config.migrate(file, write=True)
+
+    assert migrated.left == [key]
+    assert file.read_text(encoding="utf-8") == written
+    assert _operator(load_config(path)) == before
+
+
+def test_migrate_keeps_a_key_a_preset_of_the_file_may_read_by_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "base.yaml").write_text("operator: {type: redact}\n", encoding="utf-8")
+    path = tmp_path / "main.yaml"
+    path.write_text(
+        "include: [base.yaml]\ntoken: {id_length: 20}\n"
+        'presets:\n  own: {operator: {type: "${EXAMPLE_OPERATOR}"}}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EXAMPLE_OPERATOR", "pseudonym")
+    before = _operator(load_config(path, presets=["own"]))
+    assert before == ("pseudonym", 20)
+
+    migrated = Privyx(config=path).config.migrate(path, write=True)
+
+    assert migrated.left == ["token.id_length"]
+    assert _operator(load_config(path, presets=["own"])) == before
+
+
+def test_migrate_keeps_a_key_of_a_preset_without_a_type_in_a_mixed_chain(tmp_path: Path) -> None:
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        "operator: {type: redact}\npresets:\n  own: {operator: {token: '[LOW]'}}\n",
+        encoding="utf-8",
+    )
+    path = tmp_path / "main.yaml"
+    path.write_text(
+        "include: [base.yaml]\noperator: {type: hash, token: '[HIGH]'}\n", encoding="utf-8"
+    )
+    before = _operator(load_config(path, presets=["own"]))
+
+    migrated = Privyx(config=path).config.migrate(base, write=True)
+
+    assert migrated.left == ["operator.token"]
+    assert _operator(load_config(path, presets=["own"])) == before
+
+
+def test_migrate_leaves_a_key_when_the_chain_can_apply_several_types(tmp_path: Path) -> None:
+    (tmp_path / "base.yaml").write_text("token: {id_length: 20}\n", encoding="utf-8")
+    path = tmp_path / "main.yaml"
+    path.write_text(
+        "include: [base.yaml]\npresets:\n  own: {operator: {type: redact}}\n", encoding="utf-8"
+    )
+    plain, chosen = _operator(load_config(path)), _operator(load_config(path, presets=["own"]))
+
+    migrated = Privyx(config=path).config.migrate(tmp_path / "base.yaml", write=True)
+
+    assert migrated.left == ["token.id_length"]
+    assert _operator(load_config(path)) == plain
+    assert _operator(load_config(path, presets=["own"])) == chosen

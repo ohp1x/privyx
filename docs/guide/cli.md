@@ -725,9 +725,10 @@ Comments are not kept; --write rewrites the file, with a backup.
 ```
 
 `--write` rewrites the file instead, keeping the original as `FILE.bak`;
-comments are lost. A value that cannot be moved without changing what it
-means, because a profile or preset picks an operator type that would read the
-new key differently, is left as written and named on stderr. See
+comments are lost. The old operator keys are read by the type of the whole
+config chain. A value that cannot be moved without changing what it means,
+because a profile, a preset, another file, or the environment picks an operator
+type that would read it differently, is left as written and named on stderr. See
 [Upgrading](upgrading.md).
 
 ### `privyx config routes`

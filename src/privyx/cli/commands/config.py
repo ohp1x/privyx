@@ -287,8 +287,8 @@ def migrate(file: Path | None, write: bool) -> None:
         if migrated.left:
             click.echo(
                 f"{migrated.file}: left {', '.join(migrated.left)} as written: moving it could "
-                "change what a profile or preset with another operator type uses; "
-                "write the value in each profile or preset",
+                "change what another operator type in the config uses; "
+                "write the value where that type is picked",
                 err=True,
             )
         if not migrated.renamed:

@@ -582,16 +582,56 @@ def detectors_of(layers: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return below
 
 
-def _left_operator_keys(layer: dict[str, Any], kind: str) -> list[str]:
+def operator_types(layers: Iterable[Mapping[str, Any]]) -> tuple[str | None, set[str]]:
+    """The operator type the last of ``layers`` picks, and those their presets and profiles do."""
+    last: str | None = None
+    patches: set[str] = set()
+
+    def note(patch: dict[str, Any], _: str) -> dict[str, Any]:
+        if own := _operator_type(patch, ""):
+            patches.add(own)
+        return patch
+
+    for layer in layers:
+        last = _operator_type(layer, "") or last
+        _each_patch(dict(layer), note)
+    return last, patches
+
+
+def _old_operator_keys(layer: Mapping[str, Any]) -> list[str]:
+    """The old operator keys ``layer`` writes, outside its presets and profiles."""
+    token = layer.get("token")
+    operator = layer.get("operator")
+    found = ["token.id_length"] if isinstance(token, dict) and "id_length" in token else []
+    if isinstance(operator, dict):
+        found += [f"operator.{old}" for old in sorted(OLD_OPERATOR_KEYS) if old in operator]
+    return found
+
+
+def _old_keys_without_a_type(layer: Mapping[str, Any]) -> list[str]:
+    """The old operator keys in the presets and profiles of ``layer`` that pick no type."""
+    found: list[str] = []
+
+    def note(patch: dict[str, Any], _: str) -> dict[str, Any]:
+        if not _operator_type(patch, ""):
+            found.extend(_old_operator_keys(patch))
+        return patch
+
+    _each_patch(dict(layer), note)
+    return found
+
+
+def _left_operator_keys(layer: dict[str, Any], kind: str, *, settled: bool = False) -> list[str]:
     """The old operator keys of a file that moving would give another effective value.
 
     A profile or a preset may pick another type than ``kind``, the file's.
     A key stays when one of the types in the file reads it, and another reads
     the new key differently, or when a mapping holding it has a type the new
     key would be refused beside.  A ``token.id_length`` beside a type that
-    does not read it stays too, since a type picked in another file may, and
-    so does a key in a profile or preset without a ``type``: the type it
-    meets there may be another one, and the new key is not read the same.
+    does not read it stays too, since a type picked in another file may,
+    unless ``settled``: the whole config chain uses ``kind``.  So does a key
+    in a profile or preset without a ``type``: the type it meets there may be
+    another one, and the new key is not read the same.
     """
     held: list[tuple[Mapping[str, Any], str]] = [(layer, kind)]
 
@@ -608,7 +648,7 @@ def _left_operator_keys(layer: dict[str, Any], kind: str) -> list[str]:
         if (
             isinstance(token, dict)
             and "id_length" in token
-            and (untyped or own not in _TOKEN_ID_OPERATORS)
+            and (untyped or (own not in _TOKEN_ID_OPERATORS and not (settled and index == 0)))
         ):
             left.append("token.id_length")
         operator = mapping.get("operator")
@@ -645,6 +685,7 @@ def migrate(
     *,
     below: Mapping[str, Any] | None = None,
     left: list[str] | None = None,
+    others: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """A config file's settings written the 0.3.0 way, for ``privyx config migrate``.
 
@@ -653,21 +694,58 @@ def migrate(
     so again, and a detector named like its type without ``type``.  ``below``
     holds the ``detectors`` of the files read below this one
     (:func:`detectors_of`): an old ``detector`` changed what they set.
+    ``others`` are the other files of its config chain, lowest first: a file
+    without an operator type has its old keys read by the type they pick.
 
-    An old operator key that a profile or a preset of the file would read
-    differently once moved stays as it is, named in ``left``.  When nothing
-    else changes, no key counts as renamed.
+    An old operator key that a profile or a preset would read differently
+    once moved stays as it is, named in ``left``, as does one in a file
+    without a type when the chain can apply several.  When nothing else
+    changes, no key counts as renamed.
     """
     found: list[str] = [] if warnings is None else warnings
     start = len(found)
     layer = translate_adapters(dict(data), found)
     layer = translate(layer, {"regex": {}} if below is None else below, deprecated=found)
     layer = translate_keys(layer, "file", found)
-    operator = layer.get("operator")
-    kind = operator.get("type") if isinstance(operator, dict) else None
-    kind = kind if isinstance(kind, str) else "pseudonym"
-    kept = _left_operator_keys(layer, kind)
-    layer = translate_operator(layer, kind, "file", found, keep=kept)
+    own = _operator_type(layer, "")
+    picked, patches = operator_types(others)
+    here = operator_types([layer])[1]  # the presets and profiles of this file
+    applying = {*patches, *here, *([picked] if picked else [])}
+    # A type written as ${NAME} is known only when the config is read, and may change.
+    referenced = any("${" in name for name in applying)
+    settled = not own and picked is not None and applying == {picked} and not referenced
+    kind = own or (picked if settled and picked else "pseudonym")
+    kept = _left_operator_keys(layer, kind, settled=settled)
+    written = _old_operator_keys(layer)
+    if "${" in own or (not own and not settled and (picked or patches)):
+        kept = list(dict.fromkeys([*kept, *written]))
+    if {kind, *applying} != {kind}:
+        # A preset or profile without a type meets whichever type applies.
+        kept = list(dict.fromkeys([*kept, *_old_keys_without_a_type(layer)]))
+    if own:
+        # Only another type of the chain reads it: beside this type, the new key is dropped.
+        readers = {
+            f"operator.{old}"
+            for old, by, _ in _OPERATOR_KEYS
+            if by != own and (referenced or by in applying)
+        }
+        kept = list(dict.fromkeys([*kept, *(key for key in written if key in readers)]))
+    if settled:
+        # Removing an unused key would bare the same key in another file, where
+        # it sits beside the type and is refused.
+        elsewhere = {key for other in others for key in _old_operator_keys(other)}
+        read = {f"operator.{old}" for old, owner, _ in _OPERATOR_KEYS if owner == kind}
+        shadowing = [k for k in written if k.startswith("operator.") and k in elsewhere - read]
+        kept = list(dict.fromkeys([*kept, *shadowing]))
+        if kind == "hash" and "operator.length" in written and "operator.length" not in kept:
+            # Without a type an `id_length` is not a hash's, and the old key wins over it.
+            rest = {k: v for k, v in layer["operator"].items() if k != "id_length"}
+            if rest.keys() == {"length"}:
+                layer["operator"] = {"type": kind, **rest}
+            else:  # beside a type of its own, an option it does not use would be refused
+                kept = [*kept, "operator.length"]
+    drop = OLD_OPERATOR_KEYS if settled and kind in _BUILTIN_OPERATORS else ()
+    layer = translate_operator(layer, kind, "file", found, drop=drop, keep=kept)
     if "upstream_url" in layer:
         url = layer.pop("upstream_url")
         provider = layer.get("provider")
