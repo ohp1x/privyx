@@ -66,12 +66,19 @@ Give a path to migrate one file: `privyx config migrate your.yaml --write`.
 Comments are not kept. The old file is kept beside it as `<name>.bak`, or a
 numbered backup when that exists, with its permissions.
 
-`config migrate` leaves `operator.length`, `operator.token`, or
-`token.id_length` as written when moving it could change what a profile or
-preset uses, and names the key on stderr: a profile or preset in the same file
-picks an operator type that would read the new key differently, or
-`token.id_length` sits beside a type that does not read it. Write the value in
-each profile or preset that uses it.
+`config migrate` reads `operator.length`, `operator.token`, and
+`token.id_length` by the operator type of the whole config chain, so a key
+follows a type picked in another file, and a key that type never read is
+removed. To migrate a file another one includes, name the main file too:
+`privyx -c main.yaml config migrate base.yaml --write`.
+
+It leaves such a key as written when moving it could change what it does, and
+names the key on stderr: a profile, a preset, another file, or
+`PRIVYX_OPERATOR__TYPE` picks an operator type that would read it differently,
+a type is written as `${NAME}`, `token.id_length` sits beside a type that does
+not read it, or the key covers the same key in another file. Write the value
+where the type that uses it is picked. Run the command with the environment the
+config runs in: an operator type set there only later is not taken into account.
 
 `operator.type: hash` has no new spelling, so `config migrate` leaves it. It
 warns because anyone who guesses a value can match its token. Its replacement
