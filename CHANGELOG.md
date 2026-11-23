@@ -66,6 +66,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Config:** `privyx config migrate` reads the old operator keys by the operator type of the whole config chain, so a key whose type is picked in another file is rewritten, or removed when that type never read it
 - **Proxy:** `GET /metrics` serves the metrics feature running now, when one is switched or replaced while the proxy serves
 - **Proxy:** an SSE block holding only `id` or `retry`, and an empty `id`, reach the client on masking routes, also when the text of their event is held back
+- **Docker:** the image's healthcheck passes when the container serves TLS itself, whether `server.tls`, its environment variables, or `--ssl-certfile` set it; before, it called plain HTTP and the container stayed `unhealthy`
 
 ### Security
 

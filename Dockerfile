@@ -93,11 +93,13 @@ EOF
 
 # Reads the port from the environment, where the defaults above always put it,
 # by the type of the setting: no config file, plugin, or secret is loaded.
+# TLS can come from a mounted file or the command, so a port that does not
+# answer HTTP is tried over HTTPS, unverified: its certificate names no loopback.
 COPY --chmod=755 <<'EOF' /app/bin/privyx-health
 #!/bin/sh
 . /app/bin/privyx-env
 exec python -c '
-import os, urllib.request
+import http.client, os, ssl, urllib.request
 from pydantic import TypeAdapter
 def is_port(name):
     return name == "PRIVYX_PORT" or (
@@ -105,7 +107,13 @@ def is_port(name):
     )
 raw = next(v for k, v in os.environ.items() if v and is_port(k))
 port = TypeAdapter(int).validate_python(raw)
-urllib.request.urlopen(f"http://127.0.0.1:{port}/health")
+try:
+    urllib.request.urlopen(f"http://127.0.0.1:{port}/health")
+except (OSError, http.client.HTTPException):
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    urllib.request.urlopen(f"https://127.0.0.1:{port}/health", context=context)
 '
 EOF
 
