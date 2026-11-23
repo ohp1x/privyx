@@ -135,3 +135,77 @@ def test_harvest_takes_a_name_without_double_underscores(monkeypatch: pytest.Mon
     monkeypatch.setenv("PRIVYX_HARVEST", "true")
     monkeypatch.setenv("PRIVYX_TEST_SOMETHING_ELSE", "x")  # not a setting: left alone
     assert load_config().harvest is True
+
+
+@pytest.mark.parametrize(
+    ("env", "section", "key", "value"),
+    [
+        (
+            {"PRIVYX_VAULT__TYPE": "sqlite", "PRIVYX_VAULT__DSN": "sqlite+aiosqlite:///x.db"},
+            "vault",
+            "dsn",
+            "sqlite+aiosqlite:///x.db",
+        ),
+        (
+            {"PRIVYX_VAULT": "sqlite", "PRIVYX_VAULT__DSN": "sqlite+aiosqlite:///x.db"},
+            "vault",
+            "dsn",
+            "sqlite+aiosqlite:///x.db",
+        ),
+        (
+            {"PRIVYX_VAULT": "redis", "PRIVYX_VAULT__REDIS_URL": "redis://localhost:6379/0"},
+            "vault",
+            "redis_url",
+            "redis://localhost:6379/0",
+        ),
+        (
+            {"PRIVYX_OPERATOR__TYPE": "redact", "PRIVYX_OPERATOR__TEXT": "[HIDDEN]"},
+            "operator",
+            "text",
+            "[HIDDEN]",
+        ),
+    ],
+)
+def test_an_option_of_a_type_the_environment_sets_is_a_setting(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str], section: str, key: str, value: str
+) -> None:
+    for name, text in env.items():
+        monkeypatch.setenv(name, text)
+
+    assert getattr(load_config(), section).model_dump()[key] == value
+
+
+def test_an_option_the_type_from_the_environment_lacks_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRIVYX_VAULT", "memory")
+    monkeypatch.setenv("PRIVYX_VAULT__DSN", "sqlite+aiosqlite:///x.db")
+
+    with pytest.raises(ConfigError, match="PRIVYX_VAULT__DSN names no setting"):
+        load_config()
+
+
+def test_both_names_of_a_type_must_agree_with_its_option_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRIVYX_VAULT", "memory")
+    monkeypatch.setenv("PRIVYX_VAULT__TYPE", "sqlite")
+    monkeypatch.setenv("PRIVYX_VAULT__DSN", "sqlite+aiosqlite:///x.db")
+
+    with pytest.raises(ConfigError, match="PRIVYX_VAULT and PRIVYX_VAULT__TYPE"):
+        load_config()
+
+
+def test_a_type_from_the_environment_keeps_a_reference_in_a_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "agents:\n  other:\n    command: acme\n    env_vars: [ACME_URL]\n"
+        "    env: {ACME_KEY: '${NOT_SET_HERE}'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PRIVYX_VAULT__TYPE", "sqlite")
+    monkeypatch.setenv("PRIVYX_VAULT__DSN", "sqlite+aiosqlite:///x.db")
+
+    assert load_config(path).vault.model_dump()["dsn"] == "sqlite+aiosqlite:///x.db"

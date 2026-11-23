@@ -102,13 +102,14 @@ def env_config(merged: Mapping[str, Any], types: _Types) -> dict[str, Any]:
     """
     cfg, given = _aliases(merged)
     provider = _env("PROVIDER")
+    typed = _with_env_types(merged, given, types)
     for variable, raw in sorted(os.environ.items()):
         if not variable.startswith("PRIVYX_"):
             continue
         name = variable.removeprefix("PRIVYX_")
         if "__" not in name and name.lower() not in _TOP:
             continue  # an alias, or a variable that is not a setting
-        found = resolve(name.split("__"), merged, types, existing=True)
+        found = resolve(name.split("__"), typed, types, existing=True)
         if isinstance(found, str):
             raise ConfigError(f"{variable} names no setting: {found}")
         value = parse(raw, found.annotation)
@@ -118,6 +119,30 @@ def env_config(merged: Mapping[str, Any], types: _Types) -> dict[str, Any]:
         given[found.dotted] = (variable, value)
         _put(cfg, _written(list(found.path), provider), value)
     return cfg
+
+
+def _with_env_types(
+    merged: Mapping[str, Any], given: Mapping[str, tuple[str, Any]], types: _Types
+) -> dict[str, Any]:
+    """``merged`` with the types the environment picks, which decide the options it can set.
+
+    Read before the other variables: sorted, ``__DSN`` comes before ``__TYPE``.
+    """
+
+    def sections(data: Mapping[str, Any]) -> dict[str, Any]:
+        return {k: sections(v) if isinstance(v, dict) else v for k, v in data.items()}
+
+    typed = sections(merged)
+    for dotted, (_, value) in given.items():
+        if dotted.endswith(".type"):
+            _put(typed, dotted.split("."), value)
+    for variable, raw in sorted(os.environ.items()):
+        parts = variable.removeprefix("PRIVYX_").split("__")
+        if variable.startswith("PRIVYX_") and len(parts) > 1 and parts[-1].lower() == "type":
+            found = resolve(parts, typed, types, existing=True)
+            if not isinstance(found, str):  # reported with the other variables
+                _put(typed, list(found.path), raw)
+    return typed
 
 
 def _written(path: list[str], provider: str) -> list[str]:
