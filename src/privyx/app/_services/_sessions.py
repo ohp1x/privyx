@@ -246,7 +246,8 @@ class Sessions:
         from privyx.app._plugins import load_plugins
 
         if self._app._engine is not None:
-            yield self._app._engine.vault
+            async with self._app.engine() as engine:
+                yield engine.vault
             return
         settings = self._app.settings
         # Register plugin component types so a configured plugin vault resolves.
