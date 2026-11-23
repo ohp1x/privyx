@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -11,13 +12,13 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from privyx.app import read_config
+from privyx.app import Privyx, read_config
 from privyx.app._run import plan_launch as build_launch_plan
+from privyx.app._run import spawn as _spawn
 from privyx.cli.commands.run import (
     _set_terminal_title,
     _show_plan,
     _show_running,
-    _spawn,
 )
 from privyx.cli.main import cli
 from privyx.config.schema import AgentConfig, Settings
@@ -314,15 +315,14 @@ def test_pi_provider_from_env_from_serves_that_provider(monkeypatch: pytest.Monk
     profile = AgentConfig(
         command="pi", type="pi", env_from={"PRIVYX_PI_PROVIDER": "MY_PI_PROVIDER"}
     )
-    plan = build_launch_plan(
-        build_target(profile), [], Settings(), 1234, ("PRIVYX_PI_BASE_URL",)
-    )
+    plan = build_launch_plan(build_target(profile), [], Settings(), 1234, ("PRIVYX_PI_BASE_URL",))
     assert plan.environment["PRIVYX_PI_PROVIDER"] == "deepseek"
     assert plan.run_token is None and "PRIVYX_PI_TOKEN" not in plan.environment
 
 
 def test_pi_provider_preserves_explicit_environment_override() -> None:
-    target = build_target(AgentConfig(
+    target = build_target(
+        AgentConfig(
             command="pi",
             type="pi",
             provider="openai",
@@ -559,10 +559,60 @@ def test_pi_extension_keeps_the_proxy_when_pi_loads_it_again(tmp_path: Path) -> 
 
     # A reload: the models already point at the proxy, the earlier upstream stays.
     assert out["reload"]["decided"] == {"anthropic/a": "continue"}
-    assert upstreams(out["reload"]) == {"anthropic": {"anthropic": "https://api.anthropic.example.com"}}
+    assert upstreams(out["reload"]) == {
+        "anthropic": {"anthropic": "https://api.anthropic.example.com"}
+    }
     # A new session: a changed base URL and a new provider are followed.
     assert out["renew"]["decided"] == {"anthropic/a": "continue", "acme/m": "continue"}
     assert upstreams(out["renew"]) == {
         "anthropic": {"anthropic": "https://new.example.com"},
         "acme": {"openai": "https://acme.example.com/v1"},
     }
+
+
+def test_the_options_of_the_app_apply_to_a_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    app = Privyx(proxy={"passthrough_unknown": False}, operator={"type": "redact"})
+
+    settings = app.agents.plan("codex").settings
+
+    assert settings.proxy.passthrough_unknown is False
+    assert settings.operator.type == "redact"
+
+
+def test_a_launch_flag_wins_over_the_options_of_the_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    app = Privyx(session={"strategy": "client"})
+
+    settings = app.agents.plan("codex", session_strategy="ephemeral").settings
+
+    assert settings.session.strategy == "ephemeral"
+
+
+def test_run_starts_what_plan_returned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("privyx.app._run.can_exec_agent", lambda: False)
+    config = tmp_path / "c.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "vault": {"type": "memory"},
+                "features": {"audit": False},
+                "agents": {"tool": {"command": sys.executable, "env_vars": ["TOOL_URL"]}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = Privyx(config)
+    script = "import os, sys; sys.exit(7 if os.environ['TOOL_URL'].startswith('http') else 1)"
+    launch = app.agents.plan("tool", ["-c", script])
+    announced = []
+
+    code = app.agents.run(launch, announce=announced.append)
+
+    assert code == 7
+    assert announced[0].port != 0

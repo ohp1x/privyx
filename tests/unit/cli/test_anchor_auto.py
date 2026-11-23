@@ -15,7 +15,7 @@ from click.testing import CliRunner
 from privyx.anchors import HMACAnchor
 from privyx.app import Privyx
 from privyx.app._build import build_anchor
-from privyx.cli.commands.run import _run_settings
+from privyx.app._run import run_settings as _run_settings
 from privyx.cli.main import cli
 from privyx.core import Context
 from privyx.testing import services

@@ -31,15 +31,52 @@ from privyx.agents._exec import exec_agent as exec_agent
 from privyx.agents._exec import wait_for_agent_exit as wait_for_agent_exit
 from privyx.agents._plan import LaunchPlan, Target, build_launch_plan, profile_target
 from privyx.config.agents import profile_type
+from privyx.core import PrivyxError
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
+    from privyx.config import Loaded
     from privyx.config.schema import BudgetConfig, Settings
 
 #: The counter's edge priority: outermost, so a request refused anywhere counts.
 _COUNTER = 1000
 
 _log = logging.getLogger("privyx")
+
+
+def run_settings(
+    app: Privyx,
+    provider: str | None = None,
+    upstream: str | None = None,
+    session_strategy: str | None = None,
+    no_anchor: bool = False,
+    *,
+    harvest: bool | None = None,
+    agent: str | None = None,
+) -> Loaded:
+    """The settings of a launch, its warnings logged.
+
+    ``privyx run`` is opinionated where the library is neutral: unless the user
+    says otherwise it treats one conversation as one session and provisions an
+    anchor secret, so aliases are stable across turns and restarts out of the
+    box.  These are *defaults* (``base_extra``) the user's own config/env still
+    overrides; an explicit ``session_strategy`` is a hard override (``extra``).
+    The options given to :class:`Privyx` apply, below these flags.
+    """
+    extra: dict[str, Any] = dict(app._overrides)
+    if provider is not None:
+        extra["provider"] = provider  # a named provider, over the profile's
+    if upstream is not None:
+        extra["upstream_url"] = upstream  # the base URL of the provider in use
+    base_extra: dict[str, Any] = {"session": {"strategy": "conversation"}}
+    if session_strategy is not None:
+        extra["session"] = {"strategy": session_strategy}
+    if harvest is not None:
+        extra["harvest"] = harvest
+    if no_anchor:
+        # Below the config: an anchor set there still applies.
+        base_extra["anchor"] = {"secret": ""}
+    return app._read(app._config, extra=extra, base_extra=base_extra, agent=agent).log_warnings()
 
 
 def expand(app: Privyx, target: str, args: tuple[str, ...]) -> tuple[str, tuple[str, ...]] | None:
@@ -320,3 +357,34 @@ async def _wait_until_started(server: Any, serve_task: asyncio.Task[Any]) -> Non
             await serve_task  # re-raise the startup failure
             raise RuntimeError("proxy exited before it finished starting")
         await asyncio.sleep(0.02)
+
+
+def listen(host: str, port: int) -> tuple[socket.socket, int]:
+    """Bind the proxy's socket on ``port`` (0 picks a free one); return it and its port.
+
+    Raises:
+        PrivyxError: If the port cannot be bound, e.g. another process uses it.
+    """
+    sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as uvicorn's own bind does
+    try:
+        sock.bind((host, port))
+    except OSError as exc:
+        sock.close()
+        raise PrivyxError(f"cannot listen on {host}:{port}: {exc.strerror or exc}") from exc
+    return sock, int(sock.getsockname()[1])
+
+
+async def spawn(plan: LaunchPlan) -> int:
+    """Run the tool as a child process with the proxy URL injected.
+
+    Signals are left to the child: it owns the terminal, so Ctrl-C reaches it
+    directly and this process just waits for the exit code.
+    """
+    process = await asyncio.create_subprocess_exec(plan.command, *plan.argv, env=plan.environment)
+    try:
+        return await process.wait()
+    except asyncio.CancelledError:  # pragma: no cover - interactive only
+        process.terminate()
+        await process.wait()
+        raise

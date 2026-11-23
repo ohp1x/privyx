@@ -47,6 +47,7 @@ from privyx.core import Component, ConfigError, Event, EventBus, Registry
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
+    from privyx.app._services._agents import Agents
     from privyx.app._services._audit import Audit
     from privyx.app._services._config import Config
     from privyx.app._services._diagnostics import Diagnostics
@@ -444,6 +445,13 @@ class Privyx:
         from privyx.app._services._audit import Audit
 
         return Audit(self)
+
+    @cached_property
+    def agents(self) -> Agents:
+        """The agents ``privyx run`` launches: list, plan, run (experimental)."""
+        from privyx.app._services._agents import Agents
+
+        return Agents(self)
 
 
 def load_config(path: str | Path | None = None, **options: Any) -> Settings:
