@@ -136,8 +136,8 @@ it, repeat it, and hand it to a tool. The mapping back to the real value stays w
   afterwards.
 - **Checks what slips past.** [`privyx scan`](guide/cli.md#privyx-scan) finds
   the names a project should mask (git authors, remotes, `.env` values),
-  [`privyx lint`](guide/cli.md#privyx-lint) lists spellings of your terms that
-  would get through, and [`privyx install-hook`](guide/cli.md#privyx-install-hook)
+  [`privyx config lint`](guide/cli.md#privyx-config-lint) lists spellings of your terms that
+  would get through, and [`privyx hook install`](guide/cli.md#privyx-hook-install)
   stops a commit holding a secret or a placeholder.
 - **Keeps sessions your way.** One mapping per request, per client, or per
   conversation, [in memory, SQLite, or Redis](guide/sessions.md).

@@ -40,7 +40,7 @@ Privyx  → https://api.openai.com/v1/models                (as sent)
 ```
 
 Only the scheme, host, and port of the upstream URL are used; a path in it is
-ignored, unless [`proxy.path_mapping`](configuration.md#upstream-with-a-path)
+ignored, unless [`provider.path_mapping`](configuration.md#upstream-with-a-path)
 keeps it. "Transparent" means drop-in: this is an ordinary reverse proxy that
 your client addresses on purpose, not a network-level interceptor.
 
@@ -51,7 +51,7 @@ Some providers serve their API under a base path:
 router's prefix. Transparent mode mirrors the client's path, so it reaches
 such an endpoint only when the client itself sends that prefix and a
 [route](#adding-a-route) names it, or with
-[`proxy.path_mapping`](configuration.md#upstream-with-a-path). In gateway mode Privyx posts every request
+[`provider.path_mapping`](configuration.md#upstream-with-a-path). In gateway mode Privyx posts every request
 to the one URL you configure, whatever path the client used:
 
 ```yaml
@@ -67,7 +67,7 @@ provider:
 
 ```bash
 export PRIVYX_ANTHROPIC_API_KEY=...
-privyx proxy -c privyx.yaml
+privyx -c privyx.yaml proxy
 ```
 
 ```text
@@ -191,12 +191,12 @@ proxy:
 ```
 
 The shipped `configs/strict.yaml` enables this setting. Start it with
-`privyx proxy -c configs/strict.yaml` or use it with `privyx run`. This also blocks
+`privyx -c configs/strict.yaml proxy` or use it with `privyx run`. This also blocks
 unlisted metadata and file endpoints, including `/v1/models`; add a route only
 when its body uses a supported masking schema. Route coverage does not imply
 that every field or entity is detected; see [Limitations](../security/limitations.md).
 
-`privyx doctor -c configs/strict.yaml` lists effective masking routes and reports
+`privyx -c configs/strict.yaml doctor` lists effective masking routes and reports
 whether other paths are blocked or forwarded without body masking. It also
 shows default paths missing from a custom route map. A permissive configuration
 prints a warning while keeping the check successful; an empty map, malformed
@@ -270,9 +270,12 @@ A key held by Privyx replaces the client's on every request. The transparent
 proxy sends it as `x-api-key` on Anthropic paths, as `x-goog-api-key` on
 Gemini paths, and as a bearer token elsewhere; the gateway sends it as
 `x-api-key` when `provider.type` is `anthropic` and as `x-goog-api-key` when
-it is `google`. `proxy.forward_client_auth: false` drops the client's credential
-headers and key query parameters before anything else, so only a configured
-key can go upstream.
+it is `google`. `provider.forward_client_auth: false` drops the client's credential
+headers (`Authorization`, `x-api-key`, `x-goog-api-key`, and `Cookie`) and key
+query parameters before anything else, so only a configured key can go
+upstream. An agent profile whose provider should relay them again sets
+`forward_client_auth: true` on that provider, or in the profile's
+`privyx.provider`.
 
 **Headers Privyx adds or removes.**
 
@@ -301,7 +304,7 @@ Anthropic caches only what a request marks with `cache_control`. A client that
 marks nothing can have Privyx do it:
 
 ```yaml
-proxy:
+features:
   cache_control: true   # off by default
 ```
 
@@ -322,9 +325,9 @@ never forwarded. Neither needs a key. See
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `proxy.timeout` | `300` | Seconds the upstream may take to send the next bytes of a response. A stream runs as long as data keeps coming. |
-| `proxy.connect_timeout` | `10` | Seconds to open a connection. A connection that cannot be opened is retried twice. |
-| `proxy.max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. |
+| `provider.timeout` | `300` | Seconds the upstream may take to send the next bytes of a response. A stream runs as long as data keeps coming. |
+| `provider.connect_timeout` | `10` | Seconds to open a connection. A connection that cannot be opened is retried twice. |
+| `provider.max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. |
 
 What the client sees when one of them is hit is listed in
 [Errors](../reference/errors.md).
@@ -335,7 +338,7 @@ While you tune a config file, `--reload` restarts the proxy whenever the file
 changes:
 
 ```bash
-privyx proxy -c my.yaml --reload --upstream https://api.openai.com
+privyx -c my.yaml proxy --reload --upstream https://api.openai.com
 ```
 
 It is a restart, not a hot swap: requests in flight get five seconds to

@@ -14,13 +14,19 @@ A request that carries an `x-privyx-session` header uses that session. Privyx
 strips the header before forwarding, and the transparent proxy returns the id
 it used in the response's `x-privyx-session` header.
 
+The header is for a backend you trust to pick session ids. Privyx does not
+check who sends it, and whoever names a session can have its tokens restored.
+Use an opaque, unguessable id, not a user name or an email address, and have
+any reverse proxy in front of other clients
+[remove the header](../tutorials/team-gateway.md#2-decide-who-may-use-it).
+
 Most clients never send the header, so `session.strategy` decides:
 
 | Strategy | One session per | Use when |
 |---|---|---|
 | `ephemeral` (default) | Request | Requests are independent, or you are unsure. Nothing is shared between requests. |
-| `client` | API key | One user per key, and conversations may share a mapping. |
-| `conversation` | API key and first user message | A chat tool resends the conversation each turn. This is what `privyx run` uses. |
+| `client` | Client credential | One user per credential, and conversations may share a mapping. |
+| `conversation` | Client credential and first user message | A chat tool resends the conversation each turn. This is what `privyx run` uses. |
 
 ```yaml
 session:
@@ -34,6 +40,19 @@ same key share one. Gemini CLI opens each chat with the same message about
 its environment (date, directory, files), so its chats in one directory on
 one day share a session. The trade-offs are covered in
 [Proxy: Sessions](../architecture/proxy.md#sessions).
+
+These strategies read the credential the client sent to Privyx, also with
+`forward_client_auth: false`, which only decides what goes upstream. The
+fingerprint has limits:
+
+- Callers that share a credential share a session under `client`, and under
+  `conversation` when their first user message is the same. Each can then have
+  the other's tokens restored, so give each caller its own credential.
+- Without a credential, `client` falls back to `ephemeral`, while
+  `conversation` uses the first user message alone: any two callers that open
+  the same way share a session. A cookie or a client certificate that only
+  your ingress checks is not a credential here: have the ingress send each
+  caller its own API key or bearer token, or use `ephemeral`.
 
 To keep tokens stable across sessions and restarts regardless of strategy, set
 an [anchor secret](masking.md#anchors).
@@ -90,17 +109,21 @@ Set one whenever `session.strategy` is `client` or `conversation`: each
 conversation leaves a session, with the original values it masked, and without
 a TTL they pile up. `docker-compose.yml` sets a week.
 
+Deleting or expiring a session applies to the exchanges that start afterwards.
+An exchange already running keeps the mapping it was masked with, so its reply
+is still restored. The next request with that id starts an empty session.
+
 Or clean up by hand. `list` and `show` never print original values unless you
 ask:
 
 ```console
-$ privyx session list -c privyx.yaml
+$ privyx -c privyx.yaml session list
 SESSION  LAST ACTIVE          CREATED              MAPPINGS
 demo     2026-09-27T15:29:37  2026-09-27T15:29:37  1
 
 1 session(s) (vault: sqlite)
 
-$ privyx session show -c privyx.yaml demo
+$ privyx -c privyx.yaml session show demo
 Session: demo
   Vault:      sqlite
   Created:    2026-09-27T15:29:37
@@ -111,7 +134,7 @@ Session: demo
 
   (values masked; pass --reveal to show them)
 
-$ privyx session prune -c privyx.yaml --older-than 7d --dry-run
+$ privyx -c privyx.yaml session prune --older-than 7d --dry-run
 ```
 
 `prune` records each deletion in the audit trail as `session.deleted` with
@@ -126,7 +149,7 @@ or JSONL. The mapping goes either to a map file or to a vault session:
 privyx mask --map map.json "mail alice@example.com"   # mail <PRIVYX_EMAIL_4FF5EF825E496E1A>
 privyx unmask --map map.json "hi <PRIVYX_EMAIL_4FF5EF825E496E1A>"   # hi alice@example.com
 
-privyx mask -c privyx.yaml --session demo -i request.json --path '$.messages'
+privyx -c privyx.yaml mask --session demo -i request.json --path '$.messages'
 ```
 
 A map file is self-contained and needs no vault. `--session` needs a

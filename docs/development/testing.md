@@ -188,7 +188,7 @@ make e2e-labels
 ```
 
 This repeats the six combinations with `token.label_format` and
-`proxy.directive`: the agents' requests carry labeled placeholders, and the
+`features.directive`: the agents' requests carry labeled placeholders, and the
 checks require each to be restored by its id.
 
 The Claude loop includes signed thinking containing an original email. With

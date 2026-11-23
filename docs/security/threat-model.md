@@ -45,15 +45,17 @@ Client ──► [Privyx] ──► Provider
 | Threat | Mitigation |
 |---|---|
 | The provider, or anyone with access to its logs or stored conversations, reads sensitive values | Detected values are replaced before a request is forwarded. A request that cannot be masked is not forwarded. Inside the masked parts of a request, a field Privyx does not know is masked, not passed through. |
-| The provider infers a value from its token | A counter token (`<PRIVYX_EMAIL_1>`) carries nothing of the value. An anchored token carries a keyed HMAC, 64 bits of it by default ([`token.id_length`](../guide/masking.md#id-length)), which cannot be tested without the secret. A `hash` token is unkeyed and can be matched by guessing; see [Masking](../guide/masking.md#hash). |
+| The provider infers a value from its token | A counter token (`<PRIVYX_EMAIL_1>`) carries nothing of the value. An anchored token carries a keyed HMAC, 64 bits of it by default ([`operator.id_length`](../guide/masking.md#id-length)), which cannot be tested without the secret. A `hash` token is unkeyed and can be matched by guessing; see [Masking](../guide/masking.md#hash). |
 | Someone obtains a copy of the vault or of a map file | The SQLite file and map files are created readable by their owner only. `vault.ttl` limits how long a session exists. `operator.type: encrypt` stores AES-256-GCM ciphertext instead of plaintext (see [Cryptography](cryptography.md)); the other operators store plaintext and rely on the vault being protected. |
-| Logs or the audit trail leak values | Logging never prints request or reply text at the default level. The audit trail records entity types and counts, and an error's class name, never its message. Error responses do not quote the request. A debug `log_file` can hold original values and is created readable by its owner only. On POSIX, existing log files with another owner or permissions beyond `0600` are rejected before writing. |
+| Logs or the audit trail leak values | Logging never prints request or reply text at the default level. The audit trail records entity types and counts, and an error's class name, never its message. Error responses do not quote the request. A debug `log.file` can hold original values and is created readable by its owner only. On POSIX, existing log files with another owner or permissions beyond `0600` are rejected before writing. |
 | A reply tricks Privyx into revealing data | Restoring replaces only tokens that the request's own session issued. A token-shaped string from anywhere else is left as written. |
-| Someone uses the proxy without permission, or names another caller's session | Privyx binds to `127.0.0.1` by default. Session ids it derives (`client`, `conversation`) are keyed on the caller's credential, and per-request ids are random. An explicit `x-privyx-session` header is trusted as sent. Beyond that, access control is the deployment's job; see [Deployment](../guide/deployment.md#who-can-reach-it). |
-| Traffic between a client and Privyx is read | Native TLS termination (`tls.certfile` and `tls.keyfile`, or `PRIVYX_SSL_*` / `PRIVYX_TLS_*`) or a TLS-terminating reverse proxy in front; see [Deployment](../guide/deployment.md#https). |
+| Someone uses the proxy without permission | Privyx binds to `127.0.0.1` by default. Beyond that, access control is the deployment's job; see [Deployment](../guide/deployment.md#who-can-reach-it). |
+| One caller has another caller's tokens restored | Per-request ids are random, and the ids Privyx derives (`client`, `conversation`) are keyed on the caller's credential. That separates callers only if the ingress gives each its own token and removes `x-privyx-session`, which Privyx trusts as sent, from everyone but a trusted backend. Callers sharing a credential, or sending none under `conversation`, can share a session; see [Sessions](../guide/sessions.md#which-session-a-request-uses). |
+| Traffic goes around masking | A WebSocket upgrade is refused with `426`, since its frames could not be masked. A path outside `proxy.routes` is forwarded unmasked by default and recorded as `proxy.passthrough`; `proxy.passthrough_unknown: false` refuses it. |
+| Traffic between a client and Privyx is read | Native TLS termination (`server.tls.certfile` and `server.tls.keyfile`, or `PRIVYX_SSL_*` / `PRIVYX_TLS_*`) or a TLS-terminating reverse proxy in front; see [Deployment](../guide/deployment.md#https). |
 | A token split across stream chunks reaches the client unrestored | The stream is restored with a hold-back scan, and property tests check that streamed output equals batch output for any chunking; see [Streaming](../architecture/streaming.md). |
 | Two values get the same token | Counters are issued under a per-session lock: within one process, and across processes sharing a SQLite file or instances sharing a Redis vault. With an anchor, the token is derived from the value instead. |
-| Keys leak through process lists, shell history, or diagnostics | Provider keys, the anchor secret, and the encryption key come from the environment, a config file, or a password manager, never from a command-line flag. `privyx config --show` and the startup lines mask them. |
+| Keys leak through process lists, shell history, or diagnostics | Provider keys, the anchor secret, and the encryption key come from the environment, a config file, or a password manager, never from a command-line flag. `privyx config show` and the startup lines mask them. |
 | A plugin does harm | Plugins are opt-in and load only from the local paths and modules a config names; an installed package is never loaded on its own. A plugin cannot replace a built-in component, and a plugin route that would take a masking route stops startup. |
 
 ## Assumptions
@@ -66,6 +68,12 @@ Client ──► [Privyx] ──► Provider
 - The vault is a trusted component, unless `operator.type: encrypt` is
   selected, in which case a vault leak exposes ciphertext, not plaintext.
 - The anchor secret and the encryption key stay secret.
+- On a shared proxy, the ingress authenticates each caller with its own
+  credential, removes `x-privyx-session` from callers other than a trusted
+  backend, and limits the size of a request body.
+- The audit trail is best effort. A line that cannot be written is lost and
+  counted while the request goes on, so the trail is not proof that an exchange
+  did not happen.
 - The detector is configured for the data it sees. A value no detector finds
   is not protected.
 

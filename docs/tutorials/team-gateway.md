@@ -100,8 +100,10 @@ the base URL and the key changes on the client side.
 # Clients present a gateway token where they would put a provider API key.
 map "$http_authorization:$http_x_api_key" $gateway_ok {
     default                  0;
-    "Bearer team-token-1:"   1;   # OpenAI-style clients
-    ":team-token-1"          1;   # Anthropic-style clients
+    "Bearer team-token-1:"   1;   # alice, OpenAI-style clients
+    ":team-token-1"          1;   # alice, Anthropic-style clients
+    "Bearer team-token-2:"   1;   # bob, OpenAI-style clients
+    ":team-token-2"          1;   # bob, Anthropic-style clients
 }
 
 server {
@@ -110,6 +112,9 @@ server {
 
     ssl_certificate     /etc/nginx/certs/fullchain.pem;
     ssl_certificate_key /etc/nginx/certs/privkey.pem;
+
+    # Coding agents resend the whole conversation; the 1 MB default refuses it.
+    client_max_body_size 32m;
 
     location / {
         if ($gateway_ok = 0) {
@@ -120,25 +125,39 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # A client must not choose its session.
+        proxy_set_header x-privyx-session "";
 
         # Streamed replies (SSE) must not be buffered.
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 300s;
+
+        # Keep unmasked request bodies out of nginx's temporary files.
+        proxy_request_buffering off;
     }
 }
 ```
 
-Replace `team-token-1` with a long random string (`openssl rand -hex 24`),
-and add a pair of lines per token to give each person or service its own.
-nginx terminates TLS here, so Privyx itself keeps speaking plain HTTP on the
-loopback interface.
+Replace each token with a long random string (`openssl rand -hex 24`), with
+one pair of lines per person or service. nginx terminates TLS here, so Privyx
+itself keeps speaking plain HTTP on the loopback interface.
+
+Two of these lines keep members apart:
+
+- **One token per member.** Privyx keys each conversation's session on the
+  token. Members who share a token and open a conversation with the same
+  message share a session, and each can have the other's tokens restored.
+- **`proxy_set_header x-privyx-session ""`.** Privyx trusts this header as sent,
+  so without this line a member could name someone else's session. If a backend
+  you trust sets session ids, give it a `location` of its own that keeps the
+  header, and have it send [opaque ids](../guide/sessions.md#which-session-a-request-uses).
 
 Then tell Privyx never to pass on what a client sent as its key:
 
 ```yaml
 # configs/gateway.yaml
-proxy:
+provider:
   forward_client_auth: false   # the gateway token stops here
 ```
 
@@ -177,8 +196,9 @@ Two more settings suit a shared gateway. Add them to `configs/gateway.yaml`:
 
 ```yaml
 # configs/gateway.yaml
-proxy:
+provider:
   forward_client_auth: false   # the gateway token stops here
+proxy:
   passthrough_unknown: false   # refuse paths Privyx cannot mask
 
 operator:
@@ -211,7 +231,7 @@ Add your organization's [names and terms](custom-terms.md) to the same file,
 then check that it loads before you apply it:
 
 ```bash
-docker compose run --rm privyx doctor -c /app/configs/gateway.yaml
+docker compose run --rm privyx -c /app/configs/gateway.yaml doctor
 ```
 
 ## 4. See what it does
@@ -253,10 +273,14 @@ the token like everything else.
   Rotate it with logrotate's `copytruncate`.
 - **More than one instance.** Several Privyx containers behind a load
   balancer can share the same Redis: a conversation's session is found by
-  whichever instance receives the next turn. Give them all the same
-  `PRIVYX_ANCHOR_SECRET` or `PRIVYX_ENCRYPT_KEY`, so that tokens come from
-  the value. Without one, an instance locks the session in Redis while it
-  masks a request, and requests of one conversation wait for each other.
+  whichever instance receives the next turn. Run one Privyx version on all of
+  them, draining the old instances during an upgrade, with the same config and
+  the same `PRIVYX_ANCHOR_SECRET` or `PRIVYX_ENCRYPT_KEY`, so that tokens come
+  from the value. Run one worker in each and scrape each on its own, since
+  metrics are per process. An instance locks the session in Redis while it
+  masks a request, so requests of one conversation wait for each other. If
+  Redis is down they get `503`: there is no fallback to memory. See
+  [Supported setups](../guide/deployment.md#supported-setups).
 - **Secrets.** `.env` now holds the provider key and the anchor secret or
   encryption key. Keep it readable by its owner only, and out of version
   control.
@@ -265,9 +289,10 @@ the token like everything else.
 
 - Privyx listens on `127.0.0.1` only; nothing but the reverse proxy reaches
   it.
-- Clients present a gateway token over HTTPS; the provider key is in
-  `PRIVYX_API_KEY`.
-- `proxy.forward_client_auth` is `false`.
+- Clients present a gateway token over HTTPS, one per member; the provider key
+  is in `PRIVYX_API_KEY`.
+- nginx removes `x-privyx-session` and sets `client_max_body_size`.
+- `provider.forward_client_auth` is `false`.
 - Sessions expire (`PRIVYX_VAULT_TTL`), and the vault is not reachable from
   outside the host.
 - `proxy.passthrough_unknown` is `false`, unless clients need unmasked paths.

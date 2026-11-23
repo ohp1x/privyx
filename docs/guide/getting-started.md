@@ -139,8 +139,8 @@ Pick the tab that matches what you use.
 
 ## 4. Check what happened
 
-Privyx records every exchange in an audit trail: event names, entity types,
-and counts, never the content.
+Privyx keeps a best-effort audit trail of its exchanges: event names, entity
+types, and counts, never the content.
 
 ```console
 $ privyx audit tail --no-follow
@@ -157,7 +157,7 @@ $ privyx audit tail --no-follow
 `proxy.request`, `transform_ms` is the time masking took; the rest of
 `duration_ms` is mostly the provider.
 
-The trail is in `~/.privyx/audit.log`, unless `audit.path` names another
+The trail is in `~/.privyx/audit.log`, unless `features.audit.path` names another
 file; then name it too: `privyx audit tail FILE`.
 
 ## What is masked by default
@@ -188,7 +188,7 @@ Privyx X.Y.Z
 
 `X.Y.Z` is your installed version. `Upstream` is where requests go when nothing else is set, a local default;
 `--upstream`, `PRIVYX_UPSTREAM_URL`, or a config file changes it.
-`privyx config --show` prints every setting with credentials masked, and
+`privyx config show` prints every setting with credentials masked, and
 `privyx doctor` exercises the configured detector, vault, and proxy end to end.
 
 ## Next steps

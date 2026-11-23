@@ -48,16 +48,16 @@ knowledge is needed:
 
 ```yaml
 # my.yaml
-detector:
-  type: regex                 # keeps the built-in patterns
-  terms:
-    PERSON:       [ann, bob]
-    ORGANIZATION: [acme, initech]
-    PROJECT:      [bluebird]
+detectors:
+  regex:                      # keeps the built-in patterns
+    terms:
+      PERSON:       [ann, bob]
+      ORGANIZATION: [acme, initech]
+      PROJECT:      [bluebird]
 ```
 
 ```console
-$ privyx detect -c my.yaml --transform "Bob at Initech wants Bluebird specs before Acme does"
+$ privyx -c my.yaml detect --transform "Bob at Initech wants Bluebird specs before Acme does"
      0:3     PERSON            'Bob'
      7:14    ORGANIZATION      'Initech'
     21:29    PROJECT           'Bluebird'
@@ -84,16 +84,16 @@ Values that follow a format are better described by a regular expression.
 
 ```yaml
 # my.yaml
-detector:
-  type: regex
-  terms:
-    PERSON:       [ann, bob]
-    ORGANIZATION: [acme, initech]
-    PROJECT:      [bluebird]
-  patterns:
-    EMPLOYEE_ID: '\bEMP-\d{6}\b'
-    ORDER_ID:    '\bORD-\d{4}-\d{6}\b'
-    LICENSE_KEY: '(?i)license[ _-]?key\s*[:=]\s*(?P<value>[A-Z0-9-]{10,})'
+detectors:
+  regex:
+    terms:
+      PERSON:       [ann, bob]
+      ORGANIZATION: [acme, initech]
+      PROJECT:      [bluebird]
+    patterns:
+      EMPLOYEE_ID: '\bEMP-\d{6}\b'
+      ORDER_ID:    '\bORD-\d{4}-\d{6}\b'
+      LICENSE_KEY: '(?i)license[ _-]?key\s*[:=]\s*(?P<value>[A-Z0-9-]{10,})'
 ```
 
 ```console
@@ -119,7 +119,7 @@ setting named in the message, rather than silently not applying.
 ## 4. Test it on the sample
 
 ```console
-$ privyx detect -c my.yaml --transform --stdin < sample.txt
+$ privyx -c my.yaml detect --transform --stdin < sample.txt
     12:15    PERSON            'Bob'
     23:48    EMAIL             'bob.marsh@initech.example'
     51:58    ORGANIZATION      'Initech'
@@ -140,14 +140,14 @@ only `bob` was listed. You can add `bob marsh`, and you will keep adding names
 for as long as new people appear in your text.
 
 A listed word is also found inside an identifier, since `_` separates words:
-`DB_BOB` and `bob_dev` are masked too. [`privyx lint -c my.yaml`](../guide/cli.md#privyx-lint)
+`DB_BOB` and `bob_dev` are masked too. [`privyx -c my.yaml config lint`](../guide/cli.md#privyx-config-lint)
 lists the spellings of your terms that are still sent as is, such as `ｂｏｂ`
 in fullwidth letters, and the detector option that masks each.
 
 ## 5. Find names you cannot list
 
 For names nobody listed in advance, add a detector that reads language. A
-`detector` list runs several detectors and pools what they find.
+`detectors` map runs several detectors and pools what they find.
 
 === "Presidio"
 
@@ -161,21 +161,21 @@ For names nobody listed in advance, add a detector that reads language. A
 
     ```yaml
     # my.yaml
-    detector:
-      - type: regex               # built-in patterns, your terms and patterns
+    detectors:
+      regex:                      # built-in patterns, your terms and patterns
         terms:
           ORGANIZATION: [acme, initech]
           PROJECT:      [bluebird]
         patterns:
           EMPLOYEE_ID: '\bEMP-\d{6}\b'
           ORDER_ID:    '\bORD-\d{4}-\d{6}\b'
-      - type: presidio            # needs privyx[presidio] and a spaCy model
+      presidio:                   # needs privyx[presidio] and a spaCy model
         language: en
         entities: [PERSON, LOCATION]
     ```
 
     ```console
-    $ privyx detect -c my.yaml --transform --stdin < sample.txt
+    $ privyx -c my.yaml detect --transform --stdin < sample.txt
         12:21    PERSON            'Bob Marsh'
         23:48    EMAIL             'bob.marsh@initech.example'
         51:58    ORGANIZATION      'Initech'
@@ -211,12 +211,12 @@ For names nobody listed in advance, add a detector that reads language. A
 
     ```yaml
     # my.yaml
-    detector:
-      - type: regex
+    detectors:
+      regex:
         terms:
           ORGANIZATION: [acme, initech]
           PROJECT:      [bluebird]
-      - type: llm                 # needs privyx[providers] and a provider key
+      llm:                        # needs privyx[providers] and a provider key
         llm_provider: openai
         llm_model: gpt-4o-mini
     ```
@@ -255,16 +255,16 @@ same detectors as the proxy.
 Give the same file to whatever you run:
 
 ```bash
-privyx proxy -c my.yaml --upstream https://api.openai.com
-privyx run -c my.yaml claude
-privyx mask -c my.yaml --map map.json -i ticket.txt
+privyx -c my.yaml proxy --upstream https://api.openai.com
+privyx -c my.yaml run claude
+privyx -c my.yaml mask --map map.json -i ticket.txt
 ```
 
 or set `PRIVYX_CONFIG=/path/to/my.yaml` once. While you are still tuning the
 lists, `--reload` restarts the proxy whenever the file changes:
 
 ```bash
-privyx proxy -c my.yaml --reload --upstream https://api.openai.com
+privyx -c my.yaml proxy --reload --upstream https://api.openai.com
 ```
 
 ## Mask only some entity types
@@ -274,10 +274,10 @@ only the types you allow, and leaves the rest in the text:
 
 ```yaml
 # strict.yaml
-detector:
-  type: regex
-  terms:
-    PROJECT: [bluebird]
+detectors:
+  regex:
+    terms:
+      PROJECT: [bluebird]
 policy:
   type: strict
   allowed: [EMAIL, PHONE]
@@ -288,11 +288,11 @@ detected and then left alone, as `PROJECT` is here. `--no-policy` shows what
 the policy filtered out:
 
 ```console
-$ privyx detect -c strict.yaml --transform "bluebird mail a@b.io"
+$ privyx -c strict.yaml detect --transform "bluebird mail a@b.io"
     14:20    EMAIL             'a@b.io'
 
 bluebird mail <PRIVYX_EMAIL_1D67ED6CD0AAE8C3>
-$ privyx detect -c strict.yaml --transform --no-policy "bluebird mail a@b.io"
+$ privyx -c strict.yaml detect --transform --no-policy "bluebird mail a@b.io"
      0:8     PROJECT           'bluebird'
     14:20    EMAIL             'a@b.io'
 

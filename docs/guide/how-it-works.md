@@ -142,7 +142,7 @@ Privyx masks a request only when its path has a route. See
 
 The two ways the proxy forwards a request. `transparent`, the default,
 mirrors the client's path on the provider's host, or maps an upstream prefix
-with `proxy.path_mapping`. `gateway` posts to a fixed endpoint, with sibling
+with `provider.path_mapping`. `gateway` posts to a fixed endpoint, with sibling
 endpoints for embeddings and legacy completions. See [Two modes](proxy.md#two-modes).
 
 ### Audit trail

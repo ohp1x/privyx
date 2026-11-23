@@ -8,7 +8,7 @@ description: The cryptography behind anchored tokens and the encrypt operator, a
 
 With an anchor secret, the id of a `pseudonym` token is the first 16 hex
 characters (64 bits) of `HMAC-SHA256(secret, value)`, or as many as
-`token.id_length` sets:
+`operator.id_length` sets:
 
 ```text
 ann@example.com  →  <PRIVYX_EMAIL_E55D8A16FDB2F399>
@@ -39,7 +39,7 @@ exposes no original value.
   different values.
 - **Token.** An ordinary token whose id is a keyed digest of the value:
   deterministic, but impossible to compute or test without the key. Its length
-  follows [`token.id_length`](../guide/masking.md#id-length).
+  follows [`operator.id_length`](../guide/masking.md#id-length).
 - **Authenticated.** The GCM tag makes a corrupted or foreign value fail to
   decrypt. Privyx then leaves the token as it is instead of restoring garbage.
 - **Streaming.** Batch and streamed replies are restored the same way, as with
@@ -64,4 +64,4 @@ package or without a key, Privyx stops at startup.
 - In a config file, read a key from the environment with `${NAME}` or from a
   [password manager](../guide/configuration.md#secrets-from-a-password-manager)
   rather than writing it into the file.
-- `privyx config --show` prints both masked.
+- `privyx config show` prints both masked.

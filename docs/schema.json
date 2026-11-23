@@ -894,7 +894,7 @@
       "additionalProperties": false
     },
     "PluginsConfig": {
-      "description": "Plugin loading.\n\nOpt-in: nothing is loaded unless ``paths`` or ``modules`` name something.\nEach path, a directory or a ``.py`` file, is imported and scanned for\nconcrete subclasses of the Privyx component base classes, which are\nregistered under their ``name`` and become selectable as a component\n``type``.  Each module, such as an installed package, is imported and its\n``setup(px)`` called.  Installed packages are never loaded on their own:\nthere is no entry-point discovery.  Set ``enabled: false`` to skip both.",
+      "description": "Plugin loading.\n\nOpt-in: nothing is loaded unless ``paths`` or ``modules`` name something.\nEach file of ``paths``, a ``.py`` file or those of a directory, and each\nmodule of ``modules``, such as an installed package, is imported and its\n``setup(app)`` called.  Installed packages are never loaded on their own:\nan entry point is only listed.  Set ``enabled: false`` to skip both.",
       "properties": {
         "enabled": {
           "title": "Enabled",

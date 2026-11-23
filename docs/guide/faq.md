@@ -102,7 +102,7 @@ use the [`encrypt` operator](masking.md#encrypt). See
 
 No. Its log never contains request or reply text at the default level, and
 the audit trail records entity types and counts only. The one exception is a
-debug log file you switch on yourself: `log_file` at `log_level: debug` can
+debug log file you switch on yourself: `log.file` at `log.level: debug` can
 hold original values.
 
 ### Does Privyx make me GDPR or HIPAA compliant?

@@ -69,7 +69,9 @@ Prefer `pseudonym` with an anchor secret when that matters.
 
 | Limit | What to do |
 |---|---|
-| The proxy has no authentication and no notion of users. Anyone who can reach its port can send requests through it, and can name any session in the `x-privyx-session` header. | Keep it on `127.0.0.1`, or put an authenticating reverse proxy in front; see [Deployment](../guide/deployment.md#who-can-reach-it). Set session ids in your backend. |
+| The proxy has no authentication and no notion of users. Anyone who can reach its port can send requests through it, and can name any session in the `x-privyx-session` header to have that session's tokens restored. | Keep it on `127.0.0.1`, or put an authenticating reverse proxy in front that removes the header; see [Deployment](../guide/deployment.md#who-can-reach-it). Let only a trusted backend set session ids, with opaque values. |
+| Callers that share a credential can share a session under `client` and `conversation`, and so can callers without one under `conversation` when their first user message is the same. Each can then have the other's tokens restored. | Give each caller its own token at the reverse proxy, or use the `ephemeral` strategy; see [Sessions](../guide/sessions.md#which-session-a-request-uses). |
+| The audit trail is best effort. A line that cannot be written, on a full disk for example, is lost while the request goes on, and lines are not synced to disk. | Watch `privyx_audit_write_failures_total`, and do not treat the trail as a complete record. |
 | The vault and `--map` files hold original values in plain text, unless you use the `encrypt` operator. | Protect them like the data they mirror, set a [`vault.ttl`](../guide/sessions.md#expiring-sessions), or use [`encrypt`](../guide/masking.md#encrypt). |
 | The `llm` detector sends unmasked text to the model it asks. | Use a provider you already trust with that text, or a model you host. |
 | Privyx does not defend against prompt injection. Tool-call arguments are restored before your tool runs, so if injected instructions make the model call a tool that sends data elsewhere, real values are sent. | Limit what your tools may do, as you would without Privyx. |
@@ -79,7 +81,7 @@ Prefer `pseudonym` with an anchor secret when that matters.
 
 ## Maturity
 
-Privyx is in its `0.1.x` series. New masking behaviors ship as opt-in in patch
+Privyx is in its `0.x` series. New masking behaviors ship as opt-in in patch
 releases; default changes are batched in minor releases. See
 [Upgrading](../guide/upgrading.md) for versioning and deprecation, and the
 [changelog](https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md) for changes.

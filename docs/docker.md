@@ -65,7 +65,7 @@ docker run -d -p 127.0.0.1:8000:8000 \
 
 The image also ships the example configs under `/app/configs`
 (`PRIVYX_CONFIG=/app/configs/strict.yaml`, for instance). Check the effective
-settings, with credentials masked, using `docker run --rm ohp1x/privyx config --show`.
+settings, with credentials masked, using `docker run --rm ohp1x/privyx config show`.
 
 ## Modes
 

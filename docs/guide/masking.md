@@ -36,22 +36,25 @@ need one of the properties below.
 
 ### `hash`
 
-The token's id is a SHA-256 digest of the value, cut to `length` hex
-characters (default `12`). The same value gets the same token in every
-session, without a secret.
+Deprecated; it is removed in 0.4.0. The token's id is a SHA-256 digest of the
+value, cut to `operator.id_length` hex characters (default `12`). The same
+value gets the same token in every session, without a secret.
+
+`operator.id_length` is between 6 and 64; another value is a configuration
+error. When two values in a session would get the same id, the later one gets
+a longer id from the same digest, so a collision never restores the wrong
+value.
+
+A short unkeyed hash can be matched by anyone who guesses the value. Use
+`pseudonym` with an [anchor](#anchors) instead, which gives the same stable
+tokens under a secret:
 
 ```yaml
 operator:
-  type: hash
-  length: 12
+  type: pseudonym
+anchor:
+  secret: auto
 ```
-
-`length` is between 6 and 64; another value is a configuration error. When two values in
-a session would get the same id, the later one gets a longer id from the same
-digest, so a collision never restores the wrong value.
-
-A short unkeyed hash can be matched by anyone who guesses the value. Prefer
-`pseudonym` with an [anchor](#anchors) when that matters.
 
 ### `encrypt`
 
@@ -147,7 +150,7 @@ it back:
 ```yaml
 operator:
   type: redact
-  token: "[REDACTED]"
+  text: '[REDACTED]'
 ```
 
 ## Token format
@@ -210,14 +213,14 @@ as above.
 ### Id length
 
 The id of an [anchored](#anchors) `pseudonym` token and of an `encrypt` token
-is 16 hex characters. `token.id_length` sets it, from 6 to 64:
+is 16 hex characters. `operator.id_length` sets it, from 6 to 64:
 
 ```yaml
-token:
+operator:
   id_length: 8              # <PRIVYX_EMAIL_4FF5EF82>
 ```
 
-Counter ids and `hash` (`operator.length`) do not change. A new length changes
+Counter ids and `hash` do not change. A new length changes
 every token, as a new secret or key does: tokens issued before no longer match
 the same value. Below 12, an id the model writes without the rest of its token
 is not restored, as with a counter.
@@ -241,7 +244,7 @@ of the same kind, for the model to read and reason with:
 ```yaml
 token:
   label_format: "<{namespace}_{type}_{id}:{label}>"   # <PRIVYX_PERSON_A81B3C9AEE08DE11:Alice Johnson>
-proxy:
+features:
   directive: true           # recommended with labels
 ```
 
@@ -349,14 +352,14 @@ tokens, and a token a session did not make is left as it is.
 
 ## Placeholder directive
 
-`proxy.directive` adds a short instruction to each masked chat request: some
+`features.directive` adds a short instruction to each masked chat request: some
 values are placeholders such as `<PRIVYX_EMAIL_4FF5EF825E496E1A>`, to be copied exactly as
 written wherever the value is needed, and never changed, split, encoded, or
 guessed at. It helps a model that otherwise treats a placeholder as a typo to
 fix, or rebuilds one in code.
 
 ```yaml
-proxy:
+features:
   directive: true
 ```
 

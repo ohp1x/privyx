@@ -33,7 +33,7 @@ up HTTPS, or look up an error, see [Proxy modes and routes](../guide/proxy.md),
 
 Transparent mode keeps only the upstream's origin: `resolve_origin` cuts
 `base_url` back to `scheme://host[:port]` and appends the client's path. With
-`proxy.path_mapping.mode: prefix` it keeps the upstream's path and appends the
+`provider.path_mapping.mode: prefix` it keeps the upstream's path and appends the
 client's path after `strip_prefix`. When to use which mode is covered in
 [Proxy modes and routes](../guide/proxy.md#two-modes).
 
@@ -47,18 +47,18 @@ provider are built again from the new settings. Requests in flight get 5 s to
 finish, as on SIGTERM, and the listener is briefly gone. A config that fails
 to parse or to build is reported, and the watcher waits for the next change.
 
-Both modes share one implementation of request masking and batch restore
-(`proxy/schemas.py`) and of streaming restore (`proxy/stream_router.py`). The
-transparent proxy adds path routing, per-request schema selection, and the
-forwarding of headers and credentials. The `gateway/` package holds only the
-two FastAPI apps, `server.py` and `transparent.py`; all privacy logic lives in
-`proxy/`.
+Both modes run through one pipeline (`proxy/_pipeline.py`), with one
+implementation of request masking and batch restore (`proxy/_mask.py`) and of
+streaming restore (`streaming/_router.py`). The transparent proxy adds path
+routing, per-request schema selection, and the forwarding of headers and
+credentials. `proxy/_asgi.py`, the one module that knows FastAPI, turns each
+HTTP request into an exchange for the pipeline and holds no privacy logic.
 
 ## Routes
 
 The default routes, how to add one, and what happens to a path without a
 route are covered in [Proxy modes and routes](../guide/proxy.md#routes).
-`proxy.routes` is looked up by path (`proxy/schemas.py::detect_schema`), with
+`proxy.routes` is looked up by path (`proxy/_routing.py::matched_route`), with
 the query string already split off. Exact routes win over wildcard routes;
 `*` matches characters other than `/`, and the first matching wildcard wins.
 An accidental repeated `/v1/v1/` prefix also uses the intended `/v1/` route
@@ -69,7 +69,7 @@ stands for, so it is masked whatever the upstream answers.
 
 ## What gets transformed and restored
 
-Both directions share one leaf walk (`proxy/schemas.py`) rather than a walker
+Both directions share one leaf walk (`core/_walk.py`) rather than a walker
 per field, so a field a provider adds later is covered by default:
 
 - **Restore walks every string leaf** of a batch response, whatever the schema.
@@ -149,8 +149,8 @@ restored, so a client that asks for them can see placeholder fragments.
 
 The responses Privyx generates itself, with their status and `error.type`,
 are listed in [Errors](../reference/errors.md). Both modes build them in one
-place (`proxy/transparent.py::upstream_failure` and the `*_BODY` constants
-next to it), so they answer alike.
+place (`proxy/_upstream.py::upstream_failure` and the `*_BODY` constants in
+`proxy/_pipeline.py`), so they answer alike.
 
 ## Layers
 
@@ -167,7 +167,7 @@ The proxy is deliberately thin. It:
 A session owns the token-to-value mapping used to restore a response. An
 explicit `x-privyx-session` header always picks the session. Most clients
 (Claude Code, Codex, aider, the OpenAI CLI) never send one, so
-`session.strategy` decides (`proxy/session.py::resolve_session_id`, applied by
+`session.strategy` decides (`proxy/_session.py::resolve_session_id`, applied by
 both modes before `get_or_create_session`):
 
 - **`ephemeral`** (default): a fresh session per request, kept in the proxy's
@@ -177,9 +177,8 @@ both modes before `get_or_create_session`):
   mappings. The cost: a multi-turn conversation is detected again on every
   turn and shows up as many sessions, and without an anchor its tokens carry
   no meaning from one turn to the next.
-- **`client`**: a stable session derived from the client's credential
-  (`Authorization` or `x-api-key`), one per API key. Simple, but every
-  conversation under that key shares one growing mapping.
+- **`client`**: a stable session derived from the client's credential. Simple,
+  but every conversation under that credential shares one growing mapping.
 - **`conversation`**: derived from the credential and the first user message,
   so each conversation reuses its own session while different conversations,
   even under the same key, stay apart. This is what `privyx run` uses.
@@ -187,17 +186,23 @@ both modes before `get_or_create_session`):
 Because the id is derived from the request, continuity is automatic:
 `get_or_create_session` reuses the vault session whenever the id exists, so
 tokens stay stable across turns, and only the first turn logs
-`session.created`. Every derived id is keyed on the credential, so two callers
-never share a mapping. The `session.created` audit event records a `source`
-(`header`, `client`, `conversation`, or `ephemeral`), so the trail shows how
-each id was chosen.
+`session.created`. A derived id is keyed on the client's credential when the
+request carries one, so callers with different credentials get different
+sessions. Callers that share a credential can share a session, and so can
+callers without one under `conversation`, whose id then comes from the first
+user message alone. Whoever shares a session can have its tokens restored. The
+`session.created` audit event records a `source` (`header`, `client`,
+`conversation`, or `ephemeral`), so the trail shows how each id was chosen.
 
 **The trade-off of `conversation`.** The fingerprint is the first user
 message, which stays the same across a conversation's turns. Two
 conversations under the same key that open with an identical first message
 therefore share a session, and editing or clearing the first message starts a
-new one. That is usually what you want, but it is a heuristic: send an explicit
-`x-privyx-session` header when exact isolation matters.
+new one. That is usually what you want, but it is a heuristic. When exact
+isolation matters, give each caller its own credential, or have a trusted
+backend set `x-privyx-session` to an opaque id. The header is honored as sent,
+so an ingress in front of other clients must remove it; see
+[Sessions](../guide/sessions.md#which-session-a-request-uses).
 
 For tokens that stay the same without a shared session, across restarts and
 across conversations, set an anchor secret (`PRIVYX_ANCHOR_SECRET`): the token

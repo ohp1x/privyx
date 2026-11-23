@@ -292,12 +292,10 @@ class PluginsConfig(BaseModel):
     """Plugin loading.
 
     Opt-in: nothing is loaded unless ``paths`` or ``modules`` name something.
-    Each path, a directory or a ``.py`` file, is imported and scanned for
-    concrete subclasses of the Privyx component base classes, which are
-    registered under their ``name`` and become selectable as a component
-    ``type``.  Each module, such as an installed package, is imported and its
-    ``setup(px)`` called.  Installed packages are never loaded on their own:
-    there is no entry-point discovery.  Set ``enabled: false`` to skip both.
+    Each file of ``paths``, a ``.py`` file or those of a directory, and each
+    module of ``modules``, such as an installed package, is imported and its
+    ``setup(app)`` called.  Installed packages are never loaded on their own:
+    an entry point is only listed.  Set ``enabled: false`` to skip both.
     """
 
     enabled: bool = True

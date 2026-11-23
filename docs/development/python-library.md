@@ -11,28 +11,27 @@ batch job, or in a service of your own.
 
 !!! note "Stability"
 
-    Privyx is in its `0.1.x` series. The engine's methods shown here are what
-    the proxy itself calls, and the scripts on this page are run by the test
-    suite. The import paths of everything else may still move between
-    releases; pin the version you build on.
+    The engine's methods shown here are what the proxy itself calls, and the
+    scripts on this page are run by the test suite. The Python API is
+    experimental and may change in a `0.x` release; pin the version you build
+    on.
 
 The engine is asynchronous. Call it from `async` code, or wrap a call in
 `asyncio.run`.
 
 ## Build the engine from configuration
 
-`load_config` reads the same layers as the CLI: the built-in defaults, the
-[config files](../guide/configuration.md#where-settings-come-from) (or one
-alone, if you pass its path), the `PRIVYX_*` environment, and overrides you
-pass. `build_engine`
-assembles the detector, policy, operator, and vault those settings describe.
+[`Privyx`](python-api.md) reads the same layers as the CLI: the built-in
+defaults, the [config files](../guide/configuration.md#where-settings-come-from)
+(or one alone, if you pass its path), the `PRIVYX_*` environment, and overrides
+you pass. `app.engine()` assembles the detector, policy, operator, and vault
+those settings describe.
 
 ```python
 --8<-- "examples/from_config.py"
 ```
 
-`build_engine` returns the engine and a function that releases the vault.
-Call it when you are done.
+`app.engine()` is an async context manager: it closes the components on exit.
 
 Everything a config file can do works here: word lists, patterns, Presidio,
 the `encrypt` operator, a SQLite or Redis vault, plugins.
@@ -57,12 +56,10 @@ To skip the configuration layer, pass the four components yourself:
 --8<-- "examples/basic.py"
 ```
 
-The defaults of the configuration are not applied then. A component built by
-hand, or a detector from `build_detector` with a plain dict, takes what its
-arguments say, and each option it is not given is off: no anchor, no leak
-check (`dlp_check`), and none of `underscore_separates_words`,
-`term_variants`, or `merge_terms`, which the configuration turns on by default
-since 0.2. Set them yourself, or start from `load_config`.
+The configuration is not applied then. Each component takes the defaults of
+its own options. The engine has no anchor and no leak check unless you pass
+`dlp_check=True`, and that check treats `_` as a word separator only with
+`underscore_separates_words=True`. Set them yourself, or start from `Privyx`.
 
 ## Restore a stream
 
@@ -85,29 +82,36 @@ was still held back when the stream ends.
 
 ## Errors
 
-Every error Privyx raises derives from `privyx.core.errors.PrivyxError`:
+Every error Privyx raises derives from `privyx.PrivyxError`. `privyx.core` has
 `ConfigError` for a setting that cannot work, `DetectorError` when a scan
 fails, `VaultError` when the session store does, and `SessionNotFoundError`
 for an unknown session id.
 
-## Assemble it with `Privyx`
+## Mask without holding an engine
 
-[`Privyx`](python-api.md) (experimental) reads the configuration, registers
-components you add in code, and hands you the engine, or serves the proxy
-with routes of your own:
+The services of [`Privyx`](python-api.md#services) open the engine for each
+call, or use the one already open:
 
 ```python
+import asyncio
+
 from privyx import Privyx
 
-px = Privyx(detector={"terms": {"PROJECT": ["bluebird"]}})
+app = Privyx(vault={"type": "sqlite", "dsn": "sessions.db"})
+
 
 async def main() -> None:
-    async with px.engine() as engine:
-        masked = await engine.transform("bluebird ships")
+    masked = await app.masking.mask("write to ana@example.com")
+    print(masked.text)
+    print(await app.masking.unmask(masked.text, session_id=masked.session.session_id))
+    print(len(await app.sessions.list()))
+
+
+asyncio.run(main())
 ```
 
 ## Extending the engine
 
-To add a detector, an operator, a policy, a vault, or a provider, write a
-[plugin](plugins.md). The tutorial [A detector plugin](../tutorials/detector-plugin.md)
+To add a detector, an operator, a policy, a vault, a provider, or another kind
+of component, write a [plugin](plugins.md). The tutorial [A detector plugin](../tutorials/detector-plugin.md)
 builds one from start to finish.
