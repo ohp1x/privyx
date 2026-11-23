@@ -54,6 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** SSE comments such as keep-alives, and the `id` of text events, reach the client, and a stream on an unmasked route with nothing to restore is relayed byte for byte
 - **Config:** the old `operator.length`, `operator.token`, and `token.id_length` apply to the operator type in use when a profile, a preset, or another file picks it, and `token.id_length` no longer sizes a `hash`, so token ids stay what they were in 0.2; `privyx config migrate` leaves such a key as written, and names it, when moving it would change what a profile or preset uses
 - **Python API:** tasks sharing one `Privyx` keep its engine open until the last of them leaves, and build it once; before, the first to finish closed the vault under the others, so parallel `app.masking.mask()` calls could fail
+- **Config:** an option of a type set in the environment, such as `PRIVYX_VAULT__DSN` beside `PRIVYX_VAULT=sqlite`, is accepted; before, it was refused as no setting
 
 ### Security
 
