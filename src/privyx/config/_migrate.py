@@ -50,6 +50,30 @@ _MOVED_FROM_PROXY = _DESTINATION[1:]
 #: The values the deprecated ``adapter`` took.
 _ADAPTERS = ("auto", "env", "claude", "codex", "pi")
 
+#: The old operator keys: the one type that used each, and its name now.
+_OPERATOR_KEYS = (("length", "hash", "id_length"), ("token", "redact", "text"))
+
+#: Kept when a layer picks another operator type: a plugin's type may use them.
+OLD_OPERATOR_KEYS = frozenset(old for old, _, _ in _OPERATOR_KEYS)
+
+#: The types whose id ``token.id_length`` sized; ``hash`` had ``operator.length``.
+_TOKEN_ID_OPERATORS = TOKEN_OPERATORS - {"hash"}
+
+#: The built-in operator types; any other is a plugin's, with options of its own.
+_BUILTIN_OPERATORS = TOKEN_OPERATORS | {"redact", "faker", "partial", "fpe"}
+
+#: The built-in types that read each old key, and the key it would become.
+_READ_BEFORE = {
+    "operator.length": frozenset({"hash"}),
+    "operator.token": frozenset({"redact"}),
+    "token.id_length": _TOKEN_ID_OPERATORS,
+}
+_READ_AFTER = {
+    "operator.length": TOKEN_OPERATORS,
+    "operator.token": frozenset({"redact"}),
+    "token.id_length": TOKEN_OPERATORS,
+}
+
 #: The layers Privyx writes itself, and the environment, whose old names are
 #: aliases: their keys draw no warning.
 _QUIET = ("defaults", "plugin defaults", "run defaults", "environment")
@@ -274,21 +298,108 @@ def _provider_keys(data: dict[str, Any], prefix: str, deprecated: list[str]) -> 
     return data
 
 
+def translate_operators(
+    layers: list[tuple[str, dict[str, Any]]],
+    builtin: Callable[[str], bool],
+    deprecated: list[str],
+) -> list[tuple[str, dict[str, Any]]]:
+    """``layers`` with the operator settings renamed in 0.3.0 written the new way.
+
+    What an old key means depends on the type in use, which the last layer
+    that picks one settles, a preset or a profile's ``privyx`` included.  An
+    old key that built-in type does not use is dropped, unless the layer that
+    wins it also picks the type, or no layer picks one: there it is left, to
+    be reported as unknown.  ``builtin`` says whether a type is built in.
+    """
+    kind, owner = "pseudonym", "defaults"
+    winner: dict[str, str] = {}
+    for source, data in layers:
+        operator = data.get("operator")
+        if isinstance(operator, dict):
+            if isinstance(operator.get("type"), str):
+                kind, owner = operator["type"], source
+            winner.update({key: source for key in OLD_OPERATOR_KEYS if key in operator})
+    drop = (
+        {
+            key
+            for key, source in winner.items()
+            if source == "environment" or owner not in ("defaults", source)
+        }
+        if builtin(kind)
+        else set()
+    )
+    translated = []
+    for source, data in layers:
+        # A preset or a profile was warned about in the layer that defines it.
+        patch = source.startswith(("presets.", "agents."))
+        found = [] if patch else deprecated
+        data = without_options_of_another_type(data, kind, builtin)
+        own = _operator_type(data, kind)
+        unused = OLD_OPERATOR_KEYS if own != kind and not builtin(kind) else drop
+        translated.append(
+            (source, translate_operator(data, kind, source, found, builtin=builtin, drop=unused))
+        )
+    return translated
+
+
+def without_options_of_another_type(
+    data: dict[str, Any], kind: str, builtin: Callable[[str], bool]
+) -> dict[str, Any]:
+    """``data`` without the operator options it wrote for a type other than ``kind``.
+
+    ``pseudonym`` and ``encrypt`` share what ``id_length`` sizes; a ``hash``
+    digest is another length, so one never carries to the other, and ``text``
+    is ``redact``'s.  Without a ``type`` of its own, an ``id_length`` is for
+    the token ids, or for a plugin's type picked later, and not for ``hash``.
+    A plugin's old-named options stay with the plugin.
+    """
+    operator = data.get("operator")
+    if not isinstance(operator, dict):
+        return data
+    own = operator.get("type")
+    gone: set[str] = set()
+    if not isinstance(own, str):
+        if kind == "hash":
+            gone.add("id_length")
+    elif own != kind:
+        gone.add("text")
+        if not {own, kind} <= _TOKEN_ID_OPERATORS:
+            gone.add("id_length")
+        if not builtin(own):
+            gone |= OLD_OPERATOR_KEYS
+    if not gone & operator.keys():
+        return data
+    return {**data, "operator": {k: v for k, v in operator.items() if k not in gone}}
+
+
 def translate_operator(
-    data: dict[str, Any], kind: str, source: str, deprecated: list[str]
+    data: dict[str, Any],
+    kind: str,
+    source: str,
+    deprecated: list[str],
+    *,
+    builtin: Callable[[str], bool] | None = None,
+    drop: Collection[str] = (),
+    keep: Collection[str] = (),
 ) -> dict[str, Any]:
     """``data`` with the operator settings renamed in 0.3.0 written the new way.
 
     Which ones are renamed depends on ``kind``, the operator type in use: a
     plugin's operator may have a ``length`` or a ``token`` of its own.
     Presets and profiles' ``privyx`` settings are translated with the type
-    they set, if any.
+    they set, if any.  The old keys in ``drop`` that ``kind`` does not use are
+    removed; with ``builtin``, so is one a preset or profile holds for a
+    built-in type that does not use it.  The dotted old keys in ``keep`` stay
+    as they are.
     """
     found = [] if source in _QUIET_KEYS else deprecated
-    return _each_patch(
-        _operator_keys(data, kind, "", found),
-        lambda patch, at: _operator_keys(patch, _operator_type(patch, kind), at, found),
-    )
+
+    def patched(patch: dict[str, Any], at: str) -> dict[str, Any]:
+        own = _operator_type(patch, kind)
+        unused = OLD_OPERATOR_KEYS if builtin is not None and builtin(own) else ()
+        return _operator_keys(patch, own, at, found, unused, keep)
+
+    return _each_patch(_operator_keys(dict(data), kind, "", found, drop, keep), patched)
 
 
 def _operator_type(patch: Mapping[str, Any], kind: str) -> str:
@@ -299,31 +410,66 @@ def _operator_type(patch: Mapping[str, Any], kind: str) -> str:
 
 
 def _operator_keys(
-    data: dict[str, Any], kind: str, prefix: str, deprecated: list[str]
+    data: dict[str, Any],
+    kind: str,
+    prefix: str,
+    deprecated: list[str],
+    drop: Collection[str] = (),
+    keep: Collection[str] = (),
 ) -> dict[str, Any]:
     """``data`` with ``token.id_length``, and ``operator.length`` or ``.token``, moved."""
     token = data.get("token")
     operator = data.get("operator")
     operator = dict(operator) if isinstance(operator, dict) else None
-    if isinstance(token, dict) and "id_length" in token:
+    if isinstance(token, dict) and "id_length" in token and "token.id_length" not in keep:
         token = dict(token)
         length = token.pop("id_length")
         data["token"] = token
-        if kind in TOKEN_OPERATORS:
+        if kind in _TOKEN_ID_OPERATORS:
             deprecated.append(_renamed(prefix, "token.id_length", "operator.id_length"))
             operator = {**(operator or {}), "id_length": length}
         else:
-            deprecated.append(
-                f"{prefix + 'token.id_length'!r} is deprecated, and operator type {kind!r} "
-                "writes no id of a length; remove it (removed in 0.4.0)"
-            )
+            deprecated.append(_not_used(prefix, "token.id_length", kind))
     if operator is not None:
-        for old, new, owner in (("length", "id_length", "hash"), ("token", "text", "redact")):
+        for old, owner, new in _OPERATOR_KEYS:
+            if f"operator.{old}" in keep:
+                continue
             if old in operator and kind == owner:
                 deprecated.append(_renamed(prefix, f"operator.{old}", f"operator.{new}"))
                 operator.setdefault(new, operator.pop(old))
+            elif old in operator and old in drop:
+                deprecated.append(_not_used(prefix, f"operator.{old}", kind))
+                del operator[old]
         data["operator"] = operator
     return data
+
+
+def _not_used(prefix: str, old: str, kind: str) -> str:
+    """The warning for key ``old``, which the operator type in use, ``kind``, never read."""
+    return (
+        f"{prefix + old!r} is deprecated, and has no effect on operator type {kind!r} "
+        "(removed in 0.4.0)"
+    )
+
+
+def without_old_operator_keys(data: dict[str, Any]) -> dict[str, Any]:
+    """``data`` for the check of unknown keys, before the operator type in use is known.
+
+    ``token.id_length``, ``operator.length``, and ``.token`` are left out:
+    :func:`translate_operators` judges them for the profile and presets that
+    apply, so one that is not selected cannot refuse the whole config.
+    """
+
+    def hidden(patch: dict[str, Any], _: str) -> dict[str, Any]:
+        token = patch.get("token")
+        if isinstance(token, dict) and "id_length" in token:
+            patch["token"] = {k: v for k, v in token.items() if k != "id_length"}
+        operator = patch.get("operator")
+        if isinstance(operator, dict):
+            patch["operator"] = {k: v for k, v in operator.items() if k not in OLD_OPERATOR_KEYS}
+        return patch
+
+    return _each_patch(hidden(dict(data), ""), hidden)
 
 
 def _merge(below: Any, above: Any) -> Any:
@@ -436,11 +582,69 @@ def detectors_of(layers: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return below
 
 
+def _left_operator_keys(layer: dict[str, Any], kind: str) -> list[str]:
+    """The old operator keys of a file that moving would give another effective value.
+
+    A profile or a preset may pick another type than ``kind``, the file's.
+    A key stays when one of the types in the file reads it, and another reads
+    the new key differently, or when a mapping holding it has a type the new
+    key would be refused beside.  A ``token.id_length`` beside a type that
+    does not read it stays too, since a type picked in another file may, and
+    so does a key in a profile or preset without a ``type``: the type it
+    meets there may be another one, and the new key is not read the same.
+    """
+    held: list[tuple[Mapping[str, Any], str]] = [(layer, kind)]
+
+    def note(patch: dict[str, Any], _: str) -> dict[str, Any]:
+        held.append((patch, _operator_type(patch, kind)))
+        return patch
+
+    _each_patch(dict(layer), note)
+    kinds = {own for _, own in held}
+    left: list[str] = []
+    for index, (mapping, own) in enumerate(held):
+        untyped = index > 0 and not _operator_type(mapping, "")
+        token = mapping.get("token")
+        if (
+            isinstance(token, dict)
+            and "id_length" in token
+            and (untyped or own not in _TOKEN_ID_OPERATORS)
+        ):
+            left.append("token.id_length")
+        operator = mapping.get("operator")
+        if untyped and own == "hash" and isinstance(operator, dict) and "length" in operator:
+            left.append("operator.length")
+    left = list(dict.fromkeys(left))
+    if len(kinds) == 1:
+        return left
+    plugins = kinds - _BUILTIN_OPERATORS
+    for key, before in _READ_BEFORE.items():
+        if key in left:
+            continue
+        after = _READ_AFTER[key]
+        section, name = key.split(".")
+        holders = {
+            own
+            for mapping, own in held
+            if isinstance(value := mapping.get(section), dict) and name in value
+        }
+        # A plugin's type has a `length` or a `token` of its own, never `token.id_length`.
+        readers = kinds & before | (plugins if key != "token.id_length" else set())
+        if (
+            holders
+            and readers
+            and (plugins or (kinds & before) != (kinds & after) or holders - after)
+        ):
+            left.append(key)
+    return left
+
+
 def migrate(
     data: Mapping[str, Any],
     warnings: list[str] | None = None,
     *,
     below: Mapping[str, Any] | None = None,
+    left: list[str] | None = None,
 ) -> dict[str, Any]:
     """A config file's settings written the 0.3.0 way, for ``privyx config migrate``.
 
@@ -449,14 +653,21 @@ def migrate(
     so again, and a detector named like its type without ``type``.  ``below``
     holds the ``detectors`` of the files read below this one
     (:func:`detectors_of`): an old ``detector`` changed what they set.
+
+    An old operator key that a profile or a preset of the file would read
+    differently once moved stays as it is, named in ``left``.  When nothing
+    else changes, no key counts as renamed.
     """
     found: list[str] = [] if warnings is None else warnings
+    start = len(found)
     layer = translate_adapters(dict(data), found)
     layer = translate(layer, {"regex": {}} if below is None else below, deprecated=found)
     layer = translate_keys(layer, "file", found)
     operator = layer.get("operator")
     kind = operator.get("type") if isinstance(operator, dict) else None
-    layer = translate_operator(layer, kind if isinstance(kind, str) else "pseudonym", "file", found)
+    kind = kind if isinstance(kind, str) else "pseudonym"
+    kept = _left_operator_keys(layer, kind)
+    layer = translate_operator(layer, kind, "file", found, keep=kept)
     if "upstream_url" in layer:
         url = layer.pop("upstream_url")
         provider = layer.get("provider")
@@ -465,7 +676,12 @@ def migrate(
             named.setdefault("base_url", url)
         elif isinstance(provider, dict) or provider is None:
             layer["provider"] = {**(provider or {}), "base_url": url}
-    return _each_patch(_tidy(layer), lambda patch, _: _tidy(patch))
+    migrated = _each_patch(_tidy(layer), lambda patch, _: _tidy(patch))
+    if left is not None:
+        left.extend(kept)
+    if kept and migrated == _each_patch(_tidy(dict(data)), lambda patch, _: _tidy(patch)):
+        del found[start:]
+    return migrated
 
 
 def _tidy(data: dict[str, Any]) -> dict[str, Any]:

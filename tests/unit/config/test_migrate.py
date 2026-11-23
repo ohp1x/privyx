@@ -10,10 +10,11 @@ import yaml
 from click.testing import CliRunner
 
 from privyx import load_config
-from privyx.app import read_config
+from privyx.app import Privyx, read_config
 from privyx.cli.main import cli
 from privyx.config import migrate
 from privyx.core import ConfigError
+from privyx.operators import Operator
 
 CONFIGS = Path(__file__).parents[3] / "configs"
 
@@ -234,3 +235,455 @@ def test_type_yaml_in_a_detectors_entry_is_regex_without_builtins(tmp_path: Path
     own = settings.detectors["own"]  # type: ignore[attr-defined]
     assert (own.type, own.model_dump()["builtins"]) == ("regex", False)
     assert any("detectors.own.type 'yaml' is deprecated" in w for w in warnings)
+
+
+def _operator(settings: object) -> tuple[str, object]:
+    options = settings.operator.model_dump()  # type: ignore[attr-defined]
+    return options["type"], options.get("id_length", options.get("text"))
+
+
+def _layered(tmp_path: Path, base: dict[str, object], over: dict[str, object], via: str) -> object:
+    """``over`` applied on ``base`` by a profile, a preset, or the file that includes it."""
+    path = tmp_path / "c.yaml"
+    options: dict[str, object] = {}
+    if via == "profile":
+        profile = {"command": "acme", "env_vars": ["ACME_URL"], "privyx": over}
+        data = {**base, "agents": {"work": profile}}
+        options["agent"] = "work"
+    elif via == "preset":
+        data = {**base, "presets": {"over": over}}
+        options["presets"] = ["over"]
+    else:
+        (tmp_path / "base.yaml").write_text(yaml.safe_dump(base), encoding="utf-8")
+        data = {"include": "base.yaml", **over}
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return read_config(path, **options)
+
+
+@pytest.mark.parametrize("via", ["profile", "preset", "include"])
+@pytest.mark.parametrize(
+    ("base", "over", "expected"),
+    [
+        (
+            {"operator": {"type": "hash", "length": 20}},
+            {"operator": {"type": "pseudonym"}},
+            ("pseudonym", 16),
+        ),
+        (
+            {"operator": {"type": "redact"}, "token": {"id_length": 20}},
+            {"operator": {"type": "pseudonym"}},
+            ("pseudonym", 20),
+        ),
+        (
+            {"operator": {"type": "redact", "token": "[GONE]"}},
+            {"operator": {"type": "hash"}},
+            ("hash", 12),
+        ),
+        (
+            {"operator": {"type": "pseudonym", "length": 20}},
+            {"operator": {"type": "hash"}},
+            ("hash", 20),
+        ),
+        ({"token": {"id_length": 20}}, {"operator": {"type": "hash"}}, ("hash", 12)),
+        (
+            {"operator": {"type": "hash", "length": 20}, "token": {"id_length": 24}},
+            {"operator": {"type": "encrypt"}},
+            ("encrypt", 24),
+        ),
+        (
+            {"operator": {"type": "pseudonym", "length": 20}},
+            {"operator": {"length": 30}},
+            ("pseudonym", 16),
+        ),
+        (
+            {"operator": {"type": "hash", "length": 20}},
+            {"operator": {"type": "redact", "token": "[GONE]"}},
+            ("redact", "[GONE]"),
+        ),
+    ],
+)
+def test_an_old_operator_key_applies_to_the_type_in_use(
+    tmp_path: Path,
+    via: str,
+    base: dict[str, object],
+    over: dict[str, object],
+    expected: tuple[str, object],
+) -> None:
+    loaded = _layered(tmp_path, base, over, via)
+
+    assert _operator(loaded.settings) == expected  # type: ignore[attr-defined]
+    assert any("is deprecated" in w for w in loaded.warnings)  # type: ignore[attr-defined]
+
+
+def test_the_old_token_id_length_does_not_size_a_hash(tmp_path: Path) -> None:
+    settings, warnings = _load(
+        tmp_path, "operator:\n  type: hash\n  length: 20\ntoken:\n  id_length: 24\n"
+    )
+
+    assert _operator(settings) == ("hash", 20)
+    assert "'token.id_length' is deprecated, and has no effect on operator type 'hash'" in (
+        " ".join(warnings)
+    )
+
+
+def test_a_plugin_type_keeps_its_own_old_named_key_only(tmp_path: Path) -> None:
+    loaded = _layered(
+        tmp_path,
+        {"operator": {"type": "hash", "length": 20}},
+        {"operator": {"type": "acme", "token": "own"}},
+        "profile",
+    )
+
+    options = loaded.settings.operator.model_dump()  # type: ignore[attr-defined]
+    assert options["token"] == "own"
+    assert "length" not in options
+
+
+_PLUGIN = """\
+from privyx.core import TransformResult
+from privyx.operators import Operator
+
+
+class _Plain(Operator):
+    uses_anchor = False
+    fixed_text = "[X]"
+
+    async def pseudonymize(self, text, detection, session, context):
+        return TransformResult(text=text, transformations=[])
+
+    async def deanonymize(self, text, session, context):
+        return TransformResult(text=text, transformations=[])
+
+
+class Acme(_Plain):
+    name = "acme"
+
+    class Options(Operator.Options):
+        token: str = "acme-default"
+
+
+class Other(_Plain):
+    name = "other"
+
+
+class Third(_Plain):
+    name = "third"
+
+    class Options(Operator.Options):
+        token: str = "third-default"
+
+
+def setup(app):
+    app.add(Acme)
+    app.add(Other)
+    app.add(Third)
+"""
+
+
+@pytest.mark.parametrize(("above", "expected"), [("other", None), ("third", "third-default")])
+def test_a_plugins_option_does_not_reach_the_plugin_that_replaces_it(
+    tmp_path: Path, above: str, expected: str | None
+) -> None:
+    plugin = tmp_path / "plug.py"
+    plugin.write_text(_PLUGIN, encoding="utf-8")
+    (tmp_path / "base.yaml").write_text(
+        f"plugins: {{paths: ['{plugin}']}}\noperator: {{type: acme, token: own}}\n",
+        encoding="utf-8",
+    )
+    main = tmp_path / "main.yaml"
+    main.write_text(f"include: base.yaml\noperator: {{type: {above}}}\n", encoding="utf-8")
+
+    app = Privyx(main)
+    options = app.settings.operator.model_dump()
+    options.pop("type")
+
+    built = app.registry(Operator).build(above, options)
+
+    assert getattr(built.options, "token", None) == expected
+
+
+@pytest.mark.parametrize(
+    ("parent", "child"),
+    [
+        ("{type: hash, length: 20}", "{type: pseudonym}"),
+        ("{type: redact, token: '[GONE]'}", "{type: hash}"),
+    ],
+)
+def test_an_inherited_old_key_refuses_only_the_profile_it_does_not_fit(
+    tmp_path: Path, parent: str, child: str
+) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "agents:\n"
+        f"  parent: {{command: acme, env_vars: [ACME_URL], privyx: {{operator: {parent}}}}}\n"
+        f"  child: {{extends: parent, privyx: {{operator: {child}}}}}\n",
+        encoding="utf-8",
+    )
+
+    assert _operator(load_config(path))[0] == "pseudonym"
+    assert _operator(load_config(path, agent="parent"))[0] == yaml.safe_load(parent)["type"]
+    with pytest.raises(ConfigError, match="unknown setting"):
+        load_config(path, agent="child")
+
+
+def test_a_new_id_length_is_not_inherited_across_hash(tmp_path: Path) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "agents:\n"
+        "  parent:\n    command: acme\n    env_vars: [ACME_URL]\n"
+        "    privyx: {operator: {type: hash, id_length: 20}}\n"
+        "  child: {extends: parent, privyx: {operator: {type: pseudonym}}}\n",
+        encoding="utf-8",
+    )
+
+    assert _operator(load_config(path, agent="parent")) == ("hash", 20)
+    assert _operator(load_config(path, agent="child")) == ("pseudonym", 16)
+
+
+@pytest.mark.parametrize("key", ["length", "id_length"])
+def test_writing_the_new_key_as_warned_keeps_a_later_presets_id(tmp_path: Path, key: str) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "presets:\n"
+        f"  hashed: {{operator: {{type: hash, {key}: 20}}}}\n"
+        f"  encrypted: {{operator: {{type: encrypt, key: '{'ab' * 32}'}}}}\n",
+        encoding="utf-8",
+    )
+
+    assert _operator(load_config(path, presets=["hashed", "encrypted"])) == ("encrypt", 16)
+    assert _operator(load_config(path, presets=["hashed"])) == ("hash", 20)
+
+
+@pytest.mark.parametrize(
+    ("migrated", "other", "choose"),
+    [
+        (
+            "operator: {type: hash, length: 20}\n",
+            "presets:\n  own: {operator: {type: pseudonym}}\n",
+            {"presets": ["own"]},
+        ),
+        (
+            "operator: {type: pseudonym}\ntoken: {id_length: 20}\n",
+            "presets:\n  own: {operator: {type: hash}}\n",
+            {"presets": ["own"]},
+        ),
+        (
+            "token: {id_length: 20}\n",
+            "presets:\n  own: {operator: {type: hash}}\n",
+            {"presets": ["own"]},
+        ),
+        (
+            "operator: {type: redact}\ntoken: {id_length: 20}\n",
+            "presets:\n  own: {operator: {type: pseudonym}}\n",
+            {"presets": ["own"]},
+        ),
+        (
+            "operator: {type: hash, length: 20}\n",
+            "agents:\n  work:\n    command: acme\n    env_vars: [ACME_URL]\n"
+            "    privyx: {operator: {type: pseudonym}}\n",
+            {"agent": "work"},
+        ),
+    ],
+)
+def test_migrating_one_file_keeps_what_another_files_type_uses(
+    tmp_path: Path, migrated: str, other: str, choose: dict[str, object]
+) -> None:
+    lower = tmp_path / "lower.yaml"
+    lower.write_text(migrated, encoding="utf-8")
+    main = tmp_path / "main.yaml"
+    main.write_text("include: lower.yaml\n" + other, encoding="utf-8")
+    before = _operator(load_config(main, **choose))
+
+    result = CliRunner().invoke(cli, ["config", "migrate", str(lower), "--write"])
+
+    assert result.exit_code == 0, result.output
+    assert _operator(load_config(main, **choose)) == before
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "operator:\n  type: pseudonym\n  length: 12\n",
+        "operator:\n  length: 12\n",
+        "operator:\n  type: hash\n  token: x\n",
+    ],
+)
+def test_an_old_operator_key_beside_a_type_that_does_not_use_it_is_refused(
+    tmp_path: Path, text: str
+) -> None:
+    with pytest.raises(ConfigError, match="unknown setting"):
+        _load(tmp_path, text)
+
+
+@pytest.mark.parametrize(
+    ("top", "patch", "key"),
+    [
+        ("operator: {type: hash}\n", "operator: {length: 30}", "operator.length"),
+        ("operator: {type: redact}\n", "token: {id_length: 30}", "token.id_length"),
+    ],
+)
+def test_migrate_leaves_the_key_of_a_preset_without_a_type(
+    tmp_path: Path, top: str, patch: str, key: str
+) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(f"{top}presets:\n  own: {{{patch}}}\n", encoding="utf-8")
+    before = _effective(path)
+
+    result = CliRunner().invoke(cli, ["config", "migrate", str(path), "--write"])
+
+    assert f"left {key} as written" in result.stderr
+    assert _effective(path) == before
+
+
+def test_an_old_key_a_preset_cannot_use_refuses_it_when_chosen(tmp_path: Path) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "presets:\n  own:\n    operator:\n      type: pseudonym\n      length: 12\n",
+        encoding="utf-8",
+    )
+
+    assert _operator(load_config(path))[0] == "pseudonym"
+    with pytest.raises(ConfigError, match="unknown setting"):
+        load_config(path, presets=["own"])
+
+
+def _with_profile(top: str, operator: str) -> str:
+    return (
+        f"{top}agents:\n  work:\n    command: acme\n    env_vars: [ACME_URL]\n"
+        f"    privyx:\n      operator: {operator}\n"
+    )
+
+
+def _with_preset(top: str, operator: str) -> str:
+    return f"{top}presets:\n  own:\n    operator: {operator}\n"
+
+
+def _effective(path: Path) -> list[tuple[str, object] | None]:
+    """The operator for each profile and preset of the file; ``None`` where it is refused."""
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    options: list[dict[str, object]] = [{}]
+    options += [{"agent": name} for name in data.get("agents", {})]
+    options += [{"presets": [name]} for name in data.get("presets", {})]
+    found: list[tuple[str, object] | None] = []
+    for kw in options:
+        try:
+            found.append(_operator(load_config(path, **kw)))
+        except ConfigError:
+            found.append(None)
+    return found
+
+
+@pytest.mark.parametrize("patched", [_with_profile, _with_preset])
+@pytest.mark.parametrize(
+    ("top", "operator", "key"),
+    [
+        ("operator: {type: hash, length: 20}\n", "{type: pseudonym}", "operator.length"),
+        ("operator: {type: hash, length: 20}\n", "{type: encrypt}", "operator.length"),
+        (
+            "operator: {type: redact}\ntoken: {id_length: 20}\n",
+            "{type: pseudonym}",
+            "token.id_length",
+        ),
+        (
+            "operator: {type: pseudonym}\ntoken: {id_length: 20}\n",
+            "{type: hash}",
+            "token.id_length",
+        ),
+        ("operator: {type: pseudonym, length: 20}\n", "{type: hash}", "operator.length"),
+        ("operator: {type: hash, token: '[GONE]'}\n", "{type: redact}", "operator.token"),
+    ],
+)
+def test_migrate_leaves_a_key_a_profile_or_preset_would_read_differently(
+    tmp_path: Path, patched, top: str, operator: str, key: str
+) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text("port: 8001\n" + patched(top, operator), encoding="utf-8")
+    before = _effective(path)
+
+    result = CliRunner().invoke(cli, ["config", "migrate", str(path), "--write"])
+
+    assert result.exit_code == 0, result.output
+    written = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert written["server"] == {"port": 8001} and "port" not in written
+    section, name = key.split(".")
+    assert name in written[section]
+    assert f"left {key} as written" in result.stderr
+    assert "in each profile or preset" in result.stderr
+    assert _effective(path) == before
+
+
+def test_migrate_names_a_key_it_leaves_without_its_value(tmp_path: Path) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        _with_profile("operator: {type: redact, token: '[GONE]'}\n", "{type: acme}"),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(cli, ["config", "migrate", str(path), "--write"])
+
+    assert "left operator.token as written" in result.stderr
+    assert "[GONE]" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "top",
+    ["operator: {type: hash, length: 20}\n", "operator: {type: hash}\ntoken: {id_length: 20}\n"],
+)
+def test_migrate_does_not_rewrite_a_file_holding_only_keys_it_leaves(
+    tmp_path: Path, top: str
+) -> None:
+    path = tmp_path / "c.yaml"
+    text = "# mine\n" + _with_profile(top, "{type: pseudonym}")
+    path.write_text(text, encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["config", "migrate", str(path), "--write"])
+
+    assert result.exit_code == 0, result.output
+    assert path.read_text(encoding="utf-8") == text
+    assert list(tmp_path.glob("*.bak*")) == []
+    assert "as written" in result.stderr
+    assert "Rewrote" not in result.stderr
+
+
+def test_migrate_does_not_rewrite_a_file_that_only_picks_hash(tmp_path: Path) -> None:
+    path = tmp_path / "c.yaml"
+    text = "# mine\noperator: {type: hash}\n"
+    path.write_text(text, encoding="utf-8")
+
+    result = CliRunner().invoke(cli, ["config", "migrate", str(path), "--write"])
+
+    assert result.exit_code == 0, result.output
+    assert path.read_text(encoding="utf-8") == text
+    assert list(tmp_path.glob("*.bak*")) == []
+    assert "nothing to migrate" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("top", "operator", "new"),
+    [
+        ("operator: {type: hash, length: 20}\n", "{type: hash}", {"type": "hash", "id_length": 20}),
+        (
+            "operator: {type: pseudonym}\ntoken: {id_length: 20}\n",
+            "{type: encrypt}",
+            {"type": "pseudonym", "id_length": 20},
+        ),
+        (
+            "operator: {type: redact, token: '[GONE]'}\n",
+            "{type: hash}",
+            {"type": "redact", "text": "[GONE]"},
+        ),
+    ],
+)
+def test_migrate_moves_a_key_every_type_in_the_file_reads_the_same(
+    tmp_path: Path, top: str, operator: str, new: dict[str, object]
+) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(_with_profile(top, operator), encoding="utf-8")
+    before = _effective(path)
+
+    result = CliRunner().invoke(cli, ["config", "migrate", str(path), "--write"])
+
+    assert result.exit_code == 0, result.output
+    assert "as written" not in result.stderr
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["operator"] == new
+    assert _effective(path) == before

@@ -20,7 +20,7 @@ import difflib
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from functools import cached_property
+from functools import cached_property, partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -28,7 +28,12 @@ from privyx.config._env import env_config
 from privyx.config._files import _config_layers, _config_paths
 from privyx.config._interpolate import _DEFERRED, _interpolate, _settle
 from privyx.config._keys import leaves
-from privyx.config._migrate import translate_layer, translate_operator
+from privyx.config._migrate import (
+    OLD_OPERATOR_KEYS,
+    translate_layer,
+    translate_operators,
+    without_old_operator_keys,
+)
 from privyx.config._presets import (
     CHOSEN_PRESETS,
     _check_overrides,
@@ -162,6 +167,8 @@ def _retyped(
     if below in (override["type"], default):
         return current
     fields = types.union(kind)
+    if kind == "operator" and types.builtin(kind, below) and types.builtin(kind, override["type"]):
+        fields |= OLD_OPERATOR_KEYS  # judged once the type in use is known
     return {key: value for key, value in current.items() if key in fields}
 
 
@@ -267,20 +274,20 @@ def read_config(
         read = _read_layers(path, extra, base_extra, added, defaults_only, known)
     layers, deprecated = read.layers, read.deprecated
 
-    # The operator settings renamed for the type in use, now that it is known.
-    operator = read.merged.get("operator")
-    kind = operator.get("type") if isinstance(operator, dict) else None
-    kind = kind if isinstance(kind, str) else "pseudonym"
-    layers[:] = [(src, translate_operator(data, kind, src, deprecated)) for src, data in layers]
-    merged = translate_operator(read.merged, kind, "defaults", [])
+    merged = read.merged
     _named(merged)
     # A misspelled key would otherwise be dropped without a word, and the
     # setting it meant to change (a detector's terms, say) silently not apply.
-    _raise_unknown(_unknown_keys(Settings, merged, known))
-    _check_presets(merged, presets, known)
+    # The old operator keys wait for the type in use, which a profile may pick.
+    is_builtin = partial(known.builtin, "operator")
+    checked = without_old_operator_keys(merged)
+    _raise_unknown(_unknown_keys(Settings, checked, known))
+    _check_presets(checked, presets, known)
 
     profiles, inherited = _apply_profile(merged, layers, read.origins, agent, presets, known)
+    layers[:] = translate_operators(layers, is_builtin, deprecated)
     merged, origins, resolved = _effective(layers, profiles, inherited, agent, known)
+    _raise_unknown(_unknown_keys(Settings, {"operator": merged.get("operator")}, known))
     refused, unused = _unused(layers, merged, origins, known)
     if refused:
         raise ConfigError("; ".join(refused))
@@ -367,7 +374,7 @@ def _apply_profile(
         return profiles, {}
     _apply_colon_inheritance(profiles)
     profiles, inherited = resolve_profiles(profiles, origins, known)
-    _check_overrides(profiles, known)
+    _check_overrides(without_old_operator_keys({"agents": profiles})["agents"], known)
     _check_types(profiles, known)
     if agent in profiles:
         profiles[agent] = _settle(profiles[agent], expand=True)

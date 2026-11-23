@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from privyx.config._migrate import without_options_of_another_type
 from privyx.config.schema import AgentConfig
 from privyx.core import ConfigError
 
@@ -61,6 +63,12 @@ def resolve_profiles(
             for section in ("budget", "privyx"):
                 own, inherited = child.get(section), parent.get(section)
                 if isinstance(own, dict) and isinstance(inherited, dict):
+                    operator = own.get("operator") if section == "privyx" else None
+                    picked = operator.get("type") if isinstance(operator, dict) else None
+                    if isinstance(picked, str):
+                        inherited = without_options_of_another_type(
+                            inherited, picked, partial(types.builtin, "operator")
+                        )
                     effective[section] = _deep_merge(inherited, own, types)
             prefix = f"agents.{child_name}."
             inherited_origins = (
