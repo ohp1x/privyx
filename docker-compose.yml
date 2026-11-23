@@ -12,25 +12,45 @@ services:
     env_file:
       - path: .env
         required: false
+    # The image's `privyx` applies these, matching a setting's names in any case:
+    # FIXED_ over both names, DEFAULT_ only when neither is given.
     environment:
-      - PRIVYX_HOST=0.0.0.0
-      - PRIVYX_PORT=8000
-      - PRIVYX_UPSTREAM_URL=${PRIVYX_UPSTREAM_URL:-https://api.openai.com}
+      # The published port is mapped to this one.
+      - FIXED_PRIVYX_HOST=0.0.0.0
+      - FIXED_PRIVYX_PORT=8000
+      - DEFAULT_PRIVYX_UPSTREAM_URL=https://api.openai.com
+      - DEFAULT_PRIVYX_VAULT=redis
+      - DEFAULT_PRIVYX_REDIS_URL=redis://redis:6379/0
+      # A conversation's session, with its original values, expires after a week idle.
+      - DEFAULT_PRIVYX_VAULT_TTL=604800
+      - DEFAULT_PRIVYX_SESSION_STRATEGY=conversation
+      - DEFAULT_PRIVYX_LOG_LEVEL=info
+      - DEFAULT_PRIVYX_AUDIT_ENABLED=true
       - PRIVYX_OPENAI_API_KEY=${PRIVYX_OPENAI_API_KEY:-}
       - PRIVYX_ANTHROPIC_API_KEY=${PRIVYX_ANTHROPIC_API_KEY:-}
       - PRIVYX_ENCRYPT_KEY=${PRIVYX_ENCRYPT_KEY:-}
       # Passed only when set, so an anchor.secret in a mounted config still applies.
       # Unset, the default `auto` keeps a key on the /data volume; empty: no anchor.
       - PRIVYX_ANCHOR_SECRET
-      - PRIVYX_VAULT=${PRIVYX_VAULT:-redis}
-      - PRIVYX_REDIS_URL=${PRIVYX_REDIS_URL:-redis://redis:6379/0}
-      - PRIVYX_VAULT_DSN=${PRIVYX_VAULT_DSN:-sqlite+aiosqlite:////data/privyx.db}
-      # A conversation's session, with its original values, expires after a week idle.
-      - PRIVYX_VAULT_TTL=${PRIVYX_VAULT_TTL:-604800}
-      - PRIVYX_SESSION_STRATEGY=${PRIVYX_SESSION_STRATEGY:-conversation}
-      - PRIVYX_LOG_LEVEL=${PRIVYX_LOG_LEVEL:-info}
-      - PRIVYX_AUDIT_ENABLED=${PRIVYX_AUDIT_ENABLED:-true}
-      - PRIVYX_AUDIT_PATH=${PRIVYX_AUDIT_PATH:-/data/privyx-audit.log}
+      # Passed only when set, so the shell's value wins over the one in .env.
+      - PRIVYX_UPSTREAM_URL
+      - PRIVYX_PROVIDER__BASE_URL
+      - PRIVYX_VAULT
+      - PRIVYX_VAULT__TYPE
+      - PRIVYX_REDIS_URL
+      - PRIVYX_VAULT__REDIS_URL
+      - PRIVYX_VAULT_DSN
+      - PRIVYX_VAULT__DSN
+      - PRIVYX_VAULT_TTL
+      - PRIVYX_VAULT__TTL
+      - PRIVYX_SESSION_STRATEGY
+      - PRIVYX_SESSION__STRATEGY
+      - PRIVYX_LOG_LEVEL
+      - PRIVYX_LOG__LEVEL
+      - PRIVYX_AUDIT_ENABLED
+      - PRIVYX_FEATURES__AUDIT__ENABLED
+      - PRIVYX_AUDIT_PATH
+      - PRIVYX_FEATURES__AUDIT__PATH
     volumes:
       - privyx_data:/data
       - ./configs:/app/configs:ro

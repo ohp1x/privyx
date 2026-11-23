@@ -840,8 +840,8 @@ session tap, which records each masked exchange, is `proxy.tap` and
 
 ## Environment variables
 
-Every setting has a variable: `PRIVYX_` and its path with `__` between the
-names, in any case. `PRIVYX_SERVER__PORT=9000` sets `server.port`,
+Every setting has a variable: `PRIVYX_`, in capitals, and its path with `__`
+between the names, in any case. `PRIVYX_SERVER__PORT=9000` sets `server.port`,
 `PRIVYX_FEATURES__DIRECTIVE=true` turns the directive on, and
 `PRIVYX_DETECTORS__REGEX__TERMS='{PERSON: [alice]}'` sets the terms of the
 `regex` detector. The value is read as the setting's type: `8001` is a number,
@@ -853,9 +853,9 @@ profile, an entity): a new entry is written in a file or with
 `privyx config set`. A misspelled name stops startup with an error that names
 it. An option follows the type in use, also a type set in the environment:
 with `PRIVYX_VAULT=sqlite`, `PRIVYX_VAULT__DSN` is a setting. The variables
-below are the names of earlier versions, kept as aliases and still the ones the
-Docker image and `docker-compose.yml` use. Given an alias and the generic name
-of one setting with different values, Privyx refuses the config and names both.
+below are the names of earlier versions, kept as aliases; the Docker image and
+`docker-compose.yml` take either name. Given an alias and the generic name of
+one setting with different values, Privyx refuses the config and names both.
 For the old file keys, see [Upgrading](upgrading.md).
 
 | Variable | Sets |
