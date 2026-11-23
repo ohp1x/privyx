@@ -36,6 +36,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Config:** `host`, `port`, `tls`, `log_level`, `logging`, `log_file`, `detector`, detector type `yaml`, `audit`, `tracing`, `proxy.directive`, and `proxy.cache_control` keep working with a warning until 0.4.0. `privyx config migrate` prints a file with the new keys, and `--write` rewrites it, keeping a backup
 - **CLI:** `privyx pipe` (now `mask --stream` and `unmask --stream`), `install-hook` (`hook install`), `trust` and `lint` (`config trust`, `config lint`), `inspect` (`config routes`, `detect --pattern`, `session show`, `session token`), `config --show`, `--sources`, `--path`, and `--schema`, and `-c` or `--preset` after the command keep working with a warning until 0.4.0
 
+### Removed
+
+- **Python API:** (experimental) the old import paths are gone, such as `privyx.plugins`, `privyx.core.engine`, `privyx.config.loader`, `privyx.privacy`, and `privyx.vault`, and `Privyx.run()` is now `Privyx.serve()`; the upgrade guide lists each old name and its replacement
+- **Plugins:** (experimental) classes in a `plugins.paths` file are no longer found by themselves: the file defines `setup(app)` and adds each one with `app.add(cls)`. `on_startup()` and `on_shutdown()` are gone, in a plugin file and on `Privyx`; use `app.on(AppStarting)` and `app.on(AppStopping)`
+- **Plugins:** (experimental) the `Base*` classes, `Config`, and `from_config` are gone: a component extends the base class of its kind, such as `privyx.detectors.Detector`, declares `Options`, opens with `open(services)`, and sets its own `name`
+
 ### Fixed
 
 - **CLI:** `privyx config routes` and `privyx doctor` show the routes the proxy serves, including the ones a plugin's dialect adds and a gateway's Gemini routes when its provider extends `google`
