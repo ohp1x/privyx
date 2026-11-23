@@ -35,7 +35,7 @@ Privyx is a Python package with a command-line program, `privyx`. It needs
     [`uvx`](https://docs.astral.sh/uv/guides/tools/) downloads Privyx into a
     cache and runs it. Every `privyx ...` command you type in this
     documentation works as `uvx privyx ...`. What another program starts,
-    such as the git hooks of [`privyx install-hook`](cli.md#privyx-install-hook)
+    such as the git hooks of [`privyx hook install`](cli.md#privyx-hook-install)
     or an MCP server in a client's config, needs `privyx` on the `PATH`:
     install it with `uv tool install privyx` for those.
 
@@ -89,7 +89,7 @@ A setting that needs a missing extra fails at startup, with the install
 command in the message:
 
 ```console
-$ privyx proxy -c sqlite.yaml
+$ privyx -c sqlite.yaml proxy
 Error: aiosqlite is required. Install with `pip install privyx[sqlite]`.
 ```
 

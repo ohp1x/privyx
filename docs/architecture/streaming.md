@@ -19,7 +19,7 @@ previous chunks).
 
 ## The algorithm
 
-A single hold-back scan (`_BufferedStream` in `deanonymizer.py`) drives every
+A single hold-back scan (`StreamDeanonymizer` in `deanonymizer.py`) drives every
 stream. For each position it asks a **recognizer** two questions:
 
 1. **Could a token still start here?** (`longest_prefix_len`). If the viable
@@ -59,8 +59,9 @@ including exhaustive single-boundary coverage.
 | `deanonymizer.py` | The stateful hold-back scan (`StreamingDeanonymizer`, `TokenStreamProcessor`) |
 | `recognizer.py` | Trie- vs codec-driven token recognition |
 | `trie.py` | Pseudonym → original lookup |
-| `buffer.py` | Reusable text accumulation |
-| `adapters/` | Provider-specific envelope handling |
+| `sse.py` | SSE decoding |
+| `_sse_adapter.py` | Finds the text delta in an SSE event and puts a changed one back |
+| `_router.py` | Routes each event of a stream to its text, reasoning, or tool-call handling |
 
 ## Reasoning content
 

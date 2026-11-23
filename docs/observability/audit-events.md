@@ -4,7 +4,7 @@ description: The audit trail's event schema, its guarantees, and the Prometheus 
 
 # Audit events and metrics
 
-Privyx appends an audit trail to `audit.path` (default
+Privyx appends an audit trail to `features.audit.path` (default
 `~/.privyx/audit.log`), one JSON object per line. It records what happened,
 never the content: event names, entity types, and counts. Its format is
 versioned, so a script, a log store, or a dashboard can rely on it. A running
@@ -76,7 +76,7 @@ The upstream returned response headers (time to first byte).
 
 | field | type | notes |
 |---|---|---|
-| `method` / `path` / `schema` | string | Request line and matched wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`, or `null`). Unmatched paths are recorded as `[unmatched]`, never the raw URL. |
+| `method` / `path` / `schema` | string | Method, the matched route pattern (a `*` stays as written in `proxy.routes`, since the path it stands for can hold a value), and wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`, or `null`). Unmatched paths are recorded as `[unmatched]`, never the raw URL. |
 | `status` | int | Upstream HTTP status. |
 | `stream` | bool | Whether the response is an SSE stream. |
 | `duration_ms` | float | Time to the upstream response **headers** (not the whole stream). |
@@ -85,7 +85,7 @@ The upstream returned response headers (time to first byte).
 
 ### `proxy.passthrough` / `proxy.blocked`
 An unknown route was allowed without body masking or refused with `403`, or
-a path outside [`proxy.path_mapping.strip_prefix`](../guide/configuration.md#upstream-with-a-path)
+a path outside [`provider.path_mapping.strip_prefix`](../guide/configuration.md#upstream-with-a-path)
 was refused with `404`.
 Emitted at classification, before reading its body or contacting upstream, so
 an upstream failure does not hide the decision. `body_masked: false` describes
@@ -94,7 +94,7 @@ the body; machine metadata headers can still be masked on allowed requests.
 | field | type | notes |
 |---|---|---|
 | `method` | string | Standard HTTP method, or `OTHER` for an unrecognized method. |
-| `reason` | string | `unknown_route`; `outside_prefix` for a path outside `proxy.path_mapping.strip_prefix`; `no_upstream` for a `privyx run pi` request that names no base URL for its route. |
+| `reason` | string | `unknown_route`; `outside_prefix` for a path outside `provider.path_mapping.strip_prefix`; `no_upstream` for a `privyx run pi` request that names no base URL for its route. |
 | `body_masked` | bool | Always `false`. |
 
 No path, query, body, headers, credentials, or original values are recorded.
@@ -109,8 +109,8 @@ before a stream ended (`aborted`).
 |---|---|---|
 | `status` | int | HTTP status. |
 | `stream` | bool | |
-| `bytes` | int | Batch responses only: response size. |
-| `frames` | int | Streamed responses only: SSE frames forwarded. |
+| `bytes` | int | Batch responses, and streams relayed with nothing to restore (a path without a route, no mapping): response size. |
+| `frames` | int | Streams restored by Privyx: SSE frames forwarded. |
 | `restored` | int | Tokens restored on the way back. |
 | `duration_ms` | float | **Total** exchange time. |
 | `aborted` | bool | Present (`true`) when the client disconnected mid-stream, e.g. a coding tool's request cancelled with Esc; `frames` and `restored` then count what was sent. Not an error, so `privyx_proxy_errors_total` does not count it. |
@@ -122,10 +122,11 @@ An exchange failed.
 
 | field | type | notes |
 |---|---|---|
-| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `vault` (reading or writing the session failed; the client got `503`), `upstream` (no response from the upstream; the client got `502`, `503`, or `504`, see [Errors](../reference/errors.md)), `stream`, or `response`. |
+| `phase` | string | Where it broke: `transform` (masking the request failed, so it was not forwarded and the client got `503`), `vault` (reading or writing the session failed before the request was sent; the client got `503`), `upstream` (no response from the upstream, or the body of a batch reply broke off after its headers; the client got `502`, `503`, or `504`, see [Errors](../reference/errors.md)), `stream`, or `response`. |
 | `error_type` | string | The exception's class name, never its message. |
 | `status` | int | Present when a status was already known. |
 | `duration_ms` | float | Time until the failure. |
+| `usage` | object | Present when a stream reported token usage before it broke, in the same shape as on `proxy.response`. |
 
 ### `run.unproxied`
 A tool launched with `privyx run` exited without a single request sent
@@ -140,7 +141,7 @@ unmasked, or one was blocked or failed
 | `profile` | string | The agent profile, or the base name of the command run without one. |
 | `requests` | int | HTTP requests that reached Privyx during the launch. |
 | `passthrough` | int | Requests on paths outside `proxy.routes`, forwarded without masking. |
-| `blocked` | int | Requests on paths outside `proxy.routes`, refused because `proxy.passthrough_unknown` is false, or outside `proxy.path_mapping.strip_prefix`. |
+| `blocked` | int | Requests on paths outside `proxy.routes`, refused because `proxy.passthrough_unknown` is false, or outside `provider.path_mapping.strip_prefix`. |
 | `failed` | int | [`proxy.error`](#proxyerror) events. A `transform` failure was refused without forwarding; an `upstream` failure of a request passed through also counts in `passthrough`. |
 
 ### `run.budget_exceeded`
@@ -173,8 +174,11 @@ request. Written once per launch.
   in the vault until `privyx session prune` deletes them (audited) or
   `vault.ttl` expires them (not audited: the vault drops them without a caller
   to report it).
-- **Resilient.** A failed audit write is logged and swallowed; it can never break
-  a proxied request.
+- **Best effort.** A failed audit write can never break a proxied request. The
+  line is lost, the failure is logged, and
+  `privyx_audit_write_failures_total` counts it. Each line is flushed to the
+  operating system but not synced to disk, so a power loss can take the last
+  lines with it. Do not treat the trail as a complete record of every exchange.
 
 ## Reading the trail
 
@@ -185,25 +189,25 @@ privyx audit stats [FILE] [--since 24h]   # totals: requests, errors, sessions, 
 privyx audit tail [FILE] [-n 20]          # one readable line per event, then follow (--no-follow)
 ```
 
-`FILE` defaults to the configured `audit.path`.
+`FILE` defaults to the configured `features.audit.path`.
 
 The file is append-only JSON Lines: tail it, `jq` it, or load it into a log
 store. Each line carries its `schema_version`; a reader branches on it rather
 than guessing when it changes.
 
-**Rotation.** Privyx opens `audit.path` once and keeps appending to that open
+**Rotation.** Privyx opens `features.audit.path` once and keeps appending to that open
 file, so rotate it with logrotate's `copytruncate`: a rotation that moves the
 file away leaves Privyx writing to the moved file until it restarts.
 `privyx audit tail` follows a truncated file from the top.
 
-Disable the trail entirely with `audit.enabled: false` /
+Disable the trail entirely with `features.audit: false` /
 `PRIVYX_AUDIT_ENABLED=false`.
 
 ## Metrics
 
 A running proxy serves the same totals at `GET /metrics` in the Prometheus
 text format, counted in memory from startup, so they work with
-`audit.enabled: false` and reset on restart:
+`features.audit: false` and reset on restart:
 
 | metric | labels | notes |
 |---|---|---|
@@ -212,8 +216,12 @@ text format, counted in memory from startup, so they work with
 | `privyx_detector_counts_total` | `counter` | Sum of `session.transform` `detector_counts`. |
 | `privyx_proxy_errors_total` | `phase` | `proxy.error` events by `phase`. |
 | `privyx_pseudonyms_restored_total` | | Sum of `session.restore` `transformations`. |
-| `privyx_response_duration_seconds` | | Summary (`_sum`, `_count`) of `proxy.response` `duration_ms`. |
+| `privyx_response_duration_seconds` | | Summary of `proxy.response` `duration_ms`: `_sum` and `_count`, no quantiles. |
 | `privyx_tokens_total` | `kind` | Sum of `proxy.response` `usage`: `input`, `output`, `cache_read`, `cache_write`. |
+| `privyx_audit_write_failures_total` | | Audit lines the trail could not write. |
+
+Each process counts its own. With `server.workers` above `1`, a scrape reads
+the worker that answers it.
 
 `/metrics` needs no key, like `/health`; it exposes counts only, but keep it off
 networks where traffic volume should stay private.

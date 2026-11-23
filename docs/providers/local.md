@@ -89,9 +89,9 @@ your machine while the chat itself goes to a cloud provider:
 
 ```yaml
 # privyx.yaml
-detector:
-  - type: regex
-  - type: llm
+detectors:
+  regex: {}
+  llm:
     llm_provider: openai
     llm_model: llama3.2            # a model your local server has
 ```
@@ -99,7 +99,7 @@ detector:
 ```bash
 export OPENAI_BASE_URL=http://localhost:11434/v1   # read by the detector's SDK
 export OPENAI_API_KEY=ollama
-privyx proxy -c privyx.yaml --upstream https://api.anthropic.com
+privyx -c privyx.yaml proxy --upstream https://api.anthropic.com
 ```
 
 The two variables are read by the detector, in the proxy's environment. Your
@@ -110,5 +110,5 @@ what it found. If it does not, the scan fails and the request is not
 forwarded. Try it first:
 
 ```bash
-privyx detect -c privyx.yaml --transform "Bob Marsh called about the Bluebird contract"
+privyx -c privyx.yaml detect --transform "Bob Marsh called about the Bluebird contract"
 ```

@@ -282,20 +282,20 @@ vault:
 ```
 
 ```bash
-privyx proxy -c privyx.yaml --upstream https://api.openai.com
+privyx -c privyx.yaml proxy --upstream https://api.openai.com
 ```
 
 After two requests in that session, one naming `alice@example.com` and one
 naming the same address and `bob@example.com`:
 
 ```console
-$ privyx session list -c privyx.yaml
+$ privyx -c privyx.yaml session list
 SESSION  LAST ACTIVE          CREATED              MAPPINGS
 user-42  2026-10-02T14:38:38  2026-10-02T14:38:38  2
 
 1 session(s) (vault: sqlite)
 
-$ privyx session show -c privyx.yaml user-42
+$ privyx -c privyx.yaml session show user-42
 Session: user-42
   Vault:      sqlite
   Created:    2026-10-02T14:38:38
@@ -330,7 +330,7 @@ privyx proxy --upstream https://api.openai.com
 
 Clients can now use any placeholder as their key. On Anthropic's paths
 Privyx sends its key as `x-api-key`, the header that API expects.
-[Configuration](../guide/configuration.md#provider) has the per-provider
+[Configuration](../guide/configuration.md#provider-and-providers) has the per-provider
 variables and the order in which keys are chosen.
 
 Now anyone who can reach the proxy spends your key. Keep the proxy on
@@ -360,7 +360,7 @@ lists every type and status.
 
 ## Check what happened
 
-The audit trail is in `~/.privyx/audit.log` unless `audit.path` names
+The audit trail is in `~/.privyx/audit.log` unless `features.audit.path` names
 another file:
 
 ```bash

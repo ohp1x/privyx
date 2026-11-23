@@ -10,6 +10,30 @@ On your own machine, the defaults are the deployment: Privyx listens on
 people, use the same proxy. For a complete worked setup, see
 [A shared gateway for a team](../tutorials/team-gateway.md).
 
+## Supported setups
+
+| | Local, one process | Team gateway, one host | Several instances with Redis |
+|---|---|---|---|
+| **Runs as** | `privyx run`, or `privyx proxy` on loopback | A reverse proxy in front of Privyx on `127.0.0.1` | A load balancer in front of several Privyx instances |
+| **Requires** | One OS user. A `memory` vault, or `sqlite` on a local file for sessions that survive a restart. | TLS and one token per member at the reverse proxy, which removes `x-privyx-session` from client requests and sets `client_max_body_size`, `proxy_buffering off`, and a read timeout. `forward_client_auth: false` when Privyx holds the provider key. A `sqlite` vault on a local disk, or `redis`. | The same reverse proxy rules. One Privyx version, config, token format, and anchor or `encrypt` key on all instances; drain old instances during an upgrade. One worker per instance, each scraped on its own. Redis persistence is your choice. |
+| **Session strategy** | `conversation` (`privyx run`) or `ephemeral` (`privyx proxy`) | `conversation`, keyed on each member's token, or `ephemeral` | `conversation` or `ephemeral` |
+| **Provider fails** | `502`, `504`, or `503` with `Retry-After` when `provider.max_connections` is used up. A connection that cannot be opened is retried twice first. | The same | The same |
+| **Vault fails** | `503` before the provider is called | `503` before the provider is called, also after waiting more than 10 s for a session's lock | `503` before the provider is called for a stored session. `ephemeral` requests do not use Redis. There is no fallback to memory. |
+| **Audit write fails** | The request goes on | The request goes on | The request goes on |
+| **Process dies** | The client gets connection refused; `memory` sessions are gone | Requests on that process are cut off | Requests on that instance are cut off; the next turn is served by another instance from Redis |
+| **Body too large** | Not limited by Privyx | `413` from the reverse proxy, before Privyx | The same |
+| **How you notice** | `privyx doctor`, the process log, `privyx audit tail`, `privyx session list`, `/metrics`, and the warnings of `privyx run` | `/metrics` of each process, `privyx_audit_write_failures_total`, `proxy.error` by phase, the reverse proxy's log (`413`, `5xx`) | `/metrics` of each instance, aggregated in Prometheus; `proxy.error` with phase `vault`; your Redis monitoring |
+
+Several instances are tested with two writers on one session and with a lock
+that expires before its holder saves, against a real Redis. Redis restarts and
+failover, network partitions, reconnects, audit completeness across instances,
+restarts of a crashed worker, and capacity are not tested, so this page makes no
+claim about them.
+
+Under your own ASGI server (`Privyx.asgi()`), Privyx checks none of this for
+you: the vault the workers share, a scrape per process, and the shutdown grace
+are yours to set up.
+
 ## Who can reach it
 
 Privyx has **no authentication of its own**. Whoever can open a connection to
@@ -48,15 +72,16 @@ $ curl https://llm.internal.example:8000/health
 {"status":"ok"}
 ```
 
-The same settings exist as `tls:` in a config file and as environment
+The same settings exist as `server.tls` in a config file and as environment
 variables:
 
 ```yaml
-tls:
-  certfile: /etc/privyx/fullchain.pem
-  keyfile: /etc/privyx/privkey.pem
-  keyfile_password: ""     # only for an encrypted key
-  ca_certs: ""             # optional CA bundle
+server:
+  tls:
+    certfile: /etc/privyx/fullchain.pem
+    keyfile: /etc/privyx/privkey.pem
+    keyfile_password: ""     # only for an encrypted key
+    ca_certs: ""             # optional CA bundle
 ```
 
 ```bash
@@ -84,30 +109,41 @@ HTTP.
         ssl_certificate     /etc/nginx/certs/fullchain.pem;
         ssl_certificate_key /etc/nginx/certs/privkey.pem;
 
+        # Coding agents resend the whole conversation; the 1 MB default refuses it.
+        client_max_body_size 32m;
+
         location / {
             proxy_pass http://127.0.0.1:8000;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
+            # A client must not choose its session.
+            proxy_set_header x-privyx-session "";
 
             # Streamed replies (SSE) must not be buffered.
             proxy_buffering off;
             proxy_cache off;
             proxy_read_timeout 300s;
+
+            # Keep unmasked request bodies out of nginx's temporary files.
+            proxy_request_buffering off;
         }
     }
     ```
 
     Without `proxy_buffering off`, nginx holds a streamed reply back until it
     is complete, and the client receives it all at once. `proxy_read_timeout`
-    should be at least Privyx's own `proxy.timeout`, 300 seconds by default.
+    should be at least Privyx's own `provider.timeout`, 300 seconds by default.
 
 === "Caddy"
 
     ```caddy
     llm.internal.example {
-        reverse_proxy 127.0.0.1:8000
+        reverse_proxy 127.0.0.1:8000 {
+            # A client must not choose its session.
+            header_up -x-privyx-session
+        }
     }
     ```
 
@@ -131,7 +167,7 @@ HTTP.
   `openssl rand -hex 32`, once, and store them like any other credential.
   A new anchor secret gives every value a new token. A lost encryption key
   makes the stored sessions unrecoverable.
-- `privyx config --show` prints the effective settings with keys, secrets,
+- `privyx config show` prints the effective settings with keys, secrets,
   header values, word lists, and patterns masked, so you can check a
   deployment without printing them.
 
@@ -211,19 +247,26 @@ same after the restart even for a new session.
 ## Logs, audit trail, and metrics
 
 - **Application log.** Standard output, as text or as JSON lines
-  (`logging: json`). It never contains request or reply text at the default
-  level. `log_file` adds a file that also receives third-party logs; at
-  `log_level: debug` it can hold original values and is created readable by
+  (`log.format: json`). It never contains request or reply text at the default
+  level. `log.file` adds a file that also receives third-party logs; at
+  `log.level: debug` it can hold original values and is created readable by
   its owner only.
-- **Audit trail.** One JSON object per line in `audit.path`, with counts and
-  entity types only. Privyx keeps the file open, so rotate it with
+- **Audit trail.** One JSON object per line in `features.audit.path`, with counts and
+  entity types only. It is best effort: a line that cannot be written is lost
+  and counted in `privyx_audit_write_failures_total`, and the request goes on.
+  Privyx keeps the file open, so rotate it with
   logrotate's `copytruncate`. See
   [Audit events and metrics](../observability/audit-events.md).
 - **Metrics.** `GET /metrics` in the Prometheus text format: events, masked
   entities by type, errors by phase, restored tokens, and response time.
-  The counters start at zero with each process.
+  The counters start at zero with each process, and each process counts its
+  own. With `server.workers` above `1`, a scrape reads whichever worker answers
+  it, and Privyx warns about that at startup; for complete numbers, run one
+  worker per instance and scrape each. Response time is a summary of `_sum` and
+  `_count`, without quantiles.
 - **Health.** `GET /health` answers `{"status":"ok"}` as long as the process
-  serves requests. It does not call the provider or the vault.
+  serves requests. It is a liveness check only: it does not call the provider
+  or the vault, so it stays green while either is down.
 
 ## More than one instance
 
@@ -232,12 +275,17 @@ several instances can run behind a load balancer when they share a Redis
 vault. Any instance can serve any request of a session.
 
 Give all instances the same anchor secret (or `encrypt` key). Tokens are then
-derived from the value. Without one, tokens are numbered per session, and an
-instance holds a Redis lock on the session while it masks a request, so two
-instances never hand out the same number; requests of one session then wait
-for each other. The default `anchor.secret: auto` is each host's own key, so
-it is locked the same way, and the same value gets a different token on each
-instance: set an explicit secret. See [Scaling](../architecture/scaling.md).
+derived from the value. The default `anchor.secret: auto` is each host's own
+key, so the same value would get a different token on each instance: set an
+explicit secret. With or without one, an instance holds a Redis lock on a
+stored session while it masks a request and saves the mapping, so requests of
+one session wait for each other. See [Scaling](../architecture/scaling.md).
+
+Run one worker per instance. `server.workers` is an option for a gateway bound
+by CPU on one host: in a benchmark of independent sessions, 2 workers served
+1.56 times the requests of one, and 4 workers 2.23 times. Each request holds its
+session's mapping in memory while it waits for the upstream, about 1.7 MB for a
+batch request on a session of 10,000 entries.
 
 One piece of state is per process: the text of Anthropic `thinking` blocks,
 which Privyx remembers so that an echoed block still matches its signature.

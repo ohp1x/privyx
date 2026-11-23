@@ -22,11 +22,11 @@ The body is `{"error": {"type": …, "message": …}}`:
 | Status | `error.type` | When | Forwarded? |
 |---|---|---|---|
 | `400` | `privyx_invalid_request` | The body of a request on a masked path is not a JSON object: it is compressed, form-encoded, or not JSON. Or an embeddings or legacy completions request sends token ids instead of text. Privyx cannot mask either. | No |
-| `502` | `privyx_upstream_unreachable` | No response from the upstream: the connection was refused or dropped. A connection that could not be opened was retried twice first, 0.5 s and 1 s apart. | Possibly |
+| `502` | `privyx_upstream_unreachable` | No response from the upstream: the connection was refused or dropped, also while reading the body of a batch reply after its headers. A connection that could not be opened was retried twice first, 0.5 s and 1 s apart. | Possibly |
 | `503` | `privyx_scan_failed` | Masking the request failed, for example because the [LLM detector](../guide/detection.md#llm-detector) timed out or a detector plugin raised. | No |
-| `503` | `privyx_vault_unavailable` | The session vault failed: Redis is down or has not answered for 5 s, or a SQLite call failed. | No, or the reply was not returned |
-| `503` | `privyx_upstream_busy` | All `proxy.max_connections` connections stayed busy for 10 s. Sent with `Retry-After: 10`. | No |
-| `504` | `privyx_upstream_timeout` | The upstream took longer than `proxy.connect_timeout` to accept the connection, or longer than `proxy.timeout` to send the next bytes. | Possibly |
+| `503` | `privyx_vault_unavailable` | The session vault failed before the request was sent: Redis is down or has not answered for 5 s, a SQLite call failed, or the session's lock stayed busy for 10 s. | No |
+| `503` | `privyx_upstream_busy` | All `provider.max_connections` connections stayed busy for 10 s. Sent with `Retry-After: 10`. | No |
+| `504` | `privyx_upstream_timeout` | The upstream took longer than `provider.connect_timeout` to accept the connection, or longer than `provider.timeout` to send the next bytes, also of a batch reply's body after its headers. | Possibly |
 
 "Possibly" means the request may have reached the provider, and may have
 been billed, without a response coming back.
@@ -62,7 +62,7 @@ $ privyx audit tail --no-follow -n 3
 |---|---|---|
 | `transform` | Masking the request | `503` `privyx_scan_failed` |
 | `vault` | Reading or writing the session | `503` `privyx_vault_unavailable` |
-| `upstream` | Reaching the provider | `502`, `503` `privyx_upstream_busy`, or `504` |
+| `upstream` | Reaching the provider, or reading a batch reply's body | `502`, `503` `privyx_upstream_busy`, or `504` |
 | `stream` | A streamed reply, after it started | The connection closes |
 | `response` | Relaying a reply with nothing to restore | The connection closes |
 
@@ -73,10 +73,10 @@ the message:
 2026-10-02 14:45:16,336 [WARNING] privyx.proxy.transparent: request not forwarded: DetectorError while masking it
 ```
 
-The full traceback is written only at `log_level: debug`. Set `log_file` to
+The full traceback is written only at `log.level: debug`. Set `log.file` to
 keep it out of the console: at `debug` that file can hold original values, so
 Privyx creates it readable by its owner only. Under `privyx run`, log lines
-go to `log_file` only, since the tool owns the terminal.
+go to `log.file` only, since the tool owns the terminal.
 
 ## In an SDK
 

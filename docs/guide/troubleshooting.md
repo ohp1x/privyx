@@ -7,9 +7,9 @@ description: Symptoms you may run into with Privyx, what causes each, and how to
 Find the symptom, then the cause. Three commands answer most questions:
 
 ```bash
-privyx detect -c my.yaml --transform "a sample of your text"   # what would be masked
+privyx -c my.yaml detect --transform "a sample of your text"   # what would be masked
 privyx audit tail FILE --no-follow                             # what happened to recent requests
-privyx doctor -c my.yaml                                       # does this configuration work at all
+privyx -c my.yaml doctor                                       # does this configuration work at all
 ```
 
 ## A value is not masked
@@ -18,15 +18,15 @@ privyx doctor -c my.yaml                                       # does this confi
 proxy:
 
 ```bash
-privyx detect -c my.yaml --transform "the text that went out"
+privyx -c my.yaml detect --transform "the text that went out"
 ```
 
 | What you see | Cause | Fix |
 |---|---|---|
 | The value is not in the list | No detector knows it. Names, companies, and project terms have no built-in pattern. | Add a [word list or a pattern](../tutorials/custom-terms.md). |
-| `detect` finds it, the proxy does not | The proxy runs with another configuration: another `-c` or `PRIVYX_CONFIG`, or a working directory with config files of its own. | Start both the same way; `privyx config --path` prints the files in use, or `defaults`. |
-| A line `ignoring …/privyx.yaml: not trusted, or changed since` | A config file in the working directory is read only once you have trusted it; until then its settings do not apply. | Run `privyx trust` in that directory. |
-| It is masked as written, but not as `DB_JOHN`, `john%20smith`, or inside an identifier | The term list matches whole words, and the options that widen it are off. | `privyx lint -c my.yaml` lists the spellings that slip through and the option that masks each. |
+| `detect` finds it, the proxy does not | The proxy runs with another configuration: another `-c` or `PRIVYX_CONFIG`, or a working directory with config files of its own. | Start both the same way; `privyx config path` prints the files in use, or `defaults`. |
+| A line `ignoring …/privyx.yaml: not trusted, or changed since` | A config file in the working directory is read only once you have trusted it; until then its settings do not apply. | Run `privyx config trust` in that directory. |
+| It is masked as written, but not as `DB_JOHN`, `john%20smith`, or inside an identifier | The term list matches whole words, and the options that widen it are off. | `privyx -c my.yaml config lint` lists the spellings that slip through and the option that masks each. |
 | It appears only with `--no-policy` | The `strict` policy filters it out. | Add the entity type to `policy.allowed`. |
 | It is masked in chat messages but not elsewhere | The request went to a path without a route, such as a file upload, or the value sits in a field Privyx leaves alone, such as `user` or a URL. | See [Paths without a route](proxy.md#paths-without-a-route) and [Limitations](../security/limitations.md#coverage). |
 
@@ -107,7 +107,7 @@ The audit trail has the class of the error, and the proxy's log one line:
 2026-10-02 14:45:16,336 [WARNING] privyx.proxy.transparent: request not forwarded: DetectorError while masking it
 ```
 
-For the full traceback, set `log_level: debug` and a `log_file`. That file
+For the full traceback, set `log.level: debug` and a `log.file`. That file
 can then hold original values. To let requests through when the model is
 unavailable, at the price of a weaker scan, set `llm_fallback_on_error: true`.
 
@@ -115,7 +115,7 @@ unavailable, at the price of a weaker scan, set `llm_fallback_on_error: true`.
 
 The session vault failed: Redis is down or did not answer within five
 seconds, or a SQLite call failed. Check `vault.redis_url` or `vault.dsn`, and
-that the SQLite file sits on a local disk. `privyx doctor -c my.yaml` writes
+that the SQLite file sits on a local disk. `privyx -c my.yaml doctor` writes
 and reads a test session and reports what it finds.
 
 ## `400 privyx_invalid_request`
@@ -172,7 +172,7 @@ only a fragment that could be the start of a token.
 | `Error: config file not found: my.yaml` | The path given with `-c` or `PRIVYX_CONFIG` does not exist. |
 | ``Error: aiosqlite is required. Install with `pip install privyx[sqlite]`.`` | A setting needs an [extra](installation.md#extras) that is not installed. |
 | `Error: operator type 'encrypt' requires a key; …` | `PRIVYX_ENCRYPT_KEY` is not set. |
-| `Error: cannot write audit.path /var/log/privyx/audit.log: Permission denied` | The audit log's directory is not writable; set `audit.path` or `PRIVYX_AUDIT_PATH`. |
+| `Error: cannot write features.audit.path /var/log/privyx/audit.log: Permission denied` | The audit log's directory is not writable; set `features.audit.path` or `PRIVYX_AUDIT_PATH`. |
 | `Error: Both --ssl-certfile and --ssl-keyfile are required for HTTPS.` | Only one of the two TLS files was given. |
 | `[Errno 98] error while attempting to bind on address ('127.0.0.1', 8000): [errno 98] address already in use` | Another process uses the port; pick one with `--port`. |
 
@@ -192,7 +192,7 @@ only a fragment that could be the start of a token.
 Error: [Errno 2] No such file or directory: '/home/dana/.privyx/audit.log'
 ```
 
-`privyx audit` reads `audit.path`, which is `~/.privyx/audit.log` unless the
+`privyx audit` reads `features.audit.path`, which is `~/.privyx/audit.log` unless the
 proxy was given another. Pass the same `-c` and `PRIVYX_AUDIT_PATH`, or name
 the file: `privyx audit stats /path/to/audit.log`. Up to version 0.1.15,
 `privyx proxy` wrote `privyx-audit.log` in the directory it ran in.
@@ -210,6 +210,6 @@ on one instance.
 
 Open a [discussion](https://github.com/ohp1x/privyx/discussions) or an
 [issue](https://github.com/ohp1x/privyx/issues) with the output of
-`privyx config --show` (credentials, word lists, and patterns are masked in
+`privyx config show` (credentials, word lists, and patterns are masked in
 it) and the relevant lines of `privyx audit tail`. Report anything that looks
 like a leak [privately](https://github.com/ohp1x/privyx/security/advisories/new).

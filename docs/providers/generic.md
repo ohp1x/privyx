@@ -31,11 +31,12 @@ Three options, described in [Proxy modes and routes](../guide/proxy.md):
   the upstream has a prefix:
 
     ```yaml
-    upstream_url: https://llm.example.com/api/v1
-    proxy:
+    proxy: {}
+    provider:
       path_mapping:
         mode: prefix
         strip_prefix: /v1
+      base_url: https://llm.example.com/api/v1
     ```
 
     A client request to `/v1/chat/completions` is masked using the default

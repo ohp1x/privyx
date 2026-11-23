@@ -20,76 +20,6 @@ from privyx.config.schema import Settings
 
 GUIDE = Path(__file__).parents[3] / "docs" / "guide"
 
-#: New settings, variables, and commands, described with the 0.3 upgrade
-#: guide.  Each set only shrinks: a name its page has come to describe fails
-#: the test too.
-PENDING_SETTINGS: frozenset[str] = frozenset(
-    {
-        "builtins",
-        "detectors",
-        "features",
-        "file",
-        "level",
-        "log",
-        "profile",
-        "providers",
-        "secrets",
-        "server",
-        "workers",
-    }
-)
-#: ``PRIVYX_<PATH>`` stands for the generic names, such as ``PRIVYX_SERVER__PORT``.
-PENDING_ENV: frozenset[str] = frozenset({"PRIVYX_<PATH>"})
-PENDING_CLI: frozenset[str] = frozenset(
-    {
-        "privyx audit stats --json",
-        "privyx config edit",
-        "privyx config edit --project",
-        "privyx config explain",
-        "privyx config explain --json",
-        "privyx config get",
-        "privyx config get --json",
-        "privyx config lint",
-        "privyx config migrate",
-        "privyx config migrate --write",
-        "privyx config path",
-        "privyx config routes",
-        "privyx config schema",
-        "privyx config set",
-        "privyx config set --file",
-        "privyx config set --project",
-        "privyx config show",
-        "privyx config trust",
-        "privyx config unset",
-        "privyx config unset --file",
-        "privyx config unset --project",
-        "privyx config validate",
-        "privyx detect --entity",
-        "privyx detect --pattern",
-        "privyx doctor --json",
-        "privyx features",
-        "privyx features disable",
-        "privyx features disable --file",
-        "privyx features disable --project",
-        "privyx features enable",
-        "privyx features enable --file",
-        "privyx features enable --project",
-        "privyx features list",
-        "privyx features list --events",
-        "privyx features list --json",
-        "privyx hook install",
-        "privyx mask --stream",
-        "privyx plugin",
-        "privyx plugin list",
-        "privyx plugin list --json",
-        "privyx proxy --workers",
-        "privyx run --json",
-        "privyx session list --json",
-        "privyx session token",
-        "privyx unmask --stream",
-    }
-)
-
 
 def _setting_names(model: type[BaseModel]) -> Iterator[str]:
     for name, field in model.model_fields.items():
@@ -123,7 +53,7 @@ def test_configuration_page_names_every_setting() -> None:
     page = (GUIDE / "configuration.md").read_text()
     names = {*_setting_names(Settings), *_option_names()}
     missing = {name for name in names if f"`{name}`" not in page}
-    assert missing == PENDING_SETTINGS
+    assert missing == set()
 
 
 def test_configuration_page_names_every_environment_variable() -> None:
@@ -136,7 +66,7 @@ def test_configuration_page_names_every_environment_variable() -> None:
     }
     if "PRIVYX_SERVER__PORT" not in page:
         missing.add("PRIVYX_<PATH>")
-    assert missing == PENDING_ENV
+    assert missing == set()
 
 
 def test_cli_page_names_every_command_and_option() -> None:
@@ -151,4 +81,4 @@ def test_cli_page_names_every_command_and_option() -> None:
             for flag in getattr(param, "opts", []) + getattr(param, "secondary_opts", []):
                 if flag.startswith("--") and flag != "--help" and flag not in page:
                     missing.add(f"{path} {flag}")
-    assert missing == PENDING_CLI
+    assert missing == set()

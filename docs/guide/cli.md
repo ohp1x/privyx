@@ -1,69 +1,52 @@
 ---
-description: "Every privyx command and option: proxy, run, detect, lint, mask, unmask, pipe, mcp, session, inspect, audit, config, trust, scan, hooks, and doctor."
+description: "Every privyx command and option: run, proxy, mask, unmask, detect, scan, doctor, config, session, audit, hook, mcp, features, and plugin."
 ---
 
 # CLI reference
 
-Use `privyx -c FILE <command>` (or `--config FILE`) to select configuration
-for any command, including nested commands and `hook`:
-
-```bash
-privyx -c config.yaml mask "alice@example.com"
-privyx -c config.yaml inspect regex EMAIL
-privyx -c config.yaml run codex
-```
-
-Each command also takes `-c` after its name. Precedence, highest first: the
-command's `-c`, the global `-c`, `PRIVYX_CONFIG`, then config discovery. A
-command's `-c` wins without a warning. Without an explicit file, Privyx reads
-`~/.privyx/config.yaml` and the trusted config files of the working directory.
-See [Configuration](configuration.md). `privyx --version` prints the version.
-
-The global option sets `PRIVYX_CONFIG` to an absolute path for the duration of
-the command. Child processes inherit it, including agents launched by `run`;
-their own Privyx commands use that file unless overridden. A subcommand's `-c`
-does not replace that inherited global value. Options after the agent name
-belong to the agent: `privyx -c config.yaml run codex -c ...` passes the second
-`-c` to Codex. Commands that do not read configuration ignore the global option.
-
-Every command that takes `-c` also takes `--preset NAME`, repeatable, to apply
-a [preset](configuration.md#presets) for that command only:
-
-```bash
-privyx proxy --preset strict
-privyx config --sources --preset debug
-privyx run claude:work --preset debug
-```
-
-Unlike the global `-c`, a preset is not passed to child processes: an agent
-launched by `run`, and any Privyx command it calls, such as an MCP server or
-a hook, does not inherit it.
-
-## `privyx proxy`
-
-Start the privacy proxy.
-
-```bash
-privyx proxy [-c FILE] [--host HOST] [--port PORT] [-u URL] [--transparent | --gateway] [--reload]
-```
+The options that apply to every command go before the command name:
 
 | Option | Description |
 |---|---|
-| `--host` | Bind address. Default `127.0.0.1`. |
-| `--port` | Bind port. Default `8000`. |
-| `-u`, `--upstream` | Upstream provider URL. Wins over the config file. |
-| `--transparent` / `--gateway` | Forward paths to the upstream with masking on routed paths, or serve configured routes through the fixed-endpoint gateway. Default: `proxy.mode`, which is `transparent`. |
-| `--reload` | Restart the server when a config file in use changes. For development; an in-memory vault starts empty after each restart. |
-| `--ssl-certfile`, `--ssl-keyfile` | Serve HTTPS with this certificate and key (PEM). Both are required. |
-| `--ssl-keyfile-password` | Password for an encrypted key. |
-| `--ssl-ca-certs` | CA bundle (PEM). |
+| `-c`, `--config FILE` | Read this config file alone. |
+| `--preset NAME` | Apply a [preset](configuration.md#presets) for this command only. Repeatable; later ones win. |
+| `--version` | Print the version. |
+| `--help` | Show the help of Privyx or of a command; it works after any command name. |
 
-Besides the proxied paths, the server answers `GET /health` and `GET /metrics` (Prometheus text), neither of which needs a
-key.
+```bash
+privyx -c config.yaml mask "alice@example.com"
+privyx -c config.yaml detect --entity EMAIL
+privyx -c config.yaml run codex
+```
 
-On SIGTERM or Ctrl-C, and on a `--reload` restart, requests still running get
-5 s to finish. Longer ones, such as a long streamed reply, are then cut off:
-the client sees the connection close, and their ephemeral sessions are deleted.
+Precedence for the config file, highest first: `-c`, `PRIVYX_CONFIG`, then
+config discovery. Without an explicit file, Privyx reads
+`~/.privyx/config.yaml` and the trusted config files of the working directory.
+See [Configuration](configuration.md). A command that does not read
+configuration ignores `-c`.
+
+`-c` sets `PRIVYX_CONFIG` to an absolute path for the duration of the
+command. Child processes inherit it, including agents launched by `run`;
+their own Privyx commands use that file. Options after the agent name
+belong to the agent: `privyx -c config.yaml run codex -c ...` passes the second
+`-c` to Codex.
+
+`--preset` applies to the config the command reads:
+
+```bash
+privyx --preset strict proxy
+privyx --preset debug config show --sources
+privyx --preset debug run claude:work
+```
+
+Unlike `-c`, a preset is not passed to child processes: an agent
+launched by `run`, and any Privyx command it calls, such as an MCP server or
+a hook, does not inherit it.
+
+The commands are listed below in the order `privyx --help` gives them. A
+command or option from an earlier version still runs, with a warning that
+names its replacement, until 0.4.0; [Upgrading](upgrading.md) lists each old
+name next to the new one.
 
 ## `privyx run`
 
@@ -78,12 +61,14 @@ and forwards any other path unmasked, file uploads for instance;
 file, Privyx sends only its own key and posts to the upstream URL as written,
 which one fixed endpoint URL needs. An upstream under a base path also works
 in transparent mode with
-[`proxy.path_mapping`](configuration.md#proxy). The tool owns the terminal, so
-Privyx writes no log lines to it; they go to `log_file` when one is set, which
+[`provider.path_mapping`](configuration.md#provider-and-providers). The tool owns the terminal, so
+Privyx writes no log lines to it; they go to `log.file` when one is set, which
 is where to look when a request fails with a `503`.
 
 ```bash
 privyx run [OPTIONS] TARGET [ARGS]...
+privyx run --list [--json]
+privyx run --dry-run [--json] TARGET
 privyx run claude
 privyx run claude -- --continue      # arguments after -- go to the tool
 privyx run -p openai my-tool         # OPENAI_BASE_URL and OPENAI_API_BASE
@@ -93,15 +78,18 @@ privyx run -u https://api.example.com --env-var MY_TOOL_BASE_URL -- my-tool --fl
 | Option | Description |
 |---|---|
 | `-p`, `--provider` | Provider type upstream (`openai`, `anthropic`, `google`, `generic`, or a plugin). Known targets set it for you. |
-| `-u`, `--upstream` | Upstream URL. The transparent proxy uses only its origin and appends the tool's own paths, or keeps its path too with `proxy.path_mapping.mode: prefix`; the gateway posts to it as written. Without an explicit upstream, transparent mode follows supported native endpoint settings, then the provider default. |
+| `-u`, `--upstream` | Upstream URL. The transparent proxy uses only its origin and appends the tool's own paths, or keeps its path too with `provider.path_mapping.mode: prefix`; the gateway posts to it as written. Without an explicit upstream, transparent mode follows supported native endpoint settings, then the provider default. |
 | `--port` | Proxy port. `0` (default) picks a free one. |
 | `--env-var` | Also set this environment variable to the proxy URL. Repeatable. |
 | `--session-strategy` | `ephemeral`, `client`, or `conversation` (default). Overrides the config. |
 | `--no-anchor` | Skip the default automatic anchor; an explicit config or environment setting still applies. See [Anchors](masking.md#anchors). |
 | `--harvest` / `--no-harvest` | Also mask what the working directory tells: the authors of its last 1000 commits, the owner and name of each git remote, the values in its `.env` files, and the local OS username. Read at launch and kept in memory, never written. Default: the `harvest` setting, off. |
-| `--preset` | Apply the Privyx settings of a preset under [`presets`](configuration.md#presets), above the profile's own `presets` and `privyx` settings and below other flags. Repeatable; later ones win. |
 | `--list` | List the known targets and exit. |
 | `--dry-run` | Print the launch plan and winning configuration sources, then exit. Opens no port, starts no tool, imports no plugins, and creates no log, vault, or anchor file. Works even if the executable is not installed. |
+| `--json` | Write the result of `--list` or `--dry-run` as JSON, for a program to read: the known targets, or the launch plan. Without one of them it is an error. |
+
+A [preset](configuration.md#presets) chosen with the global `--preset` applies
+above the profile's own `presets` and `privyx` settings and below other flags.
 
 ### Known targets
 
@@ -137,7 +125,7 @@ profiles keep their defaults for any fields you leave out.
 ### Where requests go
 
 In transparent mode, an explicit `--upstream`, profile `upstream`,
-`upstream_url`, or `provider.base_url` wins. Otherwise, Privyx follows these
+or `provider.base_url` wins. Otherwise, Privyx follows these
 native destinations before replacing the agent's endpoint with the proxy URL:
 
 | Agent | Native destination |
@@ -164,7 +152,7 @@ key or nonempty configured provider headers to it: set `--upstream` explicitly
 to confirm that destination. Custom header names can also carry credentials.
 Its path must match the profile's `base_path`, because transparent mode forwards the
 agent's original paths without translating a prefix. A mismatch fails before
-launch with a hint to set `proxy.path_mapping.mode: prefix`, which keeps the
+launch with a hint to set `provider.path_mapping.mode: prefix`, which keeps the
 endpoint's path, or to configure `base_path` and matching `proxy.routes`.
 `--dry-run` shows the native endpoint and its source, including when an
 explicit upstream overrides it, with URL credentials, query, and fragment
@@ -244,7 +232,7 @@ every other provider, and of that provider a model of an API Privyx cannot
 mask. A profile for one provider is `pi:deepseek` in
 [Coding agents](../tutorials/coding-agents.md). With one upstream, a provider
 whose base URL has a path of its own (groq, openrouter) needs
-`proxy.path_mapping.mode: prefix`, set in the profile's `privyx:` block, and
+`provider.path_mapping.mode: prefix`, set in the profile's `privyx:` block, and
 that base URL as the upstream. Without it the transparent proxy keeps only the
 upstream's origin, and those requests miss the provider's API.
 
@@ -292,25 +280,29 @@ Inspect a plan before launching:
 $ privyx run --dry-run codex
 Profile: codex
 Command: codex -c 'openai_base_url="http://127.0.0.1:<auto>/v1"'
-Adapter: codex
+Type: codex
 Proxy: http://127.0.0.1:<auto>/v1 (transparent)
 Provider: openai [defaults]
 Upstream: https://api.openai.com/v1/chat/completions [provider default (defaults)]
 Routing: tool → http://127.0.0.1:<auto>/v1 → https://api.openai.com
 Session: conversation [run defaults]
-Anchor: auto-provision on launch [run defaults]
+Anchor: auto-provision on launch [defaults]
 Budget: none
 Source command: defaults
 Source base_path: defaults
-Source adapter: defaults
+Source type: defaults
 Source args: defaults
-Source host: defaults
+Source server.host: defaults
 Source proxy.mode: defaults
 Source run.port: run defaults
 Source arguments: CLI
 Environment injected:
   OPENAI_BASE_URL=http://127.0.0.1:<auto>/v1 [defaults]
 ```
+
+With `--json` the plan is one JSON object: `profile`, `type`, `command`,
+`argv`, `proxy`, `provider`, `upstream`, `environment`, and the rest of what the
+text shows, with the same masking.
 
 `<auto>` means a free port will be chosen on launch; `--port` makes the plan
 use a fixed port. Sources are `defaults`, `run defaults`, a config file's
@@ -331,11 +323,11 @@ applied and each setting they decide; a setting a later layer overrides is
 left out:
 
 ```console
-$ privyx run --dry-run claude:work --preset debug
+$ privyx --preset debug run --dry-run claude:work
 ...
 Presets: strict [/home/alice/.privyx/config.yaml], debug [CLI]
-  log_file = "/home/alice/.privyx/debug.log" [presets.debug]
-  log_level = "debug" [presets.debug]
+  log.file = "/home/alice/.privyx/debug.log" [presets.debug]
+  log.level = "debug" [presets.debug]
   proxy.passthrough_unknown = false [presets.strict]
 ```
 
@@ -381,12 +373,104 @@ this in VS Code's user or workspace settings:
 }
 ```
 
+## `privyx proxy`
+
+Start the privacy proxy.
+
+```bash
+privyx proxy [--host HOST] [--port PORT] [--workers N] [-u URL] [--transparent | --gateway] [--reload]
+```
+
+| Option | Description |
+|---|---|
+| `--host` | Bind address. Default `127.0.0.1`. |
+| `--port` | Bind port. Default `8000`. |
+| `--workers` | Number of server processes, at least `1`. Default: `server.workers`. More than one needs a `sqlite` file or `redis` vault, since the processes must share their sessions, and `proxy` refuses to start with a feature that keeps its state in one process. `GET /metrics` then counts only the requests of the worker that answers. |
+| `-u`, `--upstream` | Upstream provider URL. Wins over the config file. |
+| `--transparent` / `--gateway` | Forward paths to the upstream with masking on routed paths, or serve configured routes through the fixed-endpoint gateway. Default: `proxy.mode`, which is `transparent`. |
+| `--reload` | Restart the server when a config file in use changes. For development; an in-memory vault starts empty after each restart. |
+| `--ssl-certfile`, `--ssl-keyfile` | Serve HTTPS with this certificate and key (PEM). Both are required. |
+| `--ssl-keyfile-password` | Password for an encrypted key. |
+| `--ssl-ca-certs` | CA bundle (PEM). |
+
+Besides the proxied paths, the server answers `GET /health` and `GET /metrics` (Prometheus text), neither of which needs a
+key.
+
+On SIGTERM or Ctrl-C, and on a `--reload` restart, requests still running get
+5 s to finish. Longer ones, such as a long streamed reply, are then cut off:
+the client sees the connection close, and their ephemeral sessions are deleted.
+
+## `privyx mask`
+
+Replace sensitive values with tokens, reversibly. The output is what the proxy
+would send upstream.
+
+```bash
+privyx mask --map map.json "mail alice@example.com"
+privyx mask --map map.json -i request.json --path '$.messages'
+cat events.jsonl | privyx mask --map map.json -f jsonl -i - -o masked.jsonl
+```
+
+| Option | Description |
+|---|---|
+| `--map FILE` | Read and write the mapping in this file. An existing file is extended, so tokens stay the same across documents. |
+| `--session ID` | Keep the mapping in this vault session instead. Needs a persistent vault. |
+| `-i`, `--input FILE` | Input file; `-` for standard input. |
+| `--stdin` | Read from standard input. |
+| `-o`, `--output FILE` | Output file. Default: standard output. |
+| `-f`, `--format` | `auto` (default, from the file extension), `text`, `json`, or `jsonl`. |
+| `--path` | Only mask under this JSON path, e.g. `$.messages`. Repeatable. |
+| `--stream` | Mask standard input a line at a time; see [`privyx mask --stream`](#privyx-mask-stream). |
+
+In JSON, each string of up to 256 characters is also checked together with its
+key, as the proxy does with tool arguments, so the value in
+`{"password": "..."}` is masked as a secret. Numbers are checked alone, so a
+card number is masked and `{"token_limit": 4000}` is not; a masked number
+becomes its token, a string.
+
+## `privyx unmask`
+
+Put the original values back, from a `--map` file or a `--session`. Tokens the
+mapping does not know are left as they are. Takes the same options as
+`privyx mask`, including `--stream`.
+
+```bash
+privyx unmask --map map.json -i masked.txt
+```
+
+## `privyx mask --stream`
+
+`--stream` of `privyx mask` masks standard input to standard output one line
+at a time, and `privyx unmask --stream` puts the originals back the same way.
+Each line is written as soon as it is read, so a live stream never waits for
+its end.
+
+```bash
+tail -f app.log | privyx mask --stream --session logs | your-tool
+your-tool | privyx unmask --stream --session logs
+```
+
+| Option | Description |
+|---|---|
+| `--session ID` | Keep the mapping in this vault session. Without it, `mask --stream` creates a new session and prints its id to standard error; `unmask --stream` needs it. Needs a persistent vault to be restored later. |
+
+`unmask --stream` reads the session again for each line, so it can follow a
+`mask --stream` that is still masking into the same session, and stops with an
+error once the session is deleted or expires. `--stream` reads standard input
+and writes standard output, so it cannot be combined with `--map`, `-i`, `-o`,
+or `--path`.
+
+Lines are masked one by one, so a value split across lines, such as a PEM
+private key, is not seen whole: use `privyx mask` for those.
+
 ## `privyx detect`
 
 Show what the configured detector and policy find in a text.
 
 ```bash
-privyx detect [-c FILE] [--transform] [--no-policy] [--explain] TEXT...
+privyx detect [--transform] [--no-policy] [--explain] TEXT...
+privyx detect --entity NAME
+privyx detect --pattern REGEX
 echo "mail alice@example.com" | privyx detect --stdin
 ```
 
@@ -396,6 +480,25 @@ echo "mail alice@example.com" | privyx detect --stdin
 | `--policy` / `--no-policy` | Apply the configured policy (default) or show every detection. |
 | `--explain` | For each span, the detector and rule that found it (a built-in pattern, your `patterns`, or your `terms`) and whether the policy masks all of it, part of it, or none. |
 | `--stdin` | Read the text from standard input. |
+| `--entity NAME` | Check the regex of this entity instead of detecting: the configured one, or a built-in such as `EMAIL`. |
+| `--pattern REGEX` | Check this regex instead of detecting, for one you are writing. |
+
+`--entity` and `--pattern` take no text and cannot be combined. They report
+whether the regex can backtrack catastrophically, and how fast it scans
+ordinary text. The timing stops after 5 seconds and reports the pattern as
+stalled, which also catches backtracking the static check misses:
+
+```console
+$ privyx detect --pattern '(a+)+$'
+Pattern: (a+)+$
+ReDoS:   risky: a repeat in a repeat, like (a+)+, can stall on crafted input
+Speed:   36.46 µs per KB of sample text
+$ privyx detect --entity EMAIL
+Entity:  EMAIL
+Pattern: [A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,63}
+ReDoS:   no nested repeat found
+Speed:   13.94 µs per KB of sample text
+```
 
 `--explain` helps when a value is masked that should not be, or the reverse:
 
@@ -409,21 +512,269 @@ $ privyx detect --explain "card 4111 1111 1111 1111"
 
 With several detectors configured, each is numbered in the order listed.
 
-## `privyx lint`
+## `privyx scan`
+
+Find the names and secrets a workspace should keep from the model, and add the
+ones you keep to `privyx.d/terms.yaml`.
+
+```bash
+privyx scan [PATH]          # list, ask what to leave out, then add the rest
+privyx scan --dry-run       # only list
+privyx scan --yes           # add everything found
+```
+
+| Option | Description |
+|---|---|
+| `-y`, `--yes` | Add everything found, without asking. |
+| `--dry-run` | List what was found and write nothing. |
+
+It reads, in `PATH` (default: the working directory):
+
+- the git history: each author and `Co-authored-by` name, as `PERSON` (bots left out);
+- the git remotes: the owner as `ORGANIZATION` and the repository as `PROJECT`, never the host or a credential in the URL;
+- `pyproject.toml`, `package.json`, `Cargo.toml`, and `go.mod`: the project name, and an npm scope as `ORGANIZATION`;
+- `.env` files: each key whose value is worth masking (as in `privyx run --harvest`) and is not already masked by the built-in detector, as a pattern `ENV_<KEY>` that masks the value assigned to that key (`KEY=…`, `KEY: …`, `"KEY": "…"`). The values themselves are never written.
+
+```console
+$ privyx scan
+Found in /home/ana/billing:
+    1  PERSON          Ana Example  (git history)
+    2  ORGANIZATION    acme-labs  (git remote origin, package.json)
+    3  PROJECT         billing  (git remote origin)
+    4  ENV_SENTRY_DSN  value of SENTRY_DSN  (.env)
+Numbers to leave out (e.g. 2,5), or Enter to keep all:
+Added 4 to /home/ana/billing/privyx.d/terms.yaml
+Created /home/ana/billing/privyx.yaml, which includes it
+```
+
+The file only grows: a later scan lists only what it does not hold yet, so a
+scan that finds nothing new changes nothing. What you left out is offered
+again. Without a `privyx.yaml`, the scan creates one that includes the file and
+trusts it, since it wrote both. An existing `privyx.yaml` is not changed: add
+`privyx.d/terms.yaml` to its `include` list. It stays trusted when it was
+trusted before; otherwise run `privyx config trust` after reviewing it. A `detectors.regex`
+block in `privyx.yaml` replaces the terms it includes; move them into it.
+
+## `privyx doctor`
+
+Build every configured component and push a request through it: plugins,
+detector, vault (a real write and read), provider, proxy, and streaming
+restore. The `permissions` check fails when the SQLite vault, the audit log,
+or the anchor key file allows any access beyond its owner, and names the
+`chmod 600` that fixes it. With `anchor.secret: auto`, the `anchor key` check
+reads that file, or checks that it can be created, without creating it. The `routes` check lists masking paths, gaps in the default route map,
+and the disposition of unlisted paths. Passthrough prints a warning; invalid
+routes fail. Exits with a non-zero status if any check fails. `--json` writes
+the checks as a JSON list instead, each with its `name`, `ok`, and `message`.
+
+Configuration is loaded once per invocation, including password-manager
+references, and all checks use the same settings. A later invocation reads
+configuration again. If loading fails, doctor reports a single configuration
+failure and stops before running component checks.
+
+Doctor tries a sample email. When every detector is a `regex`
+detector, it also tries the first nonempty term of each configured entity. With
+any other detector, including LLM and plugin detectors, it uses only the
+synthetic email so configured terms are not sent to those detectors. The
+detector check scans without the policy; the proxy and streaming checks use
+only samples the configured detector and policy select for masking.
+If no sample applies, the check explicitly reports `skipped`. This does not
+verify coverage for arbitrary patterns or other input. Sample values are not
+printed. Streaming restore is also skipped for an irreversible operator.
+
+Credentials, query strings, and fragments in the displayed upstream URL are
+masked. Doctor deletes its test sessions after each check, including failures,
+and leaves existing sessions untouched. A cleanup failure is a failed check;
+the vault connection is still closed.
+
+```console
+$ privyx doctor
+Privyx Doctor
+=============
+  ✓ plugins: no plugin paths configured
+  ✓ anchor key: /home/alice/.privyx/anchor.key is created on first use
+  ✓ detector: regex: 1 span(s) ['EMAIL']
+  ✓ permissions: sensitive files owner-only (0600)
+  ✓ vault: memory: round-trip ok
+  ✓ provider: generic → http://localhost:20128
+  ✓ proxy: request transformed, 1 mapping(s) vaulted
+  ✓ streaming: pseudonym restored across a split chunk
+  ✓ routes: transparent: 27 masking route(s): ...; WARNING: unlisted paths pass through WITHOUT body masking; set proxy.passthrough_unknown: false to return 403; default paths outside coverage: none
+  ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=hmac
+```
+## `privyx config`
+
+Show, change, check, and migrate the configuration. Without a command it
+prints a summary of the settings in use.
+
+```bash
+privyx config                    # a summary
+privyx config show [--sources]   # every setting as JSON, credentials masked
+privyx config get KEY [--json]
+privyx config explain KEY [--json]
+privyx config set KEY VALUE [--project] [--file FILE]
+privyx config unset KEY [--project] [--file FILE]
+privyx config edit [--project]
+privyx config path
+privyx config schema
+privyx config validate [FILE]
+privyx config migrate [FILE] [--write]
+privyx config routes
+privyx config trust
+privyx config lint
+```
+
+A `KEY` is a dotted path such as `server.port` or `features.audit.path`.
+
+### `privyx config show`
+
+Every setting in use as JSON, credentials masked.
+
+`--sources` pairs each dotted field path with its masked `value` and winning
+`source`, for example `"server.port": {"value": 9000, "source": "environment"}`.
+Sources are `defaults`, absolute file paths (including included files), or
+`environment`. The source identifies the layer that supplied the setting; a
+`${VAR}` substitution inside a file still belongs to that file. Fields filled
+by the settings schema are reported as `defaults`. Lists of scalar values stay
+together, and credentials, header values, and detector rules use the same
+masking as the plain output. It loads and validates settings and resolves
+secret references outside agent profiles' `env`, `args`, and `privyx`.
+
+### `privyx config get`
+
+Print the value of one setting, secrets masked. A number, string, or boolean
+prints bare (`8000`, `true`); a table or list prints as JSON. `--json` prints
+any value as JSON.
+
+```console
+$ privyx config get server.port
+8000
+```
+
+### `privyx config explain`
+
+Print a setting's value, the layer it comes from, its default, and the
+environment variable that sets it, with the older names of that variable. `--json`
+writes the same fields as a JSON object.
+
+```console
+$ privyx config explain server.port
+server.port = 8000
+  source:  defaults
+  default: 8000
+  env:     PRIVYX_SERVER__PORT (also PRIVYX_PORT)
+```
+
+### `privyx config set` and `privyx config unset`
+
+Write a setting into the file Privyx manages, `~/.privyx/settings.yaml`, or
+remove it from there. The value is read by the type of the setting: `8001` for
+a port is a number, `[a, b]` a list. The change applies from the next start.
+
+```console
+$ privyx config set server.port 8001
+Set server.port in /home/alice/.privyx/settings.yaml
+```
+
+The managed file wins over the config files written by hand, which are never
+changed. When one of them, or a file above it, also writes the key, the command
+says which one and whose value is used.
+
+| Option | Description |
+|---|---|
+| `--project` | Use `.privyx/settings.yaml` in the working directory instead. |
+| `--file FILE` | Write this file instead. Needed when the global `-c` names a config, since then only that file is read. A file written by hand loses its comments and is first copied to `FILE.bak`. |
+
+### `privyx config edit`
+
+Open your config file, `~/.privyx/config.yaml`, in `$EDITOR`, then validate
+the configuration and print its warnings. The global `-c` names the file to
+open instead. With `--project` it opens the config file of the working
+directory, `privyx.yaml` or `.privyx/config.yaml`, and trusts it again
+afterwards if it was trusted before, since the edit is yours.
+
+### `privyx config path`
+
+The config files in use, lowest precedence first, one per line, or `defaults`
+when there are none. It lists files without validating setting values or
+contacting password managers. Included files appear before the file that
+includes them. File and include errors are still reported.
+
+### `privyx config schema`
+
+The JSON Schema of a config file. It adds the plugin types and their options
+when the config loads plugins, and prints the plain schema when the config
+cannot be loaded.
+
+### `privyx config validate`
+
+Check the configuration, or `FILE` alone, and print its warnings, such as an
+old key that still works. Prints `valid` when it loads; an error exits with
+status 1.
+
+### `privyx config migrate`
+
+Print `FILE`, or each config file in use, with the keys renamed in 0.3.0. The
+old keys keep working, with a warning, until 0.4.0.
+
+```console
+$ privyx config migrate old.yaml
+server:
+  port: 9
+Comments are not kept; --write rewrites the file, with a backup.
+```
+
+`--write` rewrites the file instead, keeping the original as `FILE.bak`;
+comments are lost. A value that cannot be moved without changing what it
+means, because a profile or preset picks an operator type that would read the
+new key differently, is left as written and named on stderr. See
+[Upgrading](upgrading.md).
+
+### `privyx config routes`
+
+The serving mode, the upstream, each path in `proxy.routes` with its wire
+schema, and what happens to any other path.
+
+```console
+$ privyx config routes
+Mode: transparent  Upstream: http://localhost:20128
+
+PATH                                    SCHEMA
+/v1/chat/completions                    openai
+...
+Other paths: forwarded unchanged, without masking
+```
+
+### `privyx config trust`
+
+Trust the config files of the working directory: `privyx.yaml` and
+`.privyx/config.yaml`.
+
+```bash
+privyx config trust
+```
+
+Such a file can load plugins and choose the upstream, so Privyx reads one only
+after this command, and says so on stderr while it ignores one. Trust is kept
+in `~/.privyx/trusted.json` for the file's path and content: run the command
+again after you change the file. While you are still editing one, pass it with
+`-c`, which needs no trust.
+
+### `privyx config lint`
 
 Show which spellings of your terms, and which built-in values, slip past
 masking with a configuration.
 
 ```bash
-privyx lint [-c FILE]
+privyx config lint
 ```
 
-Each entry under `detector.terms` is tried as written and in spellings a term
+Each entry under `detectors.regex.terms` is tried as written and in spellings a term
 list tends to miss: inside an identifier (`DB_JOHN`, `john_dev`), with its
 words joined by `_`, `__`, or `%20`, with a zero-width character, and in
 fullwidth characters. A few fake built-in values are tried inside identifiers
 too (`id_10.0.0.1`, `4111111111111111_old`). Every spelling goes through the
-configured `regex` and `yaml` detectors and the policy, so the result is what
+configured `regex` detectors and the policy, so the result is what
 the proxy would do.
 
 A spelling that is not fully masked is listed under the detector options that
@@ -433,13 +784,13 @@ names the fewest that do it together. With `PERSON: [john smith]` as the only
 term:
 
 ```console
-$ privyx lint -c my.yaml
-Set detector.normalize: true
+$ privyx -c my.yaml config lint
+Set detectors.regex.normalize: true
   missed  PERSON         'ｊｏｈｎ ｓｍｉｔｈ'
   missed  PERSON         'j\u200bohn smith'
 No option masks these; add them to the terms
   missed  PERSON         'john__smith'
-Set detector.decode: true
+Set detectors.regex.decode: true
   missed  PERSON         'john%20smith'
 Checked 16 spellings of 1 term and 4 built-in values: 4 not fully masked.
 ```
@@ -464,60 +815,123 @@ detectors are not run; lint names them as not checked. Spellings outside the
 list, such as accented letters (`jóhn`), look-alike letters from other
 alphabets, or digits for letters (`j0hn`), are not tried.
 
-## `privyx mask`
+## `privyx session`
 
-Replace sensitive values with tokens, reversibly. The output is what the proxy
-would send upstream.
-
-```bash
-privyx mask --map map.json "mail alice@example.com"
-privyx mask --map map.json -i request.json --path '$.messages'
-cat events.jsonl | privyx mask --map map.json -f jsonl -i - -o masked.jsonl
-```
-
-| Option | Description |
-|---|---|
-| `--map FILE` | Read and write the mapping in this file. An existing file is extended, so tokens stay the same across documents. |
-| `--session ID` | Keep the mapping in this vault session instead. Needs a persistent vault. |
-| `-i`, `--input FILE` | Input file; `-` for standard input. |
-| `--stdin` | Read from standard input. |
-| `-o`, `--output FILE` | Output file. Default: standard output. |
-| `-f`, `--format` | `auto` (default, from the file extension), `text`, `json`, or `jsonl`. |
-| `--path` | Only mask under this JSON path, e.g. `$.messages`. Repeatable. |
-
-In JSON, each string of up to 256 characters is also checked together with its
-key, as the proxy does with tool arguments, so the value in
-`{"password": "..."}` is masked as a secret. Numbers are checked alone, so a
-card number is masked and `{"token_limit": 4000}` is not; a masked number
-becomes its token, a string.
-
-## `privyx unmask`
-
-Put the original values back, from a `--map` file or a `--session`. Tokens the
-mapping does not know are left as they are. Takes the same options as
-`privyx mask`.
+List, show, and delete vault sessions. These need a `sqlite` or `redis` vault;
+see [Sessions and vault](sessions.md).
 
 ```bash
-privyx unmask --map map.json -i masked.txt
+privyx session list [--json]
+privyx session show SESSION_ID [--reveal]
+privyx session token TOKEN [--reveal]
+privyx session prune --older-than 7d [--dry-run]
+privyx session export SESSION_ID --forensic [-o FILE]
 ```
 
-## `privyx pipe`
+| Command | Option | Description |
+|---|---|---|
+| `list` | | Sessions, most recently active first, with mapping counts. Never shows values. |
+| `list` | `--json` | Write the vault type and the sessions as JSON: each one's `session_id`, `created_at`, `updated_at`, and `mappings`. |
+| `show` | | The session's mappings, then its responses, tokens, prompt cache hit rate, and estimated cost, read from the audit trail. A session that is not in the vault shows only the latter. |
+| `show` | `--reveal` | Print original values in full. Without it they are masked. |
+| `prune` | `--older-than` | Required. Delete sessions idle at least this long: `30m`, `12h`, `7d`, `2w`. |
+| `prune` | `--dry-run` | List what would be deleted and delete nothing. |
+| `export` | `--forensic` | Required. Write the session's audit events, its masked transcript from the [tap](../observability/tap.md), and a summary to a zip archive, without original values. |
+| `export` | `-o`, `--output` | Archive path. Default `SESSION_ID-forensic.zip`; an existing file is never overwritten. |
+| `token` | | Which sessions hold `TOKEN`, with the token's type, namespace, and id, and each session's creation, last activity, and expiry. The original value is masked. |
+| `token` | `--reveal` | Print the original value in full. |
 
-Mask standard input to standard output one line at a time. Each line is
-written as soon as it is read, so a live stream never waits for its end.
+```console
+$ privyx session token '<PRIVYX_EMAIL_C96403CAAFE39B24>'
+Type: EMAIL  Namespace: PRIVYX  Id: C96403CAAFE39B24
+
+Session: ses_75be9da46dfd4ee1
+  Value:       al*************om
+  Created:     2026-11-23T10:04:18
+  Last active: 2026-11-23T10:04:18
+  Expires:     never (no vault.ttl)
+
+(value masked; pass --reveal to show it)
+```
+
+The cost is an estimate from built-in prices for Claude models; add other
+models, or correct a price, with [`features.audit.prices`](configuration.md#features).
+
+## `privyx audit`
+
+Read the audit trail. `FILE` defaults to `features.audit.path`, which is
+`~/.privyx/audit.log` unless you set one.
 
 ```bash
-tail -f app.log | privyx pipe --session logs | your-tool
-your-tool | privyx pipe --session logs --restore
+privyx audit stats [FILE] [--since 24h] [--json]
+privyx audit tail [FILE] [-n 20] [--no-follow]
+privyx audit watch [SESSION_ID] [-n 20] [--no-follow]
 ```
 
-| Option | Description |
-|---|---|
-| `--session ID` | Keep the mapping in this vault session. Without it, a new session is created and its id printed to standard error. Needs a persistent vault to be restored later. |
-| `--restore` | Put the original values back instead of masking. Needs `--session`. The session is read again for each line, so restore can follow a `privyx pipe` that is still masking into the same session, and stops with an error once the session is deleted or expires. |
+| Command | Option | Description |
+|---|---|---|
+| `stats` | `--since` | Only count events from the last `30m`, `12h`, `7d`, `2w`. |
+| `stats` | `--json` | Write the summary as JSON. |
+| `tail` | `-n`, `--lines` | Recent events to show first. Default `10`. |
+| `tail` | `--follow` / `--no-follow` | Keep printing new events (default) or stop. |
+| `watch` | | What masking changed in each exchange, from the [tap](../observability/tap.md), as a word diff. Needs `proxy.tap: true`. |
+| `watch` | `-n`, `--lines` | Recent records to show first. Default `10`. |
+| `watch` | `--follow` / `--no-follow` | Keep showing new records (default) or stop. |
 
-Lines are masked one by one, so a value split across lines, such as a PEM
-private key, is not seen whole: use `privyx mask` for those.
+See [Audit events](../observability/audit-events.md) for what each event holds.
+
+## `privyx hook install`
+
+Install git hooks that stop a commit holding a credential or a Privyx
+placeholder such as `<PRIVYX_EMAIL_4FF5EF825E496E1A>`.
+
+```bash
+privyx hook install
+```
+
+It writes `pre-commit` and `commit-msg` in the repository's hooks directory
+(`core.hooksPath` when set). Each runs `privyx hook`, so `privyx` must be on the
+`PATH` of whatever runs `git commit`. A hook of another tool is left alone: the
+command exits with an error naming the line to add to it. Running it again
+rewrites only its own hooks. To remove them, delete the two files.
+
+A blocked commit lists each finding by file and line and the kind of value,
+never a secret itself:
+
+```console
+$ git commit -m "Add the client"
+privyx: this commit holds values that must not leave this machine:
+  src/client.py:12  API_KEY
+  commit message:1  placeholder <PRIVYX_EMAIL_4FF5EF825E496E1A>
+Remove the secrets, restore placeholders with `privyx unmask`, or commit with --no-verify to skip this check.
+```
+
+`git commit --no-verify` skips both hooks. Aider skips them unless it runs with
+`--git-commit-verify`; give it that option to keep a placeholder out of the
+messages it writes.
+
+## `privyx hook`
+
+The checks the installed hooks run. They exit with status 1 when they find
+something.
+
+```bash
+privyx hook pre-commit             # the lines the staged changes add
+privyx hook commit-msg FILE        # a commit message file, # lines included
+```
+
+Both look for the built-in credential types (`API_KEY`, `PRIVATE_KEY`, `JWT`,
+`AUTH_TOKEN`, `URL_CREDENTIAL`, `SECRET`) and for placeholders in the configured
+`token` format. Personal data such as an email address is not a reason to
+refuse a commit: code and tests are full of it.
+
+`pre-commit` reads the staged content itself, as text: not the view a
+`textconv` diff driver gives of it, and a file marked binary (`-diff` in
+`.gitattributes`) too. `commit-msg` checks the whole message file, `#` lines
+included: `git commit -m` keeps them, and a hook cannot tell which cleanup mode
+a commit uses. With `git commit -v`, that includes the diff shown below the
+scissors line, so a placeholder the commit removes is reported too; commit
+with `--no-verify` then.
 
 ## `privyx mcp wrap`
 
@@ -583,8 +997,8 @@ config:
 }
 ```
 
-Options after `serve`: `--config FILE` selects a configuration, and
-`--root DIR` the directory the file tool may use (default: the directory the
+Select a configuration with the global `-c`: `privyx -c FILE mcp serve`.
+`--root DIR` sets the directory the file tool may use (default: the directory the
 client starts the server in, which for a desktop client may not be your
 project, so set it).
 
@@ -621,7 +1035,7 @@ model too.
 
 With the default memory vault each privyx process keeps its own sessions, so
 `status` lists none. With a persistent vault, start the server with the
-proxy's `--config` to see the proxy's sessions. Neither prompt takes
+proxy's config (`privyx -c FILE mcp serve`) to see the proxy's sessions. Neither prompt takes
 arguments, and none masks or restores text: a client may send a command's
 arguments to the model along with the prompt's result, as Claude Code does, and
 a restored text would reach the model too. Use `privyx mask` and
@@ -633,259 +1047,56 @@ told that the call failed, and the server logs the error type to standard
 error. Configuration is loaded once, when the server starts: a broken config
 stops it there with an error.
 
-## `privyx session`
+## `privyx features`
 
-List, show, and delete vault sessions. These need a `sqlite` or `redis` vault;
-see [Sessions and vault](sessions.md).
+The optional features: `audit`, `metrics`, `tracing`, `directive`,
+`cache_control`, `budget`, and any a plugin adds.
 
 ```bash
-privyx session list
-privyx session show SESSION_ID [--reveal]
-privyx session prune --older-than 7d [--dry-run]
-privyx session export SESSION_ID --forensic [-o FILE]
+privyx features list [--events] [--json]
+privyx features enable NAME [--project] [--file FILE]
+privyx features disable NAME [--project] [--file FILE]
+```
+
+`list` prints each feature and whether the config switches it on, with the
+feature it `extends` when it extends another:
+
+```console
+$ privyx features list
+audit          on
+budget         off
+cache_control  off
+directive      off
+metrics        on
+tracing        off
 ```
 
 | Command | Option | Description |
 |---|---|---|
-| `list` | | Sessions, most recently active first, with mapping counts. Never shows values. |
-| `show` | | The session's mappings, then its responses, tokens, prompt cache hit rate, and estimated cost, read from the audit trail. A session that is not in the vault shows only the latter. |
-| `show` | `--reveal` | Print original values in full. Without it they are masked. |
-| `prune` | `--older-than` | Required. Delete sessions idle at least this long: `30m`, `12h`, `7d`, `2w`. |
-| `prune` | `--dry-run` | List what would be deleted and delete nothing. |
-| `export` | `--forensic` | Required. Write the session's audit events, its masked transcript from the [tap](../observability/tap.md), and a summary to a zip archive, without original values. |
-| `export` | `-o`, `--output` | Archive path. Default `SESSION_ID-forensic.zip`; an existing file is never overwritten. |
+| `list` | `--events` | Also show the events each feature listens to, with its priority. |
+| `list` | `--json` | Write the features as JSON: `name`, `enabled`, `listens` (event and priority pairs), and `extends`. |
+| `enable`, `disable` | `--project` | Write `.privyx/settings.yaml` in the working directory, not `~/.privyx/settings.yaml`. |
+| `enable`, `disable` | `--file FILE` | Write this file instead. Needed when the global `-c` names a config. |
 
-The cost is an estimate from built-in prices for Claude models; add other
-models, or correct a price, with [`audit.prices`](configuration.md#audit).
+`enable` and `disable` set `features.NAME.enabled` as `privyx config set`
+does, and apply from the next start. An unknown name is refused, with the
+closest match when there is one. When a file above the one written also sets
+the key, the command says so and that its value is used.
 
-## `privyx inspect`
-
-Look into what Privyx does with a request, a pattern, or a token.
+## `privyx plugin`
 
 ```bash
-privyx inspect routes                     # which paths are masked, and with which schema
-privyx inspect regex EMPLOYEE_ID          # a configured entity's pattern
-privyx inspect regex '\bEMP-\d{6}\b'      # or a pattern you are writing
-privyx inspect token '<PRIVYX_EMAIL_4FF5EF825E496E1A>'   # the session a token belongs to
+privyx plugin list [--json]
 ```
 
-| Command | Option | Description |
-|---|---|---|
-| `routes` | | The serving mode, the upstream, each path in `proxy.routes` with its wire schema, and what happens to any other path. |
-| `regex` | | Whether the pattern can backtrack catastrophically, and how fast it scans ordinary text. A configured entity name, built-in ones included, stands for its pattern. The timing stops after 5 seconds and reports the pattern as stalled, which also catches backtracking the static check misses. |
-| `token` | `--reveal` | The token's type, namespace, and id, then each session that holds it, with its creation, last activity, and expiry. The original value is masked unless `--reveal` is given. |
-
-`privyx inspect session SESSION_ID` is an older name for `privyx session show`.
-
-## `privyx audit`
-
-Read the audit trail. `FILE` defaults to `audit.path`, which is
-`~/.privyx/audit.log` unless you set one.
-
-```bash
-privyx audit stats [FILE] [--since 24h]
-privyx audit tail [FILE] [-n 20] [--no-follow]
-privyx audit watch [SESSION_ID] [-n 20] [--no-follow]
-```
-
-| Command | Option | Description |
-|---|---|---|
-| `stats` | `--since` | Only count events from the last `30m`, `12h`, `7d`, `2w`. |
-| `tail` | `-n`, `--lines` | Recent events to show first. Default `10`. |
-| `tail` | `--follow` / `--no-follow` | Keep printing new events (default) or stop. |
-| `watch` | | What masking changed in each exchange, from the [tap](../observability/tap.md), as a word diff. Needs `audit.tap: true`. |
-| `watch` | `-n`, `--lines` | Recent records to show first. Default `10`. |
-| `watch` | `--follow` / `--no-follow` | Keep showing new records (default) or stop. |
-
-See [Audit events](../observability/audit-events.md) for what each event holds.
-
-## `privyx config`
-
-Show the configuration.
-
-```bash
-privyx config            # a summary
-privyx config --show     # every setting as JSON, credentials masked
-privyx config --sources  # each setting's masked value and winning source as JSON
-privyx config --path     # the config files in use, or "defaults"
-privyx config --schema   # the JSON Schema of a config file
-```
-
-`--schema` adds the plugin types and their options when the config loads
-plugins; it prints the plain schema when the config cannot be loaded.
-
-`--path` lists files without validating setting values or contacting password
-managers. Included files appear before the file that includes them. File and
-include errors are still reported.
-
-`--sources` maps dotted field paths to `value` and `source`, for example
-`"port": {"value": 9000, "source": "environment"}`. Sources are `defaults`,
-absolute file paths (including included files), or `environment`. The source
-identifies the layer that supplied the setting; a `${VAR}` substitution inside
-a file still belongs to that file. Fields filled by the settings schema are
-reported as `defaults`. Detector lists use zero-based paths such as
-`detector.0.type`; lists of scalar values stay together. Credentials, header
-values, and detector rules use the same masking as `--show`.
-
-Unlike `--path`, `--sources` loads and validates settings and resolves secret
-references outside agent profiles' `env`, `args`, and `privyx`. When inspection flags are combined, the order is `--schema`,
-`--sources`, `--show`, then `--path`.
-
-## `privyx trust`
-
-Trust the config files of the working directory: `privyx.yaml` and
-`.privyx/config.yaml`.
-
-```bash
-privyx trust
-```
-
-Such a file can load plugins and choose the upstream, so Privyx reads one only
-after this command, and says so on stderr while it ignores one. Trust is kept
-in `~/.privyx/trusted.json` for the file's path and content: run the command
-again after you change the file. While you are still editing one, pass it with
-`-c`, which needs no trust.
-
-## `privyx scan`
-
-Find the names and secrets a workspace should keep from the model, and add the
-ones you keep to `privyx.d/terms.yaml`.
-
-```bash
-privyx scan [PATH]          # list, ask what to leave out, then add the rest
-privyx scan --dry-run       # only list
-privyx scan --yes           # add everything found
-```
-
-| Option | Description |
-|---|---|
-| `-y`, `--yes` | Add everything found, without asking. |
-| `--dry-run` | List what was found and write nothing. |
-
-It reads, in `PATH` (default: the working directory):
-
-- the git history: each author and `Co-authored-by` name, as `PERSON` (bots left out);
-- the git remotes: the owner as `ORGANIZATION` and the repository as `PROJECT`, never the host or a credential in the URL;
-- `pyproject.toml`, `package.json`, `Cargo.toml`, and `go.mod`: the project name, and an npm scope as `ORGANIZATION`;
-- `.env` files: each key whose value is worth masking (as in `privyx run --harvest`) and is not already masked by the built-in detector, as a pattern `ENV_<KEY>` that masks the value assigned to that key (`KEY=…`, `KEY: …`, `"KEY": "…"`). The values themselves are never written.
+`list` prints the plugins the config loads (`plugins.modules`), what each adds
+(detectors, operators, features, and so on, with the component each one
+`extends`), and the plugins installed in the environment. An installed package
+is found through its `privyx.plugins` entry point and is never loaded unless
+the config names it, so it shows as `installed, not loaded`. `--json` writes
+`loaded`, `components`, and `installed` as one JSON object.
 
 ```console
-$ privyx scan
-Found in /home/ana/billing:
-    1  PERSON          Ana Example  (git history)
-    2  ORGANIZATION    acme-labs  (git remote origin, package.json)
-    3  PROJECT         billing  (git remote origin)
-    4  ENV_SENTRY_DSN  value of SENTRY_DSN  (.env)
-Numbers to leave out (e.g. 2,5), or Enter to keep all:
-Added 4 to /home/ana/billing/privyx.d/terms.yaml
-Created /home/ana/billing/privyx.yaml, which includes it
-```
-
-The file only grows: a later scan lists only what it does not hold yet, so a
-scan that finds nothing new changes nothing. What you left out is offered
-again. Without a `privyx.yaml`, the scan creates one that includes the file and
-trusts it, since it wrote both. An existing `privyx.yaml` is not changed: add
-`privyx.d/terms.yaml` to its `include` list. It stays trusted when it was
-trusted before; otherwise run `privyx trust` after reviewing it. A `detector`
-given as a list in `privyx.yaml` replaces the terms it includes; move them into
-the list.
-
-## `privyx install-hook`
-
-Install git hooks that stop a commit holding a credential or a Privyx
-placeholder such as `<PRIVYX_EMAIL_4FF5EF825E496E1A>`.
-
-```bash
-privyx install-hook
-```
-
-It writes `pre-commit` and `commit-msg` in the repository's hooks directory
-(`core.hooksPath` when set). Each runs `privyx hook`, so `privyx` must be on the
-`PATH` of whatever runs `git commit`. A hook of another tool is left alone: the
-command exits with an error naming the line to add to it. Running it again
-rewrites only its own hooks. To remove them, delete the two files.
-
-A blocked commit lists each finding by file and line and the kind of value,
-never a secret itself:
-
-```console
-$ git commit -m "Add the client"
-privyx: this commit holds values that must not leave this machine:
-  src/client.py:12  API_KEY
-  commit message:1  placeholder <PRIVYX_EMAIL_4FF5EF825E496E1A>
-Remove the secrets, restore placeholders with `privyx unmask`, or commit with --no-verify to skip this check.
-```
-
-`git commit --no-verify` skips both hooks. Aider skips them unless it runs with
-`--git-commit-verify`; give it that option to keep a placeholder out of the
-messages it writes.
-
-## `privyx hook`
-
-The checks the installed hooks run. They exit with status 1 when they find
-something.
-
-```bash
-privyx hook pre-commit             # the lines the staged changes add
-privyx hook commit-msg FILE        # a commit message file, # lines included
-```
-
-Both look for the built-in credential types (`API_KEY`, `PRIVATE_KEY`, `JWT`,
-`AUTH_TOKEN`, `URL_CREDENTIAL`, `SECRET`) and for placeholders in the configured
-`token` format. Personal data such as an email address is not a reason to
-refuse a commit: code and tests are full of it.
-
-`pre-commit` reads the staged content itself, as text: not the view a
-`textconv` diff driver gives of it, and a file marked binary (`-diff` in
-`.gitattributes`) too. `commit-msg` checks the whole message file, `#` lines
-included: `git commit -m` keeps them, and a hook cannot tell which cleanup mode
-a commit uses. With `git commit -v`, that includes the diff shown below the
-scissors line, so a placeholder the commit removes is reported too; commit
-with `--no-verify` then.
-
-## `privyx doctor`
-
-Build every configured component and push a request through it: plugins,
-detector, vault (a real write and read), provider, proxy, and streaming
-restore. The `permissions` check fails when the SQLite vault, the audit log,
-or the anchor key file allows any access beyond its owner, and names the
-`chmod 600` that fixes it. With `anchor.secret: auto`, the `anchor key` check
-reads that file, or checks that it can be created, without creating it. The `routes` check lists masking paths, gaps in the default route map,
-and the disposition of unlisted paths. Passthrough prints a warning; invalid
-routes fail. Exits with a non-zero status if any check fails.
-
-Configuration is loaded once per invocation, including password-manager
-references, and all checks use the same settings. A later invocation reads
-configuration again. If loading fails, doctor reports a single configuration
-failure and stops before running component checks.
-
-Doctor tries a sample email. When every detector is a built-in `regex` or `yaml`
-detector, it also tries the first nonempty term of each configured entity. With
-any other detector, including LLM and plugin detectors, it uses only the
-synthetic email so configured terms are not sent to those detectors. The
-detector check scans without the policy; the proxy and streaming checks use
-only samples the configured detector and policy select for masking.
-If no sample applies, the check explicitly reports `skipped`. This does not
-verify coverage for arbitrary patterns or other input. Sample values are not
-printed. Streaming restore is also skipped for an irreversible operator.
-
-Credentials, query strings, and fragments in the displayed upstream URL are
-masked. Doctor deletes its test sessions after each check, including failures,
-and leaves existing sessions untouched. A cleanup failure is a failed check;
-the vault connection is still closed.
-
-```console
-$ privyx doctor
-Privyx Doctor
-=============
-  ✓ plugins: no plugin paths configured
-  ✓ anchor key: /home/alice/.privyx/anchor.key is created on first use
-  ✓ detector: regex: 1 span(s) ['EMAIL']
-  ✓ permissions: sensitive files owner-only (0600)
-  ✓ vault: memory: round-trip ok
-  ✓ provider: generic → http://localhost:20128
-  ✓ proxy: request transformed, 1 mapping(s) vaulted
-  ✓ streaming: pseudonym restored across a split chunk
-  ✓ routes: transparent: 27 masking route(s): ...; WARNING: unlisted paths pass through WITHOUT body masking; set proxy.passthrough_unknown: false to return 403; default paths outside coverage: none
-  ✓ configuration: valid: detector=regex policy=default operator=pseudonym vault=memory anchor=hmac
+$ privyx plugin list
+plugins: none loaded
 ```

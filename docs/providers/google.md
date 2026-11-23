@@ -66,7 +66,7 @@ provider:
 
 ```bash
 export PRIVYX_GOOGLE_API_KEY=<your Gemini API key>
-privyx proxy -c privyx.yaml
+privyx -c privyx.yaml proxy
 ```
 
 ```text
@@ -115,7 +115,7 @@ default paths too if the same config also fronts the native API or other
 providers (see [Adding a route](../guide/proxy.md#adding-a-route)).
 
 ```bash
-privyx proxy -c privyx.yaml --upstream https://generativelanguage.googleapis.com
+privyx -c privyx.yaml proxy --upstream https://generativelanguage.googleapis.com
 ```
 
 ```python
@@ -142,7 +142,7 @@ to answer them, and every other unrouted path, with a 403:
 
 ## Placeholder directive
 
-[`proxy.directive`](../guide/masking.md#placeholder-directive) goes last in
+[`features.directive`](../guide/masking.md#placeholder-directive) goes last in
 `systemInstruction`. It is not added to a `countTokens` call's own `contents`,
 which take no instruction, nor to a request that uses a cached content, since
 Gemini refuses a system instruction next to one; a cached content created

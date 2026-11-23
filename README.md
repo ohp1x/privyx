@@ -120,8 +120,8 @@ More in [How it works](https://ohp1x.github.io/privyx/guide/how-it-works/).
   Codex, Gemini CLI (with an API key), opencode, aider, pi, or any tool with
   a base-URL variable through it, and cleans up afterwards.
 - **Checks what slips past.** `privyx scan` finds the names a project should
-  mask (git authors, remotes, `.env` values), `privyx lint` lists spellings of
-  your terms that would get through, and `privyx install-hook` stops a commit
+  mask (git authors, remotes, `.env` values), `privyx config lint` lists spellings of
+  your terms that would get through, and `privyx hook install` stops a commit
   holding a secret or a placeholder.
 - **Keeps sessions your way.** One mapping per request, per client, or per
   conversation, in memory, SQLite, or Redis.

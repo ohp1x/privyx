@@ -23,11 +23,12 @@ spans it considers sensitive, each with a start, an end, an entity type, and
 the matched text:
 
 ```python
-from privyx.plugins import BaseDetector, Context, Detection
+from privyx.core import Context, Detection
+from privyx.detectors import Detector
 
 
-class MyDetector(BaseDetector):
-    name = "my_detector"            # the value `detector.type` selects
+class MyDetector(Detector):
+    name = "my_detector"            # the key under `detectors` that selects it
 
     def detect_sync(self, text: str, context: Context) -> Detection:
         detection = Detection()
@@ -58,6 +59,9 @@ Four parts do the work:
 - **`detect_sync`** adds a span for each number that passes, under the entity
   type `IBAN`.
 
+`setup(app)` at the end of the file adds the class to Privyx. A plugin file
+must have one.
+
 ## 3. Load it
 
 Privyx loads no plugin unless you list its path. Name the folder, and select
@@ -68,13 +72,12 @@ the detector by its `name`:
 plugins:
   paths: [./plugins]
 
-detector:
-  - type: regex             # the built-in patterns
-  - type: iban              # the name the plugin registered
+detectors:
+  iban: {}                  # the name the plugin registered; runs after regex
 ```
 
 ```console
-$ privyx detect -c privyx.yaml --transform "Refund DE89 3704 0044 0532 0130 00 and confirm to ann@example.com"
+$ privyx -c privyx.yaml detect --transform "Refund DE89 3704 0044 0532 0130 00 and confirm to ann@example.com"
      7:34    IBAN              'DE89 3704 0044 0532 0130 00'
     50:65    EMAIL             'ann@example.com'
 
@@ -85,38 +88,35 @@ Change the last digit and the checksum no longer holds, so the number is left
 alone:
 
 ```console
-$ privyx detect -c privyx.yaml "DE89370400440532013000"
+$ privyx -c privyx.yaml detect "DE89370400440532013000"
      0:22    IBAN              'DE89370400440532013000'
-$ privyx detect -c privyx.yaml "DE89370400440532013001"
+$ privyx -c privyx.yaml detect "DE89370400440532013001"
 No sensitive entities detected.
 ```
 
-A plugin never replaces a built-in type: `regex`, `presidio`, and the other
-built-in names always win, and a plugin is used only when `type` is not one
-of them.
+A plugin never replaces a built-in type: one that takes the name `regex`,
+`presidio`, or another built-in stops startup with an error.
 
 ## 4. Give it options
 
-Keys in a plugin's section that Privyx does not know are passed to the
-plugin's `from_config`. The example reads `countries` there:
+A detector declares its options in a nested `Options` class and reads them
+from `self.options`. The example declares `countries`:
 
 ```yaml
-detector:
-  - type: regex
-  - type: iban
+detectors:
+  iban:
     countries: [DE, NL]     # an option of the plugin's own
 ```
 
 ```console
-$ privyx detect -c privyx.yaml --transform "GB82WEST12345698765432 or NL91ABNA0417164300"
+$ privyx -c privyx.yaml detect --transform "GB82WEST12345698765432 or NL91ABNA0417164300"
     26:44    IBAN              'NL91ABNA0417164300'
 
 GB82WEST12345698765432 or <PRIVYX_IBAN_5E604519423B0E90>
 ```
 
-Without a `from_config`, Privyx builds the class with no arguments. To have
-Privyx check the options, so that a misspelled one stops the proxy instead of
-being ignored, give the class a `Config`; see
+Privyx checks the options against that class, so a misspelled one stops the
+proxy instead of being ignored; see
 [Options](../development/plugins.md#options).
 
 ## 5. Check it with doctor
@@ -124,7 +124,7 @@ being ignored, give the class a `Config`; see
 `privyx doctor` lists the plugins it loaded and runs the whole pipeline once:
 
 ```console
-$ privyx doctor -c privyx.yaml
+$ privyx -c privyx.yaml doctor
 Privyx Doctor
 =============
   ✓ plugins: 1 plugin(s) — detector: iban
@@ -144,32 +144,35 @@ the same name show up as a failed check there, and stop the proxy at startup
 with the reason:
 
 ```console
-$ privyx proxy -c privyx.yaml
+$ privyx -c privyx.yaml proxy
 Error: failed to import plugin plugins/broken.py: No module named 'nothing_here'
 ```
 
 ## 6. Test it
 
-A detector is plain Python, so a unit test is short. Load the folder the way
-Privyx does, build the detector from a config, and check what it finds:
+Privyx ships a conformance suite for each kind of plugin. Load the folder the
+way Privyx does, name the detector, and give it texts with the values it must
+find:
 
 ```python
-from privyx.config.schema import Settings
-from privyx.plugins import Context
-from privyx.plugins.loader import load_plugins
-from privyx.privacy.detector.yaml import build_detector
+from privyx import Privyx
+from privyx.core import Context
+from privyx.detectors import Detector
+from privyx.testing import DetectorSuite
+
+app = Privyx(plugins={"paths": ["plugins"]})
+app.settings  # reads the config, which loads the plugins
 
 
-async def test_iban_detector_keeps_only_a_valid_checksum() -> None:
-    load_plugins(Settings(plugins={"paths": ["plugins"]}))
-    detector = build_detector({"type": "iban"})
-    text = "DE89 3704 0044 0532 0130 00 EUR, not DE89370400440532013001"
-    found = await detector.detect(text, Context())
-    assert [span.text for span in found.spans] == ["DE89 3704 0044 0532 0130 00"]
+class TestIbanDetector(DetectorSuite):
+    component = app.registry(Detector).get("iban")
+    samples = {"DE89 3704 0044 0532 0130 00 EUR": ["DE89 3704 0044 0532 0130 00"]}
+
+    def test_a_wrong_checksum_is_left_alone(self) -> None:
+        assert not self.create().detect_sync("DE89370400440532013001", Context()).spans
 ```
 
-This needs `pytest-asyncio` with `asyncio_mode = "auto"`, or a wrapper around
-`asyncio.run`.
+Run it with `pytest`; the suite needs no async plugin.
 
 ## 7. Ship it
 
@@ -211,8 +214,8 @@ relative to where Privyx starts.
 
 ## Next steps
 
-- [Plugins](../development/plugins.md): the contract in full, lifecycle hooks,
-  and the other things a plugin can be: an operator, a policy, an anchor, a
-  vault, or a provider.
+- [Plugins](../development/plugins.md): the contract in full, events, and the
+  other things a plugin can be, such as an operator, a policy, a vault, a
+  provider, or a feature.
 - [Privacy engine](../architecture/privacy-engine.md): how the detector fits
   with the policy, the operator, and the vault.

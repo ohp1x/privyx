@@ -10,25 +10,29 @@ Privyx builds its settings from five layers. Each one overrides the one
 before it:
 
 1. Built-in defaults.
-2. `~/.privyx/config.yaml`, your own config file.
-3. `privyx.yaml` and then `.privyx/config.yaml` in the working directory, each
-   once you have trusted it.
-4. Environment variables (`PRIVYX_*`).
+2. `~/.privyx/config.yaml`, your own config file, then `~/.privyx/settings.yaml`,
+   the file `privyx config set` writes.
+3. `privyx.yaml`, `.privyx/config.yaml`, and then `.privyx/settings.yaml` in the
+   working directory, each once you have trusted it.
+4. Environment variables (`PRIVYX_*`), see [Environment variables](#environment-variables).
 5. Command-line flags such as `--port` or `--upstream`.
 
 A file passed with `-c` / `--config` or named by `PRIVYX_CONFIG` is read alone,
 in place of layers 2 and 3. `PRIVYX_NO_DISCOVERY=1` reads no file that was not
-named. `privyx config --path` prints the files in use.
+named. `privyx config path` prints the files in use.
 
 A config file in the working directory can load plugins and choose the
 upstream, and the directory may be a repository someone else wrote. Privyx
-ignores such a file, with a line on stderr, until you run `privyx trust`
+ignores such a file, with a line on stderr, until you run `privyx config trust`
 there. What you trust is the file's content: after a change to it, run
-`privyx trust` again.
+`privyx config trust` again.
 
 Besides your config file, `~/.privyx/` holds by default the SQLite vault
 (`privyx.db`), the audit trail (`audit.log`), and the anchor secret
 (`anchor.key`).
+
+A `settings.yaml` is read after the `config.yaml` beside it, so a setting
+written with `privyx config set` wins over one written by hand there.
 
 Sections merge key by key, so a file that sets only `vault.type` keeps the
 defaults for the rest of `vault`. A list replaces the default rather than
@@ -50,8 +54,8 @@ session:
 The included files merge in the order listed, and the including file's own
 settings go on top of them. An included file cannot have an `include` of its
 own. Trusting a file covers the files it includes: after a change to any of
-them, or a new file matching a glob, run `privyx trust` again.
-`privyx config --path` lists each included file before the file that names it.
+them, or a new file matching a glob, run `privyx config trust` again.
+`privyx config path` lists each included file before the file that names it.
 
 A value in a config file can read an environment variable, so the file
 itself holds no credential and one file serves several machines:
@@ -62,7 +66,8 @@ provider:
 vault:
   type: redis
   redis_url: redis://${REDIS_HOST:-localhost}:6379/0
-port: ${PROXY_PORT:-8080}
+server:
+  port: ${PROXY_PORT:-8080}
 ```
 
 `${NAME:-default}` takes the default when `NAME` is unset or empty. A
@@ -73,10 +78,10 @@ values are read this way, never keys.
 
 An agent profile's `env`, `args`, and `privyx` values, including those it
 inherits, are read only when that profile runs. Other commands and other
-profiles leave them as written, so `privyx config --show` prints them
+profiles leave them as written, so `privyx config show` prints them
 unresolved and an unset variable there fails only the launch that needs it.
 The other profile fields are read for every command, so every profile's shape
-is still checked. `privyx config --path` reads no variables at all.
+is still checked. `privyx config path` reads no variables at all.
 
 `privyx run` adds its own default (a `conversation` session strategy) just
 above the built-in ones, so your files and environment still override it.
@@ -88,14 +93,12 @@ section whose `type` names a plugin is the exception to the first: keys Privyx
 does not define there are the plugin's own options, and are passed to it.
 
 ```console
-$ privyx proxy -c broken.yaml
-Error: unknown setting 'detector.term' (did you mean 'terms'?)
-$ privyx proxy -c broken.yaml
-Error: unknown detector type: nope
-$ privyx proxy -c broken.yaml
-Error: invalid configuration: 1 validation error for Settings
-vault.ttl
-  Input should be greater than 0 [type=greater_than]
+$ privyx -c broken.yaml proxy
+Error: unknown setting 'detectors.regex.term' (did you mean 'terms'?)
+$ privyx -c broken.yaml proxy
+Error: unknown detector type 'nope'
+$ privyx -c broken.yaml proxy
+Error: invalid setting 'vault.ttl': Input should be greater than 0 for vault type 'memory'
 ```
 
 ## Secrets from a password manager
@@ -117,7 +120,7 @@ anchor:
 
 References resolve only in credential settings: those whose name ends in
 `api_key`, `key`, `secret`, `password`, or `token`, and every value under
-`headers` and an agent's `env`. These are the settings `privyx config --show`
+`headers` and an agent's `env`. These are the settings `privyx config show`
 masks, so a resolved secret is never printed. A reference anywhere else fails
 at startup. A reference in a profile's `env`, `args`, or `privyx` resolves
 only when that profile runs, so an unused profile never opens the password
@@ -125,19 +128,25 @@ manager. The secret is read each time the config loads and kept in memory
 only; a missing entry or a failed `op read` stops startup with the setting's
 name.
 
+`secrets` holds the options of each resolver, by scheme. The two built-in ones
+take none; a resolver from a [plugin](../development/plugins.md) reads its own
+under its scheme, such as `secrets.doppler.project`. `secrets` and `plugins` are
+read before any reference can be resolved, so a reference in them fails at
+startup.
+
 ## Checking the result
 
 ```bash
 privyx config                   # a summary
-privyx config --show -c my.yaml # every setting as JSON, credentials masked
-privyx doctor -c my.yaml        # build each component and run a request through it
+privyx -c my.yaml config show # every setting as JSON, credentials masked
+privyx -c my.yaml doctor        # build each component and run a request through it
 ```
 
 ## Editor support
 
 Privyx publishes a [JSON Schema](https://ohp1x.github.io/privyx/schema.json)
 of the config file, so an editor can complete setting names, show what a
-section holds, and flag a misspelled key as you type. `privyx config --schema`
+section holds, and flag a misspelled key as you type. `privyx config schema`
 prints the same schema for the installed version.
 
 With the YAML language server, used by the
@@ -156,45 +165,51 @@ Or map the schema to the file names once, in VS Code's `settings.json`:
 }
 ```
 
-Under a built-in `type`, a pluggable section (`detector`, `operator`, `vault`,
-...) takes only the [settings of that type](#settings-per-type), so the
+Under a built-in `type`, a pluggable section (`detectors.<name>`, `operator`,
+`vault`, ...) takes only the [settings of that type](#settings-per-type), so the
 editor offers only those; under any other type, any key, since a plugin reads
 options of its own.
 
 The published schema follows the latest release; to match an older install,
-save `privyx config --schema` to a file and point the comment at its path.
-With a config that loads plugins, `privyx config --schema` also knows their
+save `privyx config schema` to a file and point the comment at its path.
+With a config that loads plugins, `privyx config schema` also knows their
 types: `type` then takes only the built-in and loaded names, and a plugin with
-a [`Config`](../development/plugins.md#options) only its own options. Save it
+an [`Options`](../development/plugins.md#options) class only its own options. Save it
 to a file and point the comment at that file.
 
 ## Settings per type
 
-`vault`, `detector`, `policy`, `operator`, `anchor`, and `provider` choose a
-component with `type`, and each built-in type uses only some of the section's
-settings:
+`vault`, `policy`, `operator`, `anchor`, `provider`, each entry of `providers`,
+`detectors`, and `features` choose a component with `type`, and each built-in
+type uses only some of the section's settings. An entry of `detectors` or
+`features` without a `type` has its own name as the type, so `detectors.regex`
+is the `regex` detector.
 
 | Section | `type` | Settings it uses |
 |---|---|---|
 | `vault` | `memory` | `ttl` |
 | | `sqlite` | `dsn`, `ttl` |
 | | `redis` | `redis_url`, `ttl` |
-| `detector` | `regex`, `yaml` | `patterns`, `terms`, `merge_terms`, `term_variants`, `context`, `enable`, `disable`, `entropy_threshold`, `decode`, `normalize` |
+| `detectors` | `regex` | `builtins`, `patterns`, `terms`, `merge_terms`, `term_variants`, `context`, `enable`, `disable`, `entropy_threshold`, `decode`, `normalize` |
 | | `presidio` | `language`, `model`, `entities`, `score_threshold` |
 | | `llm` | `llm_provider`, `llm_model`, `llm_api_key`, `llm_instructions`, `llm_timeout`, `llm_max_chars`, `llm_fallback_on_error` |
 | `policy` | `default` | none |
 | | `strict` | `allowed` |
-| `operator` | `pseudonym`, `faker` | `locale`, `seed` (for `pseudonym`, used by [labels](masking.md#labels)) |
+| `operator` | `pseudonym` | `id_length`, `locale`, `seed` (`locale` and `seed` are used by [labels](masking.md#labels)) |
+| | `faker` | `locale`, `seed` |
 | | `fpe` | `seed` |
-| | `hash` | `length` |
-| | `encrypt` | `key` |
-| | `redact` | `token` |
+| | `hash` (deprecated, removed in 0.4.0; use `pseudonym` with `anchor.secret`) | `id_length` |
+| | `encrypt` | `key`, `id_length` |
+| | `redact` | `text` |
 | | `partial` | none |
 | `anchor` | `hmac` | `secret` |
-| `provider` | every built-in type | `base_url`, `api_key`, `headers`, `openai_api_key`, `anthropic_api_key`, `google_api_key` |
+| `provider`, `providers.<name>` | every built-in type | `base_url`, `api_key`, `headers`, `forward_client_auth`, `path_mapping`, `timeout`, `connect_timeout`, `max_connections` |
+| `features` | `audit` | `path`, `prices` |
+| | `budget` | `max_turns`, `max_tokens`, `profile` |
+| | `metrics`, `tracing`, `directive`, `cache_control` | none |
 
-`detector.cache` and `detector.underscore_separates_words` apply to every
-detector type.
+`cache` and `underscore_separates_words` apply to every detector type, and
+`enabled` to every entry of `detectors` and `features`.
 
 Privyx reports a setting that a type does not use, naming the key, the type,
 and the file or layer, never a value:
@@ -204,9 +219,8 @@ and the file or layer, never a value:
   Remove it or set the type that uses it.
 - `terms`, `patterns`, or `enable` from another file, for each entity that no
   detector using them receives, is a warning at startup and in
-  [`privyx lint`](cli.md#privyx-lint): a file above picks another type, or
-  sets `detector` as a list, which replaces the mapping below. This stays a
-  warning, since the file that picks the type may not be yours to change.
+  [`privyx config lint`](cli.md#privyx-config-lint): a file above picks another type for the
+  detector. This stays a warning, since the file that picks the type may not be yours to change.
   Listing the same entity again under the same key in the file above
   silences it; a pattern or an opt-in built-in of that name does not.
 
@@ -216,11 +230,12 @@ So are settings from environment variables, which a container image or a
 compose file sets for every type it offers: `PRIVYX_VAULT_DSN` stays unused
 until `PRIVYX_VAULT=sqlite`.
 
-With `PROJECT: [kestrel]` under `detector.terms` in `~/.privyx/config.yaml`
-and `detector: {type: presidio}` in the project's `privyx.yaml`:
+With `PROJECT: [kestrel]` under `detectors.regex.terms` in
+`~/.privyx/config.yaml` and `detectors: {regex: {type: presidio}}` in the
+project's `privyx.yaml`:
 
 ```console
-'PROJECT' in 'detector.terms' from /home/alice/.privyx/config.yaml reaches no detector that uses it, so it is not masked: detector type 'presidio' from /home/alice/app/privyx.yaml does not use it
+'PROJECT' in 'detectors.regex.terms' from /home/alice/.privyx/config.yaml reaches no detector that uses it, so it is not masked: detector type 'presidio' from /home/alice/app/privyx.yaml does not use it
 ```
 
 ## Example
@@ -238,18 +253,19 @@ vault:
 session:
   strategy: conversation
 
-detector:
-  type: regex
-  terms:
-    PROJECT: [bluebird, nightjar]
+detectors:
+  regex:
+    terms:
+      PROJECT: [bluebird, nightjar]
 
-audit:
-  path: /var/log/privyx/audit.log
+features:
+  audit:
+    path: /var/log/privyx/audit.log
 ```
 
 ```bash
 export PRIVYX_ANTHROPIC_API_KEY=...     # keep keys out of the file
-privyx proxy -c privyx.yaml --upstream https://api.anthropic.com
+privyx -c privyx.yaml proxy --upstream https://api.anthropic.com
 ```
 
 The repository's
@@ -261,23 +277,42 @@ examples, agent profiles among them. The Docker image ships them under
 
 ## Reference
 
-### Server and logging
+### `server`
+
+Where `privyx proxy` listens and how many processes serve it. A file written
+with the older top-level `host`, `port`, and `tls` keys is still read, with a
+warning: see [Upgrading](upgrading.md).
 
 | Key | Default | Description |
 |---|---|---|
 | `host` | `127.0.0.1` | Address the proxy binds to. |
 | `port` | `8000` | Port the proxy listens on. |
-| `log_level` | `info` | `debug`, `info`, `warning`, or `error`, for Privyx's own logs. |
-| `logging` | `text` | Console format: `text` lines or `json` objects. |
-| `log_file` | empty | File that also receives third-party logs at `log_level`. At `debug` it holds raw vault rows, which include original values; it must be a regular file and is created with mode `0600`. On POSIX systems, existing files must belong to the current user and have no permissions beyond `0600`; otherwise startup fails before writing. Use `chmod 600` to fix overly broad permissions. |
-| `upstream_url` | empty | Explicit upstream, the same as `--upstream`. Wins over `provider.base_url`. |
+| `workers` | `1` | Server processes. More than one needs a vault they all share: `sqlite` with a file in `dsn`, or `redis`. A feature that keeps its state in one process, such as `budget`, is refused with more than one, and each worker of `metrics` counts its own requests. `privyx run` always serves with one. |
+| `tls` | see below | HTTPS settings. |
+
+HTTPS is on when both `certfile` and `keyfile` of `tls` are set.
+
+| Key | Default | Description |
+|---|---|---|
+| `tls`: `certfile` | empty | Certificate chain (PEM). |
+| `tls`: `keyfile` | empty | Private key (PEM). |
+| `tls`: `keyfile_password` | empty | Password for an encrypted `keyfile`. |
+| `tls`: `ca_certs` | empty | CA bundle (PEM), passed to uvicorn as `ssl_ca_certs`. Client certificates are not required. |
+
+### `log`
+
+| Key | Default | Description |
+|---|---|---|
+| `level` | `info` | `debug`, `info`, `warning`, or `error`, for Privyx's own logs. |
+| `format` | `text` | Console format: `text` lines or `json` objects. |
+| `file` | empty | File that also receives third-party logs at `level`. At `debug` it holds raw vault rows, which include original values; it must be a regular file and is created with mode `0600`. On POSIX systems, existing files must belong to the current user and have no permissions beyond `0600`; otherwise startup fails before writing. Use `chmod 600` to fix overly broad permissions. |
 
 ### `agents`
 
 Named launch profiles for `privyx run`. The built-in `claude`, `codex`,
 `openai`, `aider`, `pi`, `opencode`, `grok`, `gemini`, and `ollama` profiles can be overridden field by field. New profiles
 need a `command` or can inherit it with `extends`. Give `env_vars` so Privyx
-knows where to inject its URL, or use an adapter that injects a CLI override.
+knows where to inject its URL, or use an agent `type` that injects a CLI override.
 The top-level `harvest` setting (default `false`) makes every `privyx run`
 mask what its working directory tells and its local OS username, as [`--harvest`](cli.md#privyx-run) does.
 
@@ -300,12 +335,12 @@ privyx run claude-work
 |---|---|---|
 | `command` | Required for a new profile | Executable name or path, passed directly to a subprocess. Pass arguments after `--`; this field is not a shell command. |
 | `provider` | `generic` | Upstream provider type, such as `openai` or `anthropic`. |
-| `upstream` | empty | Explicit HTTP(S) upstream URL. Without an explicit upstream, transparent mode follows supported native agent endpoints, then the provider default. Transparent mode forwards to its origin, or to the full URL with `proxy.path_mapping.mode: prefix`; gateway mode uses the full URL. |
+| `upstream` | empty | Explicit HTTP(S) upstream URL. Without an explicit upstream, transparent mode follows supported native agent endpoints, then the provider default. Transparent mode forwards to its origin, or to the full URL with `provider.path_mapping.mode: prefix`; gateway mode uses the full URL. |
 | `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the built-in profile's list; CLI `--env-var` adds names. Supported native endpoint values are read before injection; other variable names do not imply an upstream unless `endpoint_env` names them. |
-| `endpoint_env` | that of the built-in profile named like the command's file | Environment variables that may hold the tool's own endpoint, in order. The first one set becomes the upstream when none is given explicitly (see [Where requests go](cli.md#where-requests-go)). Inherited with `extends`, so a wrapper with its own `command` follows the same variables as the tool it wraps. Read with adapter `env` only. |
+| `endpoint_env` | that of the built-in profile named like the command's file | Environment variables that may hold the tool's own endpoint, in order. The first one set becomes the upstream when none is given explicitly (see [Where requests go](cli.md#where-requests-go)). Inherited with `extends`, so a wrapper with its own `command` follows the same variables as the tool it wraps. Read by type `env` only. |
 | `base_path` | empty | Path appended to the local proxy URL, such as `/v1`. Empty or an absolute path without query or fragment. |
-| `extends` | `null` | Parent profile name. Inherits command, transport, adapter, args, and environment settings. Unknown parents and cycles are rejected. |
-| `adapter` | `auto` | `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`; `pi` also injects `-e` with Privyx's pi extension. `auto` detects a Claude/Codex/pi profile or executable name, otherwise uses `env`. The built-in Claude, Codex, and pi profiles explicitly select their adapters. |
+| `extends` | `null` | Parent profile name. Inherits command, transport, type, args, and environment settings. Unknown parents and cycles are rejected. |
+| `type` | unset | The agent type that knows the tool. `env` injects only URL environment variables; `claude` also injects `--settings`; `codex` also injects `-c openai_base_url`; `pi` also injects `-e` with Privyx's pi extension; `ollama` runs `ollama run <model>` against the local server. Unset, a profile takes the type of the profile it extends, else the type named like the profile or like its command's file, otherwise `env`. The built-in profiles name theirs. A plugin can add types, whose own options are written in the profile. |
 | `args` | `[]` | Default argument list, followed by the user's CLI arguments after `--`. Lists replace inherited/configured lists; `[]` clears inherited defaults. Passed without a shell; `${VAR}` config references resolve only for the selected profile. |
 | `env` | `{}` | Destination environment variable name → string value; quote YAML booleans/numbers. Config references resolve only for the selected profile. Merged by name over the shell environment; values are masked in previews and config dumps. |
 | `env_from` | `{}` | Destination environment variable name → source variable name in the parent shell. Resolve only for the selected launch; a missing source fails before any resource opens. An existing empty source value is allowed. Values are never expanded from profile `env`. |
@@ -331,7 +366,7 @@ agents:
 Set `WORK_ANTHROPIC_TOKEN` in your shell or secret manager before running
 `privyx run --dry-run claude-work` or `privyx run claude-work`. The reference
 name is visible in the preview; its value is masked. `--list` and `config
---show` do not resolve references, so unused profiles need no credentials.
+show` do not resolve references, so unused profiles need no credentials.
 
 A credential written as is in a profile's `env` (a name such as
 `*_TOKEN`, `*_KEY`, or `*_SECRET`, with no `${NAME}` in its value) in a file
@@ -390,7 +425,8 @@ adds `stream_options.include_usage` to such a request unless the client set
 counted: the next request is refused rather than counted as free. Both limits are checked
 before each request, so the request that crosses one completes and the next is
 refused with `400` and the error type `privyx_budget_exceeded`, which agents
-show without retrying. Privyx records a
+show without retrying. Tokens are counted as replies end, so `max_tokens` can
+be passed by as many requests as are in flight when it is reached. Privyx records a
 [`run.budget_exceeded`](../observability/audit-events.md#runbudget_exceeded)
 event and, when the tool exits, says which limit stopped it. A budget counts
 one launch; a new `privyx run` starts from zero. `--dry-run` shows the budget.
@@ -407,8 +443,11 @@ Maps merge with a parent's, as in `extends`.
 agents:
   claude:strict:
     privyx:
-      detector: [{type: regex}, {type: presidio}]
-      policy: {type: strict}
+      detectors:
+        regex: true
+        presidio: true
+      policy:
+        type: strict
 ```
 
 A profile without `privyx` behaves as before. `agents` and `presets` cannot
@@ -426,24 +465,26 @@ presets:
     proxy:
       passthrough_unknown: false
   debug:
-    log_level: debug
-    log_file: "${HOME}/.privyx/debug.log"
+    log:
+      level: debug
+      file: ${HOME}/.privyx/debug.log
 
 agents:
   claude:work:
     upstream: https://router.example.com
-    presets: [strict]
+    presets:
+    - strict
 ```
 
 ```bash
 privyx run claude:work                  # strict
 privyx run claude:work --preset debug   # strict, and debug for this launch
-privyx proxy --preset strict --preset debug
+privyx --preset strict --preset debug proxy
 ```
 
 A preset holds settings as a config file does, without a `privyx` wrapper,
 and is checked like one: unknown keys are rejected in every preset, used or
-not. It cannot set `provider`, `upstream_url`, `agents`, `presets`, or
+not. It cannot set `provider`, `providers`, `agents`, `presets`, or
 `include`: where a profile's requests go, and with which credentials, stays
 the profile's. A preset does nothing until a profile's `presets` or
 [`--preset`](cli.md) names it, and a name no preset has is an error.
@@ -463,19 +504,19 @@ before:
 A preset can loosen what a profile sets (`passthrough_unknown: true` over a
 strict profile, say); it is allowed, and `privyx run --dry-run` names the
 presets applied and each setting they decide, with sensitive values masked as
-in `config --show`.
+in `config show`.
 
 Every command that reads configuration takes `--preset`; without a profile,
 the presets apply above config files and the environment and below the
-command's other flags, and `config --show --preset NAME` shows the result.
+command's other flags, and `config show --preset NAME` shows the result.
 A preset applies to the command it is given to only: an agent launched by
 `privyx run`, and any `privyx` command the agent calls, does not inherit it.
 
-For a wrapper whose filename differs from the agent's, keep the adapter
+For a wrapper whose filename differs from the agent's, keep the type
 explicit. For example, a profile with `extends: claude` and
-`command: company-claude-wrapper` inherits `adapter: claude`. Select
-`adapter: env` to disable CLI injection and use only `env_vars`. Tools with
-special protocols may still need a new adapter implementation.
+`command: company-claude-wrapper` inherits `type: claude`. Select
+`type: env` to disable CLI injection and use only `env_vars`. Tools with
+special protocols may still need a new agent type.
 
 Profiles follow the same layers as other settings: built-in defaults, global
 file, trusted project files, environment, and CLI. In each layer the selected
@@ -484,7 +525,7 @@ profile's explicit `provider` and `upstream` override the common
 `PRIVYX_UPSTREAM_URL` overrides a file's profile `upstream`, and `--upstream`
 overrides both. In a run plan, a later layer's common `provider.base_url`
 also overrides an earlier profile's upstream. Other commands do not select
-profiles. `privyx config --show` displays profile definitions; `privyx run
+profiles. `privyx config show` displays profile definitions; `privyx run
 --dry-run NAME` displays the effective launch settings and their sources.
 
 `PRIVYX_AGENTS` accepts a JSON object of partial profile overrides:
@@ -495,30 +536,58 @@ export PRIVYX_AGENTS='{"claude-work":{"upstream":"https://another.example.com"}}
 
 Lists replace previous lists. Profile field typos, malformed URLs, invalid
 environment variable names, and invalid types fail at configuration load.
-Project profiles follow `privyx trust`, including renewed trust after a file
+Project profiles follow `privyx config trust`, including renewed trust after a file
 changes. API keys stay in the tool's environment or Privyx's provider settings.
 
-Claude/Codex adapters retain the existing argument overrides described in the
+The `claude` and `codex` types retain the existing argument overrides described in the
 [CLI reference](cli.md#privyx-run). The same limitations about custom Codex
 providers and user-supplied Claude settings apply.
 
-### `provider`
+### `provider` and `providers`
 
-Where requests go and which key they carry.
+Where requests go and which key they carry. `providers` names upstream
+connections, and `provider` selects one by name or defines one of its own:
+
+```yaml
+providers:
+  work:
+    type: anthropic
+    base_url: https://router.example.com
+    api_key: ${WORK_ROUTER_TOKEN}
+provider: work
+```
+
+`providers` already holds `generic`, `openai`, `anthropic`, `google`, `xai`,
+and `ollama`, so `provider: openai` needs no definition. An agent profile
+selects its own with `provider`, and `--provider` picks one over both. A
+credential (`api_key`, or a header) is sent only to the `base_url` of the
+definition it is written in, or to its type's default URL when that writes
+none; a destination from elsewhere, such as a profile's `upstream`, never takes
+it along, and Privyx refuses to start rather than send it there.
+
+A `provider` mapping holds the same keys as an entry of `providers`:
 
 | Key | Default | Description |
 |---|---|---|
 | `type` | `generic` | `generic`, `openai`, `anthropic`, `google`, or a plugin provider. Sets the default upstream and how the key is sent: `anthropic` sends it as `x-api-key` and adds `anthropic-version`, `google` sends it as `x-goog-api-key`. |
-| `base_url` | empty | Upstream endpoint. Empty uses the default for `type`: `http://localhost:20128` for `generic`, `https://api.openai.com/v1/chat/completions` for `openai`, `https://api.anthropic.com/v1/messages` for `anthropic`, `https://generativelanguage.googleapis.com/v1beta` for `google`. |
+| `base_url` | empty | Upstream endpoint. Empty uses the default for `type`: `http://localhost:20128` for `generic`, `https://api.openai.com/v1/chat/completions` for `openai`, `https://api.anthropic.com/v1/messages` for `anthropic`, `https://generativelanguage.googleapis.com` for `google`. |
 | `api_key` | empty | Key Privyx sends upstream in place of the client's. |
-| `openai_api_key`, `anthropic_api_key`, `google_api_key` | empty | Per-type keys. The one matching `type` wins over `api_key`. |
 | `headers` | `{}` | Extra headers sent with every upstream request. |
+| `forward_client_auth` | `true` | Transparent mode: relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter when Privyx holds no key. `false` drops them and `Cookie`, so only the configured key is used. An agent profile's provider takes a common `false` unless it, or the profile's `privyx.provider`, writes its own value. |
+| `path_mapping.mode` | `origin` | Transparent mode only. `origin` keeps only the upstream's `scheme://host[:port]`; `prefix` keeps its path too. See [Upstream with a path](#upstream-with-a-path). |
+| `path_mapping.strip_prefix` | empty | With `mode: prefix`, the start of the request path to remove before the rest is appended, such as `/v1`. `privyx run` uses the agent's `base_path`. |
+| `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
+| `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
+| `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |
 
-The upstream is the first non-empty of `upstream_url`, `provider.base_url`, and
-the default for `provider.type`. The transparent proxy uses only its
-`scheme://host[:port]` and appends the client's own path, unless
-[`proxy.path_mapping`](#upstream-with-a-path) keeps its path too; the gateway
-posts to it as written.
+The upstream is the first non-empty of `--upstream` (or `PRIVYX_UPSTREAM_URL`),
+the selected provider's `base_url`, and the default for its `type`. When an
+agent profile selects a named provider, that provider's own `base_url` wins
+over a common `provider.base_url` in the same layer; a later layer's URL, such
+as `--upstream`, still moves it. The
+transparent proxy uses only its `scheme://host[:port]` and appends the client's
+own path, unless [`provider.path_mapping`](#upstream-with-a-path) keeps its path
+too; the gateway posts to it as written.
 
 For `run` in transparent mode, supported native endpoint settings fill in the
 destination before the provider default when neither upstream is explicit.
@@ -526,11 +595,12 @@ Profile `env` and `env_from` are included, and Claude settings are checked for
 routing conflicts before launch. See [native agent endpoints](cli.md#privyx-run) for
 the source order, path requirements, and `--settings` restrictions.
 
-The key is the first non-empty of `provider.<type>_api_key` and
-`provider.api_key`. With neither set, the transparent proxy relays the
-client's own key and the gateway sends none. Keys have no command-line flag,
-since a command line ends up in shell history and `ps`; set them through the
-environment.
+The key is the selected provider's `api_key`. With none set, the transparent
+proxy relays the client's own key and the gateway sends none. Keys have no
+command-line flag, since a command line ends up in shell history and `ps`; set
+them in a file, or through `PRIVYX_API_KEY` or `PRIVYX_OPENAI_API_KEY`,
+`PRIVYX_ANTHROPIC_API_KEY`, and `PRIVYX_GOOGLE_API_KEY`, which set the key of the
+provider of that name.
 
 ### `proxy`
 
@@ -538,16 +608,14 @@ environment.
 |---|---|---|
 | `mode` | `transparent` | `transparent` forwards every path to the upstream origin; `gateway` serves Privyx's own endpoints and posts to one fixed URL. Same as `--transparent` / `--gateway`. |
 | `routes` | twenty-seven paths | Path → wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`) for the requests Privyx masks; a `*` matches any characters except `/`. A map given here replaces the default one. See [Routes](proxy.md#routes). |
-| `path_mapping.mode` | `origin` | Transparent mode only. `origin` keeps only the upstream's `scheme://host[:port]`; `prefix` keeps its path too. See [Upstream with a path](#upstream-with-a-path). |
-| `path_mapping.strip_prefix` | empty | With `mode: prefix`, the start of the request path to remove before the rest is appended, such as `/v1`. `privyx run` uses the agent's `base_path`. |
 | `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead; enabled by the shipped `configs/strict.yaml`. `doctor` reports route coverage and warns on passthrough. |
-| `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter. `false` drops them so only the configured key is used. |
-| `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
-| `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
-| `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |
 | `dlp_check` | `true` | Mask every copy of a value a request masked wherever it stands in text Privyx masks. Then, before the request goes out, look for every value it masked anywhere else in it (fields that are not masked, URLs, headers other than the credential). One found answers `422` and the request is not forwarded. Only exact signed thinking remembered from an upstream response is reinstated after the check. See [Leak check](masking.md#leak-check). |
-| `directive` | `false` | Add a short instruction to each masked chat request, telling the model to keep placeholders exactly as written. About 80 tokens. See [Placeholder directive](masking.md#placeholder-directive). |
-| `cache_control` | `false` | Mark a large `tools` and `system` prefix of an Anthropic request for prompt caching, when the request marks nothing itself. See [Prompt caching](proxy.md#prompt-caching). |
+| `tap` | `false` | Record each masked exchange before and after masking, for `privyx audit watch`. The files hold original values. See [Session tap](../observability/tap.md). |
+| `tap_dir` | `~/.privyx/tap` | Where the tap writes, one file per session. |
+
+The upstream connection (`timeout`, `connect_timeout`, `max_connections`,
+`path_mapping`, `forward_client_auth`) is set on the [provider](#provider-and-providers).
+`directive` and `cache_control` are [features](#features).
 
 [Proxy modes and routes](proxy.md) explains the two modes and when to pick
 which.
@@ -555,16 +623,17 @@ which.
 #### Upstream with a path
 
 A router or provider whose API sits under a path, such as
-`https://router.example.com/api/v1`, needs `mode: prefix` in `path_mapping`. The
+`https://router.example.com/api/v1`, needs `mode: prefix` in the provider's
+`path_mapping`. The
 transparent proxy then keeps the upstream's path and appends the request path
 after `strip_prefix`:
 
 ```yaml
-upstream_url: https://router.example.com/api/v1
-proxy:
+provider:
   path_mapping:
     mode: prefix
     strip_prefix: /v1
+  base_url: https://router.example.com/api/v1
 ```
 
 ```text
@@ -579,8 +648,7 @@ Privyx  → https://router.example.com/api/v1/chat/completions  (masked)
 - A request outside `strip_prefix`, or one with a `.` or `..` segment, a
   backslash, or an encoded `/`, is answered `404` and not forwarded.
 - The query is forwarded as before.
-- `prefix` needs an explicit upstream (`--upstream`, `upstream_url`, or
-  `provider.base_url`) without query, fragment, or credentials, and is refused
+- `prefix` needs an explicit upstream (`--upstream`, or `provider.base_url`) without query, fragment, or credentials, and is refused
   in gateway mode.
 
 `privyx run` removes the agent's `base_path`, since the tool's base URL is the
@@ -594,30 +662,20 @@ agents:
     extends: codex
     upstream: https://router.example.com/api/v1
     privyx:
-      proxy:
-        path_mapping: {mode: prefix}
+      provider:
+        path_mapping:
+          mode: prefix
 ```
-
-### `tls`
-
-HTTPS is on when both `certfile` and `keyfile` are set.
-
-| Key | Default | Description |
-|---|---|---|
-| `certfile` | empty | Certificate chain (PEM). |
-| `keyfile` | empty | Private key (PEM). |
-| `keyfile_password` | empty | Password for an encrypted `keyfile`. |
-| `ca_certs` | empty | CA bundle (PEM), passed to uvicorn as `ssl_ca_certs`. Client certificates are not required. |
 
 ### `vault`
 
 Where sessions and their mappings are stored. See
-[Sessions and vault](sessions.md).
+[Sessions and vault](sessions.md). With `server.workers` above `1`, use `sqlite` or `redis`.
 
 | Key | Default | Description |
 |---|---|---|
 | `type` | `memory` | `memory` (lost on restart), `sqlite` (needs `privyx[sqlite]`), `redis` (needs `privyx[redis]`), or a plugin vault. |
-| `dsn` | `sqlite+aiosqlite:///~/.privyx/privyx.db` | SQLite database file. A bare path works too, and `~` is your home directory. |
+| `dsn` | `sqlite+aiosqlite:///~/.privyx/privyx.db` | SQLite database file: a bare path, `sqlite+aiosqlite:///PATH`, or `sqlite:///PATH`. `~` is your home directory. `:memory:`, or an empty path, is a database that goes with the vault, which `server.workers` above `1` refuses. |
 | `redis_url` | `redis://localhost:6379/0` | Redis connection URL. A call to Redis gives up after 5 s; query parameters change that, as in `redis://localhost:6379/0?socket_timeout=2&socket_connect_timeout=2`. |
 | `ttl` | unset | Expire a session after this many seconds without a request. Unset keeps sessions until they are deleted or pruned. Must be above `0`. |
 
@@ -627,26 +685,58 @@ Where sessions and their mappings are stored. See
 |---|---|---|
 | `strategy` | `ephemeral` | How to pick a session for a request with no `x-privyx-session` header: `ephemeral`, `client`, or `conversation`. See [Sessions and vault](sessions.md). |
 
-### `detector`
+### `detectors`
 
-What counts as sensitive. `detector` is one mapping, or a list of them whose
-findings are pooled. [Detection](detection.md) covers each type with examples.
+What counts as sensitive. `detectors` maps a name to a detector; their
+findings are pooled, and they run in the order written. An entry without a
+`type` has its name as the type, so the default is one `regex` detector.
+[Detection](detection.md) covers each type with examples.
+
+```yaml
+detectors:
+  regex:
+    terms:
+      PERSON: [john smith, alice]
+    patterns:
+      EMPLOYEE_ID: '\bEMP-\d{6}\b'
+  presidio:
+    language: en
+```
+
+Write `true` or `false` in place of an entry, or `enabled: true` or `false`
+in it, to turn a detector on or off without the options a file below gave it:
+`regex: false` turns the built-in detector off, `presidio: true` adds that one.
+A second detector of one type needs a `type`, such as `names: {type: regex}`.
+A detector that used the old `yaml` type is a `regex` detector with
+`builtins: false`. Every entry takes these, besides the options of its type:
 
 | Key | Default | Description |
 |---|---|---|
-| `type` | `regex` | `regex`, `yaml`, `presidio`, `llm`, or a plugin detector. |
-| `patterns` | `{}` | Entity → regular expression. |
-| `merge_terms` | `true` | `regex`, `yaml`: match both `terms` and `patterns` for the same entity, trying terms first. With `false`, the regex replaces the terms with a warning. |
-| `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
-| `term_variants` | `true` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
-| `underscore_separates_words` | `true` | `regex`, `yaml`, `llm`: `_` separates words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, or `host_10.0.0.1`. The [leak check](masking.md#leak-check) follows it. |
-| `context` | `{}` | `regex`, `yaml`: entity → words, one of which must be within five words of a match for it to count. |
-| `enable` | `[]` | `regex`, `yaml`: opt-in built-in entities to turn on: `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`. A `yaml` detector also takes the wallet and ID built-ins here (`CRYPTO_WALLET`, `ID_NIK`, `ID_NPWP`, `SG_NRIC_FIN`, `MY_NRIC`, `ES_NIF`, `ES_NIE`, `UK_NHS`, `IN_AADHAAR`), which a `regex` detector has already. |
-| `disable` | `[]` | `regex`, `yaml`: built-in entities to turn off, including inactive opt-in entities (a no-op). A name in both `enable` and `disable`, or an unknown name, is an error. Your own `patterns` and `terms` still apply. See [Turning a built-in off](detection.md#turning-a-built-in-off). |
-| `entropy_threshold` | `3.0` | `HIGH_ENTROPY`: bits per character a string needs. |
-| `decode` | `false` | `regex`, `yaml`: also find values split into string literals (`'s' + 'k' + …`) or encoded as Base64, hex, or URL escapes. |
-| `normalize` | `false` | `regex`, `yaml`: also find values written with fullwidth or other look-alike compatibility characters, or with zero-width characters inside (`ｊｏｈｎ`). See [Look-alike characters](detection.md#look-alike-characters). |
+| `type` | the entry's name | `regex`, `presidio`, `llm`, or a plugin detector. |
+| `enabled` | `true` | Whether the detector runs. |
+| `underscore_separates_words` | `true` | `_` separates words, so `terms` and the built-in patterns also match inside `ACME_API_KEY`, `DB_JOHN`, or `host_10.0.0.1`. The [leak check](masking.md#leak-check) follows it. |
 | `cache` | `true` | Reuse detections for text seen before. `true`/`false`, or `{enabled, max_size}` (`max_size` defaults to `10000`). An entry keeps a digest of the text and what was found in it, not the text. |
+
+The options of a `regex` detector:
+
+| Key | Default | Description |
+|---|---|---|
+| `builtins` | `true` | Add the built-in patterns under your own. `false` keeps only your `patterns` and `terms` and the opt-in entities `enable` names. |
+| `patterns` | `{}` | Entity → regular expression. |
+| `terms` | `{}` | Entity → list of literal strings, matched case-insensitively. |
+| `merge_terms` | `true` | Match both `terms` and `patterns` for the same entity, trying terms first. With `false`, the regex replaces the terms with a warning. |
+| `term_variants` | `true` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
+| `context` | `{}` | Entity → words, one of which must be within five words of a match for it to count. |
+| `enable` | `[]` | Opt-in built-in entities to turn on: `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`. |
+| `disable` | `[]` | Built-in entities to turn off, including inactive opt-in entities (a no-op). A name in both `enable` and `disable`, or an unknown name, is an error. Your own `patterns` and `terms` still apply. See [Turning a built-in off](detection.md#turning-a-built-in-off). |
+| `entropy_threshold` | `3.0` | `HIGH_ENTROPY`: bits per character a string needs. |
+| `decode` | `false` | Also find values split into string literals (`'s' + 'k' + …`) or encoded as Base64, hex, or URL escapes. |
+| `normalize` | `false` | Also find values written with fullwidth or other look-alike compatibility characters, or with zero-width characters inside (`ｊｏｈｎ`). See [Look-alike characters](detection.md#look-alike-characters). |
+
+The options of the other types:
+
+| Key | Default | Description |
+|---|---|---|
 | `language` | `en` | `presidio`: language of the text. |
 | `model` | empty | `presidio`: spaCy model. Empty uses `{language}_core_web_sm`. |
 | `entities` | `[]` | `presidio`: entity types to look for. Empty uses every recognizer. |
@@ -675,8 +765,8 @@ What a detected value becomes. See [Masking](masking.md).
 | Key | Default | Description |
 |---|---|---|
 | `type` | `pseudonym` | `pseudonym`, `hash`, `encrypt`, `faker`, `fpe`, `partial`, `redact`, or a plugin operator. |
-| `token` | `[REDACTED]` | `redact`: replacement text. |
-| `length` | `12` | `hash`: hex characters of the digest kept in the token, 6 to 64; another value is an error. |
+| `text` | `[REDACTED]` | `redact`: replacement text. |
+| `id_length` | `16` (`12` for `hash`) | `pseudonym`, `hash`, `encrypt`: hex characters in the id of an anchored `pseudonym` or an `encrypt` token, or the digest kept by `hash`, 6 to 64; another value is an error. A counter is unaffected. A value written beside `hash` does not carry to a type picked in a later layer, nor one written for the other two to `hash`. See [Id length](masking.md#id-length). |
 | `locale` | empty | `faker`, and `pseudonym` [labels](masking.md#labels): Faker locale such as `en_US`. Empty uses Faker's default. |
 | `seed` | unset | `faker`, `fpe`: makes the same value fake the same way across runs. Another seed gives `pseudonym` [labels](masking.md#labels) other values. |
 | `key` | empty | `encrypt`: 64 hex characters (`openssl rand -hex 32`). |
@@ -697,30 +787,48 @@ How placeholders look. See [Token format](masking.md#token-format).
 | `namespace` | `PRIVYX` | Fills `{namespace}` in `format`. |
 | `format` | `<{namespace}_{type}_{id}>` | Placeholder template. Must contain `{type}` and `{id}`. |
 | `compact` | `false` | Issue short tokens such as `<E~1>`. Tokens in `format` are still restored. See [Compact tokens](masking.md#compact-tokens). |
-| `id_length` | `16` | Hex characters in the id of an anchored `pseudonym` or an `encrypt` token, 6 to 64. Counters and `hash` are unaffected. See [Id length](masking.md#id-length). |
 | `label_format` | empty | Write `pseudonym` tokens with a fake value for the model to read, such as `<{namespace}_{type}_{id}:{label}>`; empty is off. Must contain `{id}` and `{label}`. Needs `privyx[faker]`, the `pseudonym` operator, and `compact: false`. See [Labels](masking.md#labels). |
 
-### `audit`
+### `features`
+
+The optional behaviors, each on or off; `privyx features list` shows the state.
+Write `true` or `false` in place of an entry, or `enabled`, and the options of
+the feature beside it. A plugin can add features, written the same way.
+
+| Feature | Default | What it does |
+|---|---|---|
+| `audit` | on | Append PII-safe audit events to a file. See [Audit events](../observability/audit-events.md). |
+| `metrics` | on | Count what the proxy does, for `GET /metrics`. It follows the config at start. |
+| `tracing` | off | Export an OpenTelemetry span per proxied request. Needs `pip install 'privyx[otel]'`; the exporter is set by the `OTEL_*` variables. See [Tracing](../observability/tracing.md). |
+| `directive` | off | Add a short instruction to each masked chat request, telling the model to keep placeholders exactly as written. About 80 tokens. See [Placeholder directive](masking.md#placeholder-directive). |
+| `cache_control` | off | Mark a large `tools` and `system` prefix of an Anthropic request for prompt caching, when the request marks nothing itself. See [Prompt caching](proxy.md#prompt-caching). |
+| `budget` | off | Limits on one `privyx run` launch; see [Budget](#budget). |
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `true` | Append PII-safe audit events to `path`. |
-| `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. It is created with mode `0600`. See [Audit events](../observability/audit-events.md). |
-| `tap` | `false` | Record each masked exchange before and after masking, for `privyx audit watch`. The files hold original values. See [Session tap](../observability/tap.md). |
-| `tap_dir` | `~/.privyx/tap` | Where the tap writes, one file per session. |
-| `prices` | `{}` | Model-id prefix → prices in USD per million tokens: `input`, `output`, and optionally `cache_read` (default a tenth of `input`) and `cache_write` (default 1.25 times `input`). For the cost `privyx session show` estimates; adds models to the built-in Claude prices or overrides them. |
+| `audit`: `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. It is created with mode `0600`. |
+| `audit`: `prices` | `{}` | Model-id prefix → prices in USD per million tokens: `input`, `output`, and optionally `cache_read` (default a tenth of `input`) and `cache_write` (default 1.25 times `input`). For the cost `privyx session show` estimates; adds models to the built-in Claude prices or overrides them. |
+| `budget.max_turns`, `budget.max_tokens` | unset | The limits. Unset means no limit. |
+| `budget.profile` | empty | The agent profile launched, named in the audit trail and in the refusal. |
 
 ```yaml
-audit:
-  prices:
-    gpt-5: {input: 1.25, output: 10.0, cache_read: 0.125}
+features:
+  audit:
+    path: /var/log/privyx/audit.log
+    prices:
+      gpt-5:
+        input: 1.25
+        output: 10.0
+        cache_read: 0.125
+  directive: true
+  tracing: false
 ```
 
-### `tracing`
-
-| Key | Default | Description |
-|---|---|---|
-| `enabled` | `false` | Export an OpenTelemetry span per proxied request. Needs `pip install 'privyx[otel]'`; the exporter is set by the `OTEL_*` variables. See [Tracing](../observability/tracing.md). |
+`privyx run` sets `budget` itself from the profile's [`budget`](#budget), with
+the profile's name in `profile`; it is not written by hand. `budget` keeps its
+state in one process, so it is refused with `server.workers` above `1`. The
+session tap, which records each masked exchange, is `proxy.tap` and
+`proxy.tap_dir`.
 
 ### `plugins`
 
@@ -728,38 +836,52 @@ audit:
 |---|---|---|
 | `enabled` | `true` | Load the plugins in `paths` and `modules`. |
 | `paths` | `[]` | Directories or `.py` files to load plugins from. See [Plugins](../development/plugins.md). |
-| `modules` | `[]` | Importable modules, such as installed packages, whose `setup(px)` adds components, routes, and hooks. Experimental. See [Plugins from a package](../development/plugins.md#plugins-from-a-package). |
+| `modules` | `[]` | Importable modules, such as installed packages, whose `setup(app)` adds components, routes, and hooks. Experimental. See [Plugins from a package](../development/plugins.md#plugins-from-a-package). |
 
 ## Environment variables
+
+Every setting has a variable: `PRIVYX_` and its path with `__` between the
+names, in any case. `PRIVYX_SERVER__PORT=9000` sets `server.port`,
+`PRIVYX_FEATURES__DIRECTIVE=true` turns the directive on, and
+`PRIVYX_DETECTORS__REGEX__TERMS='{PERSON: [alice]}'` sets the terms of the
+`regex` detector. The value is read as the setting's type: `8001` is a number,
+`true` a boolean, and a list or mapping is written in YAML flow form, such as
+`[a, b]` or `{a: 1}`. `PRIVYX_TOKEN__NAMESPACE=NO` stays the string `NO`.
+
+A name must be a setting, or an entry the config already has (a detector, a
+profile, an entity): a new entry is written in a file or with
+`privyx config set`. A misspelled name stops startup with an error that names
+it. The variables below are the names of earlier versions, kept as aliases and
+still the ones the Docker image and `docker-compose.yml` use. Given an alias and
+the generic name of one setting with different values, Privyx refuses the
+config and names both. For the old file keys, see [Upgrading](upgrading.md).
 
 | Variable | Sets |
 |---|---|
 | `PRIVYX_CONFIG` | Config file path |
 | `PRIVYX_NO_DISCOVERY` | When true, no config file is read unless it is named |
-| `PRIVYX_HOST`, `PRIVYX_PORT` | `host`, `port` |
-| `PRIVYX_LOG_LEVEL`, `PRIVYX_LOGGING`, `PRIVYX_LOG_FILE` | `log_level`, `logging`, `log_file` |
-| `PRIVYX_UPSTREAM_URL` | `upstream_url` and `provider.base_url` |
-| `PRIVYX_PROVIDER` | `provider.type`; overrides a file's selected agent provider |
+| `PRIVYX_HOST`, `PRIVYX_PORT` | `server.host`, `server.port` |
+| `PRIVYX_LOG_LEVEL`, `PRIVYX_LOGGING`, `PRIVYX_LOG_FILE` | `log.level`, `log.format`, `log.file` |
+| `PRIVYX_UPSTREAM_URL` | `upstream_url`, the destination that wins over the provider's `base_url`; the same as `--upstream`. A config file does not write it |
+| `PRIVYX_PROVIDER` | The provider selected: the name of one of `providers`; overrides a file's selected agent provider |
 | `PRIVYX_AGENTS` | JSON object of agent profile overrides, merged field by field |
-| `PRIVYX_API_KEY` | `provider.api_key` |
-| `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`, `PRIVYX_GOOGLE_API_KEY` | `provider.openai_api_key`, … |
+| `PRIVYX_API_KEY` | `api_key` of the selected provider |
+| `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`, `PRIVYX_GOOGLE_API_KEY` | `providers.openai.api_key`, `providers.anthropic.api_key`, `providers.google.api_key` |
 | `PRIVYX_VAULT` | `vault.type` |
 | `PRIVYX_VAULT_DSN` | `vault.dsn` |
 | `PRIVYX_VAULT_TTL` | `vault.ttl` |
 | `PRIVYX_REDIS_URL` | `vault.redis_url` |
 | `PRIVYX_SESSION_STRATEGY` | `session.strategy` |
-| `PRIVYX_DETECTOR_CACHE` | `detector.cache` |
+| `PRIVYX_DETECTOR_CACHE` | `cache` of every detector |
 | `PRIVYX_ENCRYPT_KEY` | `operator.key` |
 | `PRIVYX_ANCHOR_SECRET` | `anchor.secret` (an explicit empty value disables HMAC anchoring) |
 | `PRIVYX_ANCHOR_KEY_PATH` | Where `anchor.secret: auto` keeps the per-user key, `~/.privyx/anchor.key` by default; an absolute path, `~` is expanded |
 | `PRIVYX_TOKEN_FORMAT`, `PRIVYX_TOKEN_NAMESPACE` | `token.format`, `token.namespace` |
-| `PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH` | `audit.enabled`, `audit.path` |
+| `PRIVYX_AUDIT_ENABLED`, `PRIVYX_AUDIT_PATH` | `features.audit.enabled`, `features.audit.path` |
 | `PRIVYX_PLUGIN_PATHS` | `plugins.paths`, comma-separated |
 | `PRIVYX_PLUGIN_MODULES` | `plugins.modules`, comma-separated |
-| `PRIVYX_SSL_CERTFILE`, `PRIVYX_SSL_KEYFILE`, `PRIVYX_SSL_KEYFILE_PASSWORD`, `PRIVYX_SSL_CA_CERTS` | `tls.*` (a `PRIVYX_TLS_` prefix works too) |
+| `PRIVYX_SSL_CERTFILE`, `PRIVYX_SSL_KEYFILE`, `PRIVYX_SSL_KEYFILE_PASSWORD`, `PRIVYX_SSL_CA_CERTS` | `server.tls.*` (a `PRIVYX_TLS_` prefix works too) |
 
 Boolean variables are true for `1`, `true`, `yes`, or `on`, and false for
 `0`, `false`, `no`, or `off`, in any case; any other value, like an invalid
 `PRIVYX_PORT`, stops `privyx` at startup with an error naming the variable.
-Settings without a variable (`proxy`, `policy`, most of `detector`) need a
-config file.

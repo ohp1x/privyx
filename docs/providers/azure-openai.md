@@ -22,7 +22,7 @@ proxy:
 ```
 
 ```bash
-privyx proxy -c azure.yaml --upstream https://YOUR-RESOURCE-NAME.openai.azure.com
+privyx -c azure.yaml proxy --upstream https://YOUR-RESOURCE-NAME.openai.azure.com
 ```
 
 ```python

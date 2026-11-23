@@ -29,19 +29,19 @@ Where original values exist while Privyx runs, and for how long. The
   audit log are made readable by their owner only (`0600`) whenever Privyx
   opens them. A new `privyx mask --map` file is created owner-only; an existing
   one keeps its mode, so `chmod 600` it.
-- The session tap (`audit.tap`, off by default) writes requests and replies,
-  with their original values, to `audit.tap_dir`. The directory is created
+- The session tap (`proxy.tap`, off by default) writes requests and replies,
+  with their original values, to `proxy.tap_dir`. The directory is created
   with mode `0700` and each file with `0600`.
 
 ## Logs and the audit trail
 
 - Privyx's own log lines never contain request or reply text. They go to
-  standard output as text or JSON lines (`logging: text` or `json`).
-- A `log_file` at `log_level: debug` also receives the logs of third-party
+  standard output as text or JSON lines (`log.format: text` or `json`).
+- A `log.file` at `log.level: debug` also receives the logs of third-party
   libraries, which can include vault rows with original values. A new file is
   created with mode `0600`; on POSIX, an existing file with broader
   permissions or another owner is refused before anything is written.
-- The audit trail is a separate file (`audit.path`, default
+- The audit trail is a separate file (`features.audit.path`, default
   `~/.privyx/audit.log`), one JSON object per line. It records event names,
   entity types, and counts, never matched text, original values, or tokens,
   and for an error only the exception's class name, since its message could
@@ -49,7 +49,7 @@ Where original values exist while Privyx runs, and for how long. The
   deleted), `proxy.*` (request, passthrough, blocked, response, error), and
   `run.*` (unproxied, budget_exceeded); see
   [Audit events and metrics](../observability/audit-events.md).
-- Turn the trail off with `audit.enabled: false` or
+- Turn the trail off with `features.audit: false` or
   `PRIVYX_AUDIT_ENABLED=false`.
 
 ## How long sessions are kept

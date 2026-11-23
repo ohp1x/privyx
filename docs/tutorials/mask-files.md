@@ -88,15 +88,15 @@ pipe.
 
 `privyx mask` reads all of its input before it writes anything. To follow a
 stream that does not end, such as `tail -f`, use
-[`privyx pipe`](../guide/cli.md#privyx-pipe), which writes each line as soon
+[`privyx mask --stream`](../guide/cli.md#privyx-mask-stream), which writes each line as soon
 as it is masked:
 
 ```bash
-tail -f app.log | privyx pipe --session app-logs
+tail -f app.log | privyx mask --stream --session app-logs
 ```
 
-`privyx pipe` keeps its mapping in a vault session rather than a map file, so
-restoring its output later with `privyx pipe --restore --session app-logs`
+`privyx mask --stream` keeps its mapping in a vault session rather than a map file, so
+restoring its output later with `privyx unmask --stream --session app-logs`
 needs a `sqlite` or `redis` vault; see [Sessions and vault](../guide/sessions.md).
 
 An existing map is extended, not overwritten. Mask a second file against the
@@ -189,11 +189,11 @@ report for instance, use the `redact` operator. It keeps no mapping:
 # redact.yaml
 operator:
   type: redact
-  token: "[REDACTED]"
+  text: "[REDACTED]"
 ```
 
 ```console
-$ privyx mask -c redact.yaml -i app.log 2>/dev/null
+$ privyx -c redact.yaml mask -i app.log 2>/dev/null
 2026-10-02 09:12:44 ERROR payment failed user=[REDACTED] ip=[REDACTED] card=[REDACTED]
 2026-10-02 09:12:45 WARN  retry with DB_PASSWORD=[REDACTED] against db-3
 2026-10-02 09:12:46 INFO  connecting to postgres://app:[REDACTED]@db-3:5432/shop

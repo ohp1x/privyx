@@ -1,13 +1,13 @@
 ---
-description: Versioning, deprecation, and what changes from Privyx 0.1 to 0.2, with how to keep the 0.1 behavior.
+description: Versioning, deprecation, and what changes between Privyx 0.1, 0.2, and 0.3, with the new names of settings, commands, and Python APIs.
 ---
 
 # Upgrading
 
 Read the [changelog](https://github.com/ohp1x/privyx/blob/main/CHANGELOG.md)
 before upgrading, then follow the [installation commands](installation.md#upgrade).
-Try your config with `privyx doctor -c your.yaml` and representative fake data
-with `privyx detect -c your.yaml --transform "..."` before using it with traffic.
+Try your config with `privyx -c your.yaml doctor` and representative fake data
+with `privyx -c your.yaml detect --transform "..."` before using it with traffic.
 
 ## Version policy
 
@@ -42,6 +42,122 @@ Changing a default does not require removing the old behavior. A supported
 opt-out can remain without a deprecation warning. Tightening validation of
 previously accepted input follows the same warning period: an input that
 warns in `0.1` can first become an error in `0.2`.
+
+## From 0.2 to 0.3
+
+0.3 gives settings, commands, and the Python API new names. The token format,
+stored data, and default masking output do not change, so a vault or map file
+from 0.2 keeps restoring.
+
+Old config keys and CLI commands keep working in 0.3.x with a warning, and are
+removed in 0.4.0. The experimental Python API and plugin interface changed at
+once in 0.3.0: their old import paths are gone.
+
+### Migrate your config
+
+Print each config file in use with the new keys, then write them:
+
+```bash
+privyx config migrate
+privyx config migrate --write
+```
+
+Give a path to migrate one file: `privyx config migrate your.yaml --write`.
+Comments are not kept. The old file is kept beside it as `<name>.bak`, or a
+numbered backup when that exists, with its permissions.
+
+`config migrate` leaves `operator.length`, `operator.token`, or
+`token.id_length` as written when moving it could change what a profile or
+preset uses, and names the key on stderr: a profile or preset in the same file
+picks an operator type that would read the new key differently, or
+`token.id_length` sits beside a type that does not read it. Write the value in
+each profile or preset that uses it.
+
+`operator.type: hash` has no new spelling, so `config migrate` leaves it. It
+warns because anyone who guesses a value can match its token. Its replacement
+is `pseudonym` with an explicit `anchor.secret`, which writes different tokens.
+
+### Config keys
+
+| Old key | New key |
+|---|---|
+| `host`, `port`, `tls.*` | `server.host`, `server.port`, `server.tls.*` |
+| `log_level`, `logging`, `log_file` | `log.level`, `log.format`, `log.file` |
+| `detector` | `detectors.<name>` |
+| `detector.terms`, `detector.patterns` | `detectors.<name>.terms`, `detectors.<name>.patterns` |
+| detector type `yaml` | `detectors.regex.builtins: false` |
+| `proxy.directive`, `proxy.cache_control` | `features.directive`, `features.cache_control` |
+| `audit.enabled`, `audit.path`, `audit.prices` | `features.audit` (`false` turns it off), `features.audit.path`, `features.audit.prices` |
+| `audit.tap`, `audit.tap_dir` | `proxy.tap`, `proxy.tap_dir` |
+| `tracing.enabled` | `features.tracing` |
+| `agents.<profile>.adapter` | `agents.<profile>.type`; for `auto`, leave out `type` |
+| `upstream_url` | `provider.base_url` |
+| `proxy.forward_client_auth`, `path_mapping`, `timeout`, `connect_timeout`, `max_connections` | the same key in `provider` or `providers.<name>` |
+| `provider.openai_api_key`, `anthropic_api_key`, `google_api_key` | `providers.<type>.api_key` |
+| `token.id_length`, `operator.length` | `operator.id_length` |
+| `operator.token` (`redact`) | `operator.text` |
+
+### CLI commands
+
+| Old command | New command |
+|---|---|
+| `privyx trust` | `privyx config trust` |
+| `privyx lint` | `privyx config lint` |
+| `privyx install-hook` | `privyx hook install` |
+| `privyx inspect routes` | `privyx config routes` |
+| `privyx inspect session` | `privyx session show` |
+| `privyx inspect token` | `privyx session token` |
+| `privyx inspect regex NAME` | `privyx detect --entity NAME`, or `privyx detect --pattern REGEX` |
+| `privyx pipe` | `privyx mask --stream` |
+| `privyx pipe --restore` | `privyx unmask --stream` |
+| `privyx config --show` | `privyx config show` |
+| `privyx config --sources` | `privyx config show --sources` |
+| `privyx config --schema` | `privyx config schema` |
+| `privyx config --path` | `privyx config path` |
+| `privyx COMMAND -c FILE` | `privyx -c FILE COMMAND` |
+| `privyx COMMAND --preset NAME` | `privyx --preset NAME COMMAND` |
+
+### Environment
+
+Every setting has a variable: `PRIVYX_` and its path, with `__` between the
+names, such as `PRIVYX_SERVER__PORT`. The older names, such as `PRIVYX_PORT`
+and `PRIVYX_API_KEY`, stay as aliases: they draw no warning and are not removed
+in 0.4.0. Setting one value both ways with different values is an error.
+
+### Python API and plugins
+
+| Old | New |
+|---|---|
+| `privyx.plugins.BaseDetector` | `privyx.detectors.Detector` |
+| `privyx.plugins.BasePolicy`, `_decide_sync` | `privyx.policies.Policy`, `decide_sync` |
+| `privyx.plugins.BaseOperator`, `restore` | `privyx.operators.Operator`, `privyx.operators.restore` |
+| `privyx.plugins.BaseAnchor`, `deanchor` | `privyx.anchors.Anchor`; `deanchor` is gone |
+| `privyx.plugins.BaseVault`, `connect` | `privyx.vaults.Vault` or `StoredVault`, `open` |
+| `privyx.plugins.BaseProvider`, `send`, `stream` | `privyx.providers.Provider`, `url` and `auth` |
+| `ComponentConfig`, a class's `Config` | `privyx.core.Options`, a class's `Options` |
+| `BuildContext` | `privyx.core.Services`, given to `open(services)` |
+| `from_config(config, ctx)`, `from_config(config)` | `__init__(**options)` and `open(services)` |
+| `privyx.plugins.Context`, `Detection`, `Session`, `TransformResult`, `ConfigError` | `privyx.core` |
+| `privyx.plugins.LogicalToken` | `privyx.token.LogicalToken` |
+| `privyx.plugins.PLUGINS` | `app.registry(kind)` |
+| A class found in a plugin file | `app.add(cls)` in the file's required `setup(app)` |
+| A `name` derived from the class name | `name`, required |
+| `on_startup()`, `on_shutdown()`, `px.on_startup`, `px.on_shutdown` | `app.on(AppStarting)`, `app.on(AppStopping)` |
+| `Privyx.run()` | `Privyx.serve()` |
+| `privyx.config.loader.load_config` | `privyx.load_config` |
+| `privyx.config.schema.Settings` | `privyx.Settings` |
+| `privyx.core.builder.build_engine` | `async with Privyx(...).engine() as engine` |
+| `privyx.core.engine.PrivacyEngine` | `privyx.PrivacyEngine` |
+| `privyx.core.errors.PrivyxError` | `privyx.PrivyxError` |
+| `privyx.privacy.detector.yaml.build_detector` | `app.registry(Detector)` |
+| `privyx.privacy.detector.builtin.RegexDetector` | `privyx.detectors.RegexDetector` |
+| `privyx.privacy.detector.builtin.YamlDetector` | `privyx.detectors.RegexDetector(builtins=False)` |
+| `privyx.privacy.operator.pseudonym.PseudonymOperator` | `privyx.operators.PseudonymOperator` |
+| `privyx.privacy.policy.default.DefaultPolicy` | `privyx.policies.DefaultPolicy` |
+| `privyx.vault.memory.MemoryVault` | `privyx.vaults.MemoryVault` |
+
+See [Plugins](../development/plugins.md) for each kind, and the
+[Python API](../development/python-api.md) for `Privyx` and its services.
 
 ## From 0.1 to 0.2
 

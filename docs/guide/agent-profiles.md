@@ -36,7 +36,7 @@ privyx run claude-work
 The plan shows the command, routing, injected URL variables, and which
 configuration layer supplied each setting. It creates no files and starts
 no process. A project's `privyx.yaml` can override a profile after
-`privyx trust`; environment and CLI overrides still win.
+`privyx config trust`; environment and CLI overrides still win.
 
 ## Build on a built-in profile
 
@@ -73,15 +73,17 @@ presets:
     proxy:
       passthrough_unknown: false
   debug:
-    log_level: debug
-    log_file: "${HOME}/.privyx/debug.log"
+    log:
+      level: debug
+      file: ${HOME}/.privyx/debug.log
 
 agents:
   claude:work:
     upstream: https://router.example.com
     env_from:
       ANTHROPIC_AUTH_TOKEN: WORK_ANTHROPIC_TOKEN
-    presets: [strict]
+    presets:
+    - strict
   claude:work-backup:
     extends: claude:work
     upstream: https://backup.example.com

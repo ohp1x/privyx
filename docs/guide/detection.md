@@ -4,16 +4,16 @@ description: What Privyx detects out of the box, opt-in detectors, word lists an
 
 # Detection
 
-Two settings decide what gets masked: the `detector` finds sensitive values,
+Two settings decide what gets masked: the `detectors` find sensitive values,
 and the `policy` decides which of those findings are masked.
 
 Try a config before putting it in front of real traffic. `privyx detect` uses
 the same detector and policy as the proxy:
 
 ```bash
-privyx detect -c my.yaml "ann from acme, ann@acme.example"
-privyx detect -c my.yaml --transform "..."   # also print the masked text
-privyx detect -c my.yaml --no-policy "..."   # every detection, before the policy
+privyx -c my.yaml detect "ann from acme, ann@acme.example"
+privyx -c my.yaml detect --transform "..."   # also print the masked text
+privyx -c my.yaml detect --no-policy "..."   # every detection, before the policy
 ```
 
 ## Built-in patterns
@@ -43,23 +43,23 @@ With no configuration, the `regex` detector finds:
 | `IN_AADHAAR` | Indian Aadhaar numbers with a correct check digit, next to `aadhaar` |
 
 The wallet and ID entities are built in from 0.2: each passes a checksum or
-structure check. A `yaml` detector, which has no built-ins, takes
-them with `enable`; `enable` lists them in a `regex` detector to no effect, so
-a config written for 0.1 still loads. To turn any of them off, list it under
+structure check. A `regex` detector with `builtins: false` takes
+them with `enable`; `enable` lists them in a `regex` detector that keeps its
+built-ins to no effect, so a config written for 0.1 still loads. To turn any of them off, list it under
 [`disable`](#turning-a-built-in-off).
 
 Names and anything specific to you need more configuration.
 
 ## Opt-in detectors
 
-These are off until a `regex` or `yaml` detector lists them under `enable`,
+These are off until a `regex` detector lists them under `enable`,
 since each also catches more of what is not sensitive:
 
 ```yaml
-detector:
-  type: regex
-  enable: [HIGH_ENTROPY, MRN]
-  entropy_threshold: 3.0     # HIGH_ENTROPY: bits per character
+detectors:
+  regex:
+    enable: [HIGH_ENTROPY, MRN]
+    entropy_threshold: 3.0     # HIGH_ENTROPY: bits per character
 ```
 
 | Entity | Matches |
@@ -76,12 +76,15 @@ words of the match. It turns a pattern that would match too much into one you
 can use:
 
 ```yaml
-detector:
-  type: regex
-  patterns:
-    PASSPORT: '\b[A-Z]\d{7}\b'
-  context:
-    PASSPORT: [passport, paspor, "travel document"]
+detectors:
+  regex:
+    patterns:
+      PASSPORT: \b[A-Z]\d{7}\b
+    context:
+      PASSPORT:
+      - passport
+      - paspor
+      - travel document
 ```
 
 Words are matched whole and ignoring case; an entry may be a phrase. For a
@@ -93,7 +96,7 @@ detector weighs context words on its own and ignores this setting.
 ## Hidden values
 
 An agent that is kept from sending a secret may split or encode it. With
-`decode: true`, a `regex` or `yaml` detector also looks inside:
+`decode: true`, a `regex` detector also looks inside:
 
 - string literals joined by `+`, `.`, or `..`, and `chr(…)` calls:
   `'s' + 'k' + '-' + …`;
@@ -111,18 +114,19 @@ every request, which is why it is off by default.
 Text copied from a web page, a PDF, or an input method can spell a value with
 characters that look the same but match no pattern or term: fullwidth letters
 (`ｊｏｈｎ`), ligatures (`ﬁ`), or an invisible zero-width space or soft hyphen
-inside a word. With `normalize: true`, a `regex` or `yaml` detector also scans
+inside a word. With `normalize: true`, a `regex` detector also scans
 the text with each character folded to its plain form (Unicode NFKC) and those
 invisible format characters dropped. What it finds there is masked as written:
 `ｊｏｈｎ` becomes the token, and restoring brings back `ｊｏｈｎ`. A value whose
 name or context word is written that way, as in `ｐａｓｓｗｏｒｄ: …`, is found too.
 
 ```yaml
-detector:
-  type: regex
-  normalize: true
-  terms:
-    PERSON: [john]
+detectors:
+  regex:
+    normalize: true
+    terms:
+      PERSON:
+      - john
 ```
 
 Accents are not folded (`jóhn` is another name), nor are letters from other
@@ -152,14 +156,14 @@ alone, so `{"password": 123456}` is not.
 | `type` | Finds | Needs |
 |---|---|---|
 | `regex` (default) | The built-in patterns plus your `patterns` and `terms` | Nothing |
-| `yaml` | Only your `patterns` and `terms` | Nothing |
+| `regex` with `builtins: false` | Only your `patterns` and `terms` | Nothing |
 | `presidio` | Names, organizations, locations, and more, with NLP | `privyx[presidio]` and a spaCy model |
 | `llm` | Context-dependent PII, by asking a language model | `privyx[providers]` and a provider API key |
 
 A plugin can add more types; see [Plugins](../development/plugins.md).
 
 `patterns`, `terms`, `enable`, and the other pattern settings apply to `regex`
-and `yaml` only. A `presidio` or `llm` detector does not use them, and Privyx
+only. A `presidio` or `llm` detector does not use them, and Privyx
 refuses them beside its `type`; see
 [Settings per type](configuration.md#settings-per-type).
 
@@ -170,11 +174,11 @@ added to the built-in set, and a pattern with a built-in name replaces that
 one:
 
 ```yaml
-detector:
-  type: regex
-  patterns:
-    EMPLOYEE_ID: '\bEMP-\d{6}\b'
-    PASSWORD: 'PASSWORD=(?P<value>\S+)'
+detectors:
+  regex:
+    patterns:
+      EMPLOYEE_ID: \bEMP-\d{6}\b
+      PASSWORD: PASSWORD=(?P<value>\S+)
 ```
 
 - The entity name becomes the `{type}` in the token (`<PRIVYX_EMPLOYEE_ID_5E47FE8CF7B42F4E>`).
@@ -194,14 +198,15 @@ detector:
 
 ## Turning a built-in off
 
-`disable` turns off built-in entities of the `regex` detector. Both `regex`
-and `yaml` also accept opt-in entity names, so a config can opt out before an
-upgrade enables one by default:
+`disable` turns off built-in entities of the `regex` detector. It also accepts
+opt-in entity names, so a config can opt out before an upgrade enables one by
+default:
 
 ```yaml
-detector:
-  type: regex
-  disable: [CREDIT_CARD]
+detectors:
+  regex:
+    disable:
+    - CREDIT_CARD
 ```
 
 - Only the built-in pattern goes: your own `patterns` and `terms` for the
@@ -221,12 +226,17 @@ detector:
 knowledge is needed:
 
 ```yaml
-detector:
-  type: regex
-  terms:
-    PERSON:       [ann, bob]
-    ORGANIZATION: [acme, initech]
-    URL:          ["https://git.internal.example/team"]
+detectors:
+  regex:
+    terms:
+      PERSON:
+      - ann
+      - bob
+      ORGANIZATION:
+      - acme
+      - initech
+      URL:
+      - https://git.internal.example/team
 ```
 
 Matching ignores case. Longer terms are tried first, so a compound term wins
@@ -239,11 +249,12 @@ on by default since 0.2): `Acme Corp` or `AcmeCorp` matches `acmecorp`,
 `term_variants: false` to match only the spelling as written:
 
 ```yaml
-detector:
-  type: regex
-  term_variants: false
-  terms:
-    ORGANIZATION: [Acme Corp]
+detectors:
+  regex:
+    term_variants: false
+    terms:
+      ORGANIZATION:
+      - Acme Corp
 ```
 
 A word is split at a case change only when each part keeps two letters, so
@@ -260,11 +271,12 @@ secret assigned to `DB_PASSWORD` keeps its name. Set
 did, so a term is not found in a name such as `ACME_API_KEY` or `DB_JOHN`:
 
 ```yaml
-detector:
-  type: regex
-  underscore_separates_words: false
-  terms:
-    ORGANIZATION: [acme]
+detectors:
+  regex:
+    underscore_separates_words: false
+    terms:
+      ORGANIZATION:
+      - acme
 ```
 
 `terms` and `patterns` can be used together, also for the same entity
@@ -275,22 +287,24 @@ and `value` group. If both alternatives match at the same position, the term
 wins even when the regex could match more text.
 
 ```yaml
-detector:
-  terms:
-    PERSON: [john smith]
-  patterns:
-    PERSON: '\bEMP-\d{6}\b'
+detectors:
+  regex:
+    terms:
+      PERSON:
+      - john smith
+    patterns:
+      PERSON: \bEMP-\d{6}\b
 ```
 
 This finds both `JOHN SMITH` and `EMP-123456` as `PERSON`. The option applies
-to `regex` and `yaml`, and does not merge custom patterns with built-in
+to `regex`, and does not merge custom patterns with built-in
 patterns. With `merge_terms: false`, as in 0.1, the `patterns` regex wins and
 the terms of that entity are not matched; Privyx warns when it loads such a
 config.
 
 To see which spellings of your terms still get through with your settings,
 and which of these options masks each, run
-[`privyx lint`](cli.md#privyx-lint).
+[`privyx config lint`](cli.md#privyx-config-lint).
 
 ## Presidio
 
@@ -303,12 +317,13 @@ python -m spacy download en_core_web_sm
 ```
 
 ```yaml
-detector:
-  type: presidio
-  language: en
-  model: ""               # empty → en_core_web_sm
-  entities: []            # empty → every Presidio recognizer
-  score_threshold: 0.35   # drop findings below this confidence
+detectors:
+  regex: false              # replaces the built-in patterns
+  presidio:
+    language: en
+    model: ""               # empty → en_core_web_sm
+    entities: []            # empty → every Presidio recognizer
+    score_threshold: 0.35   # drop findings below this confidence
 ```
 
 If Presidio or the model is missing, Privyx fails at startup and prints the
@@ -321,13 +336,14 @@ catches what patterns cannot, such as a name that is also a common word, at the
 cost of a model call per request.
 
 ```yaml
-detector:
-  type: llm
-  llm_provider: openai          # or anthropic
-  llm_model: ""                 # empty → gpt-4o-mini / claude-haiku-4-5
-  llm_timeout: 30               # seconds per scan
-  llm_max_chars: 4000           # longer text is scanned in overlapping chunks
-  llm_fallback_on_error: false
+detectors:
+  regex: false                  # replaces the built-in patterns
+  llm:
+    llm_provider: openai          # or anthropic
+    llm_model: ""                 # empty → gpt-4o-mini / claude-haiku-4-5
+    llm_timeout: 30               # seconds per scan
+    llm_max_chars: 4000           # longer text is scanned in overlapping chunks
+    llm_fallback_on_error: false
 ```
 
 Set `llm_model` to a model your account can use; the built-in default for a
@@ -348,21 +364,22 @@ would have caught. Every fallback is counted in the audit trail as
 
 ## Several detectors at once
 
-Give `detector` a list to run several detectors. Their findings are pooled:
+List several detectors under `detectors` to run them together. Their findings
+are pooled:
 
 ```yaml
-detector:
-  - type: regex             # structured PII and your terms
+detectors:
+  regex:                    # structured PII and your terms
     terms:
       PROJECT: [bluebird]
-  - type: presidio          # names, organizations, locations
-  - type: llm               # what the others miss
+  presidio: {}              # names, organizations, locations
+  llm: {}                   # what the others miss
 ```
 
-Each item is a complete detector config. A `regex` item includes the built-in
-patterns; a `yaml` item has only its own. A list replaces a `detector` mapping
-from a file below it, `terms` included; Privyx warns about each entity that no
-item then masks.
+Each entry is a complete detector config. `regex` includes the built-in
+patterns unless it sets `builtins: false`. Entries from a config file and the
+file it includes are merged by name, and `<name>: false` in the upper file turns
+off the entry from the lower one.
 
 ## Cache
 
@@ -371,11 +388,11 @@ turns are not scanned again. The cache is on by default and holds 10,000
 entries:
 
 ```yaml
-detector:
-  type: regex
-  cache:
-    enabled: true
-    max_size: 10000
+detectors:
+  regex:
+    cache:
+      enabled: true
+      max_size: 10000
 ```
 
 `cache: false` or `PRIVYX_DETECTOR_CACHE=false` turns it off.
@@ -400,11 +417,11 @@ then left in the text. To spot one, compare `privyx detect --transform` with
 and without `--no-policy`:
 
 ```console
-$ privyx detect -c strict.yaml --transform "bluebird mail a@b.io"
+$ privyx -c strict.yaml detect --transform "bluebird mail a@b.io"
     14:20    EMAIL             'a@b.io'
 
 bluebird mail <PRIVYX_EMAIL_1D67ED6CD0AAE8C3>
-$ privyx detect -c strict.yaml --transform --no-policy "bluebird mail a@b.io"
+$ privyx -c strict.yaml detect --transform --no-policy "bluebird mail a@b.io"
      0:8     PROJECT           'bluebird'
     14:20    EMAIL             'a@b.io'
 

@@ -14,8 +14,8 @@ pip install 'privyx[otel]'
 
 ```yaml
 # privyx.yaml
-tracing:
-  enabled: true
+features:
+  tracing: true
 ```
 
 Spans are sent over OTLP/HTTP, configured by the standard environment
@@ -26,7 +26,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 export OTEL_SERVICE_NAME=privyx   # the default
 ```
 
-Without `tracing.enabled`, Privyx never imports the OpenTelemetry SDK. With it
+Without `features.tracing`, Privyx never imports the OpenTelemetry SDK. With it
 and without the extra, `privyx proxy` and `privyx run` stop at startup and say
 what to install.
 
@@ -45,7 +45,7 @@ When the client sends a W3C `traceparent` header, `privyx.request` joins its
 trace.
 
 Attributes hold what the [audit trail](audit-events.md) holds, never payload
-text: `http.request.method`, `http.route` (masked routes only),
+text: `http.request.method`, `http.route` (the route pattern, on masked routes only),
 `http.response.status_code`, `privyx.schema`, `privyx.stream`,
 `privyx.restored`, `privyx.aborted`, and `error.type` (an exception's class
 name, never its message).

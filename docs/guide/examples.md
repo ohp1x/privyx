@@ -126,7 +126,7 @@ For a long-running proxy that several terminals share, start it once and set
 the variable yourself:
 
 ```bash
-privyx proxy -c privyx.yaml --upstream https://api.anthropic.com
+privyx -c privyx.yaml proxy --upstream https://api.anthropic.com
 ANTHROPIC_BASE_URL=http://localhost:8000 claude
 ```
 
@@ -211,9 +211,9 @@ proxy:
 ### Names without a list
 
 ```yaml
-detector:
-  - type: regex               # built-in patterns, your terms and patterns
-  - type: presidio            # needs privyx[presidio] and a spaCy model
+detectors:
+  regex: {}                   # built-in patterns, your terms and patterns
+  presidio:                   # needs privyx[presidio] and a spaCy model
     language: en
     entities: [PERSON, LOCATION]
 ```

@@ -221,12 +221,12 @@ Put them in your config file, which Privyx reads on every run:
 
 ```yaml
 # ~/.privyx/config.yaml
-detector:
-  type: regex                 # keeps the built-in patterns
-  terms:
-    PERSON:       [dana, dana whitfield, dwhitfield]
-    ORGANIZATION: [acme]
-    PROJECT:      [bluebird]
+detectors:
+  regex:                      # keeps the built-in patterns
+    terms:
+      PERSON:       [dana, dana whitfield, dwhitfield]
+      ORGANIZATION: [acme]
+      PROJECT:      [bluebird]
 ```
 
 Try it before you rely on it:
@@ -250,7 +250,7 @@ privyx run claude
 A file kept elsewhere is named with `-c`, or with `PRIVYX_CONFIG` in your
 shell profile, and is then read in place of this one. A project can add
 settings of its own in a `privyx.yaml`, which Privyx reads once you have run
-`privyx trust` in that directory; see
+`privyx config trust` in that directory; see
 [Configuration](../guide/configuration.md#where-settings-come-from).
 
 Matching ignores case and only hits whole words, so `dana` does not match
@@ -260,7 +260,7 @@ patterns for IDs, and detectors that find names without a list.
 In a project, [`privyx scan`](../guide/cli.md#privyx-scan) collects such names
 for you: git authors, the owner and name of each remote, the project name, and
 the values of `.env` keys. It asks what to leave out and adds the rest to the
-project's config. [`privyx lint`](../guide/cli.md#privyx-lint) then lists the
+project's config. [`privyx config lint`](../guide/cli.md#privyx-config-lint) then lists the
 spellings of your terms that still get through, such as `DB_DANA` or
 `dana_dev`, with the option that masks each.
 
@@ -326,7 +326,7 @@ client without a file; the two work together. The last rule matters with every o
 `faker` or `fpe` substitute is restored in a file just as a placeholder is.
 
 If a placeholder lands in a file anyway,
-[`privyx install-hook`](../guide/cli.md#privyx-install-hook) stops the commit
+[`privyx hook install`](../guide/cli.md#privyx-hook-install) stops the commit
 that holds it, and a commit holding a secret too.
 
 ## What Privyx covers for these tools

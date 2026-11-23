@@ -18,7 +18,7 @@ proxy:
 ```
 
 ```bash
-privyx proxy -c openrouter.yaml --upstream https://openrouter.ai
+privyx -c openrouter.yaml proxy --upstream https://openrouter.ai
 ```
 
 ## Connect a client

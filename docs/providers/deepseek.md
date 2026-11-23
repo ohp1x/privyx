@@ -43,7 +43,7 @@ proxy:
 ```
 
 ```bash
-privyx proxy -c deepseek.yaml --upstream https://api.deepseek.com
+privyx -c deepseek.yaml proxy --upstream https://api.deepseek.com
 ```
 
 ```python
@@ -84,7 +84,7 @@ provider:
 
 ```bash
 export PRIVYX_ANTHROPIC_API_KEY=...      # your DeepSeek key
-privyx run -c deepseek-claude.yaml claude
+privyx -c deepseek-claude.yaml run claude
 ```
 
 In gateway mode Privyx sends its own key, the one above, and does not relay

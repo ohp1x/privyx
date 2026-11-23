@@ -10,7 +10,7 @@ and after masking, to one file per session.
 
 ```yaml
 # privyx.yaml
-audit:
+proxy:
   tap: true                # off by default
   tap_dir: ~/.privyx/tap   # the default
 ```
