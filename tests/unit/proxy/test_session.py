@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 
 from privyx.dialects import AnthropicDialect, OpenAIDialect, ResponsesDialect
@@ -215,3 +217,80 @@ def test_first_user_message_reads_responses_input() -> None:
 
     assert sid(items) == sid(later) == sid({"input": "hi Alice"})
     assert sid(items) != sid({"input": "hi Bob"})
+
+
+# -- a key in the query string -------------------------------------------------
+
+
+def _with_query(strategy: str, query: list[tuple[str, str]], headers: object = None) -> object:
+    return resolve_session_id(
+        strategy,
+        header_value=None,
+        headers=headers or {},  # type: ignore[arg-type]
+        payload=_convo("user", "same opening"),
+        dialect=OpenAIDialect(),
+        query=query,
+    )
+
+
+def test_a_query_key_identifies_the_caller() -> None:
+    for strategy in ("client", "conversation"):
+        one = _with_query(strategy, [("key", "caller-a")])
+        again = _with_query(strategy, [("alt", "sse"), ("key", "caller-a")])
+        other = _with_query(strategy, [("key", "caller-b")])
+
+        assert one == again
+        assert one[0] != other[0]  # type: ignore[index]
+        assert one[1] == strategy  # type: ignore[index]
+
+
+def test_a_query_key_counts_beside_a_header() -> None:
+    one = _with_query("client", [("key", "caller-a")], BEARER)
+    other = _with_query("client", [("key", "caller-b")], BEARER)
+
+    assert one[0] != other[0]  # type: ignore[index]
+
+
+def test_a_header_alone_keeps_its_session_id() -> None:
+    plain = resolve_session_id(
+        "client", header_value=None, headers=BEARER, payload={}, dialect=None
+    )
+
+    assert _with_query("client", [("alt", "sse")], BEARER) == plain
+    assert plain[0] == "ses_" + hashlib.sha256(b"Bearer sk-abc").hexdigest()[:16]
+
+
+def test_an_empty_query_key_is_no_credential() -> None:
+    assert _with_query("client", [("key", "")]) == (None, "ephemeral")
+
+
+def test_credentials_split_differently_get_different_sessions() -> None:
+    ids = {
+        _with_query("client", [("key", "a\x00b")])[0],  # type: ignore[index]
+        _with_query("client", [("key", "a"), ("key", "b")])[0],  # type: ignore[index]
+        _with_query("client", [("key", "b")], {"authorization": "a"})[0],  # type: ignore[index]
+        _with_query("client", [], {"authorization": "a\x00b"})[0],  # type: ignore[index]
+    }
+
+    assert len(ids) == 4
+
+
+def test_a_query_key_and_the_opening_keep_their_boundary() -> None:
+    def sid(key: str, opening: str) -> object:
+        return resolve_session_id(
+            "conversation",
+            header_value=None,
+            headers={},
+            payload=_convo("user", opening),
+            dialect=OpenAIDialect(),
+            query=[("key", key)],
+        )[0]
+
+    assert sid("a\x00b", "c") != sid("a", "b\x00c")
+
+
+def test_a_header_cannot_spell_the_session_of_a_query_key() -> None:
+    by_query = _with_query("client", [("key", "a")])
+    material = json.dumps(["client", "", ["a"]])
+
+    assert _with_query("client", [], {"authorization": material})[0] != by_query[0]  # type: ignore[index]
