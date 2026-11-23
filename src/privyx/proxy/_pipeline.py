@@ -538,6 +538,7 @@ class Pipeline:
             headers=exchange.headers,
             payload=payload,
             dialect=exchange.dialect,
+            query=exchange.query,
         )
         if source == "ephemeral":
             # It lives for this request only, so it never touches the vault.
