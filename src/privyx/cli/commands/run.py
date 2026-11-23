@@ -18,13 +18,11 @@ both commands behave identically.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import shlex
-import shutil
-import socket
 import sys
+from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,37 +33,13 @@ from click.core import ParameterSource
 from privyx.cli._options import config_options, json_option
 
 if TYPE_CHECKING:
+    import socket
+
     from privyx.agents import LaunchPlan
     from privyx.agents._plan import Target
     from privyx.app import Privyx
-    from privyx.config import Loaded
+    from privyx.app._run import RunOutcome
     from privyx.config.schema import Settings
-
-
-def _run_settings(
-    app: Privyx,
-    provider: str | None,
-    upstream: str | None,
-    session_strategy: str | None,
-    no_anchor: bool,
-    *,
-    harvest: bool | None = None,
-    agent: str | None = None,
-) -> Loaded:
-    extra: dict[str, Any] = {}
-    if provider is not None:
-        extra["provider"] = provider  # a named provider, over the profile's
-    if upstream is not None:
-        extra["upstream_url"] = upstream  # the base URL of the provider in use
-    base_extra: dict[str, Any] = {"session": {"strategy": "conversation"}}
-    if session_strategy is not None:
-        extra["session"] = {"strategy": session_strategy}
-    if harvest is not None:
-        extra["harvest"] = harvest
-    if no_anchor:
-        # Below the config: an anchor set there still applies.
-        base_extra["anchor"] = {"secret": ""}
-    return app._read(app._config, extra=extra, base_extra=base_extra, agent=agent).log_warnings()
 
 
 @click.command(
@@ -133,10 +107,8 @@ def run(
       privyx run codex --provider openai
       privyx run --env-var MY_TOOL_BASE_URL -- my-tool --flag
     """
-    from privyx.agents import Agent
     from privyx.app import Privyx
-    from privyx.app._run import can_exec_agent, exec_agent, expand, launch_target, plan_launch
-    from privyx.core import ConfigError, PrivyxError
+    from privyx.core import PrivyxError
 
     if not target and not list_targets:
         raise click.UsageError("missing TARGET (try `privyx run --list`)")
@@ -144,131 +116,80 @@ def run(
         raise click.UsageError("--json writes the plan of --dry-run or the list of --list")
 
     app = Privyx()
-
-    def read(name: str | None) -> Loaded:
+    options: dict[str, Any] = {
+        "provider": provider,
+        "upstream": upstream,
+        "session_strategy": session_strategy,
+        "no_anchor": no_anchor,
+        "harvest": harvest,
+    }
+    if list_targets:
         try:
-            return _run_settings(
-                app, provider, upstream, session_strategy, no_anchor, harvest=harvest, agent=name
-            )
+            listed = app.agents.list(target, **options)
         except PrivyxError as exc:
             raise click.ClickException(str(exc)) from exc
-
-    loaded = read(target)
-    settings, sources = loaded.settings, loaded.sources
-
-    if list_targets:
-        targets = sorted(settings.agents.items())
         if as_json:
-            listed_json = [
-                {"name": name, "type": p.type, "provider": p.provider, "env_vars": p.env_vars}
-                for name, p in targets
-            ]
-            click.echo(json.dumps(listed_json, indent=2))
+            click.echo(json.dumps([asdict(info) for info in listed], indent=2))
             return
         click.echo("Known targets:")
-        for name, listed in targets:
-            click.echo(f"  {name:<8} provider={listed.provider:<10} {', '.join(listed.env_vars)}")
+        for info in listed:
+            click.echo(f"  {info.name:<8} provider={info.provider:<10} {', '.join(info.env_vars)}")
         return
 
     assert target is not None
+    port_source = click.get_current_context().get_parameter_source("port")
     try:
-        expanded = expand(app, target, args) if target not in settings.agents else None
-    except ConfigError as exc:
+        launch = app.agents.plan(
+            target,
+            args,
+            port=port,
+            port_given=port_source == ParameterSource.COMMANDLINE,
+            env_vars=env_vars,
+            **options,
+        )
+    except app.agents.BadTarget as exc:
         raise click.UsageError(str(exc)) from exc
-    if expanded is not None:
-        target, args = expanded
-        loaded = read(target)
-        settings, sources = loaded.settings, loaded.sources
-    try:
-        spec = launch_target(app, settings, target, env_vars=env_vars, sources=sources)
     except PrivyxError as exc:
         raise click.ClickException(str(exc)) from exc
-    all_env_vars = tuple(spec.env_vars) + tuple(env_vars)
-    # No variable and no argument of its type's points the tool at the proxy.
-    if not all_env_vars and type(spec.agent).argv is Agent.argv:
-        import difflib
-        import re
-
-        base = re.split(r"[:-]", target, maxsplit=1)[0]
-        near = (
-            [base]
-            if base != target and base in settings.agents
-            else difflib.get_close_matches(target, list(settings.agents), n=1)
-        )
-        hint = f" (did you mean {near[0]!r}?)" if near else ""
-        raise click.UsageError(
-            f"no agent profile {target!r}{hint}; define it under `agents` "
-            "or, to launch a tool directly, pass --provider openai or anthropic "
-            "(sets the usual base-URL variables) or --env-var NAME "
-            "(see `privyx run --list`)"
-        )
-
-    sources["run.port"] = (
-        "CLI"
-        if click.get_current_context().get_parameter_source("port") == ParameterSource.COMMANDLINE
-        else "run defaults"
-    )
-    try:
-        plan = plan_launch(
-            spec,
-            list(args),
-            settings,
-            port,
-            all_env_vars,
-            name=target,
-            extra_env_vars=env_vars,
-            sources=sources,
-        )
-    except PrivyxError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if settings.harvest:
-        from privyx.workspace import harvest as harvest_workspace
-
-        harvested: str | None = harvest_workspace(settings, Path.cwd())
-    else:
-        harvested = None
+    harvested = app.agents.harvest(launch)
     if dry_run:
         if as_json:
-            click.echo(json.dumps(_plan_json(plan, settings, target, harvested), indent=2))
+            shown = _plan_json(launch.plan, launch.settings, launch.name, harvested)
+            click.echo(json.dumps(shown, indent=2))
             return
-        _show_plan(plan)
-        _show_presets(settings, sources, target)
+        _show_plan(launch.plan)
+        _show_presets(launch.settings, launch.sources, launch.name)
         if harvested is not None:
             click.echo(f"Harvest: {harvested}")
         return
     if harvested is not None:
         click.echo(f"Harvest: {harvested}", err=True)
 
-    if shutil.which(plan.command, path=plan.environment.get("PATH")) is None:
-        click.echo(f"Error: {spec.command!r} not found on PATH", err=True)
-        sys.exit(127)
     try:
-        spec.agent.check(plan.upstream)
+        app.agents.check(launch)
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+        sys.exit(127 if isinstance(exc, app.agents.NotInstalled) else 1)
 
     target_run = partial(
         _run_target,
-        spec=spec,
-        argv=list(args),
+        spec=launch.spec,
+        argv=launch.argv,
         upstream=upstream,
         port=port,
-        env_vars=all_env_vars,
+        env_vars=launch.env_vars,
         session_strategy=session_strategy,
         no_anchor=no_anchor,
-        settings=settings,
-        plan=plan,
+        settings=launch.settings,
+        plan=launch.plan,
         app=app,
     )
     try:
-        if can_exec_agent():
-            exec_agent(
-                plan,
-                lambda ready, parent: target_run(ready=ready, parent=parent),
-                _show_running,
-            )
-        code = asyncio.run(target_run())
+        code = app.agents.run(
+            launch,
+            announce=_show_running,
+            serve=lambda ready=None, parent=None: target_run(ready=ready, parent=parent),
+        )
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
@@ -415,56 +336,34 @@ async def _run_target(
     *,
     app: Privyx | None = None,
 ) -> int:
-    """Start the proxy, run the tool against it, and tear everything down.
-
-    ``privyx run`` is opinionated where the library is neutral: unless the user
-    says otherwise it treats one conversation as one session and provisions an
-    anchor secret, so aliases are stable across turns and restarts out of the
-    box.  These are *defaults* (``base_extra``) the user's own config/env still
-    overrides; an explicit ``--session-strategy`` is a hard override (``extra``).
-    ``proxy.mode`` picks the app, as in ``privyx proxy``.
+    """Serve the launch through the agents service, and report on the run.
 
     Returns:
         The tool's exit code.
     """
     from privyx.app import Privyx
-    from privyx.app._run import plan_launch, run_agent, wait_for_agent_exit
-    from privyx.observability.logging import configure_logging
 
     app = app or Privyx()
-    if settings is None:
-        settings = _run_settings(app, spec.provider, upstream, session_strategy, no_anchor).settings
-    if plan is None:
-        plan = plan_launch(spec, argv, settings, port, env_vars)
-    # The child tool owns the terminal: log lines go to log.file if one is set,
-    # else nowhere, and the audit trail still records every error.
-    configure_logging(settings, console=False)
-    # Bound before the rest opens, so a port in use leaves nothing to undo.
-    sock, bound_port = _listen(settings.server.host, port)
-
-    async def launch(bound: LaunchPlan) -> int:
-        # On stderr: stdout is the tool's, and may be piped into a parser.
-        if ready is not None and parent is not None:
-            ready.sendall(json.dumps({"port": bound.port}).encode() + b"\n")
-            ready.close()
-            await wait_for_agent_exit(parent)
-            return 0
-        _show_running(bound)
-        return await _spawn(bound)
-
-    outcome = await run_agent(
-        app,
-        settings,
-        plan,
-        sock,
-        bound_port,
-        budget=spec.budget,
-        launch=launch,
-        # The worker handles SIGTERM itself; uvicorn must not re-raise it during cleanup.
-        quiet_signals=parent is not None,
+    outcome = await app.agents.serve(
+        spec,
+        argv,
+        port,
+        env_vars,
+        announce=_show_running,
+        upstream=upstream,
+        session_strategy=session_strategy,
+        no_anchor=no_anchor,
+        settings=settings,
+        plan=plan,
+        ready=ready,
+        parent=parent,
     )
     # After exec the shell has likely drawn its prompt already.
-    lead = "\n" if parent is not None else ""
+    _show_outcome(outcome, spec.command, "\n" if parent is not None else "")
+    return outcome.code
+
+
+def _show_outcome(outcome: RunOutcome, command: str, lead: str) -> None:
     counts = outcome.unproxied
     # Only content passed through unmasked, or a request blocked or failed,
     # shows something went wrong. No request at all is what help, a tool
@@ -472,7 +371,7 @@ async def _run_target(
     # that is left to the audit trail.
     if counts is not None and (outcome.unmasked or counts["blocked"] or counts["failed"]):
         click.echo(
-            lead + f"Warning: {outcome.requests} request(s) from {spec.command} "
+            lead + f"Warning: {outcome.requests} request(s) from {command} "
             "reached Privyx, but none was sent upstream on a masking route "
             f"({counts['passthrough']} passed through unmasked, "
             f"{counts['blocked']} blocked, {counts['failed']} failed).",
@@ -481,29 +380,10 @@ async def _run_target(
     if outcome.stopped is not None:
         reason, turns, tokens = outcome.stopped
         click.echo(
-            lead + f"Privyx stopped {spec.command}: the {reason}, "
+            lead + f"Privyx stopped {command}: the {reason}, "
             f"after {turns} turn(s) and {tokens} tokens.",
             err=True,
         )
-    return outcome.code
-
-
-def _listen(host: str, port: int) -> tuple[socket.socket, int]:
-    """Bind the proxy's socket on ``port`` (0 picks a free one); return it and its port.
-
-    Raises:
-        PrivyxError: If the port cannot be bound, e.g. another process uses it.
-    """
-    from privyx.core import PrivyxError
-
-    sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as uvicorn's own bind does
-    try:
-        sock.bind((host, port))
-    except OSError as exc:
-        sock.close()
-        raise PrivyxError(f"cannot listen on {host}:{port}: {exc.strerror or exc}") from exc
-    return sock, int(sock.getsockname()[1])
 
 
 def _set_terminal_title(name: str) -> None:
@@ -520,18 +400,3 @@ def _set_terminal_title(name: str) -> None:
     title = "".join(char for char in Path(name).name if char.isprintable())
     stream.write(f"\033]0;{title}\007")
     stream.flush()
-
-
-async def _spawn(plan: LaunchPlan) -> int:
-    """Run the tool as a child process with the proxy URL injected.
-
-    Signals are left to the child: it owns the terminal, so Ctrl-C reaches it
-    directly and this process just waits for the exit code.
-    """
-    process = await asyncio.create_subprocess_exec(plan.command, *plan.argv, env=plan.environment)
-    try:
-        return await process.wait()
-    except asyncio.CancelledError:  # pragma: no cover - interactive only
-        process.terminate()
-        await process.wait()
-        raise

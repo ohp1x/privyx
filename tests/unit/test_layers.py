@@ -105,12 +105,7 @@ ALLOWED: frozenset[tuple[str, str]] = frozenset(
 
 
 #: (importer, imported) pairs where a module imports a private module of another package.
-ALLOWED_PRIVATE: frozenset[tuple[str, str]] = frozenset(
-    {
-        # `run` serves through the launch module, until an agents service runs it.
-        ("privyx.cli.commands.run", "privyx.app._run"),
-    }
-)
+ALLOWED_PRIVATE: frozenset[tuple[str, str]] = frozenset()
 
 
 def _modules() -> dict[str, Path]:
