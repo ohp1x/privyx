@@ -26,20 +26,14 @@ import os
 import re
 import threading
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from privyx.events import utc_time
 
 _log = logging.getLogger("privyx")
 #: A session id that is safe as a file name as it is; any other is hashed.
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
-
-
-def _iso(ts: float) -> str:
-    """An epoch timestamp as ISO-8601 UTC with milliseconds, as the audit trail writes it."""
-    return (
-        datetime.fromtimestamp(ts, tz=UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    )
 
 
 def tap_file(directory: Path, session_id: str) -> Path:
@@ -71,7 +65,7 @@ class Tap:
         now = time.time()
         line = json.dumps(
             {
-                "time": _iso(now),
+                "time": utc_time(now),
                 "ts": now,
                 "request_id": request_id,
                 "session_id": session_id,

@@ -37,6 +37,12 @@ def choose_presets(ctx: click.Context, presets: tuple[str, ...]) -> None:
     ctx.call_on_close(lambda: CHOSEN_PRESETS.reset(token))
 
 
+def fail(exc: Exception) -> NoReturn:
+    """Say ``exc`` on stderr as the error, and exit with status 1."""
+    click.echo(f"Error: {exc}", err=True)
+    sys.exit(1)
+
+
 def deprecated(old: str, new: str) -> None:
     """Say on stderr that ``old`` is an earlier name of ``new``, kept until 0.4.0."""
     click.echo(f"Warning: {old} is deprecated; use {new} (removed in 0.4.0)", err=True)

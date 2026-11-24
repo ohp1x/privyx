@@ -25,6 +25,7 @@ from privyx.events._audit import (
     breakdown,
     local_time,
     record_line,
+    utc_time,
 )
 from privyx.events._config import ConfigChanged
 from privyx.events._request import (
@@ -61,4 +62,5 @@ __all__ = [
     "breakdown",
     "local_time",
     "record_line",
+    "utc_time",
 ]

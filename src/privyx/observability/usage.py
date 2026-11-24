@@ -24,15 +24,6 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-#: Usage fields summed when a reply gives no ``total_tokens``.
-_COUNTED = (
-    "input_tokens",
-    "output_tokens",
-    "cache_creation_input_tokens",
-    "cache_read_input_tokens",
-    "prompt_tokens",
-    "completion_tokens",
-)
 #: Nested counts kept under their own name: the cached part of the input.
 _DETAILS = ("prompt_tokens_details", "input_tokens_details")
 _MODEL = re.compile(r"[\w.:/@-]{1,128}")
