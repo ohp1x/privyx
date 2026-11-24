@@ -1,7 +1,8 @@
 """Each module imports only its own layer and those below, as the 0.3.0 layout has it.
 
 A module is placed in the package it belongs to in that layout, wherever it
-lives today: ``privyx.observability.usage`` is a dialect's.  The layers, lowest first:
+lives today: ``privyx.observability.usage`` meters the proxy's replies.  The
+layers, lowest first:
 
 0. ``core``
 1. ``events``, ``token``, ``security``, ``streaming``
@@ -78,7 +79,7 @@ PLACES: dict[str, str] = {
     "privyx.observability.audit": "events",
     "privyx.observability.logging": "app",
     "privyx.observability.tracing": "features",
-    "privyx.observability.usage": "dialects",
+    "privyx.observability.usage": "proxy",
     "privyx.mcp": "mcp",
     "privyx.operators": "operators",
     "privyx.policies": "policies",
@@ -96,12 +97,7 @@ PLACES: dict[str, str] = {
 }
 
 #: (importer, imported) pairs that break the layers today.
-ALLOWED: frozenset[tuple[str, str]] = frozenset(
-    {
-        # Telling a model name from PII goes with the cost report into app.
-        ("privyx.observability.usage", "privyx.detectors"),
-    }
-)
+ALLOWED: frozenset[tuple[str, str]] = frozenset()
 
 
 #: (importer, imported) pairs where a module imports a private module of another package.
