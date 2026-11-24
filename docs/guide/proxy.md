@@ -247,6 +247,9 @@ rule is in
 - In a stream, text and reasoning deltas as they arrive; a token split
   between two chunks is held back until it is whole. Tool-call arguments are
   collected and delivered restored in one piece.
+- A reply labelled `text/event-stream` whose body is one JSON document, as
+  some gateways answer a request that asks for no stream, is restored as a
+  batch reply, and what follows the document is kept.
 - A token the model wrote without its outer delimiters (`PRIVYX_EMAIL_4FF5EF825E496E1A`)
   or with only one of them (`<PRIVYX_EMAIL_4FF5EF825E496E1A`), in another case
   (`<privyx_email_4ff5ef825e496e1a>`), or as its id alone when the id is long, is restored

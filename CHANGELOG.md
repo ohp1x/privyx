@@ -68,6 +68,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** an SSE block holding only `id` or `retry`, and an empty `id`, reach the client on masking routes, also when the text of their event is held back
 - **Docker:** the image's healthcheck passes when the container serves TLS itself, whether `server.tls`, its environment variables, or `--ssl-certfile` set it; before, it called plain HTTP and the container stayed `unhealthy`
 - **Config:** `privyx config migrate FILE` prints a file with nothing to rename as it is; before, it printed nothing, so `privyx config migrate FILE > new.yaml` wrote an empty config that dropped the terms it held
+- **Proxy:** a reply labelled `text/event-stream` whose body is one JSON document, as some gateways answer a request that asks for no stream, reaches the client restored; before, it arrived empty
 
 ### Security
 

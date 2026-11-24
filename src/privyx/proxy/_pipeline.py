@@ -56,6 +56,7 @@ from privyx.core import (
     Session,
     Stop,
     VaultError,
+    walk_sync,
 )
 from privyx.core import request_id as new_request_id
 from privyx.engine import PrivacyEngine
@@ -65,6 +66,7 @@ from privyx.observability.audit import AuditLogger
 from privyx.observability.usage import UsageMeter
 from privyx.proxy._headers import filter_request_headers, filter_response_headers
 from privyx.proxy._mask import (
+    _PLAIN,
     AUTH_QUERY_PARAMS,
     agent_metadata,
     restore_response,
@@ -957,6 +959,11 @@ class Pipeline:
                 router = dialect.stream(codec, resolve, make)
             else:
                 router = StreamRouter(codec, resolve, make)
+            # Until its first byte that is not blank, a reply labelled SSE may
+            # still be one JSON body, as some gateways answer a request that
+            # asks for no stream: that is read whole, and restored as one.
+            head: list[bytes] | None = None if lines else []
+            body: list[bytes] | None = None
             async for raw in response.aiter_bytes():
                 if lines:
                     meter.feed_lines(raw)
@@ -964,12 +971,27 @@ class Pipeline:
                     meter.feed_sse(raw)
                 if tapped is not None:
                     tapped[0].append(raw)
+                if body is not None:
+                    body.append(raw)
+                    continue
+                if head is not None:
+                    head.append(raw)
+                    if not raw.strip():
+                        continue
+                    raw, head = b"".join(head), None
+                    if raw.lstrip()[:1] in (b"{", b"["):
+                        body = [raw]
+                        continue
                 for out in router.feed(raw):
                     frames += 1
                     if tapped is not None:
                         tapped[1].append(out)
                     yield out
-            for out in router.flush():
+            if body is None:
+                tail = router.flush()
+            else:
+                tail = [_restore_document(b"".join(body), dialect, make, meter)]
+            for out in tail:
                 frames += 1
                 if tapped is not None:
                     tapped[1].append(out)
@@ -1140,6 +1162,39 @@ def _objects(dialect: Dialect, make: Any) -> Any:
     """
     full = make()
     return dialect.objects(make, lambda text: full.feed(text) + full.flush())
+
+
+def _restore_document(data: bytes, dialect: Dialect | None, make: Any, meter: UsageMeter) -> str:
+    """A reply labelled SSE that is one JSON body, restored as a batch body is.
+
+    What follows the JSON, such as a gateway's ``data: [DONE]``, is kept as it
+    came.  A body that is no JSON is restored as text.
+    """
+    text = data.decode("utf-8", "replace")
+    full = make()
+
+    def restore(value: str) -> str:
+        restored: str = full.feed(value) + full.flush()
+        return restored
+
+    start = len(text) - len(text.lstrip())
+    try:
+        payload, end = json.JSONDecoder().raw_decode(text, start)
+    except ValueError:
+        return restore(text)
+    meter.feed_json(payload)
+    plain = dialect or _PLAIN
+    objects = _objects(plain, make) if isinstance(payload, list) else None
+    if objects is not None:
+        restored = restore_chunks(payload, objects)
+    else:
+        plain.remember(payload)
+        restored = walk_sync(
+            payload, restore, documents=plain.document_keys, hidden=plain.opaque_keys
+        )
+    if restored == payload:
+        return text
+    return text[:start] + json.dumps(restored, ensure_ascii=False) + text[end:]
 
 
 def scan_failure(exc: Exception) -> tuple[int, dict[str, Any]]:

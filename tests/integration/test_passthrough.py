@@ -262,3 +262,27 @@ async def test_a_keep_alive_reaches_the_client_on_a_masking_route() -> None:
 
     assert b": keep-alive\n\n" in reply.content
     assert b"id: 7\n" in reply.content
+
+
+@pytest.mark.parametrize("after", ["", "data: [DONE]\n\n", "\n\ndata: [DONE]\n\n"])
+async def test_a_json_reply_labelled_sse_reaches_the_client_restored(after: str) -> None:
+    # A gateway answering a request that asks for no stream, as one JSON body.
+    def gateway(request: httpx.Request) -> httpx.Response:
+        token = json.loads(request.content)["messages"][0]["content"].split()[-1]
+        assert token.startswith("<PRIVYX_EMAIL_")
+        message = {"role": "assistant", "content": f"to {token}"}
+        body = json.dumps({"choices": [{"index": 0, "message": message}]}) + after
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
+
+    transport = httpx.ASGITransport(app=create_app(_sse_proxy(gateway)))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://proxy.test") as client:
+        reply = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "mail ana@example.com"}]},
+        )
+
+    text = reply.content.decode()
+    document, end = json.JSONDecoder().raw_decode(text)
+    assert document["choices"][0]["message"]["content"] == "to ana@example.com"
+    assert text[end:] == after
