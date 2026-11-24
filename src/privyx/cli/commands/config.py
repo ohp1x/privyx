@@ -5,16 +5,11 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any
 
 import click
 
-from privyx.cli._options import config_options, deprecated, json_option
-
-
-def _fail(exc: Exception) -> NoReturn:
-    click.echo(f"Error: {exc}", err=True)
-    sys.exit(1)
+from privyx.cli._options import config_options, deprecated, fail, json_option
 
 
 @click.group("config", invoke_without_command=True)
@@ -56,7 +51,7 @@ def _summary() -> None:
     try:
         settings = Privyx().settings
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     click.echo(f"Privyx {__version__}")
     click.echo(f"  Server: {settings.server.host}:{settings.server.port}")
     # The resolved URL, not the raw field: an empty base_url means the
@@ -86,7 +81,7 @@ def show_cmd(with_sources: bool) -> None:
     try:
         loaded = Privyx().config.show()
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     values = redact(loaded.settings.model_dump(mode="json"))
     shown = _with_sources(values, loaded.sources) if with_sources else values
     click.echo(json.dumps(shown, indent=2))
@@ -117,7 +112,7 @@ def get(key: str, as_json: bool) -> None:
     try:
         value = Privyx().config.get(key, masked=True)
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     click.echo(_shown(value, as_json))
 
 
@@ -140,7 +135,7 @@ def explain(key: str, as_json: bool) -> None:
     try:
         found = Privyx().config.explain(key)
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     if as_json:
         click.echo(json.dumps(asdict(found), indent=2))
         return
@@ -189,7 +184,7 @@ def set_cmd(key: str, value: str, project: bool, file: Path | None) -> None:
     try:
         changed = Privyx().config.set(key, value, **_scope(project, file))
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     click.echo(f"Set {changed.key} in {changed.file}")
     _report(changed)
 
@@ -206,7 +201,7 @@ def unset(key: str, project: bool, file: Path | None) -> None:
     try:
         changed = Privyx().config.unset(key, **_scope(project, file))
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     click.echo(f"Removed {changed.key} from {changed.file}")
     _report(changed)
 
@@ -232,7 +227,7 @@ def path() -> None:
     try:
         files = Privyx().config.files()
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     click.echo("\n".join(str(p) for p in files) or "defaults")
 
 
@@ -256,7 +251,7 @@ def validate(file: Path | None) -> None:
     try:
         warnings = Privyx().config.validate(file)
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     for warning in warnings:
         click.echo(f"Warning: {warning}", err=True)
     click.echo("valid")
@@ -283,7 +278,7 @@ def migrate(file: Path | None, write: bool) -> None:
         files = [file] if file is not None else app.config.files()
         done = [app.config.migrate(f, write=write) for f in files]
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     for migrated in done:
         if migrated.left:
             click.echo(
@@ -338,7 +333,7 @@ def edit(project: bool) -> None:
     try:
         warnings = Privyx().config.validate()
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     for warning in warnings:
         click.echo(f"Warning: {warning}", err=True)
 
@@ -357,7 +352,7 @@ def trust() -> None:
     try:
         paths = Privyx().config.trust()
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     for trusted in paths:
         click.echo(f"Trusted {trusted}")
 
@@ -381,7 +376,7 @@ def lint() -> None:
     try:
         found = asyncio.run(Privyx().diagnostics.lint())
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     for warning in found.warnings:
         click.echo(f"warning: {warning}")
     for detector in found.unchecked:
@@ -415,7 +410,7 @@ def routes() -> None:
     try:
         found = Privyx().config.routes()
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     click.echo(f"Mode: {found.mode}  Upstream: {redact(found.upstream, 'url')}")
     click.echo("")
     width = max(len("PATH"), *(len(p) for p in found.routes)) if found.routes else len("PATH")

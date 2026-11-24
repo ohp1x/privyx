@@ -23,7 +23,7 @@ from privyx.core import Notification
 SCHEMA_VERSION = 1
 
 
-def _iso(ts: float) -> str:
+def utc_time(ts: float) -> str:
     """An epoch timestamp as an ISO-8601 UTC millisecond string."""
     return (
         datetime.fromtimestamp(ts, tz=UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -49,7 +49,7 @@ class AuditEvent(Notification):
     def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": SCHEMA_VERSION,
-            "time": _iso(self.timestamp),
+            "time": utc_time(self.timestamp),
             "ts": self.timestamp,
             "event": self.name,
             "request_id": self.request_id,

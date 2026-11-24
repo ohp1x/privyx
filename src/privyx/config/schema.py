@@ -345,6 +345,13 @@ class BudgetConfig(BaseModel):
     max_tokens: int | None = Field(default=None, gt=0)
 
 
+def env_names(values: list[str]) -> list[str]:
+    """``values``, each an environment variable name, without repeats."""
+    if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in values):
+        raise ValueError("must contain environment variable names")
+    return list(dict.fromkeys(values))
+
+
 class AgentConfig(BaseModel):
     """How to launch a tool and point it at the local proxy; never a shell command.
 
@@ -412,12 +419,7 @@ class AgentConfig(BaseModel):
             raise ValueError("must be non-blank and contain no NUL")
         return value
 
-    @field_validator("env_vars")
-    @classmethod
-    def _env_names(cls, values: list[str]) -> list[str]:
-        if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in values):
-            raise ValueError("must contain environment variable names")
-        return list(dict.fromkeys(values))
+    _env_names = field_validator("env_vars")(env_names)
 
     @field_validator("base_path")
     @classmethod

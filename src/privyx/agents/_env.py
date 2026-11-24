@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from pydantic import field_validator
 
 from privyx.agents._base import Agent, Endpoint, LaunchContext
 from privyx.config.defaults import DEFAULT_AGENTS
+from privyx.config.schema import env_names
 
 #: For a command with no profile: the base-URL variables most tools read, by
 #: provider type, and the path the proxy URL ends in for them.
@@ -34,12 +34,7 @@ class EnvAgent(Agent):
         #: means those of the built-in profile named like the command's file.
         endpoint_env: list[str] = []
 
-        @field_validator("endpoint_env")
-        @classmethod
-        def _names(cls, values: list[str]) -> list[str]:
-            if any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in values):
-                raise ValueError("must contain environment variable names")
-            return list(dict.fromkeys(values))
+        _names = field_validator("endpoint_env")(env_names)
 
     options: Options
 

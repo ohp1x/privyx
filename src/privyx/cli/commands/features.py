@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any
 
 import click
 
-from privyx.cli._options import config_options, json_option
-
-
-def _fail(exc: Exception) -> NoReturn:
-    click.echo(f"Error: {exc}", err=True)
-    sys.exit(1)
+from privyx.cli._options import config_options, fail, json_option
 
 
 @click.group()
@@ -39,7 +33,7 @@ def list_features(events: bool, as_json: bool) -> None:
     try:
         found = Privyx().features.list()
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     if as_json:
         click.echo(json.dumps([asdict(info) for info in found], indent=2))
         return
@@ -97,7 +91,7 @@ def _switch(name: str, on: bool, project: bool, file: Path | None) -> None:
             raise ConfigError(f"no feature {name!r}{hint}; `privyx features list` names them")
         changed = app.config.set(f"features.{name}.enabled", on, scope=scope, file=file)
     except PrivyxError as exc:
-        _fail(exc)
+        fail(exc)
     click.echo(f"{'Enabled' if on else 'Disabled'} {name} in {changed.file}")
     for where in changed.above:
         click.echo(f"  {where} also writes {changed.key}, and its value is used")

@@ -19,9 +19,6 @@ if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
     from privyx.engine import PrivacyEngine
 
-#: Input formats.  ``auto`` looks at the input file's extension.
-FORMATS = ("auto", "text", "json", "jsonl")
-
 _EXTENSIONS = {".json": "json", ".jsonl": "jsonl", ".ndjson": "jsonl"}
 
 #: Applied to one string leaf; async because the engine is.
