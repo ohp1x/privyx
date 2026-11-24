@@ -35,27 +35,29 @@ Code in [Coding agents](../tutorials/coding-agents.md).
 
 ## Configuration
 
-Transparent mode needs no config file. `provider.type: anthropic` makes
-Anthropic the upstream when `--upstream` is not given, and sends a key held by
-Privyx as `x-api-key`. The values below are the defaults.
+Transparent mode needs no config file. `provider: anthropic` selects the
+built-in provider `anthropic`, which makes Anthropic the upstream when
+`--upstream` is not given, sends a key held by Privyx as `x-api-key`, and adds
+`anthropic-version: 2023-06-01` when the client sends none. Written out, with
+its default:
 
 ```yaml
-provider:
-  type: anthropic
-  base_url: https://api.anthropic.com/v1/messages
-  headers:
-    anthropic-version: "2023-06-01"
+provider: anthropic
+providers:
+  anthropic:
+    type: anthropic
+    base_url: https://api.anthropic.com/v1/messages
 ```
 
 Credential settings can read environment variables, such as
 `api_key: ${ANTHROPIC_API_KEY}`. A missing variable stops startup; see
 [Configuration](../guide/configuration.md#where-settings-come-from).
 
-Privyx's own key comes, in both modes, from `PRIVYX_ANTHROPIC_API_KEY` when
-`provider.type` is `anthropic`, else from `PRIVYX_API_KEY` / `provider.api_key`.
-When one is set it replaces the client's key on every request; when none is,
-the transparent proxy relays the client's own `x-api-key` header and the
-gateway sends none.
+Privyx's own key is, in both modes, the `api_key` of the provider in use;
+`PRIVYX_ANTHROPIC_API_KEY` sets it for the built-in provider `anthropic`,
+which sends it to `api.anthropic.com` only. When one is set it replaces the
+client's key on every request; when none is, the transparent proxy relays the
+client's own `x-api-key` header and the gateway sends none.
 
 ## What is covered
 

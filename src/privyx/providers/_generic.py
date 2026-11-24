@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 from urllib.parse import urlsplit, urlunsplit
 
+from privyx.config.defaults import DEFAULT_BASE_URLS
 from privyx.providers._base import Provider
-from privyx.providers._urls import DEFAULT_BASE_URLS
 
 if TYPE_CHECKING:
     import httpx

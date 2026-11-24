@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from privyx.config.defaults import DEFAULT_BASE_URLS as DEFAULT_BASE_URLS
 from privyx.core import lazy_attribute
 from privyx.providers._base import Provider
-from privyx.providers._urls import DEFAULT_BASE_URLS as DEFAULT_BASE_URLS
 from privyx.providers._urls import check_credential as check_credential
 from privyx.providers._urls import held_credential as held_credential
 from privyx.providers._urls import resolve_api_key as resolve_api_key

@@ -242,8 +242,7 @@ project's `privyx.yaml`:
 
 ```yaml
 # privyx.yaml
-provider:
-  type: anthropic            # sends the key as x-api-key, adds anthropic-version
+provider: anthropic          # built in: sends the key as x-api-key, adds anthropic-version
 
 vault:
   type: sqlite               # needs privyx[sqlite]
@@ -334,7 +333,7 @@ privyx run claude-work
 | Profile field | Default | Description |
 |---|---|---|
 | `command` | Required for a new profile | Executable name or path, passed directly to a subprocess. Pass arguments after `--`; this field is not a shell command. |
-| `provider` | `generic` | Upstream provider type, such as `openai` or `anthropic`. |
+| `provider` | the config's `provider` | The named provider the profile uses, one of `providers`, such as `anthropic` or `xai`. `privyx run --provider` picks another for one run. |
 | `upstream` | empty | Explicit HTTP(S) upstream URL. Without an explicit upstream, transparent mode follows supported native agent endpoints, then the provider default. Transparent mode forwards to its origin, or to the full URL with `provider.path_mapping.mode: prefix`; gateway mode uses the full URL. |
 | `env_vars` | `[]` | Environment variable names to set to the local proxy URL. A configured list replaces the built-in profile's list; CLI `--env-var` adds names. Supported native endpoint values are read before injection; other variable names do not imply an upstream unless `endpoint_env` names them. |
 | `endpoint_env` | that of the built-in profile named like the command's file | Environment variables that may hold the tool's own endpoint, in order. The first one set becomes the upstream when none is given explicitly (see [Where requests go](cli.md#where-requests-go)). Inherited with `extends`, so a wrapper with its own `command` follows the same variables as the tool it wraps. Read by type `env` only. |

@@ -38,26 +38,28 @@ so it is returned as it is; see [Embeddings](../guide/proxy.md#embeddings).
 
 ## Configuration
 
-Transparent mode needs no config file. `provider.type: openai` makes OpenAI
-the upstream when `--upstream` is not given: transparent mode uses the origin
-of `base_url`, and gateway mode posts to it as written. The value below is the
-default.
+Transparent mode needs no config file. `provider: openai` selects the
+built-in provider `openai`, which makes OpenAI the upstream when `--upstream`
+is not given: transparent mode uses the origin of `base_url`, and gateway mode
+posts to it as written. Written out, with its default:
 
 ```yaml
-provider:
-  type: openai
-  base_url: https://api.openai.com/v1/chat/completions
+provider: openai
+providers:
+  openai:
+    type: openai
+    base_url: https://api.openai.com/v1/chat/completions
 ```
 
 Credential settings can read environment variables, such as
 `api_key: ${OPENAI_API_KEY}`. A missing variable stops startup; see
 [Configuration](../guide/configuration.md#where-settings-come-from).
 
-Privyx's own key comes, in both modes, from `PRIVYX_OPENAI_API_KEY` when
-`provider.type` is `openai`, else from `PRIVYX_API_KEY` / `provider.api_key`.
-When one is set it replaces the client's key on every request; when none is,
-the transparent proxy relays the client's own `Authorization` header and the
-gateway sends none.
+Privyx's own key is, in both modes, the `api_key` of the provider in use;
+`PRIVYX_OPENAI_API_KEY` sets it for the built-in provider `openai`, which
+sends it to `api.openai.com` only. When one is set it replaces the client's
+key on every request; when none is, the transparent proxy relays the client's
+own `Authorization` header and the gateway sends none.
 
 ## What is covered
 

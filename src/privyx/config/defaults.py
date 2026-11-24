@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+#: Where each provider type points when nothing else is configured.
+DEFAULT_BASE_URLS: dict[str, str] = {
+    "generic": "http://localhost:20128",
+    "openai": "https://api.openai.com/v1/chat/completions",
+    "anthropic": "https://api.anthropic.com/v1/messages",
+    "google": "https://generativelanguage.googleapis.com",
+}
+
 #: The built-in named providers: one per built-in type, and the two
 #: OpenAI-compatible and generic hosts the built-in profiles use.  A key
 #: written for one is sent to its host only.
@@ -124,8 +132,8 @@ DEFAULTS: dict[str, object] = {
     # ephemeral (default) is safe and unchanged; see SessionConfig for the rest.
     "session": {"strategy": "ephemeral"},
     "token": {"namespace": "PRIVYX", "format": "<{namespace}_{type}_{id}>"},
-    # An unset base_url resolves to the provider type's own default (see
-    # privyx.providers.DEFAULT_BASE_URLS).
+    # An unset base_url resolves to the provider type's own default
+    # (DEFAULT_BASE_URLS).
     "provider": {"type": "generic"},
     "providers": DEFAULT_PROVIDERS,
     "features": {name: {"enabled": on} for name, on in DEFAULT_FEATURES.items()},

@@ -9,15 +9,9 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from privyx.config.defaults import DEFAULT_BASE_URLS
+from privyx.config.providers import origin
 from privyx.core import ConfigError
-
-#: Where each provider type points when nothing else is configured.
-DEFAULT_BASE_URLS: dict[str, str] = {
-    "generic": "http://localhost:20128",
-    "openai": "https://api.openai.com/v1/chat/completions",
-    "anthropic": "https://api.anthropic.com/v1/messages",
-    "google": "https://generativelanguage.googleapis.com",
-}
 
 
 def resolve_base_url(settings: Any) -> str:
@@ -79,26 +73,13 @@ def check_credential(settings: Any, *, where: str = "") -> None:
     base, kind = settings._home or (settings.provider.base_url, settings.provider.type)
     home = base or DEFAULT_BASE_URLS.get(kind, DEFAULT_BASE_URLS["generic"])
     destination = where or resolve_base_url(settings)
-    if _origin(destination) != _origin(home):
+    if origin(destination) != origin(home):
         raise ConfigError(
-            f"{held} is for {_origin(home)} only, but the requests would go to "
-            f"{_origin(destination)}: write that URL beside the key (in its provider, or "
+            f"{held} is for {origin(home)} only, but the requests would go to "
+            f"{origin(destination)}: write that URL beside the key (in its provider, or "
             "PRIVYX_UPSTREAM_URL beside PRIVYX_API_KEY), or define a provider for it under "
             "'providers' with a key of its own and select it"
         )
-
-
-def _origin(url: str) -> str:
-    """``scheme://host[:port]`` of ``url``, its default port left out, lowercased."""
-    parts = urlsplit(url if "://" in url else f"http://{url}")
-    host = (parts.hostname or "").lower()
-    try:
-        port = parts.port
-    except ValueError:
-        port = None
-    default = {"http": 80, "https": 443}.get(parts.scheme.lower())
-    shown = f"[{host}]" if ":" in host else host
-    return f"{parts.scheme.lower()}://{shown}" + (f":{port}" if port and port != default else "")
 
 
 def resolve_origin(settings: Any) -> str:

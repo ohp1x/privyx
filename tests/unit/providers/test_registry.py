@@ -19,6 +19,7 @@ from privyx.providers import (
     DEFAULT_BASE_URLS,
     GenericProvider,
     Provider,
+    check_credential,
     resolve_api_key,
     resolve_base_url,
 )
@@ -162,9 +163,33 @@ def test_a_key_belongs_to_the_provider_it_is_written_for(
 
     assert key("openai") == "specific"  # the built-in provider openai's own
     assert key("xai") is None  # another host, of the same type
-    assert key({"type": "openai"}) is None  # a provider of its own
+    router = {"type": "openai", "base_url": "https://router.example.com/v1"}
+    assert key(router) is None  # a provider of its own, for another host
     assert any("the key of provider 'openai' is not sent" in w for w in warnings)
-    assert key({"type": "openai", "api_key": "own"}) == "own"
+    assert key({**router, "api_key": "own"}) == "own"
+
+
+@pytest.mark.parametrize("url", ["", "https://api.openai.com/v1"])
+def test_a_top_level_provider_of_a_type_still_sends_its_key_to_its_host(
+    url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As in 0.2, until 0.4.0: ``PRIVYX_OPENAI_API_KEY`` first, where it may go."""
+    monkeypatch.delenv("PRIVYX_API_KEY", raising=False)
+    monkeypatch.setenv("PRIVYX_OPENAI_API_KEY", "specific")
+    provider = {"type": "openai", "base_url": url}
+
+    loaded = read_config(extra={"provider": provider})
+
+    assert resolve_api_key(loaded.settings) == "specific"
+    check_credential(loaded.settings)
+    assert (
+        "the top-level provider of type 'openai' sends the key of provider 'openai', which is "
+        "deprecated: write 'provider: openai' (removed in 0.4.0)"
+    ) in loaded.warnings
+    monkeypatch.setenv("PRIVYX_API_KEY", "common")
+    loaded = read_config(extra={"provider": provider})
+    assert resolve_api_key(loaded.settings) == "specific"  # before the common key, as in 0.2
+    assert any("in place of its own, which is deprecated" in w for w in loaded.warnings)
 
 
 def test_privyx_api_key_belongs_to_the_provider_selected_at_the_top(

@@ -41,7 +41,7 @@ Common settings come from environment variables:
 |---|---|
 | `PRIVYX_UPSTREAM_URL` | Provider origin, e.g. `https://api.openai.com` |
 | `PRIVYX_API_KEY` | Upstream key held by Privyx (optional) |
-| `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY` | Per-provider keys, used when `provider.type` is set in a config file |
+| `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY` | Keys of the built-in providers `openai` and `anthropic`, each sent only while that provider is selected, as with `PRIVYX_PROVIDER=anthropic` or `provider: anthropic` in a config file; set `PRIVYX_UPSTREAM_URL` to its origin too |
 | `PRIVYX_SESSION_STRATEGY` | `ephemeral` (default), `client`, or `conversation` |
 | `PRIVYX_VAULT` | Session vault: `memory` (default), `sqlite`, or `redis` |
 | `PRIVYX_REDIS_URL` | Redis URL when `PRIVYX_VAULT=redis` |
