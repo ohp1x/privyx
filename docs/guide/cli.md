@@ -714,8 +714,9 @@ status 1.
 
 ### `privyx config migrate`
 
-Print `FILE`, or each config file in use, with the keys renamed in 0.3.0. The
-old keys keep working, with a warning, until 0.4.0.
+Print `FILE`, or each config file in use, with the keys renamed in 0.3.0. A
+file with nothing to rename is printed as it is, comments included. The old
+keys keep working, with a warning, until 0.4.0.
 
 ```console
 $ privyx config migrate old.yaml

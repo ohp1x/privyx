@@ -272,7 +272,8 @@ def validate(file: Path | None) -> None:
 def migrate(file: Path | None, write: bool) -> None:
     """Print FILE, or each config file in use, with the keys renamed in 0.3.0.
 
-    Old keys still work, with a warning, until 0.4.0.
+    A file with nothing to rename is printed as it is.  Old keys still work,
+    with a warning, until 0.4.0.
     """
     from privyx.app import Privyx
     from privyx.core import PrivyxError
@@ -294,8 +295,9 @@ def migrate(file: Path | None, write: bool) -> None:
         if not migrated.renamed:
             if not migrated.left:
                 click.echo(f"{migrated.file}: nothing to migrate", err=True)
-            continue
-        if migrated.backup is not None:
+            if write:
+                continue
+        elif migrated.backup is not None:
             click.echo(
                 f"Rewrote {migrated.file}, without its comments; it was kept as {migrated.backup}",
                 err=True,
@@ -303,7 +305,9 @@ def migrate(file: Path | None, write: bool) -> None:
             continue
         if len(done) > 1:
             click.echo(f"# {migrated.file}")
-        click.echo(migrated.text, nl=False)
+        # A file printed as it is may end without a newline: the next header
+        # must still start a line.
+        click.echo(migrated.text, nl=len(done) > 1 and not migrated.text.endswith("\n"))
     if not write and any(m.renamed for m in done):
         click.echo("Comments are not kept; --write rewrites the file, with a backup.", err=True)
 
