@@ -386,6 +386,27 @@ def test_migrate_prints_the_new_config_and_write_keeps_a_trusted_backup(
     assert "nothing to migrate" in again.stderr
 
 
+def test_migrate_prints_a_file_with_nothing_to_rename_as_it_is(
+    runner: CliRunner, home: Path, tmp_path: Path
+) -> None:
+    user = home / ".privyx" / "config.yaml"
+    user.parent.mkdir()
+    user.write_text("# mine\ndetectors:\n  regex:\n    terms: {P: [ann]}", encoding="utf-8")
+    project = tmp_path / "privyx.yaml"
+    project.write_text("port: 8001\n", encoding="utf-8")
+    trust(project)
+
+    one = runner.invoke(cli, ["config", "migrate", str(user)])
+    each = runner.invoke(cli, ["config", "migrate"])
+
+    # `config migrate FILE > new.yaml` must not write an empty config, losing the terms.
+    assert one.exit_code == 0, one.output
+    assert one.stdout == user.read_text(encoding="utf-8")
+    assert "nothing to migrate" in one.stderr
+    assert each.exit_code == 0, each.output
+    assert f"terms: {{P: [ann]}}\n# {project}\nserver:\n  port: 8001\n" in each.stdout
+
+
 def test_routes_shows_the_masked_paths(runner: CliRunner) -> None:
     result = runner.invoke(cli, ["config", "routes"])
 

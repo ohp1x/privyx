@@ -253,8 +253,11 @@ class Config:
         data = migrate(written, found, below=detectors_of(below), left=left, others=others)
         # `operator.type: hash` warns but has no new spelling: alone it renames nothing.
         renamed = list(dict.fromkeys(found)) if data != written else []
+        if not renamed:
+            # As it is, comments too: printed, it can stand in for the file.
+            return Migrated(path, path.read_text(encoding="utf-8"), renamed, left=left)
         text = _dump(data) if data else ""
-        if not write or not renamed:
+        if not write:
             return Migrated(path, text, renamed, left=left)
         trusted = _covering(path)
         real = path.resolve()
