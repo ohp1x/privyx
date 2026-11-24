@@ -41,9 +41,9 @@ its environment (date, directory, files), so its chats in one directory on
 one day share a session. The trade-offs are covered in
 [Proxy: Sessions](../architecture/proxy.md#sessions).
 
-These strategies read the credential the client sent to Privyx, also with
-`forward_client_auth: false`, which only decides what goes upstream. The
-fingerprint has limits:
+These strategies read the credential the client sent to Privyx, in a header
+or the query string, also with `forward_client_auth: false`, which only
+decides what goes upstream. The fingerprint has limits:
 
 - Callers that share a credential share a session under `client`, and under
   `conversation` when their first user message is the same. Each can then have
