@@ -40,9 +40,9 @@ response = client.models.generate_content(
 )
 ```
 
-The client keeps its own key. To have Privyx send one instead, set
-`provider.google_api_key` (`PRIVYX_GOOGLE_API_KEY`) with `provider.type: google`;
-it then replaces the client's on Gemini paths.
+The client keeps its own key. To have Privyx send one instead, select the
+built-in provider with `provider: google` and set its key,
+`PRIVYX_GOOGLE_API_KEY`; it then replaces the client's on Gemini paths.
 
 A stream asked for with `alt=sse`, as the Google SDKs do, is restored event by
 event. Without `alt=sse`, Gemini sends the stream as one JSON array; Privyx
@@ -60,8 +60,7 @@ proxy:
     /v1beta/models/*:generateContent: gemini
     /v1beta/models/*:streamGenerateContent: gemini
     /v1beta/models/*:countTokens: gemini
-provider:
-  type: google
+provider: google
 ```
 
 ```bash

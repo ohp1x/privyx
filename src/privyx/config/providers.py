@@ -14,6 +14,9 @@ profile that selects another one does not take them.  A destination from
 elsewhere (a profile's ``upstream``, a common ``base_url`` while a profile
 selects another provider) moves the requests, never the credential: the
 provider refuses to start then (:func:`privyx.providers.check_credential`).
+Until 0.4.0, the key of the built-in provider ``openai``, ``anthropic``, or
+``google`` still goes first, as in 0.2, from a top-level provider of that
+type whose requests go to the same origin as that key, with a warning.
 
 What the top carries to a profile's provider fills what that provider leaves
 open.  A field the provider or the profile writes, in the same layer or a
@@ -26,8 +29,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from privyx.config._keys import leaves
+from privyx.config.defaults import DEFAULT_BASE_URLS
 from privyx.core import ConfigError
 
 #: The fields that say where requests go, and how: a destination from
@@ -200,9 +205,24 @@ def resolve_provider(
     if upstream:
         sources["upstream_url"] = dest_sources["base_url"]
     held = _held(definition)
+    owner = home.get(effective) if held else None
     warnings = []
-    kind = definition.get("type")
-    if not effective and not held and kind in _TYPE_KEYS and _held(defs.get(str(kind), {})):
+    kind = str(definition.get("type") or "")
+    typed = defs.get(kind, {}) if not effective and kind in _TYPE_KEYS else {}
+    if typed.get("api_key") and _reach(upstream or base, kind) == _reach(*home[kind]):
+        # 0.2 sent provider.<type>_api_key (PRIVYX_<TYPE>_API_KEY) before
+        # provider.api_key: kept where that key may go, until 0.4.0.
+        if definition.get("api_key"):
+            sent = " in place of its own, which is deprecated: from 0.4.0 it sends its own"
+        else:
+            sent = f", which is deprecated: write 'provider: {kind}' (removed in 0.4.0)"
+        warnings.append(
+            f"the top-level provider of type {kind!r} sends the key of provider {kind!r}{sent}"
+        )
+        provider["api_key"] = typed["api_key"]
+        sources["provider.api_key"] = written[kind]["api_key"]
+        owner = owner or home[kind]
+    elif not held and _held(typed):
         warnings.append(
             f"the key of provider {kind!r} is not sent: the provider in use is the top-level "
             f"one of type {kind!r}; select the named one with 'provider: {kind}', or give the "
@@ -212,7 +232,7 @@ def resolve_provider(
         provider=provider,
         providers={name: definition for name, definition in defs.items() if name},
         upstream_url=upstream,
-        home=home.get(effective) if held else None,
+        home=owner,
         sources=sources,
         warnings=warnings,
     )
@@ -231,6 +251,24 @@ def token_warnings(merged: Mapping[str, Any], sources: Mapping[str, str]) -> lis
         for key in (token if isinstance(token, dict) else {})
         if sources.get(f"token.{key}", "defaults") != "defaults"
     ]
+
+
+def origin(url: str) -> str:
+    """``scheme://host[:port]`` of ``url``, its default port left out, lowercased."""
+    parts = urlsplit(url if "://" in url else f"http://{url}")
+    host = (parts.hostname or "").lower()
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    default = {"http": 80, "https": 443}.get(parts.scheme.lower())
+    shown = f"[{host}]" if ":" in host else host
+    return f"{parts.scheme.lower()}://{shown}" + (f":{port}" if port and port != default else "")
+
+
+def _reach(base: str, kind: str) -> str:
+    """The origin a provider of type ``kind`` with ``base_url`` ``base`` sends to."""
+    return origin(base or DEFAULT_BASE_URLS.get(kind, DEFAULT_BASE_URLS["generic"]))
 
 
 def _given(mapping: Mapping[str, Any], key: str) -> bool:

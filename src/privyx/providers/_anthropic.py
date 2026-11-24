@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
+from privyx.config.defaults import DEFAULT_BASE_URLS
 from privyx.providers._generic import GenericProvider
-from privyx.providers._urls import DEFAULT_BASE_URLS
 
 if TYPE_CHECKING:
     import httpx

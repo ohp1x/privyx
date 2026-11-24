@@ -77,19 +77,22 @@ proxy:
   mode: gateway
   routes:
     /v1/messages: anthropic
-provider:
-  type: anthropic
-  base_url: https://api.deepseek.com/anthropic/v1/messages
+providers:
+  deepseek:
+    type: anthropic
+    base_url: https://api.deepseek.com/anthropic/v1/messages
+    api_key: ${DEEPSEEK_API_KEY}
 ```
 
 ```bash
-export PRIVYX_ANTHROPIC_API_KEY=...      # your DeepSeek key
-privyx -c deepseek-claude.yaml run claude
+export DEEPSEEK_API_KEY=...
+privyx -c deepseek-claude.yaml run --provider deepseek claude
 ```
 
-In gateway mode Privyx sends its own key, the one above, and does not relay
-what Claude Code presents. Claude Code still needs a credential of its own to
-start.
+`--provider deepseek` takes the place of the `claude` profile's own provider,
+`anthropic`, whose key goes to `api.anthropic.com` only. In gateway mode
+Privyx sends the provider's key and does not relay what Claude Code presents.
+Claude Code still needs a credential of its own to start.
 
 ## Good to know
 

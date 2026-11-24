@@ -104,6 +104,16 @@ is `pseudonym` with an explicit `anchor.secret`, which writes different tokens.
 | `token.id_length`, `operator.length` | `operator.id_length` |
 | `operator.token` (`redact`) | `operator.text` |
 
+`PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`, and
+`PRIVYX_GOOGLE_API_KEY` are the keys of the built-in providers `openai`,
+`anthropic`, and `google`: select one with `provider: anthropic` or
+`PRIVYX_PROVIDER=anthropic`. A top-level `provider` written as a mapping, such
+as `{type: anthropic}`, still sends the key of its type until 0.4.0, with a
+warning, but only when its requests go to that provider's host. For another
+host, such as DeepSeek's Anthropic-compatible API, give that provider a key of
+its own (`PRIVYX_API_KEY`), or define one under `providers`, as in
+[DeepSeek](../providers/deepseek.md#claude-code).
+
 ### CLI commands
 
 | Old command | New command |

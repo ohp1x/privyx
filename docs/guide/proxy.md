@@ -66,7 +66,7 @@ provider:
 ```
 
 ```bash
-export PRIVYX_ANTHROPIC_API_KEY=...
+export PRIVYX_API_KEY=...         # the key of the provider above: DeepSeek's
 privyx -c privyx.yaml proxy
 ```
 
@@ -263,11 +263,17 @@ make Privyx reveal a value from another session.
 
 **Which key reaches the provider.** The first of these that is set:
 
-1. `provider.<type>_api_key` for the configured `provider.type`
-   (`PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY`);
-2. `provider.api_key` (`PRIVYX_API_KEY`);
-3. in transparent mode, the client's own `Authorization`, `x-api-key`, or
+1. the `api_key` of the provider in use. `PRIVYX_OPENAI_API_KEY`,
+   `PRIVYX_ANTHROPIC_API_KEY`, and `PRIVYX_GOOGLE_API_KEY` set it for the
+   built-in provider of that name, as in `provider: anthropic`, and
+   `PRIVYX_API_KEY` for the provider the config selects, such as one written
+   under `provider` itself;
+2. in transparent mode, the client's own `Authorization`, `x-api-key`, or
    `x-goog-api-key` header, or `key` query parameter; in gateway mode, none.
+
+A key goes only to the `base_url` of the provider it is written for, or to
+its type's default host; see
+[`provider` and `providers`](configuration.md#provider-and-providers).
 
 A key held by Privyx replaces the client's on every request. The transparent
 proxy sends it as `x-api-key` on Anthropic paths, as `x-goog-api-key` on
