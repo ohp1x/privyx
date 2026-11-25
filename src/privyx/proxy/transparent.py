@@ -52,8 +52,8 @@ from privyx.proxy.headers import filter_request_headers, filter_response_headers
 from privyx.proxy.schemas import (
     AUTH_QUERY_PARAMS,
     MASKED_HEADERS,
-    detect_schema,
     has_token_ids,
+    matched_route,
     restore_response,
     transform_request,
 )
@@ -314,11 +314,11 @@ class TransparentProxy:
                     media_type=_JSON,
                     body=json.dumps({"error": {"message": message}}).encode(),
                 )
-            schema = detect_schema(path, self._routes)
+            route = matched_route(path, self._routes)
+            schema = None if route is None else self._routes[route]
             if schema is not None:
-                tracing.annotate(
-                    span, **{"http.route": "/" + path.lstrip("/"), "privyx.schema": schema}
-                )
+                # The route, not the path: a `*` of it stands for a value of the client's.
+                tracing.annotate(span, **{"http.route": route, "privyx.schema": schema})
             if schema is None:
                 self._audit.route_decision(allowed=self._passthrough_unknown, method=method)
                 if self._passthrough_unknown and (
@@ -494,9 +494,10 @@ class TransparentProxy:
             tracing.annotate(span, **{"privyx.stream": is_stream})
             self._audit.request(
                 method=method,
-                # An unmatched URL may itself contain PII. The route-decision
-                # event exposes the gap without copying a client-supplied path.
-                path="/" + path.lstrip("/") if schema is not None else "[unmatched]",
+                # A URL may itself contain PII, in a route's `*` too: the route is
+                # recorded, and the route-decision event exposes an unmatched one
+                # without copying a client-supplied path.
+                path=route if route is not None else "[unmatched]",
                 schema=schema,
                 status=response.status_code,
                 session_id=sid,

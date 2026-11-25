@@ -885,3 +885,46 @@ async def test_head_method_returns_empty_body() -> None:
     assert response.headers.get("content-length") == "20"
     assert len(capture) == 1
     assert capture[0].method == "HEAD"
+
+
+@pytest.mark.parametrize(
+    ("routes", "path", "route"),
+    [
+        (None, "/v1/chat/completions", "/v1/chat/completions"),
+        (None, "/v1/v1/chat/completions", "/v1/chat/completions"),
+        (None, f"/v1beta/models/{EMAIL}:generateContent", "/*/models/*:generateContent"),
+        (
+            {"/projects/*/messages": "anthropic"},
+            "/projects/apollo/messages",
+            "/projects/*/messages",
+        ),
+    ],
+    ids=["exact", "repeated-v1", "gemini", "custom"],
+)
+async def test_the_audit_trail_records_the_route_not_the_path(
+    routes: dict[str, str] | None, path: str, route: str
+) -> None:
+    buf = io.StringIO()
+    audit = AuditLogger(buf)
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={}))
+    )
+    proxy = TransparentProxy(
+        PrivacyEngine(
+            detector=RegexDetector(),
+            policy=DefaultPolicy(),
+            operator=PseudonymOperator(),
+            vault=MemoryVault(),
+            audit=audit,
+        ),
+        origin="https://up.test",
+        client=client,
+        audit=audit,
+        routes=routes,
+    )
+
+    await proxy.handle(method="POST", path=path, headers={}, body=b'{"messages":[]}')
+
+    records = [json.loads(line) for line in buf.getvalue().splitlines()]
+    assert next(r for r in records if r["event"] == "proxy.request")["path"] == route
+    assert EMAIL not in buf.getvalue() and "apollo" not in buf.getvalue()

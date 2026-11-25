@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Proxy:** a cookie an upstream sets is no longer kept and sent on the requests of other clients, which let a provider link them, and each `Set-Cookie` reaches the client as a header of its own instead of one folded line
 - **Proxy:** `forward_client_auth: false` also drops the client's `Cookie`; an upstream that authenticates with a cookie needs `forward_client_auth: true`
+- **Audit:** the `proxy.request` record and the `http.route` span attribute hold the route the path matched, such as `/*/models/*:generateContent`, instead of the path, so a value in a dynamic segment is no longer recorded; the model stays in `proxy.response`
 
 ## [0.1.40] - 2026-11-20
 
