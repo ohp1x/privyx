@@ -74,6 +74,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Audit:** the `proxy.request` record and the `http.route` span attribute hold the route the path matched, such as `/*/models/*:generateContent`, instead of the path, so a value in a dynamic segment is no longer recorded; the model stays in `proxy.response`
 - **Proxy:** the `client` and `conversation` session strategies tell callers apart by a key in the query string, such as Gemini's `key`, as they do by one in a header; before, callers with different keys there and the same first user message shared a `conversation` session, so each could have the other's tokens restored
 
+## [0.2.4] - 2026-11-25
+
+### Security
+
+- **Proxy:** a cookie an upstream sets is no longer kept and sent on the requests of other clients, which let a provider link them, and each `Set-Cookie` reaches the client as a header of its own instead of one folded line
+- **Proxy:** `forward_client_auth: false` also drops the client's `Cookie`; an upstream that authenticates with a cookie needs `forward_client_auth: true`
+- **Audit:** the `proxy.request` record and the `http.route` span attribute hold the route the path matched, such as `/*/models/*:generateContent`, instead of the path, so a value in a dynamic segment is no longer recorded; the model stays in `proxy.response`
+- **Proxy:** the `client` and `conversation` session strategies tell callers apart by a key in the query string, such as Gemini's `key`, as they do by one in a header; before, callers with different keys there and the same first user message shared a `conversation` session, so each could have the other's tokens restored
+
 ## [0.2.3] - 2026-11-20
 
 ### Added
@@ -142,6 +151,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Docker:** Compose passes `PRIVYX_ANCHOR_SECRET` only when it is set, so an `anchor.secret` in a mounted config is no longer replaced by an empty value
 - **Proxy:** the leak check no longer refuses a request when a masked term is part of a tool name the request declares, such as `acme` in `mcp__acme__search`, or in a label of a tool definition it sends unchanged, such as a parameter name or title
 - **Proxy:** the leak check no longer refuses a request when a masked value is part of its own placeholder or redaction token, such as a term `PERSON` in `<PRIVYX_PERSON_1>` with `_` separating words
+
+## [0.1.41] - 2026-11-25
+
+### Security
+
+- **Proxy:** a cookie an upstream sets is no longer kept and sent on the requests of other clients, which let a provider link them, and each `Set-Cookie` reaches the client as a header of its own instead of one folded line
+- **Proxy:** `forward_client_auth: false` also drops the client's `Cookie`; an upstream that authenticates with a cookie needs `forward_client_auth: true`
+- **Audit:** the `proxy.request` record and the `http.route` span attribute hold the route the path matched, such as `/*/models/*:generateContent`, instead of the path, so a value in a dynamic segment is no longer recorded; the model stays in `proxy.response`
+- **Proxy:** the `client` and `conversation` session strategies tell callers apart by a key in the query string, such as Gemini's `key`, as they do by one in a header; before, callers with different keys there and the same first user message shared a `conversation` session, so each could have the other's tokens restored
 
 ## [0.1.40] - 2026-11-20
 
@@ -837,10 +855,12 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 
 [Unreleased]: https://github.com/ohp1x/privyx/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/ohp1x/privyx/compare/v0.2.3...v0.3.0
+[0.2.4]: https://github.com/ohp1x/privyx/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/ohp1x/privyx/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/ohp1x/privyx/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ohp1x/privyx/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.2.0
+[0.1.41]: https://github.com/ohp1x/privyx/compare/v0.1.40...v0.1.41
 [0.1.40]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.1.40
 [0.1.39]: https://github.com/ohp1x/privyx/compare/v0.1.38...v0.1.39
 [0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
