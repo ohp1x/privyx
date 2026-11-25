@@ -79,5 +79,12 @@ def test_response_headers_drop_encoding_length_and_hop_by_hop() -> None:
     assert out["x-request-id"] == "r"
 
 
+def test_the_clients_cookie_goes_with_its_other_credentials() -> None:
+    headers = {"Cookie": "login=client", "Authorization": "Bearer x"}
+
+    assert "cookie" not in filter_request_headers(headers, forward_client_auth=False)
+    assert filter_request_headers(headers)["cookie"] == "login=client"
+
+
 def test_a_folded_set_cookie_is_not_relayed() -> None:
     assert "set-cookie" not in filter_response_headers({"Set-Cookie": "a=1, b=2"})

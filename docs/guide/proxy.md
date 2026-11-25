@@ -268,8 +268,8 @@ proxy sends it as `x-api-key` on Anthropic paths, as `x-goog-api-key` on
 Gemini paths, and as a bearer token elsewhere; the gateway sends it as
 `x-api-key` when `provider.type` is `anthropic` and as `x-goog-api-key` when
 it is `google`. `proxy.forward_client_auth: false` drops the client's credential
-headers and key query parameters before anything else, so only a configured
-key can go upstream.
+headers, `Cookie`, and key query parameters before anything else, so only a
+configured key can go upstream.
 
 **Headers Privyx adds or removes.**
 
