@@ -179,6 +179,7 @@ class Gateway:
                     headers=request.headers,
                     payload=payload,
                     schema=schema,
+                    query=request.query_params.multi_items(),
                 )
                 is_stream = _wants_stream(schema, path, payload, request.query_params)
                 # A route with a `*` stands for many paths: the provider gets the
