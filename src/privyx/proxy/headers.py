@@ -31,8 +31,10 @@ HOP_BY_HOP: frozenset[str] = frozenset(
 )
 
 #: Response headers dropped in addition to :data:`HOP_BY_HOP`.  ``content-encoding``
-#: goes because the client receives the decoded (identity) bytes we transformed.
-_RESPONSE_DROP: frozenset[str] = HOP_BY_HOP | {"content-encoding"}
+#: goes because the client receives the decoded (identity) bytes we transformed;
+#: ``set-cookie`` because a mapping folds several into one line no client can
+#: read, so the response carries each on its own.
+_RESPONSE_DROP: frozenset[str] = HOP_BY_HOP | {"content-encoding", "set-cookie"}
 
 #: The client's credential headers.
 _CLIENT_AUTH: frozenset[str] = frozenset({"authorization", "x-api-key", "x-goog-api-key"})
@@ -106,7 +108,8 @@ def filter_response_headers(headers: Mapping[str, str]) -> dict[str, str]:
     """Build the header set to return to the client.
 
     Drops hop-by-hop headers plus ``content-encoding`` (the body is handed back
-    decoded) and ``content-length`` (recomputed by the server).
+    decoded), ``content-length`` (recomputed by the server), and ``set-cookie``
+    (:attr:`~privyx.proxy.transparent.ProxyResponse.set_cookies` carries each one).
     """
     return {
         key.lower(): value for key, value in headers.items() if key.lower() not in _RESPONSE_DROP

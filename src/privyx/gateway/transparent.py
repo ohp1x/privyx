@@ -69,18 +69,23 @@ def create_transparent_app(
             session_id=request.headers.get("x-privyx-session"),
             raw_path=(request.scope.get("raw_path") or b"").decode("latin-1") or None,
         )
+        answer: Response
         if result.stream is not None:
-            return StreamingResponse(
+            answer = StreamingResponse(
                 result.stream,
                 status_code=result.status_code,
                 headers=result.headers,
                 media_type=result.media_type,
             )
-        return Response(
-            content=result.body or b"",
-            status_code=result.status_code,
-            headers=result.headers,
-            media_type=result.media_type,
-        )
+        else:
+            answer = Response(
+                content=result.body or b"",
+                status_code=result.status_code,
+                headers=result.headers,
+                media_type=result.media_type,
+            )
+        for cookie in result.set_cookies:
+            answer.headers.append("set-cookie", cookie)
+        return answer
 
     return app
