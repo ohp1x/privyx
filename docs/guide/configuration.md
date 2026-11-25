@@ -543,7 +543,7 @@ environment.
 | `path_mapping.mode` | `origin` | Transparent mode only. `origin` keeps only the upstream's `scheme://host[:port]`; `prefix` keeps its path too. See [Upstream with a path](#upstream-with-a-path). |
 | `path_mapping.strip_prefix` | empty | With `mode: prefix`, the start of the request path to remove before the rest is appended, such as `/v1`. `privyx run` uses the agent's `base_path`. |
 | `passthrough_unknown` | `true` | Forward paths not in `routes` unchanged. `false` answers them with `403` instead; enabled by the shipped `configs/strict.yaml`. `doctor` reports route coverage and warns on passthrough. |
-| `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter. `false` drops them so only the configured key is used. |
+| `forward_client_auth` | `true` | Relay the client's `Authorization` / `x-api-key` / `x-goog-api-key` and `key` query parameter. `false` drops them and `Cookie`, so only the configured key is used. |
 | `timeout` | `300` | Seconds the upstream may take to send the next bytes of a response, or to accept the next bytes of a request. A stream runs as long as data keeps coming. Both modes. |
 | `connect_timeout` | `10` | Seconds to open a connection to the upstream. |
 | `max_connections` | unset | Most connections open to the upstream at once. Unset means no limit. With a limit, a request that waits more than 10 s for a free connection gets a `503` with `Retry-After`. |

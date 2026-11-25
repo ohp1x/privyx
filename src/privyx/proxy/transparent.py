@@ -166,7 +166,8 @@ class TransparentProxy:
         passthrough_unknown: Forward paths missing from ``routes`` verbatim.  When
             false they are refused with 403, so nothing reaches the upstream
             unmasked.
-        forward_client_auth: Forward the client's ``Authorization`` / ``x-api-key``.
+        forward_client_auth: Forward the client's ``Authorization`` / ``x-api-key``
+            / ``Cookie``.
         api_key: When set, overrides the upstream credential with this key.
         extra_headers: Static headers merged into every upstream request.
         client: Optional httpx client (owned by the caller when supplied); used by

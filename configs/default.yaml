@@ -85,7 +85,7 @@
 #   path_mapping:
 #     mode: origin         # origin | prefix
 #     strip_prefix: ""     # e.g. /v1: /v1/chat/completions -> <upstream>/chat/completions
-#   forward_client_auth: true   # false: drop the client's key, send only provider's
+#   forward_client_auth: true   # false: drop the client's key and cookies, send only provider's
 #   timeout: 300           # seconds between bytes, read or write
 #   connect_timeout: 10
 #   max_connections: null  # null: no limit
