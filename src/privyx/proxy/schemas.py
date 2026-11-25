@@ -207,15 +207,25 @@ def detect_schema(path: str, routes: dict[str, str]) -> str | None:
     ``/v1beta/models/*:generateContent``.  A route without one wins over a
     route with one; between those, the first listed wins.
     """
+    route = matched_route(path, routes)
+    return None if route is None else routes[route]
+
+
+def matched_route(path: str, routes: dict[str, str]) -> str | None:
+    """The route of ``routes`` that ``path`` means, as it is written there, or ``None``.
+
+    Matched as :func:`detect_schema` says.  What the audit trail and a span
+    record for a path: a ``*`` of the route stands for a value of the client's.
+    """
     normalized = "/" + path.lstrip("/")
-    schema = routes.get(normalized)
-    if schema is None and normalized.startswith("/v1/v1/"):
-        schema = routes.get(normalized[3:])
-    if schema is None:
-        for pattern, route in _route_patterns(tuple(r for r in routes if "*" in r)):
-            if pattern.fullmatch(normalized):
-                return routes[route]
-    return schema
+    if normalized in routes:
+        return normalized
+    if normalized.startswith("/v1/v1/") and normalized[3:] in routes:
+        return normalized[3:]
+    for pattern, route in _route_patterns(tuple(r for r in routes if "*" in r)):
+        if pattern.fullmatch(normalized):
+            return route
+    return None
 
 
 @lru_cache(maxsize=16)
