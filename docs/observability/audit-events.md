@@ -76,7 +76,7 @@ The upstream returned response headers (time to first byte).
 
 | field | type | notes |
 |---|---|---|
-| `method` / `path` / `schema` | string | Request line and matched wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`, or `null`). Unmatched paths are recorded as `[unmatched]`, never the raw URL. |
+| `method` / `path` / `schema` | string | Method, the matched route pattern (a `*` stays as written in `proxy.routes`, since the path it stands for can hold a value), and wire schema (`openai`, `anthropic`, `responses`, `embeddings`, `gemini`, `ollama`, or `null`). Unmatched paths are recorded as `[unmatched]`, never the raw URL. |
 | `status` | int | Upstream HTTP status. |
 | `stream` | bool | Whether the response is an SSE stream. |
 | `duration_ms` | float | Time to the upstream response **headers** (not the whole stream). |
