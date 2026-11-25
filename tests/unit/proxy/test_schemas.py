@@ -16,7 +16,12 @@ from privyx.privacy.detector.builtin import RegexDetector
 from privyx.privacy.operator.pseudonym import PseudonymOperator
 from privyx.privacy.policy.default import DefaultPolicy
 from privyx.proxy import schemas
-from privyx.proxy.schemas import detect_schema, restore_response, transform_request
+from privyx.proxy.schemas import (
+    detect_schema,
+    matched_route,
+    restore_response,
+    transform_request,
+)
 from privyx.vault.memory import MemoryVault
 
 EMAIL = "alice@example.com"
@@ -1509,3 +1514,21 @@ async def test_cache_control_leaves_a_request_alone(payload: dict[str, Any], sch
     out = await transform_request(payload, engine, await _session(engine), schema=schema)
 
     assert out.get("system") == payload["system"]
+
+
+def test_matched_route_names_the_route_a_path_means() -> None:
+    routes = {
+        "/v1/messages": "anthropic",
+        "/*/models/*:generateContent": "gemini",
+        "/projects/*/messages": "anthropic",
+    }
+
+    for path, route in (
+        ("/v1/messages", "/v1/messages"),
+        ("v1/v1/messages", "/v1/messages"),
+        ("/v1beta/models/m:generateContent", "/*/models/*:generateContent"),
+        ("/models/m:generateContent", "/*/models/*:generateContent"),
+        ("/projects/apollo/messages", "/projects/*/messages"),
+    ):
+        assert matched_route(path, routes) == route
+    assert matched_route("/v1/models", routes) is None

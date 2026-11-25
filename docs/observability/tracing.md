@@ -45,7 +45,7 @@ When the client sends a W3C `traceparent` header, `privyx.request` joins its
 trace.
 
 Attributes hold what the [audit trail](audit-events.md) holds, never payload
-text: `http.request.method`, `http.route` (masked routes only),
+text: `http.request.method`, `http.route` (the route pattern, on masked routes only),
 `http.response.status_code`, `privyx.schema`, `privyx.stream`,
 `privyx.restored`, `privyx.aborted`, and `error.type` (an exception's class
 name, never its message).
