@@ -367,6 +367,7 @@ class TransparentProxy:
                 headers=headers,
                 payload=payload,
                 schema=schema,
+                query=httpx.QueryParams(query_params).multi_items() if query_params else (),
             )
             if source == "ephemeral":
                 # It lives for this request only, so it never touches the vault.

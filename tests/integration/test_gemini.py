@@ -144,6 +144,32 @@ async def test_transparent_batch_reply_is_restored() -> None:
     assert parts[1]["functionCall"]["args"] == {"name": f"mail {EMAIL}"}
 
 
+@pytest.mark.parametrize("strategy", ["client", "conversation"])
+async def test_a_session_follows_the_key_in_the_query(strategy: str) -> None:
+    proxy = TransparentProxy(
+        _engine(),
+        origin="https://gemini.test",
+        client=_upstream([]),
+        session_strategy=strategy,
+    )
+
+    async def session_of(key: str) -> str | None:
+        result = await proxy.handle(
+            method="POST",
+            path=f"{MODEL_PATH}:generateContent",
+            headers={"content-type": "application/json"},
+            body=_request(),
+            query_params=[("key", key)],
+        )
+        return result.headers.get("x-privyx-session")
+
+    first = await session_of("caller-a")
+
+    assert first is not None
+    assert await session_of("caller-a") == first
+    assert await session_of("caller-b") != first
+
+
 # -- gateway ----------------------------------------------------------------
 
 
