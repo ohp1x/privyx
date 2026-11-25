@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.41] - 2026-11-25
+
 ### Security
 
 - **Proxy:** a cookie an upstream sets is no longer kept and sent on the requests of other clients, which let a provider link them, and each `Set-Cookie` reaches the client as a header of its own instead of one folded line
@@ -705,7 +707,8 @@ First release: the privacy pipeline, the streaming proxy, and the CLI that drive
 - **Proxy coverage:** Streams restore every non-delta event (`message_start`, `content_block_start`, finish/usage chunks, …) leaf by leaf, re-serializing only when something changed
 - **Detectors:** Presidio entity names are translated to the vocabulary the rest of Privyx speaks. Without this, `policy: strict` would drop every Presidio span — its allow-list holds `EMAIL`, not `EMAIL_ADDRESS` — and forward the PII untouched
 
-[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.40...HEAD
+[Unreleased]: https://github.com/ohp1x/privyx/compare/v0.1.41...HEAD
+[0.1.41]: https://github.com/ohp1x/privyx/compare/v0.1.40...v0.1.41
 [0.1.40]: https://github.com/ohp1x/privyx/compare/v0.1.39...v0.1.40
 [0.1.39]: https://github.com/ohp1x/privyx/compare/v0.1.38...v0.1.39
 [0.1.38]: https://github.com/ohp1x/privyx/compare/v0.1.37...v0.1.38
