@@ -178,7 +178,8 @@ both modes before `get_or_create_session`):
   turn and shows up as many sessions, and without an anchor its tokens carry
   no meaning from one turn to the next.
 - **`client`**: a stable session derived from the client's credential
-  (`Authorization` or `x-api-key`), one per API key. Simple, but every
+  (`Authorization`, `x-api-key`, or `x-goog-api-key`, and a key in the query
+  string such as Gemini's `key`), one per API key. Simple, but every
   conversation under that key shares one growing mapping.
 - **`conversation`**: derived from the credential and the first user message,
   so each conversation reuses its own session while different conversations,
