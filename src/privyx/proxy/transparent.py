@@ -145,6 +145,8 @@ class ProxyResponse:
     media_type: str | None = None
     body: bytes | None = None
     stream: AsyncIterator[str] | AsyncIterator[bytes] | None = None
+    #: Each ``Set-Cookie`` of the upstream's response, sent as a header of its own.
+    set_cookies: list[str] = field(default_factory=list)
 
 
 class TransparentProxy:
@@ -513,6 +515,7 @@ class TransparentProxy:
                     headers=resp_headers,
                     media_type=resp_content_type or None,
                     body=b"",
+                    set_cookies=response.headers.get_list("set-cookie"),
                 )
 
             if is_stream:
@@ -601,6 +604,7 @@ class TransparentProxy:
                 response=response,
                 cleanup=lambda: self._abandon(ephemeral, request_id, span),
             ),
+            set_cookies=response.headers.get_list("set-cookie"),
         )
 
     async def _stream(
@@ -742,6 +746,7 @@ class TransparentProxy:
                 response=response,
                 cleanup=lambda: self._abandon(ephemeral, request_id, span),
             ),
+            set_cookies=response.headers.get_list("set-cookie"),
         )
 
     async def _relay(
@@ -873,6 +878,7 @@ class TransparentProxy:
             headers=headers,
             media_type=content_type or None,
             body=data,
+            set_cookies=response.headers.get_list("set-cookie"),
         )
 
     async def _restore_chunks(
