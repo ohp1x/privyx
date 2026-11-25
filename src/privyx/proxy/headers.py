@@ -37,7 +37,7 @@ HOP_BY_HOP: frozenset[str] = frozenset(
 _RESPONSE_DROP: frozenset[str] = HOP_BY_HOP | {"content-encoding", "set-cookie"}
 
 #: The client's credential headers.
-_CLIENT_AUTH: frozenset[str] = frozenset({"authorization", "x-api-key", "x-goog-api-key"})
+_CLIENT_AUTH: frozenset[str] = frozenset({"authorization", "x-api-key", "x-goog-api-key", "cookie"})
 
 #: Sent by ``privyx run pi`` with every request: the run's secret, and a JSON
 #: object mapping each wire schema of the model's provider to its base URL.
@@ -66,8 +66,8 @@ def filter_request_headers(
             Used to pick the right credential header and stamp
             ``anthropic-version``.
         forward_client_auth: When false, the client's ``Authorization`` /
-            ``x-api-key`` / ``x-goog-api-key`` are dropped (rely on the
-            configured ``api_key``).
+            ``x-api-key`` / ``x-goog-api-key`` / ``Cookie`` are dropped (rely
+            on the configured ``api_key``).
         api_key: When set, overrides the upstream credential with this key,
             using the header the target provider expects.
         extra: Static headers merged in last (e.g. configured provider headers).

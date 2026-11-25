@@ -129,7 +129,7 @@ async def test_each_set_cookie_reaches_the_client_on_its_own(
     assert reply.headers.get_list("set-cookie") == ["a=1; Path=/", "b=2; Path=/"]
 
 
-@pytest.mark.parametrize(("forward", "sent"), [(True, "login=c")])
+@pytest.mark.parametrize(("forward", "sent"), [(True, "login=c"), (False, None)])
 async def test_the_clients_own_cookie_follows_forward_client_auth(
     forward: bool, sent: str | None, upstream: _Upstream
 ) -> None:
