@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Proxy:** a cookie an upstream sets is no longer kept and sent on the requests of other clients, which let a provider link them, and each `Set-Cookie` reaches the client as a header of its own instead of one folded line
 - **Proxy:** `forward_client_auth: false` also drops the client's `Cookie`; an upstream that authenticates with a cookie needs `forward_client_auth: true`
 - **Audit:** the `proxy.request` record and the `http.route` span attribute hold the route the path matched, such as `/*/models/*:generateContent`, instead of the path, so a value in a dynamic segment is no longer recorded; the model stays in `proxy.response`
+- **Proxy:** the `client` and `conversation` session strategies tell callers apart by a key in the query string, such as Gemini's `key`, as they do by one in a header; before, callers with different keys there and the same first user message shared a `conversation` session, so each could have the other's tokens restored
 
 ## [0.2.3] - 2026-11-20
 
