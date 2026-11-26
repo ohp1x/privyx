@@ -48,6 +48,8 @@ def stats(file: Path | None, since: int | None, as_json: bool) -> None:
 
     try:
         found = Privyx().audit.totals(file, since=since)
+    except FileNotFoundError as exc:
+        raise _no_trail(file) from exc
     except (PrivyxError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
     path, totals, skipped = found.path, found.stats, found.skipped
@@ -353,8 +355,25 @@ def _open_log(file: Path | None) -> tuple[Path, TextIO]:
     try:
         path = Privyx().audit.path(file)
         return path, path.open(encoding="utf-8", errors="replace")
+    except FileNotFoundError as exc:
+        raise _no_trail(file) from exc
     except (PrivyxError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+def _no_trail(file: Path | None) -> click.ClickException:
+    """The error for a trail that is not there, and why, when it is the configured one."""
+    from privyx.app import Privyx
+
+    if file is not None:
+        return click.ClickException(f"no audit trail at {file}")
+    audit = Privyx().audit
+    why = (
+        "the proxy writes it as it serves requests"
+        if audit.enabled
+        else "the audit feature is off (privyx features enable audit)"
+    )
+    return click.ClickException(f"no audit trail at {audit.path()} yet: {why}")
 
 
 def _pretty(line: str) -> str:

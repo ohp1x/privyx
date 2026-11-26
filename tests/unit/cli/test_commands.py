@@ -751,10 +751,19 @@ def test_audit_stats_reads_the_configured_path(
     log = tmp_path / "audit.log"
     monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(log))
 
-    missing = runner.invoke(cli, ["audit", "stats"])
-    assert missing.exit_code == 1
-    assert "No such file" in missing.output
+    for command in (["audit", "stats"], ["audit", "tail", "--no-follow"]):
+        missing = runner.invoke(cli, command)
+        assert missing.exit_code == 1
+        assert missing.output == (
+            f"Error: no audit trail at {log} yet: the proxy writes it as it serves requests\n"
+        )
+    monkeypatch.setenv("PRIVYX_FEATURES__AUDIT__ENABLED", "false")
+    off = runner.invoke(cli, ["audit", "stats"])
+    assert "the audit feature is off (privyx features enable audit)" in off.output
+    named = runner.invoke(cli, ["audit", "stats", str(tmp_path / "other.log")])
+    assert named.output == f"Error: no audit trail at {tmp_path / 'other.log'}\n"
 
+    monkeypatch.delenv("PRIVYX_FEATURES__AUDIT__ENABLED")
     _write_audit_log(log)
     assert "Requests:   1" in runner.invoke(cli, ["audit", "stats"]).output
 
