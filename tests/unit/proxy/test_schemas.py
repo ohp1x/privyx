@@ -966,6 +966,21 @@ async def test_dlp_check_looks_in_masked_headers_and_params_but_not_auth() -> No
         )
 
 
+async def test_dlp_check_forwards_a_thread_id_whose_digit_groups_read_as_a_number() -> None:
+    # Codex sends its thread ID in client_metadata, which is masked, and as is in
+    # prompt_cache_key and its headers: a number masked in it refused every request.
+    engine = _dlp_engine()
+    thread = "01a215bc-0812-7345-b678-c24f65bd8be0"
+    metadata = {"session_id": thread, "thread_id": thread, "x-codex-window-id": f"{thread}:0"}
+    payload = {"client_metadata": metadata, "prompt_cache_key": thread, "input": "hi"}
+    headers = {"session-id": thread, "thread-id": thread}
+
+    out = await transform_request(
+        payload, engine, await _session(engine), headers=headers, **AGENTS
+    )
+    assert out == payload
+
+
 async def test_dlp_check_off_forwards_what_it_does_not_mask() -> None:
     engine = _engine()
     out = await transform_request(
