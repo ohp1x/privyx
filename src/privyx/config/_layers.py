@@ -18,16 +18,19 @@ from __future__ import annotations
 
 import difflib
 import logging
+import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property, partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from privyx.config._env import env_config
-from privyx.config._files import _config_layers, _config_paths
+from pydantic import ValidationError
+
+from privyx.config._env import ALIASES, env_config
+from privyx.config._files import _config_layers, _config_paths, key_line
 from privyx.config._interpolate import _DEFERRED, _interpolate, _settle
-from privyx.config._keys import leaves
+from privyx.config._keys import env_name, leaves
 from privyx.config._migrate import (
     OLD_OPERATOR_KEYS,
     translate_layer,
@@ -99,12 +102,19 @@ class _Types:
             )
         return self._unions[kind]
 
-    def checked(self, kind: str, data: Any, setting: str, default: str) -> Any:
+    def checked(
+        self,
+        kind: str,
+        data: Any,
+        setting: str,
+        default: str,
+        origin: Callable[[str], str] | None = None,
+    ) -> Any:
         """``data`` with a built-in type's options checked and their defaults filled in.
 
         ``default`` is the type without a ``type`` key.  The keys another
         built-in type takes, which :func:`_unused` let through from another
-        layer, are dropped.
+        layer, are dropped.  ``origin`` names where an invalid value was given.
 
         Raises:
             ConfigError: If an option has an invalid value.
@@ -116,7 +126,7 @@ class _Types:
             return data
         own = self.fields(kind, name)
         options = {k: v for k, v in data.items() if k not in _CORE and k in own}
-        checked = self._registries[kind].validate(name, options, setting=setting)
+        checked = self._registries[kind].validate(name, options, setting=setting, origin=origin)
         core = {k: data[k] for k in _CORE[1:] if k in data}
         return {"type": name, **core, **checked.model_dump()}
 
@@ -297,7 +307,7 @@ def read_config(
         + token_warnings(merged, origins)
         + unused
     )
-    settings = _validated(_with_secrets(merged, agent, secrets), known)
+    settings = _validated(_with_secrets(merged, agent, secrets), known, partial(_given, origins))
     settings._home = resolved.home
     return Loaded(settings, origins, warnings, layers)
 
@@ -375,7 +385,7 @@ def _apply_profile(
     _apply_colon_inheritance(profiles)
     profiles, inherited = resolve_profiles(profiles, origins, known)
     _check_overrides(without_old_operator_keys({"agents": profiles})["agents"], known)
-    _check_types(profiles, known)
+    _check_types(profiles, known, partial(_given, {**origins, **inherited}))
     if agent in profiles:
         profiles[agent] = _settle(profiles[agent], expand=True)
     selected = profiles.get(agent) if agent else None
@@ -459,40 +469,70 @@ def _with_secrets(
     return merged
 
 
-def _validated(merged: dict[str, Any], known: _Types) -> Settings:
+def _validated(merged: dict[str, Any], known: _Types, origin: Callable[[str], str]) -> Settings:
     """The settings of ``merged``, each built-in type's options checked.
 
     Raises:
-        ConfigError: If a value is invalid.
+        ConfigError: If a value is invalid, naming its setting and where it
+            was given (:func:`_given`), never the value.
     """
     named = merged.get("providers")
     if isinstance(named, dict):
         merged["providers"] = {
-            name: known.checked("provider", item, f"providers.{name}", "generic")
+            name: known.checked("provider", item, f"providers.{name}", "generic", origin)
             for name, item in named.items()
         }
     for name, model in PLUGGABLE.items():
         if name in merged:
             default = model.model_fields["type"].default
-            merged[name] = known.checked(name, merged[name], name, default)
+            merged[name] = known.checked(name, merged[name], name, default, origin)
     for section, (kind, _) in NAMED.items():
         entries = merged.get(section)
         if isinstance(entries, dict):
             merged[section] = {
-                name: known.checked(kind, entry, f"{section}.{name}", name)
+                name: known.checked(kind, entry, f"{section}.{name}", name, origin)
                 for name, entry in entries.items()
             }
     try:
         return Settings(**merged)
-    except Exception as exc:  # pydantic ValidationError
-        raise ConfigError(f"invalid configuration: {exc}") from exc
+    except ValidationError as exc:
+        problems = []
+        for error in exc.errors(include_url=False):
+            path = ".".join(str(part) for part in error["loc"])
+            problems.append(f"invalid setting {path!r}{origin(path)}: {error['msg']}")
+        raise ConfigError("; ".join(problems)) from exc
 
 
-def _check_types(profiles: dict[str, Any], types: _Types) -> None:
+def _given(origins: Mapping[str, str], path: str) -> str:
+    """Where setting ``path`` got its value, as `` (where)``: a file and line, or variables.
+
+    Nothing for a default.  A list item or a key of a mapping is given where
+    the setting holding it is.
+    """
+    parts = path.split(".")
+    while len(parts) > 1 and ".".join(parts) not in origins:
+        parts.pop()
+    key = ".".join(parts)
+    source = origins.get(key, "defaults")
+    if source in ("defaults", "plugin defaults", "run defaults"):
+        return ""
+    if source == "environment":
+        # As written: past `PRIVYX_`, a name is read in any case.
+        names = {env_name(parts), *(name for name, aliased in ALIASES.items() if aliased == key)}
+        given = [n for n in os.environ if n.startswith("PRIVYX_") and n.upper() in names]
+        return f" ({', '.join(given) or source})"
+    line = key_line(Path(source), parts) if Path(source).is_absolute() else None
+    return f" ({source}:{line})" if line else f" ({source})"
+
+
+def _check_types(
+    profiles: dict[str, Any], types: _Types, origin: Callable[[str], str] | None = None
+) -> None:
     """Give each profile its agent ``type``, and check the options the profile gives it.
 
     A type no plugin registered is left to fail when its profile is launched:
-    the profile may belong to a plugin another config loads.
+    the profile may belong to a plugin another config loads.  ``origin`` names
+    where an invalid value was given.
 
     Raises:
         ConfigError: If an option is unknown to the type, or invalid.
@@ -516,7 +556,7 @@ def _check_types(profiles: dict[str, Any], types: _Types) -> None:
                 hint = f" (did you mean {match[0]!r}?)" if match else ""
                 unknown.append(f"{f'agents.{name}.{key}'!r}{hint} for agent type {kind!r}")
         if not unknown:
-            registry.validate(kind, options, setting=f"agents.{name}")
+            registry.validate(kind, options, setting=f"agents.{name}", origin=origin)
     _raise_unknown(unknown)
 
 

@@ -172,7 +172,9 @@ def test_a_malformed_type_is_a_config_error(tmp_path: Path) -> None:
         "detectors: {regex: {type: [regex], terms: {PROJECT: [kestrel]}}}\n"
     )
 
-    with pytest.raises(ConfigError, match="invalid configuration"):
+    with pytest.raises(
+        ConfigError, match=r"invalid setting 'detectors\.regex\.type' \(.*top\.yaml:1\)"
+    ):
         load_config(tmp_path / "top.yaml")
 
 

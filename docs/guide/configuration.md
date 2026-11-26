@@ -88,9 +88,11 @@ above the built-in ones, so your files and environment still override it.
 
 A config with a misspelled setting, an unknown type, an invalid regex, or a
 value of the wrong kind fails at startup, before any request is served, and so
-does a key given twice in one mapping (the error names the key and its line). A
-section whose `type` names a plugin is the exception to the first: keys Privyx
-does not define there are the plugin's own options, and are passed to it.
+does a key given twice in one mapping (the error names the key and its line).
+The error for an invalid value names the file and line, or the variable, that
+gave it. A section whose `type` names a plugin is the exception to the first:
+keys Privyx does not define there are the plugin's own options, and are passed
+to it.
 
 ```console
 $ privyx -c broken.yaml proxy
@@ -98,7 +100,7 @@ Error: unknown setting 'detectors.regex.term' (did you mean 'terms'?)
 $ privyx -c broken.yaml proxy
 Error: unknown detector type 'nope'
 $ privyx -c broken.yaml proxy
-Error: invalid setting 'vault.ttl': Input should be greater than 0 for vault type 'memory'
+Error: invalid setting 'vault.ttl' (/home/alice/broken.yaml:2): Input should be greater than 0 for vault type 'memory'
 ```
 
 ## Secrets from a password manager
