@@ -164,6 +164,24 @@ def test_phone_number_after_another_digit_group(text: str, phones: list[str]) ->
 
 
 @pytest.mark.parametrize(
+    "uuid",
+    [
+        "8f3c2e7a-1234-5678-9012-a0b1c2d3e4f5",  # three groups of digits: a phone number
+        "01a215bc-0812-7345-b678-c24f65bd8be0",  # two after a leading 0
+        "80515908-3116-4877-a6c6-aa5f447edff1",  # a Luhn-valid card number
+        "01a215e8-541d-7016-9334-259752460691",  # ... over the last two groups
+        "8F3C2E7A-1234-5678-9012-A0B1C2D3E4F5",
+    ],
+)
+def test_digit_groups_of_a_uuid_are_no_number(uuid: str) -> None:
+    # Agents send their session and thread IDs; one in a few hundred has such groups.
+    for text in (uuid, f'{{"session_id":"{uuid}"}}', f"{uuid}:0"):
+        assert RegexDetector().detect_sync(text, Context()).spans == []
+    detection = RegexDetector().detect_sync(f"{uuid} or call 555-010-9981", Context())
+    assert [(s.entity_type, s.text) for s in detection.spans] == [("PHONE", "555-010-9981")]
+
+
+@pytest.mark.parametrize(
     ("address", "masked"),
     [
         ("10.0.3.17", True),

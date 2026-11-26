@@ -165,14 +165,28 @@ def _luhn(match: re.Match[str]) -> bool:
     return (sum(digits[-1::-2]) + sum(doubled)) % 10 == 0
 
 
+#: The session and thread IDs agents send: their groups of digits are no phone
+#: or card number (``1234-5678-9012`` in ``8f3c2e7a-1234-5678-9012-a0b1c2d3e4f5``).
+_UUID = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
+
+
+def _in_uuid(match: re.Match[str]) -> bool:
+    """Whether the match lies inside a UUID, which is 36 characters long."""
+    start, end = match.span()
+    return any(
+        uuid.start() <= start and end <= uuid.end()
+        for uuid in _UUID.finditer(match.string, max(0, start - 36), end + 36)
+    )
+
+
 def _card_number(match: re.Match[str]) -> bool:
-    """Whether the digits can be a card number: not a Unix time, and Luhn-valid.
+    """Whether the digits can be a card number: not a Unix time, Luhn-valid, not in a UUID.
 
     Unix time in milliseconds (13 digits) or microseconds (16) starts with a 1
     until 2033, and one in ten passes the Luhn check.  Of the card networks only
     UATP, an airline card, starts with a 1.
     """
-    return not match[0].startswith("1") and _luhn(match)
+    return not match[0].startswith("1") and _luhn(match) and not _in_uuid(match)
 
 
 #: Set aside for documentation and examples (RFC 5737).
@@ -233,10 +247,10 @@ def _phone_number(match: re.Match[str]) -> bool:
     Two bare digit groups are more often a screen size, the seconds and year of
     a date, or an ID (``1920 1080``, ``11 2026``, ``2026-0042``) than a local
     number, so fewer than three groups need a ``+<country>`` code, an area code
-    in parentheses, or a leading 0.
+    in parentheses, or a leading 0.  No groups inside a UUID count.
     """
     number = match[0]
-    return number[0] in "+(0" or len(re.findall(r"\d+", number)) > 2
+    return (number[0] in "+(0" or len(re.findall(r"\d+", number)) > 2) and not _in_uuid(match)
 
 
 #: Names that describe a secret rather than hold it: ``TOKEN_URL``, ``token_type``,

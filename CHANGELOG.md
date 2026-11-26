@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Detection:** groups of digits inside a UUID are no longer masked as `PHONE` or `CREDIT_CARD`. About one Codex session in several hundred has a thread ID of that shape, and `proxy.dlp_check` refused every request of it with 422
+
 ## [0.3.0] - 2026-11-24
 
 ### Added
