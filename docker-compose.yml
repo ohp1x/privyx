@@ -18,7 +18,6 @@ services:
       # The published port is mapped to this one.
       - FIXED_PRIVYX_HOST=0.0.0.0
       - FIXED_PRIVYX_PORT=8000
-      - DEFAULT_PRIVYX_UPSTREAM_URL=https://api.openai.com
       - DEFAULT_PRIVYX_VAULT=redis
       - DEFAULT_PRIVYX_REDIS_URL=redis://redis:6379/0
       # A conversation's session, with its original values, expires after a week idle.
@@ -33,7 +32,10 @@ services:
       # Unset, the default `auto` keeps a key on the /data volume; empty: no anchor.
       - PRIVYX_ANCHOR_SECRET
       # Passed only when set, so the shell's value wins over the one in .env.
+      # Where requests go: the upstream, or a built-in provider.  Without either,
+      # they go to http://localhost:20128, the container itself.
       - PRIVYX_UPSTREAM_URL
+      - PRIVYX_PROVIDER
       - PRIVYX_PROVIDER__BASE_URL
       - PRIVYX_VAULT
       - PRIVYX_VAULT__TYPE

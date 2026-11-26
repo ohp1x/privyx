@@ -39,9 +39,10 @@ Common settings come from environment variables:
 
 | Variable | Purpose |
 |---|---|
-| `PRIVYX_UPSTREAM_URL` | Provider origin, e.g. `https://api.openai.com` |
+| `PRIVYX_UPSTREAM_URL` | Provider origin, e.g. `https://api.openai.com`. Set it or `PRIVYX_PROVIDER`: without either, requests go to Privyx's own default, `http://localhost:20128`, which inside the container is the container itself, so the proxy starts but every request fails |
+| `PRIVYX_PROVIDER` | A built-in provider by name, such as `openai` or `anthropic`, which knows its own origin |
 | `PRIVYX_API_KEY` | Upstream key held by Privyx (optional) |
-| `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY` | Keys of the built-in providers `openai` and `anthropic`, each sent only while that provider is selected, as with `PRIVYX_PROVIDER=anthropic` or `provider: anthropic` in a config file; set `PRIVYX_UPSTREAM_URL` to its origin too |
+| `PRIVYX_OPENAI_API_KEY`, `PRIVYX_ANTHROPIC_API_KEY` | Keys of the built-in providers `openai` and `anthropic`, each sent only while that provider is selected, as with `PRIVYX_PROVIDER=anthropic` or `provider: anthropic` in a config file, to that provider's origin, or to `PRIVYX_UPSTREAM_URL` when that is set too |
 | `PRIVYX_SESSION_STRATEGY` | `ephemeral` (default), `client`, or `conversation` |
 | `PRIVYX_VAULT` | Session vault: `memory` (default), `sqlite`, or `redis` |
 | `PRIVYX_REDIS_URL` | Redis URL when `PRIVYX_VAULT=redis` |
