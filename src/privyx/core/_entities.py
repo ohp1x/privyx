@@ -32,6 +32,7 @@ BUILTIN_ENTITIES = frozenset(
         "ASSIGNED_SECRET",
         "MRN",
         "ICD10",
+        "WALLET_KEY",
     }
 )
 

@@ -53,13 +53,15 @@ Names and anything specific to you need more configuration.
 
 ## Opt-in detectors
 
-These are off until a `regex` detector lists them under `enable`,
-since each also catches more of what is not sensitive:
+These are off until a `regex` detector lists them under `enable`. The first
+four also catch more of what is not sensitive. The others are new in 0.3.1, and
+a new entity starts opt-in, so that a patch release masks nothing more than
+before:
 
 ```yaml
 detectors:
   regex:
-    enable: [HIGH_ENTROPY, MRN]
+    enable: [HIGH_ENTROPY, MRN, WALLET_KEY]
     entropy_threshold: 3.0     # HIGH_ENTROPY: bits per character
 ```
 
@@ -69,6 +71,7 @@ detectors:
 | `ASSIGNED_SECRET` | A value of 12 characters or more with letters and digits or symbols, assigned to any name in `.env`, YAML, JSON, or code (`FOO_BAR="…"`). Not words, numbers, paths, URLs, hosts, dates, versions, variables, or values of names such as `*_id`, `*_url`, `model`, or `version` |
 | `MRN` | A medical record number after its label: `MRN`, `medical record number`, `No. RM`, `nomor rekam medis` |
 | `ICD10` | ICD-10 diagnosis codes (`E11.9`, `S72.001A`, `U07.1`) next to a word such as `diagnosis`, `dx`, or `icd` |
+| `WALLET_KEY` | A wallet's private key with a valid checksum: WIF (`5…`, `K…`, `L…`, testnet `c…`), BIP 32 extended private keys (`xprv…`, `tprv…`, `zprv…`), and Nostr `nsec1…` keys. Also a seed phrase after `seed`, `mnemonic`, or `recovery`: 12 or more words of the BIP 39 list in a row, separated by spaces; the words around it that are not on the list stay readable. Public keys (`xpub…`) and addresses are left to `CRYPTO_WALLET` |
 
 ## Context words
 

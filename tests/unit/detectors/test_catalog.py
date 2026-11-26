@@ -9,8 +9,10 @@ import pytest
 
 from privyx import load_config
 from privyx.app._build import build_detector
-from privyx.core import ConfigError, Context
-from privyx.detectors._catalog import _BASE58, shannon
+from privyx.core import BUILTIN_ENTITIES, ConfigError, Context
+from privyx.detectors._bip39 import WORDS as BIP39_WORDS
+from privyx.detectors._catalog import _BASE58, _BECH32, _polymod, shannon
+from privyx.detectors._pattern import DEFAULT_PATTERNS, OPTIONAL_PATTERNS
 from privyx.policies import StrictPolicy
 
 #: The wallet, national-ID, and bank account entities, turned on for every test below.
@@ -319,3 +321,86 @@ def test_strict_policy_keeps_an_enabled_opt_in_entity() -> None:
     detection = detector.detect_sync("MRN 00123456", Context())  # type: ignore[attr-defined]
     kept = StrictPolicy().decide_sync(detection, Context())
     assert [s.entity_type for s in kept.spans] == ["MRN"]
+
+
+def test_every_builtin_entity_is_known_to_the_strict_policy() -> None:
+    assert DEFAULT_PATTERNS.keys() | OPTIONAL_PATTERNS.keys() <= BUILTIN_ENTITIES
+
+
+#: Made up: the key and chain code of no wallet.
+_SECRET = bytes(range(7, 39))
+_CHAIN = bytes(9) + bytes(range(40, 72))  # depth, parent, and child, then the chain code
+WIF = _btc(0x80, _SECRET + b"\x01")  # compressed: K... or L...
+WIF_UNCOMPRESSED = _btc(0x80, _SECRET)  # 5...
+WIF_TESTNET = _btc(0xEF, _SECRET + b"\x01")  # c...
+XPRV = _btc(0x04, bytes.fromhex("88ade4") + _CHAIN + b"\0" + _SECRET)
+TPRV = _btc(0x04, bytes.fromhex("358394") + _CHAIN + b"\0" + _SECRET)
+XPUB = _btc(0x04, bytes.fromhex("88b21e") + _CHAIN + b"\x02" + _SECRET)
+
+
+def _nsec(key: bytes) -> str:
+    """``key`` as a Nostr secret key (NIP-19): bech32 after ``nsec``."""
+    bits = int.from_bytes(key, "big") << 4  # 256 bits padded to 52 groups of five
+    data = "".join(_BECH32[bits >> 5 * i & 31] for i in reversed(range(52)))
+    check = _polymod("nsec", data + "qqqqqq") ^ 1
+    return "nsec1" + data + "".join(_BECH32[check >> 5 * i & 31] for i in reversed(range(6)))
+
+
+NSEC = _nsec(_SECRET)
+SEED = "ocean ladder velvet frozen puzzle anchor tribe gentle orbit candy smoke ripple"
+
+
+def _broken(value: str) -> str:
+    """``value`` with its last character changed, so that its checksum fails."""
+    return value[:-1] + ("q" if value[-1] != "q" else "p")
+
+
+@pytest.mark.parametrize(
+    "key",
+    [WIF, WIF_UNCOMPRESSED, WIF_TESTNET, XPRV, TPRV, NSEC],
+    ids=["wif", "wif-uncompressed", "wif-testnet", "xprv", "tprv", "nsec"],
+)
+def test_wallet_private_keys_that_check_out_are_masked_when_enabled(key: str) -> None:
+    text = f"restore it with {key} tonight"
+    assert _found(text) == []
+    assert _found(text, enable=["WALLET_KEY"]) == [("WALLET_KEY", key)]
+
+
+@pytest.mark.parametrize(
+    ("text", "phrase"),
+    [
+        (f"seed phrase: {SEED}", SEED),
+        (f'MNEMONIC="{SEED}"', SEED),
+        (f"Secret Recovery Phrase:\n  {SEED.upper()}", SEED.upper()),
+        (f"wallet_seed = '{SEED}'", SEED),
+        # A word of the list next to the phrase goes with it; other words do not.
+        (f"my seed phrase {SEED} keep it safe", f"phrase {SEED} keep"),
+        (f"recovery words {SEED} store this backup somewhere safe", SEED),
+    ],
+)
+def test_seed_phrases_after_their_word_are_masked_when_enabled(text: str, phrase: str) -> None:
+    assert _found(text) == []
+    assert _found(text, enable=["WALLET_KEY"]) == [("WALLET_KEY", phrase)]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _broken(WIF),
+        _broken(XPRV),
+        _broken(NSEC),
+        XPUB,  # a public key
+        "seed: " + SEED.rsplit(" ", 1)[0],  # eleven words
+        f"seeds {SEED}",  # no word for a phrase
+        "seed the test database with fixtures and then check the output once more",
+        "random.seed(42)",
+    ],
+)
+def test_wallet_key_look_alikes_are_kept(text: str) -> None:
+    assert _found(text, enable=["WALLET_KEY"]) == []
+
+
+def test_the_bip39_list_is_the_published_one() -> None:
+    text = "\n".join(sorted(BIP39_WORDS)) + "\n"
+    published = "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda"
+    assert hashlib.sha256(text.encode()).hexdigest() == published

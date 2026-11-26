@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Detection:** the opt-in entity `WALLET_KEY` masks a wallet's private key with a valid checksum (WIF, `xprv…` and the other BIP 32 extended private keys, Nostr `nsec1…`), and a seed phrase of 12 or more BIP 39 words after `seed`, `mnemonic`, or `recovery`
+
 ### Fixed
 
 - **Detection:** groups of digits inside a UUID are no longer masked as `PHONE` or `CREDIT_CARD`. About one Codex session in several hundred has a thread ID of that shape, and `proxy.dlp_check` refused every request of it with 422

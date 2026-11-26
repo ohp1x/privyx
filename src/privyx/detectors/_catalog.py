@@ -13,6 +13,10 @@ from collections import Counter
 from collections.abc import Callable, Collection
 from datetime import date
 from hashlib import sha256
+from itertools import groupby
+from operator import itemgetter
+
+from privyx.detectors._bip39 import WORDS as _BIP39_WORDS
 
 #: How many words on each side :func:`near` looks at, as Presidio does.
 CONTEXT_RADIUS = 5
@@ -58,19 +62,22 @@ def _base58_decode(value: str) -> bytes:
     return b"\0" * zeros + number.to_bytes((number.bit_length() + 7) // 8, "big")
 
 
+def _base58_payload(value: str) -> bytes | None:
+    """What a base58check string holds, or None if its checksum is wrong."""
+    raw = _base58_decode(value)
+    return raw[:-4] if sha256(sha256(raw[:-4]).digest()).digest()[:4] == raw[-4:] else None
+
+
 def _base58check(value: str) -> bool:
     """A mainnet pay-to-key-hash (``1…``) or pay-to-script-hash (``3…``) address."""
-    raw = _base58_decode(value)
-    checksum = sha256(sha256(raw[:-4]).digest()).digest()[:4]
-    return len(raw) == 25 and raw[0] in (0, 5) and raw[-4:] == checksum
+    payload = _base58_payload(value)
+    return payload is not None and len(payload) == 21 and payload[0] in (0, 5)
 
 
-def _bech32(value: str) -> bool:
-    """A mainnet SegWit address with a valid bech32 (BIP 173) or bech32m (BIP 350) checksum."""
-    if value != value.lower() and value != value.upper():
-        return False
-    data = value.lower()[3:]
-    values = [3, 3, 0, 2, 3] + [_BECH32.index(char) for char in data]  # "bc" expanded
+def _polymod(prefix: str, data: str) -> int:
+    """The bech32 checksum of ``data`` after ``prefix``: 1 if valid, 0x2BC830A3 for bech32m."""
+    values = [ord(char) >> 5 for char in prefix] + [0] + [ord(char) & 31 for char in prefix]
+    values += [_BECH32.index(char) for char in data]
     check = 1
     for item in values:
         top = check >> 25
@@ -78,7 +85,14 @@ def _bech32(value: str) -> bool:
         for i, generator in enumerate((0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3)):
             if top >> i & 1:
                 check ^= generator
-    return check in (1, 0x2BC830A3)
+    return check
+
+
+def _bech32(value: str) -> bool:
+    """A mainnet SegWit address with a valid bech32 (BIP 173) or bech32m (BIP 350) checksum."""
+    if value != value.lower() and value != value.upper():
+        return False
+    return _polymod("bc", value.lower()[3:]) in (1, 0x2BC830A3)
 
 
 def _wallet(match: re.Match[str]) -> bool:
@@ -98,6 +112,66 @@ def _wallet(match: re.Match[str]) -> bool:
     return len(_base58_decode(match[0])) == 32 and near(
         match.string, match.start(), match.end(), _SOLANA_CONTEXT
     )
+
+
+# --- Wallet keys (opt-in) ---------------------------------------------------
+
+
+def _one_of(words: Collection[str]) -> str:
+    """A regex for any of ``words``, in any case, tried by their first two letters.
+
+    One branch per word made the pattern 18 times slower on prose that says
+    "seed" often: each place a phrase could start tried all 2048 words.
+    """
+    first = []
+    for a, by_a in groupby(sorted(words), key=itemgetter(0)):
+        second = "|".join(
+            f"[{b}{b.upper()}](?i:{'|'.join(word[2:] for word in by_b)})"
+            for b, by_b in groupby(by_a, key=itemgetter(1))
+        )
+        first.append(f"[{a}{a.upper()}](?:{second})")
+    return f"(?:{'|'.join(first)})"
+
+
+#: A private key in WIF (51 or 52 base58 characters), a BIP 32 extended
+#: private key (``xprv``, ``tprv``, ``zprv``, … and 107 more), a Nostr
+#: ``nsec1`` key, or a seed phrase after ``seed``, ``mnemonic``, or
+#: ``recovery``: 12 to 48 words of the BIP 39 list in a row, so that the words
+#: around it are left.  The lookahead drops words too short to be a key, and
+#: the cue's first letter is matched before the boundary behind it, which made
+#: the pattern a third faster where no cue starts.
+WALLET_KEY_PATTERN = r"""(?x)
+(?<![\w]) (?=\w{51})
+(?: (?P<extended> [tuvxyzTUVXYZ]prv [1-9A-HJ-NP-Za-km-z]{107} )
+  | (?P<nsec> nsec1 [02-9ac-hj-np-z]{58} )
+  | [1-9A-HJ-NP-Za-km-z]{51,52} )
+(?![\w])
+| [sSmMrR] (?<![^\W_].) (?i: (?<=s)eed | (?<=m)nemonic | (?<=r)ecovery ) (?![^\W_])
+  [^\n]{0,24}? (?: \n[ \t]* )?
+  (?<![A-Za-z]) (?P<value> WORD (?: [ \t]+ WORD ){11,47} ) (?![A-Za-z])
+""".replace("WORD", _one_of(_BIP39_WORDS))
+
+
+def _wallet_key(match: re.Match[str]) -> bool:
+    """Whether the key's checksum holds; a seed phrase, which has none here, always passes.
+
+    A WIF key holds a version byte and 32 bytes, and a ``01`` byte when its
+    public key is compressed; an extended key 78 bytes, a ``00`` byte before
+    its 32-byte key.  A seed phrase is not held to BIP 39's checksum, which
+    Electrum's phrases, made of the same words, do not have.  The list has
+    no word shorter than three letters, nor ``the``, ``and``, or ``with``, so a
+    sentence after ``recovery`` is no phrase.
+    """
+    if match["value"] is not None:
+        return True
+    if match["nsec"]:
+        return _polymod("nsec", match[0][5:]) == 1
+    payload = _base58_payload(match[0])
+    if payload is None:
+        return False
+    if match["extended"]:
+        return len(payload) == 78 and payload[45] == 0
+    return len(payload) == 33 or len(payload) == 34 and payload[33] == 1
 
 
 # --- National IDs -----------------------------------------------------------
@@ -389,12 +463,14 @@ CHECKED_PATTERNS: dict[str, str] = {
 }
 
 #: Off unless a detector lists them under ``enable``: each finds more that is
-#: not sensitive than the checked ones.
+#: not sensitive than the checked ones, or, from ``WALLET_KEY`` on, is new, and
+#: a new entity starts opt-in so that a patch release masks nothing more.
 OPTIONAL_PATTERNS: dict[str, str] = {
     "HIGH_ENTROPY": HIGH_ENTROPY_PATTERN,
     "ASSIGNED_SECRET": ASSIGNMENT_PATTERN,
     "MRN": MRN_PATTERN,
     "ICD10": ICD10_PATTERN,
+    "WALLET_KEY": WALLET_KEY_PATTERN,
 }
 
 CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
@@ -410,6 +486,7 @@ CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "IBAN": _iban,
     "HIGH_ENTROPY": high_entropy(ENTROPY_THRESHOLD),
     "ASSIGNED_SECRET": _assigned_value,
+    "WALLET_KEY": _wallet_key,
 }
 
 #: Words one of which must be near a match: the number alone says too little.
