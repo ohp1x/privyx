@@ -189,13 +189,15 @@ only a fragment that could be the start of a token.
 ## `privyx audit` finds no file
 
 ```text
-Error: [Errno 2] No such file or directory: '/home/dana/.privyx/audit.log'
+Error: no audit trail at /home/dana/.privyx/audit.log yet: the proxy writes it as it serves requests
 ```
 
 `privyx audit` reads `features.audit.path`, which is `~/.privyx/audit.log` unless the
 proxy was given another. Pass the same `-c` and `PRIVYX_AUDIT_PATH`, or name
-the file: `privyx audit stats /path/to/audit.log`. Up to version 0.1.15,
-`privyx proxy` wrote `privyx-audit.log` in the directory it ran in.
+the file: `privyx audit stats /path/to/audit.log`. When the message says the
+audit feature is off, the proxy writes no trail: `privyx features enable audit`
+turns it on from the next start. Up to version 0.1.15, `privyx proxy` wrote
+`privyx-audit.log` in the directory it ran in.
 
 ## Anthropic rejects a turn after a restart
 
