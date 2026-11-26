@@ -208,6 +208,20 @@ def test_the_managed_file_is_owner_only(runner: CliRunner, home: Path) -> None:
     assert stat.S_IMODE((home / ".privyx" / "settings.yaml").stat().st_mode) == 0o600
 
 
+def test_a_log_level_is_taken_in_any_case_and_trace_too(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As the environment and a config file give it, so does `config set`.
+    assert runner.invoke(cli, ["config", "set", "log.level", "INFO"]).exit_code == 0
+    assert runner.invoke(cli, ["config", "get", "log.level"]).output == "info\n"
+    refused = runner.invoke(cli, ["config", "set", "log.level", "loud"])
+    assert refused.exit_code == 1
+    assert "invalid setting 'log.level'" in refused.output
+    assert runner.invoke(cli, ["config", "get", "log.level"]).output == "info\n"
+    monkeypatch.setenv("PRIVYX_LOG__LEVEL", "trace")  # the server's own level
+    assert runner.invoke(cli, ["config", "get", "log.level"]).output == "trace\n"
+
+
 @pytest.mark.parametrize(
     "command",
     [

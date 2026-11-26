@@ -15,6 +15,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 
 class PluggableConfig(BaseModel):
@@ -327,6 +328,10 @@ class ServerConfig(BaseModel):
     tls: TLSConfig = Field(default_factory=TLSConfig)
 
 
+#: The levels the server takes; at ``trace``, Privyx's own log stays at ``info``.
+_LOG_LEVELS = ("trace", "debug", "info", "warning", "error", "critical")
+
+
 class LogConfig(BaseModel):
     """Privyx's own log: its level, its console format, and a file that also takes others'."""
 
@@ -336,6 +341,15 @@ class LogConfig(BaseModel):
     #: A debug log file, created owner-only.  It also takes third-party
     #: records at ``level``: at ``debug`` they hold raw vault rows.
     file: str = ""
+
+    @field_validator("level")
+    @classmethod
+    def _known_level(cls, v: str) -> str:
+        """A level the server knows, in any case (``INFO``, as logging writes it)."""
+        if v.lower() not in _LOG_LEVELS:
+            choices = ", ".join(repr(level) for level in _LOG_LEVELS)
+            raise PydanticCustomError("log_level", f"Input should be one of {choices}")
+        return v.lower()
 
 
 class BudgetConfig(BaseModel):
