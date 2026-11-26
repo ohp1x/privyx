@@ -164,6 +164,18 @@ def test_detect_explain_shows_a_partly_masked_span(runner: CliRunner, tmp_path: 
     assert "        masked" not in result.output
 
 
+def test_detect_explain_gives_each_reason_once(runner: CliRunner) -> None:
+    # Two PHONE matches overlap the card number: one reason for both.
+    result = runner.invoke(cli, ["detect", "--explain", "card 4111 1111 1111 1111"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[1:] == [
+        "        found by  regex: built-in pattern PHONE",
+        "        found by  regex: built-in pattern CREDIT_CARD",
+        "        masked",
+    ]
+
+
 def test_detect_explain_names_an_opt_in_entity(runner: CliRunner, tmp_path: Path) -> None:
     config = tmp_path / "c.yaml"
     config.write_text("detectors:\n  regex:\n    enable: [CRYPTO_WALLET]\n", encoding="utf-8")
