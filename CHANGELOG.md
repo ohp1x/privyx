@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Detection:** groups of digits inside a UUID are no longer masked as `PHONE` or `CREDIT_CARD`. About one Codex session in several hundred has a thread ID of that shape, and `proxy.dlp_check` refused every request of it with 422
 - **CLI:** `privyx audit stats` and `audit tail` without an audit trail say where they looked and why it may not be there, instead of `[Errno 2] No such file or directory`
+- **CLI:** `privyx detect --explain` gives each reason once; two matches of one pattern over a value printed the same line twice
 
 ## [0.3.0] - 2026-11-24
 

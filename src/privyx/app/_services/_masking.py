@@ -408,7 +408,8 @@ class Inspection:
         masked = kept.merged(text).spans
         explained = []
         for span in raw.merged(text).spans:
-            reasons = [reason for part, reason in found if _overlap(part, span)]
+            # Overlapping spans of one pattern give the same reason.
+            reasons = list(dict.fromkeys(r for part, r in found if _overlap(part, span)))
             # The masked spans lie within the shown ones: the policy only drops spans.
             parts = [m for m in masked if _overlap(m, span)]
             if not parts:
