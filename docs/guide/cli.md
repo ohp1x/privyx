@@ -871,6 +871,7 @@ Read the audit trail. `FILE` defaults to `features.audit.path`, which is
 privyx audit stats [FILE] [--since 24h] [--json]
 privyx audit tail [FILE] [-n 20] [--no-follow]
 privyx audit watch [SESSION_ID] [-n 20] [--no-follow]
+privyx audit find [FILE] --conversation -
 ```
 
 | Command | Option | Description |
@@ -882,6 +883,7 @@ privyx audit watch [SESSION_ID] [-n 20] [--no-follow]
 | `watch` | | What masking changed in each exchange, from the [tap](../observability/tap.md), as a word diff. Needs `proxy.tap: true`. |
 | `watch` | `-n`, `--lines` | Recent records to show first. Default `10`. |
 | `watch` | `--follow` / `--no-follow` | Keep showing new records (default) or stop. |
+| `find` | `--conversation` | The events of one agent conversation, given its ID in a file or on stdin (`-`), such as Claude Code's session ID. Needs [`features.audit.conversation_ref`](../observability/audit-events.md#finding-a-conversation). |
 
 See [Audit events](../observability/audit-events.md) for what each event holds.
 

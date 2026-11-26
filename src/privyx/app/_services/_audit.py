@@ -81,6 +81,37 @@ class Audit:
                     record = None
                 yield record if isinstance(record, dict) else None
 
+    def conversation(self, native: str, file: Path | None = None) -> list[dict[str, Any]]:
+        """The records of the requests of one agent conversation, in the trail's order.
+
+        ``native`` is the agent's own ID of it, such as Claude Code's session
+        ID: its ``conversation_ref`` is computed again, for each agent type
+        that sends one, and matched on ``proxy.request``.
+
+        Raises:
+            ConfigError: If the trail's key cannot be read.
+            OSError: If the trail cannot be read.
+        """
+        from privyx.agents import CONVERSATION_AGENTS
+        from privyx.features._audit import conversation_ref, trail_key
+
+        path = self.path(file)
+        key = trail_key(self._app.features.options("audit"), path)
+        refs = {conversation_ref(key, agent, native) for agent in CONVERSATION_AGENTS}
+        requests = {
+            record.get("request_id")
+            for record in self.records(path)
+            if record is not None
+            and record.get("event") == "proxy.request"
+            and record.get("conversation_ref") in refs
+        }
+        requests.discard(None)
+        return [
+            record
+            for record in self.records(path)
+            if record is not None and record.get("request_id") in requests
+        ]
+
     def tap_files(self, session_id: str | None = None) -> list[Path]:
         """The tap files of ``session_id``, or of every session."""
         from privyx.proxy._tap import tap_file

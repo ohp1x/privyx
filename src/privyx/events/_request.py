@@ -76,6 +76,9 @@ class RequestReceived(_Exchange):
     """
 
     name: ClassVar[str] = "request.received"
+    #: The agent type that sent it and that agent's own ID of the conversation,
+    #: such as ``("claude", <its session ID>)``; ``None`` when it names none.
+    conversation: tuple[str, str] | None = None
 
 
 @dataclass(eq=False)

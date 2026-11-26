@@ -228,6 +228,10 @@
 #     # Model-id prefix -> USD per million tokens, for `privyx session show`.
 #     # Example, claude-sonnet: {input: 3, output: 15}
 #     prices: {}
+#     # Mark each request of Claude Code or Codex with its conversation, a
+#     # keyed hash, for `privyx audit find --conversation -`.
+#     conversation_ref: false
+#     key: auto          # beside the trail, as audit.log.key
 #   metrics: true          # counters at GET /metrics
 #   tracing: false         # OpenTelemetry spans (privyx[otel]; exporter set by OTEL_*)
 #   directive: false       # tell the model to keep placeholders as written

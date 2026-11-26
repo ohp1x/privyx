@@ -206,7 +206,7 @@ is the `regex` detector.
 | | `partial` | none |
 | `anchor` | `hmac` | `secret` |
 | `provider`, `providers.<name>` | every built-in type | `base_url`, `api_key`, `headers`, `forward_client_auth`, `path_mapping`, `timeout`, `connect_timeout`, `max_connections` |
-| `features` | `audit` | `path`, `prices` |
+| `features` | `audit` | `path`, `prices`, `conversation_ref`, `key` |
 | | `budget` | `max_turns`, `max_tokens`, `profile` |
 | | `metrics`, `tracing`, `directive`, `cache_control` | none |
 
@@ -809,6 +809,8 @@ the feature beside it. A plugin can add features, written the same way.
 |---|---|---|
 | `audit`: `path` | `~/.privyx/audit.log` | Audit log file, one JSON object per line; `~` is your home directory. It is created with mode `0600`. |
 | `audit`: `prices` | `{}` | Model-id prefix → prices in USD per million tokens: `input`, `output`, and optionally `cache_read` (default a tenth of `input`) and `cache_write` (default 1.25 times `input`). For the cost `privyx session show` estimates; adds models to the built-in Claude prices or overrides them. |
+| `audit`: `conversation_ref` | `false` | Add `conversation_ref` to each `proxy.request` of Claude Code or Codex: a keyed hash of the conversation the agent says the request belongs to, never its own ID. See [Finding a conversation](../observability/audit-events.md#finding-a-conversation). |
+| `audit`: `key` | `auto` | The key of `conversation_ref`. `auto` keeps one in a file beside the trail, `audit.log.key`, created with mode `0600` and made owner-only again when found open to others; or a secret reference such as `keychain://privyx/audit`. |
 | `budget.max_turns`, `budget.max_tokens` | unset | The limits. Unset means no limit. |
 | `budget.profile` | empty | The agent profile launched, named in the audit trail and in the refusal. |
 

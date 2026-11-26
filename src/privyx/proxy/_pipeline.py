@@ -606,10 +606,12 @@ class Pipeline:
             return None
         dialect, sid = exchange.dialect, exchange.session_id
         assert dialect is not None and sid is not None
+        from privyx.agents import conversation
+
         headers = {key.lower(): value for key, value in exchange.headers.items()}
         event = RequestReceived(
             exchange.method, exchange.path, Headers(headers), payload, dialect, sid,
-            exchange.request_id,
+            exchange.request_id, conversation(headers, payload),
         )  # fmt: skip
         try:
             await self._events.emit(event)

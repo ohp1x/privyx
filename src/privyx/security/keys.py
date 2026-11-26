@@ -102,12 +102,23 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
     :func:`default_anchor_secret_path`) with owner-only permissions, so
     pseudonyms stay stable across commands using ``anchor.secret: auto`` and
     across runs of ``privyx run``. An empty configured secret still means
-    "no anchoring". A complete key is published atomically without replacing
-    another process's key, and an existing key that others may read is made
-    owner-only. Unreadable or empty files and persistence failures raise
-    ``ConfigError`` rather than silently using a temporary secret.
+    "no anchoring". Unreadable or empty files and persistence failures
+    raise ``ConfigError`` rather than silently using a temporary secret.
     """
     target = Path(path) if path is not None else default_anchor_secret_path()
+    return read_or_create_key(target, what="anchor secret", setting="anchor.secret")
+
+
+def read_or_create_key(target: Path, *, what: str, setting: str) -> str:
+    """The key at ``target``, created owner-only on first use: 64 hex characters.
+
+    A complete key is published atomically without replacing another
+    process's key.  An existing key that others may read is made owner-only.
+
+    Raises:
+        ConfigError: If it cannot be read or written, or is empty; the message
+            names ``what`` it is and the ``setting`` that gives one instead.
+    """
     try:
         try:
             existing = target.read_text(encoding="utf-8").strip()
@@ -128,13 +139,13 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
             existing = target.read_text(encoding="utf-8").strip()
     except (OSError, UnicodeError):
         raise ConfigError(
-            "cannot read or persist automatic anchor secret; check "
-            f"{target} permissions or set anchor.secret explicitly"
+            f"cannot read or persist automatic {what}; check "
+            f"{target} permissions or set {setting} explicitly"
         ) from None
     if not existing:
         raise ConfigError(
-            "automatic anchor secret file is empty; remove the empty file "
-            f"at {target} to create a new key, or set anchor.secret explicitly"
+            f"automatic {what} file is empty; remove the empty file "
+            f"at {target} to create a new key, or set {setting} explicitly"
         )
     if os.name == "posix":
         # A key restored from a backup or copied in may be open to others.

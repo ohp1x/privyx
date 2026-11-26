@@ -808,7 +808,10 @@ the app does not start, or the request is refused.
 | `request.masked` | `RequestMasked` | The request is masked, before the final leak check | Change the masked `body` and `headers`, `reject`, `respond` |
 
 Both request events carry `method`, `path`, `headers`, `body`, `dialect`,
-`session_id`, and `request_id`. `event.reject(status, code, message)` answers
+`session_id`, and `request_id`. `request.received` also carries
+`conversation`: the agent type and its own ID of the conversation, such as
+`("claude", <session ID>)` for Claude Code or `("codex", <session ID>)` for
+Codex, or `None` when the request names none. `event.reject(status, code, message)` answers
 with an error in the client's format, and `event.respond(status, body)` answers
 in place of the upstream. **`request.received` holds the original values.**
 What a listener adds at `request.masked` is checked for leaks too. No listener

@@ -115,6 +115,26 @@ def endpoint(environment: Mapping[str, str], argv: list[str]) -> tuple[str, str]
     return found
 
 
+def conversation_id(headers: Mapping[str, str], body: Mapping[str, Any]) -> str | None:
+    """The session of a Claude Code request: ``X-Claude-Code-Session-Id``, else
+    the ``session_id`` in ``metadata.user_id``, a JSON string, which holds the same.
+
+    A session is kept by ``--continue``, ``--resume``, and the subagents it
+    starts; ``/clear`` and ``--fork-session`` start another (Claude Code 2.1.332).
+    """
+    if session := headers.get("x-claude-code-session-id"):
+        return session
+    metadata = body.get("metadata")
+    user = metadata.get("user_id") if isinstance(metadata, Mapping) else None
+    if not isinstance(user, str) or not user.startswith("{"):
+        return None
+    try:
+        session = json.loads(user).get("session_id")
+    except (ValueError, AttributeError, RecursionError):  # a client's own bytes
+        return None
+    return session if isinstance(session, str) and session else None
+
+
 class ClaudeAgent(Agent):
     """Claude Code: ``--settings`` outranks its settings files, which may name an endpoint.
 

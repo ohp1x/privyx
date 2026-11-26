@@ -144,6 +144,43 @@ def tail(file: Path | None, lines: int, follow: bool) -> None:
             pass
 
 
+@audit.command("find")
+@_FILE
+@config_options
+@click.option(
+    "--conversation",
+    required=True,
+    type=click.File("r"),
+    help="A file holding the agent's own ID of the conversation; - reads it from stdin.",
+)
+def find(file: Path | None, conversation: TextIO) -> None:
+    """Print the events of one agent conversation, found by its conversation_ref.
+
+    The ID, such as Claude Code's session ID, is read from a file or stdin, so
+    it stays out of the shell history and the process list:
+
+    \b
+      echo "$CLAUDE_SESSION_ID" | privyx audit find --conversation -
+    """
+    from privyx.app import Privyx
+    from privyx.core import PrivyxError
+    from privyx.events import record_line
+
+    native = conversation.read().strip()
+    if not native:
+        raise click.UsageError("no conversation ID given")
+    try:
+        records = Privyx().audit.conversation(native, file)
+    except FileNotFoundError as exc:
+        raise _no_trail(file) from exc
+    except (PrivyxError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not records:
+        raise click.ClickException("no events of that conversation in the audit trail")
+    for record in records:
+        click.echo(record_line(record))
+
+
 @audit.command("watch")
 @click.argument("session_id", required=False)
 @config_options
