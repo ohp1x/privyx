@@ -11,8 +11,10 @@ no interaction between them.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import os
+import stat
 import tempfile
 from hashlib import sha256
 from pathlib import Path
@@ -101,8 +103,9 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
     pseudonyms stay stable across commands using ``anchor.secret: auto`` and
     across runs of ``privyx run``. An empty configured secret still means
     "no anchoring". A complete key is published atomically without replacing
-    another process's key. Unreadable or empty files and persistence failures
-    raise ``ConfigError`` rather than silently using a temporary secret.
+    another process's key, and an existing key that others may read is made
+    owner-only. Unreadable or empty files and persistence failures raise
+    ``ConfigError`` rather than silently using a temporary secret.
     """
     target = Path(path) if path is not None else default_anchor_secret_path()
     try:
@@ -133,4 +136,10 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
             "automatic anchor secret file is empty; remove the empty file "
             f"at {target} to create a new key, or set anchor.secret explicitly"
         )
+    if os.name == "posix":
+        # A key restored from a backup or copied in may be open to others.
+        with contextlib.suppress(OSError):
+            mode = stat.S_IMODE(target.stat().st_mode)
+            if mode & 0o077:
+                target.chmod(mode & 0o700)
     return existing

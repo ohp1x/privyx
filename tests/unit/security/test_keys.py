@@ -48,6 +48,17 @@ def test_reuses_existing_secret(tmp_path: Path) -> None:
     assert first == second
 
 
+def test_an_existing_secret_open_to_others_is_made_owner_only(tmp_path: Path) -> None:
+    path = tmp_path / "anchor.key"
+    secret = read_or_create_anchor_secret(path)
+    path.chmod(0o644)  # restored from a backup, say
+    assert read_or_create_anchor_secret(path) == secret
+    assert (path.stat().st_mode & 0o777) == 0o600
+    path.chmod(0o444)
+    read_or_create_anchor_secret(path)
+    assert (path.stat().st_mode & 0o777) == 0o400  # still read-only for its owner
+
+
 def test_first_runs_started_together_share_one_secret(tmp_path: Path) -> None:
     def first_run(path: Path, start: threading.Barrier) -> str:
         start.wait()
