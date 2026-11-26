@@ -134,6 +134,16 @@ def codex_args(base_url: str, argv: list[str], provider: str | None = None) -> l
     return [*override, *argv[:end], *(override if own else []), *argv[end:]]
 
 
+def conversation_id(headers: Mapping[str, str], body: Mapping[str, Any]) -> str | None:
+    """The session of a Codex request: its ``session-id`` header, else ``thread-id``.
+
+    A subagent sends a ``thread-id`` of its own and the ``session-id`` of the
+    thread that started it, so the session holds its subagents' requests.
+    ``resume`` keeps it and ``fork`` starts another (Codex 0.172.0).
+    """
+    return headers.get("session-id") or headers.get("thread-id") or None
+
+
 class CodexAgent(Agent):
     """Codex: ``-c`` overrides outrank its config, which may name a provider of its own.
 

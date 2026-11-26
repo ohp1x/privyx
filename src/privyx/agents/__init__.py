@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,8 @@ __all__ = [
     "builtin_metadata",
     "client_metadata",
     "ClaudeAgent",
+    "CONVERSATION_AGENTS",
+    "conversation",
     "CodexAgent",
     "Endpoint",
     "EnvAgent",
@@ -73,6 +76,26 @@ def builtin_metadata() -> tuple[frozenset[str], frozenset[str]]:
 def _union(types: list[type[Agent]]) -> tuple[frozenset[str], frozenset[str]]:
     keys = frozenset[str]().union(*(kind.metadata_keys for kind in types))
     return keys, frozenset[str]().union(*(kind.masked_headers for kind in types))
+
+
+#: The built-in types whose requests say which conversation they belong to.
+_CONVERSATIONS = {
+    "claude": "privyx.agents._claude:conversation_id",
+    "codex": "privyx.agents._codex:conversation_id",
+}
+CONVERSATION_AGENTS = tuple(_CONVERSATIONS)
+
+
+def conversation(headers: Mapping[str, str], body: Mapping[str, Any]) -> tuple[str, str] | None:
+    """The agent type that sent a model request and its own ID of the conversation, if it says.
+
+    Only the signals each built-in type was seen to send: Claude Code's
+    session and Codex's.  Another client, or a request without one, has none.
+    """
+    for agent, path in _CONVERSATIONS.items():
+        if native := imported(path)(headers, body):
+            return agent, native
+    return None
 
 
 def setup(app: Privyx) -> None:

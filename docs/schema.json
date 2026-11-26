@@ -2023,6 +2023,24 @@
           },
           "title": "Prices",
           "type": "object"
+        },
+        "conversation_ref": {
+          "title": "Conversation Ref",
+          "anyOf": [
+            {
+              "default": false,
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "pattern": "\\$\\{"
+            }
+          ]
+        },
+        "key": {
+          "default": "auto",
+          "title": "Key",
+          "type": "string"
         }
       },
       "additionalProperties": false

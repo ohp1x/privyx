@@ -82,6 +82,7 @@ The upstream returned response headers (time to first byte).
 | `duration_ms` | float | Time to the upstream response **headers** (not the whole stream). |
 | `transform_ms` | float | The part of `duration_ms` spent masking the request (detection, pseudonymization, and the session's vault read and write); the rest is mostly the upstream. Absent when no body was masked (a path outside `proxy.routes`, a body that is not JSON). |
 | `upstream` | string | Upstream host. |
+| `conversation_ref` | string | With [`features.audit.conversation_ref`](#finding-a-conversation): the agent conversation the request belongs to, `c1.<key id>.<32 hex characters>`. Absent when it is off, or the client is not an agent that names its conversation. |
 
 ### `proxy.passthrough` / `proxy.blocked`
 An unknown route was allowed without body masking or refused with `403`, or
@@ -202,6 +203,43 @@ file away leaves Privyx writing to the moved file until it restarts.
 
 Disable the trail entirely with `features.audit: false` /
 `PRIVYX_AUDIT_ENABLED=false`.
+
+## Finding a conversation
+
+An agent conversation is many exchanges, each with its own `request_id` and,
+with the default `ephemeral` session, its own `session_id`. With
+`conversation_ref`, every `proxy.request` of Claude Code or Codex carries the
+same reference for one conversation:
+
+```yaml
+features:
+  audit:
+    conversation_ref: true
+```
+
+The reference is an HMAC-SHA256 of the ID the agent sends, under the trail's
+key, so the trail, the logs, and `/metrics` never hold the ID itself. To list
+the events of a conversation, give its ID to `privyx audit find` on stdin,
+where it stays out of the shell history and the process list:
+
+```bash
+echo "$SESSION_ID" | privyx audit find --conversation -
+```
+
+It computes the reference again and prints every event of the matching
+exchanges, as `privyx audit tail` does.
+
+| Agent | Its ID of the conversation | Kept by | A new one after |
+|---|---|---|---|
+| Claude Code | The session: header `X-Claude-Code-Session-Id`, or `session_id` in `metadata.user_id` | `--continue`, `--resume`, its subagents | a new launch, `/clear`, `--fork-session` |
+| Codex | The session: header `session-id`, or `thread-id` | `resume`, its subagents | a new launch, `fork` |
+
+Seen in Claude Code 2.1.332 and Codex 0.172.0. Another client gets no
+reference: Privyx does not guess one from the content, which would join
+conversations that open the same way. The key is `features.audit.key`, by
+default a file beside the trail (`audit.log.key`): whoever holds the key and
+an agent's ID can find that conversation in the trail, as long as its lines
+are there. To forget a conversation, delete its lines.
 
 ## Metrics
 
