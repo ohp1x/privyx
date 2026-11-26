@@ -155,7 +155,7 @@
 #     # Entity -> words; a match counts only with one within five words.
 #     context: {}
 #     # Opt-in built-ins: HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10,
-#     # WALLET_KEY.  With
+#     # WALLET_KEY, PASSPORT, MAC_ADDRESS, CN_RESIDENT_ID, CN_MOBILE.  With
 #     # builtins: false, also CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN,
 #     # MY_NRIC, ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR, and IBAN.
 #     enable: []

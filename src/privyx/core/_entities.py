@@ -33,6 +33,10 @@ BUILTIN_ENTITIES = frozenset(
         "MRN",
         "ICD10",
         "WALLET_KEY",
+        "PASSPORT",
+        "MAC_ADDRESS",
+        "CN_RESIDENT_ID",
+        "CN_MOBILE",
     }
 )
 

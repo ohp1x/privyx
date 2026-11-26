@@ -404,3 +404,47 @@ def test_the_bip39_list_is_the_published_one() -> None:
     text = "\n".join(sorted(BIP39_WORDS)) + "\n"
     published = "2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda"
     assert hashlib.sha256(text.encode()).hexdigest() == published
+
+
+@pytest.mark.parametrize(
+    ("text", "entity", "value"),
+    [
+        ("Passport No: X1234567", "PASSPORT", "X1234567"),
+        ("nomor paspor: C1234567", "PASSPORT", "C1234567"),
+        ("Reisepass C01X00T47", "PASSPORT", "C01X00T47"),
+        ("eth0 ether 0a:1b:2c:3d:4e:5f txqueuelen", "MAC_ADDRESS", "0a:1b:2c:3d:4e:5f"),
+        ("adapter 0A-1B-2C-3D-4E-5F.", "MAC_ADDRESS", "0A-1B-2C-3D-4E-5F"),
+        ("身份证号440306199001011236", "CN_RESIDENT_ID", "440306199001011236"),
+        ("ID 51010719881120109X", "CN_RESIDENT_ID", "51010719881120109X"),
+        ("ID 51010719881120109x", "CN_RESIDENT_ID", "51010719881120109x"),
+        ("手机：13812345678", "CN_MOBILE", "13812345678"),
+        ("mobile 15012345678", "CN_MOBILE", "15012345678"),
+    ],
+)
+def test_passports_macs_and_chinese_numbers_are_masked_when_enabled(
+    text: str, entity: str, value: str
+) -> None:
+    assert _found(text) == []
+    assert _found(text, enable=[entity]) == [(entity, value)]
+
+
+@pytest.mark.parametrize(
+    ("text", "entity"),
+    [
+        ("ticket X1234567", "PASSPORT"),  # no context word
+        ("passport 000000000", "PASSPORT"),
+        ("passport ABCD1234", "PASSPORT"),  # four digits
+        ("ff:ff:ff:ff:ff:ff", "MAC_ADDRESS"),
+        ("00:00:00:00:00:00", "MAC_ADDRESS"),
+        ("0a:1b:2c-3d:4e:5f", "MAC_ADDRESS"),  # separators mixed
+        ("fe80::0a:1b:2c:3d:4e:5f", "MAC_ADDRESS"),  # part of an IPv6 address
+        ("440306199001011237", "CN_RESIDENT_ID"),  # check digit broken
+        ("440306209901011238", "CN_RESIDENT_ID"),  # born in 2099
+        ("440306199013011233", "CN_RESIDENT_ID"),  # month 13
+        ("order 13812345678", "CN_MOBILE"),  # no context word
+        ("phone 12812345678", "CN_MOBILE"),  # no mobile number starts 12
+        ("phone 913812345678", "CN_MOBILE"),
+    ],
+)
+def test_passport_mac_and_chinese_number_look_alikes_are_kept(text: str, entity: str) -> None:
+    assert entity not in [e for e, _ in _found(text, enable=[entity])]

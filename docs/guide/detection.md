@@ -72,6 +72,10 @@ detectors:
 | `MRN` | A medical record number after its label: `MRN`, `medical record number`, `No. RM`, `nomor rekam medis` |
 | `ICD10` | ICD-10 diagnosis codes (`E11.9`, `S72.001A`, `U07.1`) next to a word such as `diagnosis`, `dx`, or `icd` |
 | `WALLET_KEY` | A wallet's private key with a valid checksum: WIF (`5…`, `K…`, `L…`, testnet `c…`), BIP 32 extended private keys (`xprv…`, `tprv…`, `zprv…`), and Nostr `nsec1…` keys. Also a seed phrase after `seed`, `mnemonic`, or `recovery`: 12 or more words of the BIP 39 list in a row, separated by spaces; the words around it that are not on the list stay readable. Public keys (`xpub…`) and addresses are left to `CRYPTO_WALLET` |
+| `PASSPORT` | Passport numbers of 6 to 9 capitals and digits, five or more of them digits (`X1234567`, `C01X00T47`), next to a word such as `passport`, `paspor`, `reisepass`, or `护照` |
+| `MAC_ADDRESS` | MAC addresses written `0a:1b:2c:3d:4e:5f` or `0A-1B-2C-3D-4E-5F`, except `00:00:00:00:00:00` and the broadcast address `ff:ff:ff:ff:ff:ff` |
+| `CN_RESIDENT_ID` | Chinese resident ID numbers: 18 characters with a birth date from 1900 to today and a correct check character (ISO 7064 MOD 11-2) |
+| `CN_MOBILE` | Chinese mobile numbers of 11 digits (`13812345678`) next to a word such as `phone`, `mobile`, `手机`, or `电话`. Written with `+86`, one is a `PHONE` already |
 
 ## Context words
 
@@ -83,17 +87,19 @@ can use:
 detectors:
   regex:
     patterns:
-      PASSPORT: \b[A-Z]\d{7}\b
+      DRIVER_LICENSE: \b[A-Z]\d{7}\b
     context:
-      PASSPORT:
-      - passport
-      - paspor
-      - travel document
+      DRIVER_LICENSE:
+      - driver
+      - licence
+      - license
+      - sim
 ```
 
 Words are matched whole and ignoring case; an entry may be a phrase. For a
-built-in entity, the list replaces its own words (`UK_NHS`, `IN_AADHAAR`, and
-`ICD10` have some) or adds the requirement to one without them. `context` for
+built-in entity, the list replaces its own words (`UK_NHS`, `IN_AADHAAR`,
+`ICD10`, `PASSPORT`, and `CN_MOBILE` have some) or adds the requirement to one
+without them. `context` for
 an entity the detector does not detect stops Privyx at startup. The `presidio`
 detector weighs context words on its own and ignores this setting.
 
