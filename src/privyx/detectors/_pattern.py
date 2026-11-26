@@ -337,7 +337,8 @@ _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
 #: value, so that the value starts inside the match, and whether to search
 #: inside a match, given whether its check passed.  Inside a card candidate the
 #: check rejects: the card number in ``7 4111-1111-1111-1111`` after the
-#: rejected ``7 4111-1111-1111``.  Inside a phone number of bare groups the
+#: rejected ``7 4111-1111-1111``, and likewise an IBAN after a code of its shape
+#: (``PL61 1090 …`` in ``PL00 PL61 1090 …``).  Inside a phone number of bare groups the
 #: check accepts, with no ``+<country>`` code, area code in parentheses, or
 #: leading 0 to mark where it starts: the number in ``ref 2026 0812 3456 7890``
 #: after ``2026 0812 3456``.  The other checked patterns cannot start inside a
@@ -345,6 +346,7 @@ _CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
 #: which their check reads whole.
 _SEARCH_INSIDE: dict[str, Callable[[re.Match[str], bool], bool]] = {
     "CREDIT_CARD": lambda match, accepted: not accepted,
+    "IBAN": lambda match, accepted: not accepted,
     "PHONE": lambda match, accepted: accepted and match[0][0] not in "+(0",
 }
 
@@ -409,6 +411,7 @@ UNDERSCORE_SPLIT: frozenset[str] = frozenset(
         "ES_NIE",
         "MRN",
         "ICD10",
+        "IBAN",
     }
 )
 

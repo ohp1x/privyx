@@ -7,6 +7,8 @@ shape is one takes a calculation, which is what a plugin is for::
     plugins:
       paths: [./plugins]
     detectors:
+      regex:
+        disable: [IBAN]        # the built-in this plugin stands in for
       iban:                    # runs after the built-in regex detector
         countries: [DE, NL]    # optional: only these country codes
 

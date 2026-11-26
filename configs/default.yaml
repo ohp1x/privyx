@@ -156,7 +156,7 @@
 #     context: {}
 #     # Opt-in built-ins: HIGH_ENTROPY, ASSIGNED_SECRET, MRN, ICD10.  With
 #     # builtins: false, also CRYPTO_WALLET, ID_NIK, ID_NPWP, SG_NRIC_FIN,
-#     # MY_NRIC, ES_NIF, ES_NIE, UK_NHS, and IN_AADHAAR.
+#     # MY_NRIC, ES_NIF, ES_NIE, UK_NHS, IN_AADHAAR, and IBAN.
 #     enable: []
 #     disable: []          # built-ins to turn off; inactive opt-in names are accepted too
 #     entropy_threshold: 3.0  # HIGH_ENTROPY: bits per character

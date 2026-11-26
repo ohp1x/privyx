@@ -27,6 +27,7 @@ BUILTIN_ENTITIES = frozenset(
         "ES_NIE",
         "UK_NHS",
         "IN_AADHAAR",
+        "IBAN",
         "HIGH_ENTROPY",
         "ASSIGNED_SECRET",
         "MRN",

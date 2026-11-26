@@ -12,6 +12,8 @@ For those, Privyx loads detectors you write yourself.
 This tutorial builds one that finds IBANs, international bank account
 numbers. A pattern can describe their shape. Telling a real IBAN from a
 string of the same shape takes a checksum, and that is what the plugin adds.
+Privyx finds IBANs itself as the built-in `IBAN`, so the configuration below
+turns that off: what you see then comes from the plugin.
 
 **You need:** Privyx [installed](../guide/installation.md) and some Python.
 **Time:** twenty minutes.
@@ -73,6 +75,8 @@ plugins:
   paths: [./plugins]
 
 detectors:
+  regex:
+    disable: [IBAN]         # the built-in this plugin stands in for
   iban: {}                  # the name the plugin registered; runs after regex
 ```
 

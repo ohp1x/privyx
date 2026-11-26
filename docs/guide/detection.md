@@ -41,9 +41,10 @@ With no configuration, the `regex` detector finds:
 | `ES_NIF`, `ES_NIE` | Spanish DNI and NIE with a correct check letter |
 | `UK_NHS` | UK NHS numbers with a correct check digit, next to `nhs` |
 | `IN_AADHAAR` | Indian Aadhaar numbers with a correct check digit, next to `aadhaar` |
+| `IBAN` | International bank account numbers with correct check digits and their country's length, written solid (`DE89370400440532013000`) or in groups of four (`DE89 3704 0044 0532 0130 00`) |
 
-The wallet and ID entities are built in from 0.2: each passes a checksum or
-structure check. A `regex` detector with `builtins: false` takes
+The wallet and ID entities are built in from 0.2, and `IBAN` from 0.3.1: each
+passes a checksum or structure check. A `regex` detector with `builtins: false` takes
 them with `enable`; `enable` lists them in a `regex` detector that keeps its
 built-ins to no effect, so a config written for 0.1 still loads. To turn any of them off, list it under
 [`disable`](#turning-a-built-in-off).
