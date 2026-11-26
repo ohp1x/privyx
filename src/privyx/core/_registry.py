@@ -5,7 +5,7 @@ from __future__ import annotations
 import difflib
 import importlib
 import inspect
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
@@ -103,7 +103,12 @@ class Registry[C: Component]:
         return name in self._builtins
 
     def validate(
-        self, name: str, options: Mapping[str, Any], *, setting: str | None = None
+        self,
+        name: str,
+        options: Mapping[str, Any],
+        *,
+        setting: str | None = None,
+        origin: Callable[[str], str] | None = None,
     ) -> Options:
         """``options`` checked as type ``name``'s, with its defaults filled in.
 
@@ -112,6 +117,8 @@ class Registry[C: Component]:
             options: The options its section sets.
             setting: Where the section is in the config, for errors; the kind
                 by default (``vault``).
+            origin: What an error writes after an invalid setting, given its
+                path: where its value was given, such as `` (config.yaml:3)``.
 
         Raises:
             ConfigError: If the type is unknown, or an option is unknown or
@@ -131,7 +138,8 @@ class Registry[C: Component]:
                     hint = f" (did you mean {match[0]!r}?)" if match else ""
                     problems.append(f"unknown setting {path!r}{hint}")
                 else:
-                    problems.append(f"invalid setting {path!r}: {error['msg']}")
+                    given = origin(path) if origin is not None else ""
+                    problems.append(f"invalid setting {path!r}{given}: {error['msg']}")
             raise ConfigError(f"{', '.join(problems)} for {self.kind} type {name!r}") from None
 
     def build(self, name: str, options: Mapping[str, Any], *, setting: str | None = None) -> C:

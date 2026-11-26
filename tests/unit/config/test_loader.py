@@ -82,6 +82,58 @@ def test_an_invalid_env_port_fails_at_load(monkeypatch: pytest.MonkeyPatch, valu
         load_config()
 
 
+@pytest.mark.parametrize(
+    ("var", "setting", "error"),
+    [
+        ("PRIVYX_SERVER__PORT", "server.port", "Input should be a valid integer"),
+        ("PRIVYX_PORT", "server.port", "Input should be a valid integer"),
+        ("PRIVYX_PROXY__DLP_CHECK", "proxy.dlp_check", "Input should be a valid boolean"),
+        ("PRIVYX_VAULT__TTL", "vault.ttl", "Input should be a valid integer"),
+    ],
+)
+def test_an_invalid_value_names_the_variable_that_gave_it(
+    monkeypatch: pytest.MonkeyPatch, var: str, setting: str, error: str
+) -> None:
+    monkeypatch.setenv(var, "abc")
+    with pytest.raises(ConfigError) as exc:
+        load_config()
+    assert str(exc.value).startswith(f"invalid setting {setting!r} ({var}): {error}")
+    assert "abc" not in str(exc.value) and "pydantic.dev" not in str(exc.value)
+
+
+def test_an_invalid_value_names_the_variable_as_it_is_spelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PRIVYX_server__port", "abc")  # the path is read in any case
+    with pytest.raises(
+        ConfigError, match=r"invalid setting 'server\.port' \(PRIVYX_server__port\)"
+    ):
+        load_config()
+
+
+def test_an_invalid_agent_option_names_the_file_and_line_that_gave_it(tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text("agents:\n  example:\n    command: echo\n    endpoint_env: 123\n")
+    where = re.escape(f"'agents.example.endpoint_env' ({config}:4)")
+    with pytest.raises(ConfigError, match=f"invalid setting {where}"):
+        load_config(config)
+
+
+@pytest.mark.parametrize(
+    ("text", "setting", "line"),
+    [("server:\n  port: abc\n", "server.port", 2), ("vault:\n  ttl: abc\n", "vault.ttl", 2)],
+)
+def test_an_invalid_value_names_the_file_and_line_that_gave_it(
+    tmp_path: Path, text: str, setting: str, line: int
+) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(text, encoding="utf-8")
+    with pytest.raises(
+        ConfigError, match=re.escape(f"invalid setting {setting!r} ({config}:{line})")
+    ):
+        load_config(config)
+
+
 @pytest.mark.parametrize("var", ["PRIVYX_AUDIT_ENABLED", "PRIVYX_DETECTOR_CACHE"])
 @pytest.mark.parametrize("value", ["treu", "Y", "enabled"])
 def test_an_invalid_env_boolean_fails_at_load(

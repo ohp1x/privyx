@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI:** `privyx audit stats` and `audit tail` without an audit trail say where they looked and why it may not be there, instead of `[Errno 2] No such file or directory`
 - **CLI:** `privyx detect --explain` gives each reason once; two matches of one pattern over a value printed the same line twice
 - **CLI:** the help of `privyx session export`, `prune`, and `show` no longer shows double backticks around names
+- **Config:** the error for an invalid value names the file and line, or the environment variable, that gave it, such as `invalid setting 'server.port' (PRIVYX_PORT): …`, without the link to the validation library's docs
 
 ### Security
 

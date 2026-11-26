@@ -2429,7 +2429,7 @@ def test_config_sources_does_not_print_secret_values_in_errors(
     result = runner.invoke(cli, ["-c", str(config), "config", "show", "--sources"])
 
     assert result.exit_code == 1
-    assert "Error: invalid configuration" in result.output
+    assert "Error: invalid setting" in result.output
     assert "Traceback" not in result.output
     assert secret not in result.output
 
@@ -2548,7 +2548,7 @@ def test_config_reports_bad_config_without_traceback(
     result = runner.invoke(cli, args)
 
     assert result.exit_code == 1
-    assert "Error: invalid configuration" in result.output
+    assert "Error: invalid setting" in result.output
     assert "Traceback" not in result.output
 
 
