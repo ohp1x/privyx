@@ -322,6 +322,53 @@ MRN_PATTERN = r"""(?x)
 ICD10_PATTERN = r"\b[A-Z]\d[0-9AB](?:\.[0-9A-Z]{1,4})?\b"
 
 
+# --- Bank accounts ----------------------------------------------------------
+
+#: The IBAN countries of the ISO 13616 registry, each with its IBAN's length.
+_IBAN_LENGTHS = {
+    entry[:2]: int(entry[2:])
+    for entry in """
+    AD24 AE23 AL28 AT20 AZ28 BA20 BE16 BG22 BH22 BI27 BR29 BY28 CH21 CR22 CY28
+    CZ24 DE22 DJ27 DK18 DO28 EE20 EG29 ES24 FI18 FK18 FO18 FR27 GB22 GE22 GI23
+    GL18 GR27 GT28 HN28 HR21 HU28 IE22 IL23 IQ23 IS26 IT27 JO30 KW30 KZ20 LB28
+    LC32 LI21 LT20 LU20 LV21 LY25 MC27 MD24 ME22 MK19 MN20 MR27 MT31 MU30 NI28
+    NL18 NO15 OM23 PK24 PL28 PS29 PT25 QA29 RO24 RS22 RU33 SA24 SC31 SD18 SE24
+    SI19 SK24 SM27 SO23 ST25 SV28 TL23 TN24 TR26 UA29 VA22 VG24 XK20 YE30
+    """.split()
+}
+
+
+def _iban_pattern() -> str:
+    """One alternative per country: its code, two check digits, and the rest
+    of its length, solid or in the groups of four it is printed in
+    (``DE89 3704 0044 0532 0130 00``).  The exact length keeps a word after the
+    number (``EUR``) out of the match.  Grouped by the first letter, the
+    countries cost a few comparisons where a capital starts a word.
+    """
+    by_letter: dict[str, list[str]] = {}
+    for country, length in _IBAN_LENGTHS.items():
+        groups, rest = divmod(length - 4, 4)
+        tail = f"(?: ?[A-Z0-9]{{{rest}}})" if rest else ""
+        by_letter.setdefault(country[0], []).append(
+            rf"{country[1]}\d{{2}}(?: ?[A-Z0-9]{{4}}){{{groups}}}{tail}"
+        )
+    branches = [rf"{first}(?<!\w.)(?:{'|'.join(ends)})" for first, ends in by_letter.items()]
+    return rf"(?:{'|'.join(branches)})(?![\w])"
+
+
+IBAN_PATTERN = _iban_pattern()
+
+
+def _iban(match: re.Match[str]) -> bool:
+    """Whether the check digits hold (ISO 7064 mod 97-10).
+
+    With the first four characters moved to the end and each letter read as a
+    number (A = 10, ..., Z = 35), the number leaves 1 when divided by 97.
+    """
+    compact = match[0].replace(" ", "")
+    return int("".join(str(int(char, 36)) for char in compact[4:] + compact[:4])) % 97 == 1
+
+
 # --- Registry ---------------------------------------------------------------
 
 #: Checked by checksum or structure, and among the built-in patterns; a detector
@@ -338,6 +385,7 @@ CHECKED_PATTERNS: dict[str, str] = {
     "ES_NIE": r"[XYZ](?<!\w[XYZ])-?\d{7}-?[A-Z]\b",
     "UK_NHS": r"\d(?<!\d\d)(?<!\d[ -]\d)\d{2}([ -]?)\d{3}\1\d{4}(?![\d-])",
     "IN_AADHAAR": r"[2-9](?<!\d[2-9])(?<!\d[ -][2-9])\d{3}([ -]?)\d{4}\1\d{4}(?![\d-])",
+    "IBAN": IBAN_PATTERN,
 }
 
 #: Off unless a detector lists them under ``enable``: each finds more that is
@@ -359,6 +407,7 @@ CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "ES_NIE": _nie,
     "UK_NHS": _nhs,
     "IN_AADHAAR": _aadhaar,
+    "IBAN": _iban,
     "HIGH_ENTROPY": high_entropy(ENTROPY_THRESHOLD),
     "ASSIGNED_SECRET": _assigned_value,
 }

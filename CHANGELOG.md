@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Config:** `~/.privyx`, and a directory Privyx creates for the vault, the audit trail, or the anchor key, is created writable and readable by its owner only, whatever the umask; before, with a umask of `002`, others in the group could replace the config kept there, which can load plugins, or the trust store. `privyx doctor` checks `~/.privyx/settings.yaml` too, and fails when others can write to `~/.privyx` or to a directory holding one of those files
 - **Docker:** `docker-compose.yml` no longer defaults the upstream to `https://api.openai.com`, and the image ignores `DEFAULT_PRIVYX_UPSTREAM_URL`: with `PRIVYX_PROVIDER=anthropic`, or `provider: anthropic` in a mounted config, that default sent the provider's key from `.env` to the OpenAI host. Set `PRIVYX_UPSTREAM_URL` or `PRIVYX_PROVIDER` in `.env`; `PRIVYX_UPSTREAM_URL=https://api.openai.com` keeps the old upstream
+- **Detection:** IBANs with correct check digits and their country's length are masked whole, as the new built-in entity `IBAN`; before, a phone number taken from the middle groups left the country code, check digits, and last digits to the provider, and an IBAN written without spaces reached it whole. `detectors.regex.disable: [IBAN]` keeps the old behavior
 
 ## [0.3.0] - 2026-11-24
 

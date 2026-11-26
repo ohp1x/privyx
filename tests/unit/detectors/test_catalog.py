@@ -13,7 +13,7 @@ from privyx.core import ConfigError, Context
 from privyx.detectors._catalog import _BASE58, shannon
 from privyx.policies import StrictPolicy
 
-#: The wallet and national-ID entities, turned on for every test below.
+#: The wallet, national-ID, and bank account entities, turned on for every test below.
 CATALOG = [
     "CRYPTO_WALLET",
     "ID_NIK",
@@ -24,6 +24,7 @@ CATALOG = [
     "ES_NIE",
     "UK_NHS",
     "IN_AADHAAR",
+    "IBAN",
 ]
 
 
@@ -143,6 +144,51 @@ def test_national_ids_that_check_out_are_masked(text: str, entity: str, value: s
 )
 def test_national_id_look_alikes_are_kept(text: str) -> None:
     assert [entity for entity, _ in _found(text)] in ([], ["PHONE"])
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        # A word after the number stays out of it: each country's length is exact.
+        ("refund DE89 3704 0044 0532 0130 00 EUR", "DE89 3704 0044 0532 0130 00"),
+        ("PL61 1090 1014 0000 0712 1981 2874 BIC", "PL61 1090 1014 0000 0712 1981 2874"),
+        ("iban:DE89370400440532013000.", "DE89370400440532013000"),
+        ("to GB82WEST12345698765432", "GB82WEST12345698765432"),
+        ("MT84 MALT 0110 0001 2345 MTLC AST0 01S", "MT84 MALT 0110 0001 2345 MTLC AST0 01S"),
+        ("NO9386011117947", "NO9386011117947"),  # the shortest
+        ("invoice_DE89370400440532013000.pdf", "DE89370400440532013000"),  # `_` separates
+        # A code of the same shape before it fails the check; the IBAN starts inside it.
+        ("PL00 PL61 1090 1014 0000 0712 1981 2874", "PL61 1090 1014 0000 0712 1981 2874"),
+    ],
+)
+def test_ibans_that_check_out_are_masked_whole(text: str, value: str) -> None:
+    # Not a phone number from its middle groups, which left the rest to the provider.
+    assert _found(text) == [("IBAN", value)]
+    assert _found(text, enable=[]) == [("IBAN", value)]  # on by default
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "DE89370400440532013001",  # check digits broken
+        "DE8937040044053201300",  # a character short for Germany
+        "xDE89370400440532013000",  # inside a word
+        "AB12 3456 7890 1234",  # no country AB
+    ],
+)
+def test_iban_look_alikes_are_kept(text: str) -> None:
+    assert [entity for entity, _ in _found(text)] in ([], ["PHONE"])
+
+
+def test_an_iban_glued_by_underscores_needs_underscore_separates_words() -> None:
+    text = "invoice_DE89370400440532013000_scan.pdf"
+    assert _found(text) == [("IBAN", "DE89370400440532013000")]
+    assert _found(text, underscore_separates_words=False) == []
+
+
+def test_disable_iban_leaves_its_groups_to_phone() -> None:
+    text = "DE89 3704 0044 0532 0130 00"
+    assert _found(text, enable=[], disable=["IBAN"]) == [("PHONE", "3704 0044 0532 0130")]
 
 
 def test_a_context_word_must_be_near_a_match() -> None:
