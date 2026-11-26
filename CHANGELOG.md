@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - **Detection:** the opt-in entity `WALLET_KEY` masks a wallet's private key with a valid checksum (WIF, `xprv…` and the other BIP 32 extended private keys, Nostr `nsec1…`), and a seed phrase of 12 or more BIP 39 words after `seed`, `mnemonic`, or `recovery`
+- **Detection:** the opt-in entities `PASSPORT` and `CN_MOBILE`, each next to a word for it, `MAC_ADDRESS`, and `CN_RESIDENT_ID`, held to its check character and a real birth date
 
 ### Fixed
 

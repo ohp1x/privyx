@@ -279,6 +279,53 @@ def _aadhaar(match: re.Match[str]) -> bool:
     return check == 0
 
 
+_CN_WEIGHTS = (7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2)
+
+
+def _cn_resident_id(match: re.Match[str]) -> bool:
+    """Chinese resident ID: a birth date from 1900 to today and an ISO 7064
+    MOD 11-2 check character (``X`` for 10)."""
+    value = match[0].upper()
+    total = sum(int(d) * w for d, w in zip(value[:17], _CN_WEIGHTS, strict=True))
+    year = int(value[6:10])
+    return (
+        "10X98765432"[total % 11] == value[17]
+        and 1900 <= year <= date.today().year
+        and _real_date(year, int(value[10:12]), int(value[12:14]))
+    )
+
+
+# --- Passports, devices, and mobile numbers (opt-in) ------------------------
+
+#: A passport number: 6 to 9 capitals and digits (``X1234567``,
+#: ``C01X00T47``); see :data:`CONTEXT`.  Letters around it are checked
+#: as ASCII, since ``\w`` would take the Chinese of ``护照号码E12345678``.
+PASSPORT_PATTERN = r"[A-Z0-9](?<![0-9A-Za-z-][A-Z0-9])[A-Z0-9]{5,8}(?![0-9A-Za-z-])"
+
+
+def _passport(match: re.Match[str]) -> bool:
+    """Five digits or more, and not one character over and over (``000000``)."""
+    value = match[0]
+    return sum(char.isdigit() for char in value) >= 5 and len(set(value)) > 1
+
+
+#: Six pairs of hex digits, all joined by ``:`` or all by ``-``.
+MAC_PATTERN = (
+    r"[0-9A-Fa-f](?<![0-9A-Za-z:.-][0-9A-Fa-f])[0-9A-Fa-f]([:-])"
+    r"(?:[0-9A-Fa-f]{2}\1){4}[0-9A-Fa-f]{2}(?![0-9A-Za-z:-])"
+)
+
+
+def _mac_address(match: re.Match[str]) -> bool:
+    """Not all zeros or the broadcast address, which name no device."""
+    return match[0].lower().replace("-", ":") not in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff")
+
+
+#: A mainland Chinese mobile number of 11 digits (``13812345678``); see
+#: :data:`CONTEXT`.  Written ``+86 …``, it is a ``PHONE``.
+CN_MOBILE_PATTERN = r"1(?<![0-9A-Za-z.+-]1)[3-9]\d{9}(?![0-9A-Za-z.-])"
+
+
 # --- High entropy (opt-in) --------------------------------------------------
 
 #: Bits per character a random-looking string needs; ``entropy_threshold`` overrides it.
@@ -471,6 +518,10 @@ OPTIONAL_PATTERNS: dict[str, str] = {
     "MRN": MRN_PATTERN,
     "ICD10": ICD10_PATTERN,
     "WALLET_KEY": WALLET_KEY_PATTERN,
+    "PASSPORT": PASSPORT_PATTERN,
+    "MAC_ADDRESS": MAC_PATTERN,
+    "CN_RESIDENT_ID": r"\d(?<![\d.-]\d)\d{16}[\dXx](?![\d.-])",
+    "CN_MOBILE": CN_MOBILE_PATTERN,
 }
 
 CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
@@ -487,6 +538,9 @@ CHECKS: dict[str, Callable[[re.Match[str]], bool]] = {
     "HIGH_ENTROPY": high_entropy(ENTROPY_THRESHOLD),
     "ASSIGNED_SECRET": _assigned_value,
     "WALLET_KEY": _wallet_key,
+    "PASSPORT": _passport,
+    "MAC_ADDRESS": _mac_address,
+    "CN_RESIDENT_ID": _cn_resident_id,
 }
 
 #: Words one of which must be near a match: the number alone says too little.
@@ -495,4 +549,43 @@ CONTEXT: dict[str, frozenset[str]] = {
     "UK_NHS": frozenset({"nhs", "national health service"}),
     "IN_AADHAAR": frozenset({"aadhaar", "aadhar", "uid", "uidai"}),
     "ICD10": frozenset({"icd", "icd10", "diagnosis", "diagnoses", "diagnosed", "diagnosa", "dx"}),
+    "PASSPORT": frozenset(
+        {
+            "passport",
+            "paspor",
+            "pasport",
+            "passeport",
+            "pasaporte",
+            "passaporte",
+            "passaporto",
+            "paspoort",
+            "reisepass",
+            "travel document",
+            "护照",
+            "護照",
+            "旅券",
+            "パスポート",
+            "여권",
+        }
+    ),
+    "CN_MOBILE": frozenset(
+        {
+            "phone",
+            "mobile",
+            "tel",
+            "telephone",
+            "cell",
+            "cellphone",
+            "contact",
+            "whatsapp",
+            "wechat",
+            "sms",
+            "手机",
+            "電話",
+            "电话",
+            "联系",
+            "聯繫",
+            "微信",
+        }
+    ),
 }
