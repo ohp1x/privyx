@@ -52,7 +52,7 @@ def list_cmd(as_json: bool) -> None:
 def show(session_id: str, reveal: bool) -> None:
     """Show one session's mappings.
 
-    Original values are masked unless ``--reveal`` is given, so that routine
+    Original values are masked unless --reveal is given, so that routine
     debugging does not print PII to a terminal or CI log.
     """
     _run(_show(session_id, reveal))
@@ -68,10 +68,10 @@ def show(session_id: str, reveal: bool) -> None:
 @config_options
 @click.option("--dry-run", is_flag=True, help="List what would be deleted; delete nothing.")
 def prune(older_than: int, dry_run: bool) -> None:
-    """Delete sessions idle longer than ``--older-than``.
+    """Delete sessions idle longer than --older-than.
 
-    Each deletion is written to the audit trail as ``session.deleted`` with
-    ``reason: prune``.
+    Each deletion is written to the audit trail as a session.deleted event
+    with the reason prune.
     """
     _run(_prune(older_than, dry_run))
 
@@ -95,11 +95,11 @@ def prune(older_than: int, dry_run: bool) -> None:
 def export(session_id: str, forensic: bool, output: Path | None) -> None:
     """Write a session's record for review as a zip archive.
 
-    ``events.jsonl`` holds its audit events, ``transcript.jsonl`` each request
-    as sent upstream and each reply as the upstream sent it (from the tap,
-    when ``proxy.tap`` was on), and ``summary.json`` the totals.  Original
-    values are left out: the transcript is the masked side.  A value Privyx
-    did not detect is in it as it was sent.
+    events.jsonl holds its audit events, transcript.jsonl each request as
+    sent upstream and each reply as the upstream sent it (from the tap, when
+    proxy.tap was on), and summary.json the totals.  Original values are left
+    out: the transcript is the masked side.  A value Privyx did not detect is
+    in it as it was sent.
     """
     _run(_export(session_id, output or Path(f"{session_id}-forensic.zip")))
 

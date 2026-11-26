@@ -12,7 +12,7 @@ import json
 import os
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -174,6 +174,19 @@ def test_detect_explain_gives_each_reason_once(runner: CliRunner) -> None:
         "        found by  regex: built-in pattern CREDIT_CARD",
         "        masked",
     ]
+
+
+def test_help_texts_hold_no_rst_markup(runner: CliRunner) -> None:
+    def helps(command: click.Command, path: list[str]) -> Iterator[tuple[str, str]]:
+        ctx = click.Context(command, info_name=" ".join(path))
+        yield " ".join(path), command.get_help(ctx)
+        if isinstance(command, click.Group):
+            for name in command.list_commands(ctx):
+                sub = command.get_command(ctx, name)
+                if sub is not None:
+                    yield from helps(sub, [*path, name])
+
+    assert [path for path, text in helps(cli, ["privyx"]) if "``" in text] == []
 
 
 def test_detect_explain_names_an_opt_in_entity(runner: CliRunner, tmp_path: Path) -> None:
