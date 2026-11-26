@@ -96,7 +96,9 @@ detectors:
       - sim
 ```
 
-Words are matched whole and ignoring case; an entry may be a phrase. For a
+Words are matched whole and ignoring case; an entry may be a phrase. A word in
+Chinese, Japanese, or Korean script also counts inside a longer one, as those
+scripts write no space between words: `手机` in `我的手机号码是`. For a
 built-in entity, the list replaces its own words (`UK_NHS`, `IN_AADHAAR`,
 `ICD10`, `PASSPORT`, and `CN_MOBILE` have some) or adds the requirement to one
 without them. `context` for

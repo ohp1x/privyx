@@ -23,13 +23,20 @@ CONTEXT_RADIUS = 5
 
 _WORD = re.compile(r"[^\W_]+")
 
+#: Chinese, Japanese, and Korean script, which puts no space between words.
+_UNSPACED = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
+
 
 def near(text: str, start: int, end: int, words: Collection[str]) -> bool:
-    """Whether one of ``words`` (lower case, may be phrases) is within five words of the span."""
+    """Whether one of ``words`` (lower case, may be phrases) is within five words of the span.
+
+    A word in Chinese, Japanese, or Korean script counts inside a longer one
+    too: ``手机`` in ``我的手机号码是``.
+    """
     before = _WORD.findall(text[max(0, start - 120) : start])[-CONTEXT_RADIUS:]
     after = _WORD.findall(text[end : end + 120])[:CONTEXT_RADIUS]
     window = f" {' '.join(before + after).lower()} "
-    return any(f" {word} " in window for word in words)
+    return any((word if _UNSPACED.search(word) else f" {word} ") in window for word in words)
 
 
 # --- Crypto wallets ---------------------------------------------------------
