@@ -24,6 +24,7 @@ import yaml  # type: ignore[import-untyped]
 
 from privyx.config._env import discovery_disabled
 from privyx.core import ConfigError
+from privyx.security.keys import make_private_dir
 
 _log = logging.getLogger("privyx")
 
@@ -123,7 +124,7 @@ def trust(path: Path) -> None:
         raise ConfigError("cannot trust a config file: no home directory to record it in")
     trusted = {**_trusted(), str(path.resolve()): _fingerprint(path)}
     try:
-        store.parent.mkdir(parents=True, exist_ok=True)
+        make_private_dir(store.parent)
         store.write_text(json.dumps(trusted, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         raise ConfigError(f"cannot write {store}: {exc.strerror or exc}") from exc

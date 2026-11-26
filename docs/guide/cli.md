@@ -560,8 +560,11 @@ block in `privyx.yaml` replaces the terms it includes; move them into it.
 Build every configured component and push a request through it: plugins,
 detector, vault (a real write and read), provider, proxy, and streaming
 restore. The `permissions` check fails when the SQLite vault, the audit log,
-or the anchor key file allows any access beyond its owner, and names the
-`chmod 600` that fixes it. With `anchor.secret: auto`, the `anchor key` check
+the anchor key file, or `~/.privyx/settings.yaml` allows any access beyond
+its owner, and names the `chmod 600` that fixes it. It also fails when others
+can write to `~/.privyx` or to a directory holding one of those files: for
+`~/.privyx` it names the `chmod 700`, and from a shared directory such as
+`/tmp` it tells you to move the files. With `anchor.secret: auto`, the `anchor key` check
 reads that file, or checks that it can be created, without creating it. The `routes` check lists masking paths, gaps in the default route map,
 and the disposition of unlisted paths. Passthrough prints a warning; invalid
 routes fail. Exits with a non-zero status if any check fails. `--json` writes

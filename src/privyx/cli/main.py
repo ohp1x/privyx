@@ -134,8 +134,10 @@ def _adopt_earlier_files() -> None:
         target = Path(home, ".privyx", name)
         if not earlier.is_file() or target.exists():
             continue
+        from privyx.security.keys import make_private_dir
+
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
+            make_private_dir(target.parent)
             shutil.move(earlier, target)
         except OSError:
             continue  # stays where it was

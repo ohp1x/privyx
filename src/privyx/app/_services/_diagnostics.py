@@ -208,7 +208,13 @@ async def _probing(settings: Settings, app: Privyx) -> AsyncIterator[tuple[Priva
 
 
 def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
-    """Sensitive files (.db, audit log, anchor.key) must be owner-only (0600)."""
+    """Sensitive files (.db, audit log, anchor.key, settings.yaml) must be owner-only (0600).
+
+    Their directories, and ``~/.privyx`` with the config it may hold, must be
+    writable by their owner alone: anyone else could replace what is in them.
+    Only Privyx's own folder is worth a ``chmod 700``: a shared one such as
+    ``/tmp`` must stay open, so the files move out of it instead.
+    """
     import os
     from pathlib import Path
 
@@ -219,8 +225,10 @@ def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
     from privyx.vaults import SQLiteVault, Vault
     from privyx.vaults._sqlite import sqlite_path
 
+    home = Path(os.path.expanduser("~"), ".privyx").resolve()  # as the folders below
     candidates: list[Path] = [
         default_anchor_secret_path(),
+        home / "settings.yaml",
         Path("anchor.key"),
         Path("privyx-audit.log"),
         Path("privyx.db"),
@@ -236,6 +244,7 @@ def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
         candidates.append(app.audit.path())
 
     seen: set[Path] = set()
+    folders: dict[Path, list[str]] = {home: []}  # each folder, and the files checked in it
     insecure: list[str] = []
     checked = 0
 
@@ -256,8 +265,24 @@ def _check_permissions(settings: Settings, app: Privyx) -> tuple[bool, str]:
             continue
 
         checked += 1
+        folders.setdefault(resolved.parent, []).append(resolved.name)
         if mode & 0o077 != 0:
             insecure.append(f"{path} ({oct(mode & 0o777)}): run 'chmod 600 {path}'")
+
+    for folder, names in folders.items():
+        try:
+            mode = folder.stat().st_mode
+        except OSError:
+            continue
+        if mode & 0o022 == 0:
+            continue
+        if folder == home or home in folder.parents:
+            insecure.append(f"{folder} ({oct(mode & 0o777)}): run 'chmod 700 {folder}'")
+        else:
+            insecure.append(
+                f"{folder} ({oct(mode & 0o777)}) lets others write there: "
+                f"move {', '.join(names)} to a folder only you can write to"
+            )
 
     if insecure:
         return (False, f"insecure file permissions: {'; '.join(insecure)}")

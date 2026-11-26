@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **CLI:** `privyx detect --explain` gives each reason once; two matches of one pattern over a value printed the same line twice
 - **CLI:** the help of `privyx session export`, `prune`, and `show` no longer shows double backticks around names
 
+### Security
+
+- **Config:** `~/.privyx`, and a directory Privyx creates for the vault, the audit trail, or the anchor key, is created writable and readable by its owner only, whatever the umask; before, with a umask of `002`, others in the group could replace the config kept there, which can load plugins, or the trust store. `privyx doctor` checks `~/.privyx/settings.yaml` too, and fails when others can write to `~/.privyx` or to a directory holding one of those files
+
 ## [0.3.0] - 2026-11-24
 
 ### Added

@@ -82,6 +82,17 @@ def default_anchor_secret_path() -> Path:
     return Path(os.path.expanduser("~"), ".privyx", "anchor.key")
 
 
+def make_private_dir(path: Path) -> None:
+    """Create ``path`` and each missing directory above it, for its owner only (0700).
+
+    ``mkdir(mode=..., parents=True)`` gives the parents the umask's mode, so a
+    first write to ``~/.privyx/tap`` left ``~/.privyx`` open to the group.
+    """
+    for folder in [*reversed(path.parents), path]:
+        if not folder.is_dir():
+            folder.mkdir(mode=0o700, exist_ok=True)
+
+
 def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
     """Return a persisted per-user anchor secret, creating it on first use.
 
@@ -98,7 +109,7 @@ def read_or_create_anchor_secret(path: str | Path | None = None) -> str:
         try:
             existing = target.read_text(encoding="utf-8").strip()
         except FileNotFoundError:
-            target.parent.mkdir(parents=True, exist_ok=True)
+            make_private_dir(target.parent)
             # A private temporary file is fully written before it becomes visible.
             fd, name = tempfile.mkstemp(dir=target.parent)
             temporary = Path(name)

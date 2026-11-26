@@ -385,3 +385,38 @@ def test_doctor_checks_the_anchor_key_without_creating_it(
 
     assert expected in result.output
     assert key.exists() == (content is not None)
+
+
+def test_doctor_checks_settings_and_folders_others_can_write(home: Path) -> None:
+    folder = home / ".privyx"
+    folder.mkdir()
+    folder.chmod(0o775)
+    settings = folder / "settings.yaml"
+    settings.write_text("log:\n  level: info\n", encoding="utf-8")
+    settings.chmod(0o644)
+
+    result = CliRunner().invoke(cli, ["doctor"])
+
+    assert f"{settings} (0o644): run 'chmod 600 {settings}'" in result.output
+    assert f"{folder} (0o775): run 'chmod 700 {folder}'" in result.output
+    settings.chmod(0o600)
+    folder.chmod(0o755)  # others may read the names in it, not replace the files
+    assert "✓ permissions: 1 sensitive file(s) owner-only (0600)" in (
+        CliRunner().invoke(cli, ["doctor"]).output
+    )
+
+
+def test_doctor_moves_files_out_of_a_shared_folder_instead_of_closing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shared = tmp_path / "shared"  # as /tmp: others must keep writing to it
+    shared.mkdir()
+    shared.chmod(0o777)
+    log = shared / "audit.log"
+    log.touch(mode=0o600)
+    monkeypatch.setenv("PRIVYX_FEATURES__AUDIT__PATH", str(log))
+
+    result = CliRunner().invoke(cli, ["doctor"])
+
+    assert f"{shared} (0o777) lets others write there: move audit.log to a folder" in result.output
+    assert f"chmod 700 {shared}" not in result.output

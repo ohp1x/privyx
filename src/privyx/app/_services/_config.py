@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml  # type: ignore[import-untyped]
 
 from privyx.core import ConfigError
+from privyx.security.keys import make_private_dir
 
 if TYPE_CHECKING:
     from privyx.app._privyx import Privyx
@@ -415,7 +416,7 @@ class Config:
                     trust(file)
 
         try:
-            real.parent.mkdir(parents=True, exist_ok=True)
+            make_private_dir(real.parent)
             if before is not None and not before.startswith(_MARK.encode()):
                 backup = _keep(real, before, mode)
             if content:

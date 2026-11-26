@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from privyx.events import utc_time
+from privyx.security.keys import make_private_dir
 
 _log = logging.getLogger("privyx")
 #: A session id that is safe as a file name as it is; any other is hashed.
@@ -77,7 +78,7 @@ class Tap:
         )
         try:
             with self._lock:
-                self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+                make_private_dir(self.directory)
                 path = tap_file(self.directory, session_id)
                 fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
                 with os.fdopen(fd, "a", encoding="utf-8") as fh:
