@@ -728,7 +728,7 @@ The options of a `regex` detector:
 | `merge_terms` | `true` | Match both `terms` and `patterns` for the same entity, trying terms first. With `false`, the regex replaces the terms with a warning. |
 | `term_variants` | `true` | `terms` of several words also match their other spellings: `Acme Corp` as `acme-corp`, `acme_corp`, `acmecorp`, …. |
 | `context` | `{}` | Entity → words, one of which must be within five words of a match for it to count. |
-| `enable` | `[]` | Opt-in built-in entities to turn on: `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`. |
+| `enable` | `[]` | Opt-in built-in entities to turn on: `HIGH_ENTROPY`, `ASSIGNED_SECRET`, `MRN`, `ICD10`, `WALLET_KEY`. |
 | `disable` | `[]` | Built-in entities to turn off, including inactive opt-in entities (a no-op). A name in both `enable` and `disable`, or an unknown name, is an error. Your own `patterns` and `terms` still apply. See [Turning a built-in off](detection.md#turning-a-built-in-off). |
 | `entropy_threshold` | `3.0` | `HIGH_ENTROPY`: bits per character a string needs. |
 | `decode` | `false` | Also find values split into string literals (`'s' + 'k' + …`) or encoded as Base64, hex, or URL escapes. |

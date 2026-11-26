@@ -406,6 +406,7 @@ UNDERSCORE_SPLIT: frozenset[str] = frozenset(
         "API_KEY",
         "JWT",
         "CRYPTO_WALLET",
+        "WALLET_KEY",
         "SG_NRIC_FIN",
         "ES_NIF",
         "ES_NIE",
