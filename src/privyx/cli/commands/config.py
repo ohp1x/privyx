@@ -316,6 +316,7 @@ def edit(project: bool) -> None:
     from privyx.app import Privyx
     from privyx.config import find_local_configs, is_trusted, trust
     from privyx.core import PrivyxError
+    from privyx.security.keys import make_private_dir
 
     named = os.environ.get("PRIVYX_CONFIG")
     if named:
@@ -326,7 +327,7 @@ def edit(project: bool) -> None:
     else:
         target = Path.home() / ".privyx" / "config.yaml"
     trusted = project and target.exists() and is_trusted(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
+    make_private_dir(target.parent)
     click.edit(filename=str(target))
     if trusted:
         trust(target)  # your own edit

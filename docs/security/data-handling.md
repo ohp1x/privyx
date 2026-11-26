@@ -29,6 +29,10 @@ Where original values exist while Privyx runs, and for how long. The
   audit log are made readable by their owner only (`0600`) whenever Privyx
   opens them. A new `privyx mask --map` file is created owner-only; an existing
   one keeps its mode, so `chmod 600` it.
+- `~/.privyx`, which holds the anchor key, the config `privyx config set`
+  writes, and the list of trusted config files, is created with mode `0700`,
+  as is every directory Privyx creates on the way to the vault or the audit log.
+  `privyx doctor` fails when others can write to one of them.
 - The session tap (`proxy.tap`, off by default) writes requests and replies,
   with their original values, to `proxy.tap_dir`. The directory is created
   with mode `0700` and each file with `0600`.

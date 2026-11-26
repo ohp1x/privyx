@@ -23,6 +23,7 @@ from privyx.config.schema import ModelPrice
 from privyx.core import ConfigError, EventBus, Services, listen
 from privyx.events import AuditEvent, AuditWriteFailed
 from privyx.features._base import Feature
+from privyx.security.keys import make_private_dir
 
 _log = logging.getLogger("privyx")
 
@@ -88,7 +89,7 @@ def _append(where: str) -> TextIO:
     """
     path = Path(os.path.expanduser(where))
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        make_private_dir(path.parent)
         path.touch(mode=0o600)
         if os.name == "posix":
             with contextlib.suppress(OSError):

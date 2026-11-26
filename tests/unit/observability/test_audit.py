@@ -283,14 +283,17 @@ async def _opened(trail: AuditTrail) -> AuditTrail:
 
 async def test_a_new_audit_file_is_owner_only(tmp_path: Path) -> None:
     """Session ids and the upstream host are nobody else's business."""
-    path = tmp_path / "audit.log"
-    umask = os.umask(0o022)  # open() alone would then create it 0644
+    path = tmp_path / ".privyx" / "logs" / "audit.log"
+    umask = os.umask(0o002)  # open() and mkdir() alone would then give 0664 and 0775
     try:
         await (await _opened(AuditTrail(path=str(path)))).close()
     finally:
         os.umask(umask)
 
     assert path.stat().st_mode & 0o777 == 0o600
+    # ~/.privyx too, made on the way: it also holds the config and the trust store.
+    for folder in (path.parent, path.parent.parent):
+        assert folder.stat().st_mode & 0o777 == 0o700
 
 
 async def test_an_existing_audit_file_is_tightened_to_owner_only(tmp_path: Path) -> None:

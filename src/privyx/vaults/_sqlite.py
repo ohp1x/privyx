@@ -22,6 +22,7 @@ from typing import Any
 from pydantic import Field
 
 from privyx.core import ConfigError, Services, SessionBusyError, VaultError
+from privyx.security.keys import make_private_dir
 from privyx.vaults._base import StoredVault
 
 #: A commit appends to the write-ahead log instead of syncing the database and
@@ -100,7 +101,7 @@ class SQLiteVault(StoredVault):
             raise VaultError(msg) from exc
 
         if self._dsn != ":memory:":
-            Path(self._dsn).parent.mkdir(parents=True, exist_ok=True)
+            make_private_dir(Path(self._dsn).parent)
             # Sessions hold original values, so a new file is owner-only; SQLite
             # creates the -wal and -shm files with the database file's mode.
             with contextlib.suppress(OSError):  # it exists, or connect() says why not

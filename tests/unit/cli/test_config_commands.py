@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import subprocess
 from pathlib import Path
@@ -205,6 +206,31 @@ def test_the_managed_file_is_owner_only(runner: CliRunner, home: Path) -> None:
     assert runner.invoke(cli, ["config", "set", "server.port", "8123"]).exit_code == 0
 
     assert stat.S_IMODE((home / ".privyx" / "settings.yaml").stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["config", "set", "server.port", "8123"],  # settings.yaml
+        ["config", "trust"],  # trusted.json
+        ["mask", "mail ana@example.com"],  # anchor.key
+        ["session", "list"],  # privyx.db
+    ],
+)
+def test_the_privyx_directory_is_owner_only(
+    runner: CliRunner, home: Path, monkeypatch: pytest.MonkeyPatch, command: list[str]
+) -> None:
+    # settings.yaml can load plugins, and trusted.json picks the configs that may.
+    Path("privyx.yaml").write_text("server:\n  port: 9001\n", encoding="utf-8")
+    monkeypatch.setenv("PRIVYX_VAULT", "sqlite")
+    umask = os.umask(0o002)  # mkdir() alone would then give it 0775
+    try:
+        result = runner.invoke(cli, command)
+    finally:
+        os.umask(umask)
+
+    assert result.exit_code == 0, result.output
+    assert stat.S_IMODE((home / ".privyx").stat().st_mode) == 0o700
 
 
 def test_set_with_file_backs_up_a_file_written_by_hand(runner: CliRunner, tmp_path: Path) -> None:
