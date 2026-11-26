@@ -35,7 +35,7 @@ certificate for the name your clients will use. **Time:** thirty minutes.
     ```
 
     Every line in `.env` is commented out, and the compose file has a default
-    for each. Uncomment and set these three:
+    for each but the upstream. Uncomment and set these three:
 
     ```bash
     PRIVYX_UPSTREAM_URL=https://api.openai.com
