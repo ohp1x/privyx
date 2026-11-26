@@ -159,7 +159,7 @@ def test_missing_env_reference_fails_before_any_resources_open(
     )
     monkeypatch.delenv("ABSENT_WORK_TOKEN", raising=False)
     forbidden = AsyncMock(side_effect=AssertionError("must not launch"))
-    monkeypatch.setattr("privyx.cli.commands.run._run_target", forbidden)
+    monkeypatch.setattr("privyx.app._services._agents.Agents.serve", forbidden)
     flags = ["--dry-run"] if dry_run else []
     result = CliRunner().invoke(cli, ["-c", str(config), "run", *flags, "work"])
     assert result.exit_code == 1, result.output

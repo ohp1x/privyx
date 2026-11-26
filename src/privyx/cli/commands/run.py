@@ -33,11 +33,7 @@ from click.core import ParameterSource
 from privyx.cli._options import config_options, json_option
 
 if TYPE_CHECKING:
-    import socket
-
     from privyx.agents import LaunchPlan
-    from privyx.agents._plan import Target
-    from privyx.app import Privyx
     from privyx.app._run import RunOutcome
     from privyx.config.schema import Settings
 
@@ -171,24 +167,11 @@ def run(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(127 if isinstance(exc, app.agents.NotInstalled) else 1)
 
-    target_run = partial(
-        _run_target,
-        spec=launch.spec,
-        argv=launch.argv,
-        upstream=upstream,
-        port=port,
-        env_vars=launch.env_vars,
-        session_strategy=session_strategy,
-        no_anchor=no_anchor,
-        settings=launch.settings,
-        plan=launch.plan,
-        app=app,
-    )
     try:
         code = app.agents.run(
             launch,
             announce=_show_running,
-            serve=lambda ready=None, parent=None: target_run(ready=ready, parent=parent),
+            report=partial(_show_outcome, command=launch.spec.command),
         )
     except PrivyxError as exc:
         click.echo(f"Error: {exc}", err=True)
@@ -321,49 +304,9 @@ def _show_presets(settings: Settings, sources: dict[str, str], profile: str) -> 
         click.echo(f"  {path} [{sources[path]}]")
 
 
-async def _run_target(
-    spec: Target,
-    argv: list[str],
-    upstream: str | None,
-    port: int,
-    env_vars: tuple[str, ...],
-    session_strategy: str | None = None,
-    no_anchor: bool = False,
-    settings: Settings | None = None,
-    plan: LaunchPlan | None = None,
-    ready: socket.socket | None = None,
-    parent: int | None = None,
-    *,
-    app: Privyx | None = None,
-) -> int:
-    """Serve the launch through the agents service, and report on the run.
-
-    Returns:
-        The tool's exit code.
-    """
-    from privyx.app import Privyx
-
-    app = app or Privyx()
-    outcome = await app.agents.serve(
-        spec,
-        argv,
-        port,
-        env_vars,
-        announce=_show_running,
-        upstream=upstream,
-        session_strategy=session_strategy,
-        no_anchor=no_anchor,
-        settings=settings,
-        plan=plan,
-        ready=ready,
-        parent=parent,
-    )
+def _show_outcome(outcome: RunOutcome, after_exec: bool, *, command: str) -> None:
     # After exec the shell has likely drawn its prompt already.
-    _show_outcome(outcome, spec.command, "\n" if parent is not None else "")
-    return outcome.code
-
-
-def _show_outcome(outcome: RunOutcome, command: str, lead: str) -> None:
+    lead = "\n" if after_exec else ""
     counts = outcome.unproxied
     # Only content passed through unmasked, or a request blocked or failed,
     # shows something went wrong. No request at all is what help, a tool

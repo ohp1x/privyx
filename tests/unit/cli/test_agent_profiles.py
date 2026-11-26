@@ -41,10 +41,9 @@ def test_dry_run_is_side_effect_free(
             }
         )
     )
-    import privyx.cli.commands.run as run_module
 
     forbidden = Mock(side_effect=AssertionError("dry run must not start anything"))
-    monkeypatch.setattr(run_module, "_run_target", forbidden)
+    monkeypatch.setattr("privyx.app._services._agents.Agents.run", forbidden)
     monkeypatch.setattr("privyx.app._run.listen", forbidden)
     monkeypatch.setattr("privyx.security.keys.read_or_create_anchor_secret", forbidden)
     monkeypatch.setattr("sys.dont_write_bytecode", True)  # importing the plugin writes nothing
