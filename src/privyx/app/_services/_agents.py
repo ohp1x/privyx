@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -163,7 +163,7 @@ class Agents:
         launch: Launch,
         *,
         announce: Callable[[LaunchPlan], None] | None = None,
-        serve: Callable[..., Coroutine[Any, Any, int]] | None = None,
+        report: Callable[[RunOutcome, bool], None] | None = None,
     ) -> int:
         """Launch the agent and return its exit code; with exec, this never returns.
 
@@ -173,8 +173,10 @@ class Agents:
         Args:
             launch: What :meth:`plan` returned.
             announce: Called with the plan, its port bound, just before the agent starts.
-            serve: Runs the proxy and the agent in place of :meth:`serve`, given
-                ``ready`` and ``parent`` when the agent is started by exec.
+            report: Called with what the launch showed, in the process that
+                served the proxy, once the agent has exited, and whether the
+                agent replaced this process, after which the shell has likely
+                drawn its prompt.
 
         Raises:
             PrivyxError: If the proxy cannot start or the agent cannot be launched.
@@ -183,40 +185,21 @@ class Agents:
 
         shown = announce or (lambda _: None)
 
-        async def serve_launch(
-            ready: socket.socket | None = None, parent: int | None = None
-        ) -> int:
-            outcome = await self.serve(
-                launch.spec,
-                launch.argv,
-                launch.plan.port,
-                launch.env_vars,
-                announce=shown,
-                settings=launch.settings,
-                plan=launch.plan,
-                ready=ready,
-                parent=parent,
-            )
+        async def start(ready: socket.socket | None = None, parent: int | None = None) -> int:
+            outcome = await self.serve(launch, announce=shown, ready=ready, parent=parent)
+            if report is not None:
+                report(outcome, parent is not None)
             return outcome.code
 
-        start = serve or serve_launch
         if can_exec_agent():
             exec_agent(launch.plan, start, shown)
         return asyncio.run(start())
 
     async def serve(
         self,
-        spec: Target,
-        argv: Sequence[str],
-        port: int,
-        env_vars: tuple[str, ...],
+        launch: Launch,
         *,
         announce: Callable[[LaunchPlan], None],
-        upstream: str | None = None,
-        session_strategy: str | None = None,
-        no_anchor: bool = False,
-        settings: Settings | None = None,
-        plan: LaunchPlan | None = None,
         ready: socket.socket | None = None,
         parent: int | None = None,
     ) -> RunOutcome:
@@ -229,30 +212,17 @@ class Agents:
         Returns:
             The tool's exit code and what its traffic showed.
         """
-        from privyx.app._run import (
-            listen,
-            plan_launch,
-            run_agent,
-            run_settings,
-            spawn,
-            wait_for_agent_exit,
-        )
+        from privyx.app._run import listen, run_agent, spawn, wait_for_agent_exit
         from privyx.observability.logging import configure_logging
 
-        app = self._app
-        if settings is None:
-            settings = run_settings(
-                app, spec.provider, upstream, session_strategy, no_anchor
-            ).settings
-        if plan is None:
-            plan = plan_launch(spec, [*argv], settings, port, env_vars)
+        app, settings, plan = self._app, launch.settings, launch.plan
         # The child tool owns the terminal: log lines go to log.file if one is set,
         # else nowhere, and the audit trail still records every error.
         configure_logging(settings, console=False)
         # Bound before the rest opens, so a port in use leaves nothing to undo.
-        sock, bound_port = listen(settings.server.host, port)
+        sock, bound_port = listen(settings.server.host, plan.port)
 
-        async def launch(bound: LaunchPlan) -> int:
+        async def start_agent(bound: LaunchPlan) -> int:
             # On stderr: stdout is the tool's, and may be piped into a parser.
             if ready is not None and parent is not None:
                 ready.sendall(json.dumps({"port": bound.port}).encode() + b"\n")
@@ -268,8 +238,8 @@ class Agents:
             plan,
             sock,
             bound_port,
-            budget=spec.budget,
-            launch=launch,
+            budget=launch.spec.budget,
+            launch=start_agent,
             # The worker handles SIGTERM itself; uvicorn must not re-raise it during cleanup.
             quiet_signals=parent is not None,
         )

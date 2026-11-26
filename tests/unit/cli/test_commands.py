@@ -1250,7 +1250,7 @@ def test_run_an_ollama_wrapper_checks_the_server_too(
     monkeypatch.setattr(
         "privyx.agents._ollama.OllamaAgent.check", lambda self, upstream: checked.append(upstream)
     )
-    monkeypatch.setattr("privyx.cli.commands.run._run_target", lambda **kw: None)
+    monkeypatch.setattr("privyx.app._services._agents.Agents.run", lambda *a, **kw: 0)
     monkeypatch.setenv("OLLAMA_HOST", "gpu.example.test")
 
     runner.invoke(cli, ["-c", str(config), "run", "wrapped"])
@@ -1444,7 +1444,8 @@ async def test_run_spawns_target_against_a_live_proxy(
     monkeypatch.setenv("PRIVYX_AUDIT_PATH", str(tmp_path / "audit.log"))
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
+
+    from ._launch import serve_target
 
     result_file = tmp_path / "result.json"
     probe = tmp_path / "probe.py"
@@ -1459,12 +1460,9 @@ async def test_run_spawns_target_against_a_live_proxy(
     )
 
     spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
-    code = await _run_target(
-        spec=spec,
-        argv=[str(probe)],
-        upstream=None,
-        port=0,
-        env_vars=("PROBE_BASE_URL",),
+    code = await serve_target(
+        spec,
+        [str(probe)],
         # Keep the test hermetic: no per-user anchor.key written under $HOME.
         session_strategy="ephemeral",
         no_anchor=True,
@@ -1493,7 +1491,8 @@ async def test_run_provisions_anchor_secret_by_default(
         monkeypatch.setenv("PRIVYX_ANCHOR_SECRET", anchor_env)
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
+
+    from ._launch import serve_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1504,12 +1503,9 @@ async def test_run_provisions_anchor_secret_by_default(
     spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
 
     # No anchor flag: the environment can override automatic provisioning.
-    code = await _run_target(
-        spec=spec,
-        argv=[str(probe)],
-        upstream=None,
-        port=0,
-        env_vars=("PROBE_BASE_URL",),
+    code = await serve_target(
+        spec,
+        [str(probe)],
     )
 
     assert code == 0
@@ -1619,9 +1615,8 @@ async def test_run_relays_the_tools_own_credential(
     url, seen = upstream
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
 
-    from ._launch import TARGETS
+    from ._launch import TARGETS, serve_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1635,12 +1630,10 @@ async def test_run_relays_the_tools_own_credential(
         encoding="utf-8",
     )
     spec = Target(command=sys.executable, provider="anthropic", env_vars=TARGETS["claude"].env_vars)
-    code = await _run_target(
-        spec=spec,
-        argv=[str(probe)],
+    code = await serve_target(
+        spec,
+        [str(probe)],
         upstream=url,
-        port=0,
-        env_vars=spec.env_vars,
         session_strategy="ephemeral",
         no_anchor=True,
     )
@@ -1677,9 +1670,8 @@ async def test_run_serves_the_gateway_from_the_config(
     monkeypatch.setenv("PRIVYX_CONFIG", str(config))
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
 
-    from ._launch import TARGETS
+    from ._launch import TARGETS, serve_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1692,12 +1684,9 @@ async def test_run_serves_the_gateway_from_the_config(
         encoding="utf-8",
     )
     spec = Target(command=sys.executable, provider="anthropic", env_vars=TARGETS["claude"].env_vars)
-    code = await _run_target(
-        spec=spec,
-        argv=[str(probe)],
-        upstream=None,
-        port=0,
-        env_vars=spec.env_vars,
+    code = await serve_target(
+        spec,
+        [str(probe)],
         session_strategy="ephemeral",
         no_anchor=True,
     )
@@ -1773,9 +1762,7 @@ async def test_run_points_each_known_target_at_the_proxy(
     monkeypatch.delenv("PRIVYX_UPSTREAM_URL", raising=False)
     url, seen = upstream
 
-    from privyx.cli.commands.run import _run_target
-
-    from ._launch import TARGETS
+    from ._launch import TARGETS, serve_target
 
     tool = tmp_path / name
     tool.write_text(
@@ -1784,12 +1771,10 @@ async def test_run_points_each_known_target_at_the_proxy(
     )
     tool.chmod(0o755)
     spec = replace(TARGETS[name], command=str(tool))
-    code = await _run_target(
-        spec=spec,
-        argv=argv,
+    code = await serve_target(
+        spec,
+        argv,
         upstream=url,
-        port=0,
-        env_vars=spec.env_vars,
         session_strategy="ephemeral",
         no_anchor=True,
     )
@@ -1871,7 +1856,8 @@ async def test_run_warns_when_no_request_took_a_masking_route(
     url, _ = upstream
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
+
+    from ._launch import serve_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1889,12 +1875,10 @@ async def test_run_warns_when_no_request_took_a_masking_route(
         encoding="utf-8",
     )
     spec = Target(command=sys.executable, provider="anthropic", env_vars=("ANTHROPIC_BASE_URL",))
-    code = await _run_target(
-        spec=spec,
-        argv=[str(probe)],
+    code = await serve_target(
+        spec,
+        [str(probe)],
         upstream=url,
-        port=0,
-        env_vars=spec.env_vars,
         session_strategy="ephemeral",
         no_anchor=True,
     )
@@ -1935,7 +1919,8 @@ async def test_run_stops_the_tool_at_its_budget(
     url, seen = upstream
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
+
+    from ._launch import serve_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -1957,12 +1942,10 @@ async def test_run_stops_the_tool_at_its_budget(
         env_vars=("ANTHROPIC_BASE_URL",),
         budget=BudgetConfig(max_turns=2),
     )
-    code = await _run_target(
-        spec=spec,
-        argv=[str(probe)],
+    code = await serve_target(
+        spec,
+        [str(probe)],
         upstream=url,
-        port=0,
-        env_vars=spec.env_vars,
         session_strategy="ephemeral",
         no_anchor=True,
     )
@@ -2005,7 +1988,8 @@ async def test_run_counts_a_masked_request_still_awaiting_its_response(
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
+
+    from ._launch import serve_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -2019,12 +2003,10 @@ async def test_run_counts_a_masked_request_still_awaiting_its_response(
     )
     spec = Target(command=sys.executable, provider="anthropic", env_vars=("ANTHROPIC_BASE_URL",))
     try:
-        code = await _run_target(
-            spec=spec,
-            argv=[str(probe)],
+        code = await serve_target(
+            spec,
+            [str(probe)],
             upstream=f"http://127.0.0.1:{server.server_address[1]}",
-            port=0,
-            env_vars=spec.env_vars,
             session_strategy="ephemeral",
             no_anchor=True,
         )
@@ -2065,7 +2047,8 @@ async def test_run_counts_a_request_still_being_masked_when_the_tool_exits(
     url, seen = upstream
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
+
+    from ._launch import serve_target
 
     probe = tmp_path / "probe.py"
     probe.write_text(
@@ -2078,12 +2061,10 @@ async def test_run_counts_a_request_still_being_masked_when_the_tool_exits(
         encoding="utf-8",
     )
     spec = Target(command=sys.executable, provider="anthropic", env_vars=("ANTHROPIC_BASE_URL",))
-    code = await _run_target(
-        spec=spec,
-        argv=[str(probe)],
+    code = await serve_target(
+        spec,
+        [str(probe)],
         upstream=url,
-        port=0,
-        env_vars=spec.env_vars,
         session_strategy="ephemeral",
         no_anchor=True,
     )
@@ -2110,15 +2091,13 @@ async def test_run_keeps_the_audit_trail_out_of_the_working_directory(
     monkeypatch.chdir(project)
 
     from privyx.agents._plan import Target
-    from privyx.cli.commands.run import _run_target
+
+    from ._launch import serve_target
 
     spec = Target(command=sys.executable, provider="generic", env_vars=("PROBE_BASE_URL",))
-    code = await _run_target(
-        spec=spec,
-        argv=["-c", "pass"],
-        upstream=None,
-        port=0,
-        env_vars=spec.env_vars,
+    code = await serve_target(
+        spec,
+        ["-c", "pass"],
         session_strategy="ephemeral",
         no_anchor=True,
     )

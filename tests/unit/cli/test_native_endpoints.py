@@ -138,7 +138,9 @@ def test_claude_settings_conflicts_fail_before_launch(
         path.write_text(value)
         value = str(path)
     args = [f"--settings={value}"] if form == "equals" else ["--settings", value]
-    monkeypatch.setattr("privyx.cli.commands.run._run_target", lambda **kw: pytest.fail("launched"))
+    monkeypatch.setattr(
+        "privyx.app._services._agents.Agents.run", lambda *a, **kw: pytest.fail("launched")
+    )
     result = CliRunner().invoke(
         cli, ["run", "--upstream", "https://explicit.example.com", "claude", "--", *args]
     )
