@@ -304,7 +304,7 @@ HTTPS is on when both `certfile` and `keyfile` of `tls` are set.
 
 | Key | Default | Description |
 |---|---|---|
-| `level` | `info` | `debug`, `info`, `warning`, or `error`, for Privyx's own logs. |
+| `level` | `info` | `debug`, `info`, `warning`, `error`, or `critical`, for Privyx's own logs, in any case. `trace` is the server's: it logs each message the server passes, with Privyx's own logs at `info`. |
 | `format` | `text` | Console format: `text` lines or `json` objects. |
 | `file` | empty | File that also receives third-party logs at `level`. At `debug` it holds raw vault rows, which include original values; it must be a regular file and is created with mode `0600`. On POSIX systems, existing files must belong to the current user and have no permissions beyond `0600`; otherwise startup fails before writing. Use `chmod 600` to fix overly broad permissions. |
 

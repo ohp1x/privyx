@@ -134,6 +134,15 @@ def test_an_invalid_value_names_the_file_and_line_that_gave_it(
         load_config(config)
 
 
+def test_a_log_level_is_one_logging_knows(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The proxy stopped with a traceback on one it did not know.
+    monkeypatch.setenv("PRIVYX_LOG__LEVEL", "loud")
+    with pytest.raises(ConfigError, match=r"invalid setting 'log\.level' \(PRIVYX_LOG__LEVEL\)"):
+        load_config()
+    monkeypatch.setenv("PRIVYX_LOG__LEVEL", "WARNING")
+    assert load_config().log.level == "warning"
+
+
 @pytest.mark.parametrize("var", ["PRIVYX_AUDIT_ENABLED", "PRIVYX_DETECTOR_CACHE"])
 @pytest.mark.parametrize("value", ["treu", "Y", "enabled"])
 def test_an_invalid_env_boolean_fails_at_load(
