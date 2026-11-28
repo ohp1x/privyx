@@ -70,6 +70,8 @@ class StreamRouter:
             changes.
     """
 
+    json_text = False
+
     def __init__(
         self,
         codec: FormatCodec,

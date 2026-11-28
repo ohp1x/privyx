@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **Proxy:** restore pseudonyms inside JSON-formatted Claude replies, including session titles whose tokens use JSON escapes
+
 ## [0.3.1] - 2026-11-26
 
 ### Added

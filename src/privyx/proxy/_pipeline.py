@@ -415,6 +415,7 @@ class Pipeline:
         )
         out_headers, params, auth = self._outgoing(exchange, stream)
         out_body: Any = body
+        json_text = False
         transform_ms: float | None = None
         # A masked header comes on body-less requests too, and on unrouted
         # paths.
@@ -430,6 +431,7 @@ class Pipeline:
             transform_ms = _elapsed_ms(transform_start)
             if isinstance(payload, dict):
                 out_body = json.dumps(masked, ensure_ascii=False).encode("utf-8")
+                json_text = dialect is not None and dialect.reply_text_is_json(masked)
                 if self._tap is not None:
                     self._tap.record(
                         sid,
@@ -447,7 +449,9 @@ class Pipeline:
         if isinstance(response, Reply):
             return response
         try:
-            return await self._answer(exchange, response, route, schema, url, transform_ms)
+            return await self._answer(
+                exchange, response, route, schema, url, transform_ms, json_text
+            )
         except BaseException:
             # Failed or cancelled before a reply took the response over.
             await response.aclose()
@@ -667,7 +671,19 @@ class Pipeline:
                     exchange.method, exchange.path, Headers(headers), body, dialect, sid,
                     exchange.request_id,
                 )  # fmt: skip
-                await self._events.emit(event)
+                try:
+                    await self._events.emit(event)
+                except Responded as stop:
+                    if isinstance(stop.body, dict):
+                        stop.body = await restore_response(
+                            stop.body,
+                            self._engine,
+                            sid,
+                            session=exchange.session,
+                            dialect=dialect,
+                            json_text=dialect.reply_text_is_json(event.body),
+                        )
+                    raise
 
         def held(session: Session) -> None:
             exchange.session = session  # the reply is restored with its new pseudonyms
@@ -693,11 +709,6 @@ class Pipeline:
         except Stop as stop:
             tracing.end(transform_span)
             assert dialect is not None
-            if isinstance(stop, Responded) and isinstance(stop.body, dict):
-                # Answered after masking: restored as an upstream reply is.
-                stop.body = await restore_response(
-                    stop.body, self._engine, sid, session=exchange.session, dialect=dialect
-                )
             return self._stopped(stop, dialect)
         except ListenerError as exc:
             tracing.end(transform_span, error=exc)
@@ -768,6 +779,7 @@ class Pipeline:
         schema: str | None,
         url: str,
         transform_ms: float | None,
+        json_text: bool,
     ) -> Reply:
         """The reply to ``response``: restored as it streams, restored whole, or relayed."""
         dialect, sid = exchange.dialect, exchange.session_id
@@ -818,10 +830,12 @@ class Pipeline:
                 relaying = self._relay(exchange, response, stream=True)
                 return self._streaming(exchange, response, headers, content_type or None, relaying)
             headers.pop("content-type", None)  # media_type carries it, avoid duplicate
-            restoring = self._stream(exchange, response, exchange.session.mapping, lines=lines)
+            restoring = self._stream(
+                exchange, response, exchange.session.mapping, lines=lines, json_text=json_text
+            )
             return self._streaming(exchange, response, headers, lines or _SSE, restoring)
         if dialect is not None and _JSON in content_type:
-            return await self._batch_reply(exchange, response, headers, content_type)
+            return await self._batch_reply(exchange, response, headers, content_type, json_text)
         # Nothing to restore: forwarded as it arrives.  Read whole first, like a
         # restored one, a download of any size sat in memory and reached the
         # client only after its last byte.
@@ -900,6 +914,7 @@ class Pipeline:
         mapping: dict[str, str],
         *,
         lines: str | None = None,
+        json_text: bool = False,
     ) -> AsyncIterator[str]:
         """Restore a streamed reply: SSE events, or with ``lines`` JSON lines."""
         dialect, sid = exchange.dialect, exchange.session_id
@@ -959,6 +974,8 @@ class Pipeline:
                 router = LineRouter(objects)
             elif dialect is not None:
                 router = dialect.stream(codec, resolve, make)
+                if json_text:
+                    router.json_text = True
             else:
                 router = StreamRouter(codec, resolve, make)
             # Until its first byte that is not blank, a reply labelled SSE may
@@ -966,38 +983,47 @@ class Pipeline:
             # asks for no stream: that is read whole, and restored as one.
             head: list[bytes] | None = None if lines else []
             body: list[bytes] | None = None
-            async for raw in response.aiter_bytes():
-                if lines:
-                    meter.feed_lines(raw)
-                else:
-                    meter.feed_sse(raw)
-                if tapped is not None:
-                    tapped[0].append(raw)
-                if body is not None:
-                    body.append(raw)
-                    continue
-                if head is not None:
-                    head.append(raw)
-                    if not raw.strip():
-                        continue
-                    raw, head = b"".join(head), None
-                    if raw.lstrip()[:1] in (b"{", b"["):
-                        body = [raw]
-                        continue
-                for out in router.feed(raw):
-                    frames += 1
+            read_failure: httpx.RequestError | None = None
+            try:
+                async for raw in response.aiter_bytes():
+                    if lines:
+                        meter.feed_lines(raw)
+                    else:
+                        meter.feed_sse(raw)
                     if tapped is not None:
-                        tapped[1].append(out)
-                    yield out
+                        tapped[0].append(raw)
+                    if body is not None:
+                        body.append(raw)
+                        continue
+                    if head is not None:
+                        head.append(raw)
+                        if not raw.strip():
+                            continue
+                        raw, head = b"".join(head), None
+                        if raw.lstrip()[:1] in (b"{", b"["):
+                            body = [raw]
+                            continue
+                    for out in router.feed(raw):
+                        frames += 1
+                        if tapped is not None:
+                            tapped[1].append(out)
+                        yield out
+            except httpx.RequestError as exc:
+                if not json_text or body is not None:
+                    raise
+                read_failure = exc
+
             if body is None:
                 tail = router.flush()
             else:
-                tail = [_restore_document(b"".join(body), dialect, make, meter)]
+                tail = [_restore_document(b"".join(body), dialect, make, meter, json_text)]
             for out in tail:
                 frames += 1
                 if tapped is not None:
                     tapped[1].append(out)
                 yield out
+            if read_failure is not None:
+                raise read_failure
 
     async def _relay(
         self, exchange: Exchange, response: httpx.Response, *, stream: bool = False
@@ -1048,6 +1074,7 @@ class Pipeline:
         response: httpx.Response,
         headers: dict[str, str],
         content_type: str,
+        json_text: bool,
     ) -> Reply:
         dialect, sid = exchange.dialect, exchange.session_id
         assert dialect is not None and sid is not None
@@ -1080,7 +1107,12 @@ class Pipeline:
                     restored = await self._restore_chunks(exchange, payload)
                 else:
                     restored = await restore_response(
-                        payload, self._engine, sid, session=exchange.session, dialect=dialect
+                        payload,
+                        self._engine,
+                        sid,
+                        session=exchange.session,
+                        dialect=dialect,
+                        json_text=json_text,
                     )
             except BaseException as exc:
                 tracing.end(restore_span, error=exc)
@@ -1166,7 +1198,9 @@ def _objects(dialect: Dialect, make: Any) -> Any:
     return dialect.objects(make, lambda text: full.feed(text) + full.flush())
 
 
-def _restore_document(data: bytes, dialect: Dialect | None, make: Any, meter: UsageMeter) -> str:
+def _restore_document(
+    data: bytes, dialect: Dialect | None, make: Any, meter: UsageMeter, json_text: bool
+) -> str:
     """A reply labelled SSE that is one JSON body, restored as a batch body is.
 
     What follows the JSON, such as a gateway's ``data: [DONE]``, is kept as it
@@ -1192,7 +1226,11 @@ def _restore_document(data: bytes, dialect: Dialect | None, make: Any, meter: Us
     else:
         plain.remember(payload)
         restored = walk_sync(
-            payload, restore, documents=plain.document_keys, hidden=plain.opaque_keys
+            payload,
+            restore,
+            documents=plain.document_keys,
+            hidden=plain.opaque_keys,
+            json_text=json_text,
         )
     if restored == payload:
         return text

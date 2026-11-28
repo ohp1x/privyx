@@ -13,6 +13,7 @@ A detector match there would corrupt the request, and none holds prose.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable, Generator, Mapping
 from typing import Any
 
@@ -42,6 +43,124 @@ DOCUMENT_KEYS: frozenset[str] = frozenset({"input", "arguments"})
 #: A generator that yields each string leaf, receives its replacement, and
 #: returns the rebuilt value.
 Walk = Generator[str, str, Any]
+
+
+_JSON_STRING_BOUNDARY = re.compile(r'\\[\s\S]?|"')
+_INCOMPLETE_ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{0,3})?\Z")
+_JSON_SYNTAX = re.compile(r"[\s{}\[\],:0-9.eE+truefalsn-]*")
+
+
+class JsonStrings:
+    """Rewrite JSON strings and preserve the spelling of the surrounding syntax."""
+
+    def __init__(
+        self,
+        *,
+        restore_outside: bool = False,
+        plain_feed: Callable[[str], str] | None = None,
+        plain_flush: Callable[[], str] | None = None,
+    ) -> None:
+        self._parts: list[str] = []
+        self._escaped = False
+        self._restore_outside = restore_outside
+        self._plain_feed = plain_feed
+        self._plain_flush = plain_flush
+        self._prose: bool | None = None
+        self._invalid_syntax = False
+
+    def feed(self, text: str) -> Generator[str, str, str]:
+        if self._restore_outside:
+            if self._prose is None:
+                leading = text.lstrip()
+                if not leading:
+                    return text
+                self._prose = leading[0] not in '{["-0123456789'
+            if self._prose:
+                return (yield from self._plain(text))
+
+        out: list[str] = []
+        at = 0
+        while at < len(text):
+            if not self._parts:
+                start = text.find('"', at)
+                if start == -1:
+                    out.append((yield from self._outside(text[at:])))
+                    break
+                out.append((yield from self._outside(text[at:start])))
+                out.append(self._finish_outside())
+                self._parts.append('"')
+                at = start + 1
+            cursor = at + 1 if self._escaped else at
+            self._escaped = False
+            for match in _JSON_STRING_BOUNDARY.finditer(text, cursor):
+                if match[0] == '"':
+                    end = match.end()
+                    self._parts.append(text[at:end])
+                    out.append((yield from self._rewrite_string(self._take_string(), closed=True)))
+                    at = end
+                    break
+                if len(match[0]) == 1:
+                    self._escaped = True
+            else:
+                self._parts.append(text[at:])
+                break
+        return "".join(out)
+
+    def flush(self) -> Generator[str, str, str]:
+        prefix = self._finish_outside()
+        tail = self._take_string()
+        return prefix + ((yield from self._rewrite_string(tail, closed=False)) if tail else "")
+
+    def _plain(self, text: str) -> Generator[str, str, str]:
+        if self._plain_feed is not None:
+            return self._plain_feed(text)
+        return (yield text)
+
+    def _outside(self, text: str) -> Generator[str, str, str]:
+        if not text or not self._restore_outside:
+            return text
+        if self._invalid_syntax:
+            return (yield from self._plain(text))
+        # Leave JSON punctuation, keywords and numbers outside strings untouched.
+        prefix = _JSON_SYNTAX.match(text)
+        assert prefix is not None
+        end = prefix.end()
+        self._invalid_syntax = end < len(text)
+        return text if end == len(text) else text[:end] + (yield from self._plain(text[end:]))
+
+    def _finish_outside(self) -> str:
+        self._invalid_syntax = False
+        return self._plain_flush() if self._plain_flush is not None else ""
+
+    def _take_string(self) -> str:
+        tail = "".join(self._parts)
+        self._parts.clear()
+        self._escaped = False
+        return tail
+
+    @staticmethod
+    def _rewrite_string(literal: str, *, closed: bool) -> Generator[str, str, str]:
+        suffix = ""
+        try:
+            if closed:
+                decoded = json.loads(literal)
+            else:
+                # Decode the portion before the cut and retain any unfinished escape.
+                try:
+                    decoded = json.loads(literal + '"')
+                except ValueError:
+                    partial = _INCOMPLETE_ESCAPE.search(literal)
+                    if partial is None:
+                        raise
+                    suffix = partial[0]
+                    decoded = json.loads(literal[: partial.start()] + '"')
+        except ValueError:
+            return (yield literal)
+        changed = yield decoded
+        if changed == decoded:
+            return literal
+        encoded = json.dumps(changed)
+        return encoded if closed else encoded[:-1] + suffix
 
 
 class Keyed(str):
@@ -81,6 +200,8 @@ def walk(
     documents: frozenset[str] = DOCUMENT_KEYS,
     hidden: frozenset[str] = frozenset(),
     keyed: bool = False,
+    json_text: bool = False,
+    assistant_json: bool = False,
 ) -> Walk:
     """Yield every content string leaf of ``value`` and return the rebuilt value.
 
@@ -93,6 +214,9 @@ def walk(
     escape); unparseable arguments are walked as plain text, never passed
     through raw.  ``hidden`` holds the opaque keys the format adds.
 
+    With ``json_text``, text blocks carry embedded JSON. With ``assistant_json``,
+    this also applies to assistant history in a Messages request.
+
     With ``keyed`` (masking), a string in a document under a key, also from
     inside a list, is yielded as a :class:`Keyed`.  A number in a document is
     yielded as text, alone (with its key, ``{"token_limit": 4000}`` would
@@ -101,6 +225,14 @@ def walk(
     if isinstance(value, str):
         if not value:
             return value
+        if json_text and not document and key in ("text", "content"):
+            # A client can echo a partial JSON document after an interrupted reply.
+            if keyed and not value.lstrip().startswith(('"', "{", "[")) and "\\" not in value:
+                return (yield value)
+            strings = JsonStrings(restore_outside=not keyed)
+            rewritten = (yield from strings.feed(value)) + (yield from strings.flush())
+            # Keep the ordinary text scan for detections based on JSON syntax.
+            return (yield rewritten) if keyed else rewritten
         if key == "arguments":
             try:
                 parsed = json.loads(value)
@@ -121,20 +253,34 @@ def walk(
             items.append(
                 (
                     yield from walk(
-                        item, key, document, documents=documents, hidden=hidden, keyed=keyed
+                        item,
+                        key,
+                        document,
+                        documents=documents,
+                        hidden=hidden,
+                        keyed=keyed,
+                        json_text=json_text,
+                        assistant_json=assistant_json,
                     )
                 )
             )
         return items
     if isinstance(value, dict):
         out: dict[str, Any] = {}
+        assistant = assistant_json and key == "messages" and value.get("role") == "assistant"
         for k, v in value.items():
             if not document and opaque(k, value, hidden):
                 out[k] = v
             else:
                 nested = document or (k in documents and isinstance(v, dict))
                 out[k] = yield from walk(
-                    v, k, nested, documents=documents, hidden=hidden, keyed=keyed
+                    v,
+                    k,
+                    nested,
+                    documents=documents,
+                    hidden=hidden,
+                    keyed=keyed,
+                    json_text=json_text or (assistant and k == "content"),
                 )
         return out
     return value
@@ -147,9 +293,14 @@ def walk_sync(
     *,
     documents: frozenset[str] = DOCUMENT_KEYS,
     hidden: frozenset[str] = frozenset(),
+    json_text: bool = False,
 ) -> Any:
     """Rebuild ``value`` with ``fn`` applied to each content string leaf."""
-    walker = walk(value, key, documents=documents, hidden=hidden)
+    return drive_sync(walk(value, key, documents=documents, hidden=hidden, json_text=json_text), fn)
+
+
+def drive_sync(walker: Walk, fn: Callable[[str], str]) -> Any:
+    """Feed each leaf a walk yields through a synchronous callback."""
     try:
         text = next(walker)
         while True:
@@ -165,9 +316,12 @@ async def walk_async(
     *,
     documents: frozenset[str] = DOCUMENT_KEYS,
     hidden: frozenset[str] = frozenset(),
+    json_text: bool = False,
 ) -> Any:
     """Async twin of :func:`walk_sync`, for the engine's ``transform`` and ``restore``."""
-    return await drive(walk(value, key, documents=documents, hidden=hidden), fn)
+    return await drive(
+        walk(value, key, documents=documents, hidden=hidden, json_text=json_text), fn
+    )
 
 
 async def drive(walker: Walk, fn: Callable[[str], Awaitable[str]]) -> Any:

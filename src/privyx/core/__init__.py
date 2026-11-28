@@ -44,9 +44,11 @@ from privyx.core._results import Detection, Span, Transformation, TransformResul
 from privyx.core._session import Session
 from privyx.core._text import apply_replacements as apply_replacements
 from privyx.core._walk import DOCUMENT_KEYS as DOCUMENT_KEYS
+from privyx.core._walk import JsonStrings as JsonStrings
 from privyx.core._walk import Keyed as Keyed
 from privyx.core._walk import Walk as Walk
 from privyx.core._walk import drive as drive
+from privyx.core._walk import drive_sync as drive_sync
 from privyx.core._walk import opaque as opaque
 from privyx.core._walk import walk as walk
 from privyx.core._walk import walk_async as walk_async

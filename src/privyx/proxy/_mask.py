@@ -286,6 +286,7 @@ async def restore_response(
     *,
     session: Session | None = None,
     dialect: Dialect | None = None,
+    json_text: bool = False,
 ) -> dict[str, Any]:
     """Return a copy of a batch ``payload`` with pseudonyms restored.
 
@@ -308,7 +309,11 @@ async def restore_response(
         return (await engine.restore(text, session_id, session=session)).text
 
     result: dict[str, Any] = await walk_async(
-        payload, restore, documents=dialect.document_keys, hidden=dialect.opaque_keys
+        payload,
+        restore,
+        documents=dialect.document_keys,
+        hidden=dialect.opaque_keys,
+        json_text=json_text,
     )
     return result
 
@@ -328,7 +333,12 @@ def _content(value: Any, key: str, dialect: Dialect) -> Walk:
         return (yield from _wrapped_request(value, dialect))
     return (
         yield from walk_value(
-            value, key, documents=dialect.document_keys, hidden=dialect.opaque_keys, keyed=True
+            value,
+            key,
+            documents=dialect.document_keys,
+            hidden=dialect.opaque_keys,
+            keyed=True,
+            assistant_json=dialect.assistant_json,
         )
     )
 
