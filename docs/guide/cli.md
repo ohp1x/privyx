@@ -358,8 +358,11 @@ Without a controlling terminal, or on other platforms, Privyx supervises the
 tool as a subprocess.
 
 Privyx sends the agent profile name as the initial terminal title before launch;
-the agent can replace it with its own session title. To let VS Code detect the
-agent's process without changing editor settings, run `privyx run codex` from
+the agent can replace it with its own session title. The proxy restores known
+pseudonyms in a generated Claude Code title before it reaches the terminal.
+
+To let VS Code detect the agent's process without changing editor settings, run
+`privyx run codex` from
 the activated environment, or `.venv/bin/privyx run codex`.
 
 With `uv run`, `uv` remains the foreground process group leader, so VS Code

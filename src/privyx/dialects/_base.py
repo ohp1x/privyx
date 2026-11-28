@@ -146,6 +146,13 @@ class Dialect(Component, kind="dialect"):
         an array of chunks), or ``None`` when it sends none."""
         return None
 
+    #: Assistant history may echo JSON formerly carried in a text block.
+    assistant_json: ClassVar[bool] = False
+
+    def reply_text_is_json(self, request: Any) -> bool:
+        """Whether this request asks for JSON inside the reply's text blocks."""
+        return False
+
     def stream(
         self,
         codec: FormatCodec,

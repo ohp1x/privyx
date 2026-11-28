@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from privyx.core import JsonStrings, drive_sync
 from privyx.dialects._base import CONTENT_KEYS, PREFIX_KEYS, Dialect
 from privyx.streaming import SSEEvent, StreamDeanonymizer, StreamRouter, loads
 
@@ -70,6 +71,7 @@ class AnthropicDialect(Dialect):
     """
 
     name = "anthropic"
+    assistant_json = True
     content_keys = CONTENT_KEYS
     prefix_keys = PREFIX_KEYS
     credential_header = "x-api-key"
@@ -131,6 +133,11 @@ class AnthropicDialect(Dialect):
             oldest = next(iter(self._thinking))
             self._thinking_chars -= len(oldest) + len(self._thinking.pop(oldest))
 
+    def reply_text_is_json(self, request: Any) -> bool:
+        config = request.get("output_config") if isinstance(request, dict) else None
+        format_ = config.get("format") if isinstance(config, dict) else None
+        return isinstance(format_, dict) and format_.get("type") == "json_schema"
+
     def stream(
         self,
         codec: FormatCodec,
@@ -164,6 +171,7 @@ class AnthropicStream(StreamRouter):
         self._think_index: int | None = None
         # Content-block index -> accumulated partial_json.
         self._an_tools: dict[int, str] = {}
+        self._json_blocks: dict[int, JsonStrings] = {}
         # Content-block index -> thinking text as sent (for its signature).
         self._an_thinking: dict[int, str] = {}
         self._block_types: dict[int, str] = {}
@@ -195,7 +203,8 @@ class AnthropicStream(StreamRouter):
 
     def _flush_held(self) -> list[str]:
         reasoning = self._flush_reasoning_tail()
-        return ([reasoning] if reasoning else []) + self._flush_anthropic_tools()
+        frames = [reasoning] if reasoning else []
+        return frames + self._flush_json_blocks() + self._flush_anthropic_tools()
 
     def _flush_reasoning_tail(self) -> str | None:
         """An Anthropic thinking block the upstream never closed."""
@@ -214,7 +223,22 @@ class AnthropicStream(StreamRouter):
         if ptype == "content_block_start":
             block = payload.get("content_block")
             if isinstance(block, dict):
-                self._block_types[_index_of(payload)] = str(block.get("type", ""))
+                index = _index_of(payload)
+                self._block_types[index] = str(block.get("type", ""))
+                text = block.get("text")
+                if (
+                    self.json_text
+                    and block.get("type") == "text"
+                    and isinstance(text, str)
+                    and text
+                ):
+                    block["text"] = ""
+                    event.data = json.dumps(payload, separators=(",", ":"))
+                    frames = self._passthrough(event, drain=False)
+                    out = self._feed_json(index, text)
+                    if out:
+                        frames.append(self._anthropic_delta_frame(index, "text_delta", "text", out))
+                    return frames
             return self._passthrough(event, drain=False)
 
         if ptype == "content_block_delta":
@@ -224,7 +248,10 @@ class AnthropicStream(StreamRouter):
             index = _index_of(payload)
             return self._flush_anthropic_block(index) + [event.to_str()]
 
-        # message_start, message_delta, ping, error, unknown.
+        if ptype in ("message_delta", "error") and self._json_blocks:
+            return self._flush_json_blocks() + self._passthrough(event, drain=False)
+
+        # message_start, ping, unknown.
         return self._passthrough(event, drain=False)
 
     def _handle_anthropic_delta(self, event: SSEEvent, payload: dict[str, Any]) -> list[str]:
@@ -237,6 +264,9 @@ class AnthropicStream(StreamRouter):
             text = delta.get("text")
             if not isinstance(text, str) or not text:
                 return self._passthrough(event, drain=False)
+            if self.json_text:
+                out = self._feed_json(_index_of(payload), text)
+                return [self._wrap_text(out, event)] if out else []
             self._text_template = event
             out = self._text.feed(text)
             return [self._wrap_text(out, event)] if out else []
@@ -286,11 +316,33 @@ class AnthropicStream(StreamRouter):
                 return []
             return [self._anthropic_delta_frame(index, "thinking_delta", "thinking", tail)]
 
+        if index in self._json_blocks:
+            return self._flush_json_block(index)
+
         # Default: a text block.
         tail = self._text.flush()
         if not tail or self._text_template is None:
             return []
         return [self._wrap_text(tail, self._text_template)]
+
+    def _feed_json(self, index: int, text: str) -> str:
+        strings = self._json_blocks.get(index)
+        if strings is None:
+            plain = self._make_processor()
+            strings = self._json_blocks[index] = JsonStrings(
+                restore_outside=True, plain_feed=plain.feed, plain_flush=plain.flush
+            )
+        restored: str = drive_sync(strings.feed(text), self._restore_full)
+        return restored
+
+    def _flush_json_block(self, index: int) -> list[str]:
+        tail = drive_sync(self._json_blocks.pop(index).flush(), self._restore_full)
+        return [self._anthropic_delta_frame(index, "text_delta", "text", tail)] if tail else []
+
+    def _flush_json_blocks(self) -> list[str]:
+        return [
+            frame for index in list(self._json_blocks) for frame in self._flush_json_block(index)
+        ]
 
     def _flush_anthropic_tools(self) -> list[str]:
         frames: list[str] = []
